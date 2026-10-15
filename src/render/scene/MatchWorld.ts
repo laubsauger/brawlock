@@ -4,7 +4,7 @@ import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
-import { cameraRig, moveMarkers } from '../cameraRig'
+import { cameraRig, devCamera, moveMarkers } from '../cameraRig'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
 import type { TierConfig } from '../quality'
@@ -125,7 +125,7 @@ export class MatchWorld {
   private moon: THREE.DirectionalLight
   private contact = new ContactShadows(48)
   /** key light direction (toward the light), from the camera's left-back, high */
-  private moonDir = new THREE.Vector3(-0.42, 0.86, 0.3).normalize()
+  private moonDir = new THREE.Vector3(-0.3, 0.93, 0.2).normalize()
 
   constructor(private opts: MatchWorldOptions) {
     this.ctx = createWorldCtx(opts.tier, opts.fx)
@@ -163,9 +163,10 @@ export class MatchWorld {
       cam.bottom = -ext
       cam.near = 1
       cam.far = 70
-      sh.bias = -0.0006
-      sh.normalBias = 0.02
-      sh.radius = 3
+      // tight bias: shadows must start AT the feet / pillar base (no peter-panning)
+      sh.bias = -0.00015
+      sh.normalBias = 0.004
+      sh.radius = 2
     }
     this.root.add(this.hemi, this.moon, this.moon.target, this.contact.mesh)
     this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.ground.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.projectiles.mesh)
@@ -320,7 +321,7 @@ export class MatchWorld {
       this.updatePawns(prev, curr, alpha, t, dt)
       this.obstacles.setTheme(curr.arena.theme)
       this.obstacles.update(curr.obstacles, t, !first)
-      for (const o of curr.obstacles) this.blobShadow(o.x, o.y, o.radius * 1.5)
+      for (const o of curr.obstacles) this.blobShadow(o.x, o.y, o.radius * 1.75, 0.95)
       this.updateLocalHelpers(curr)
       this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
       if (this.modulesOn) this.drawModules(prev, curr, alpha)
@@ -374,9 +375,9 @@ export class MatchWorld {
   }
 
   /** Contact shadow disc on the floor at a game position (skipped over lava). */
-  private blobShadow(x: number, y: number, radius: number): void {
+  private blobShadow(x: number, y: number, radius: number, strength = 0.62): void {
     if (!isLocationSafe(x, y, this.arena.currentLayer)) return
-    this.contact.add(x * S, (TILE_TOP_H + 0.8) * S, -y * S, radius * S)
+    this.contact.add(x * S, (TILE_TOP_H + 0.8) * S, -y * S, radius * S, strength)
   }
 
   private resetMatch(): void {
@@ -908,11 +909,12 @@ export class MatchWorld {
   }
 
   private roundStart(curr: SimState, t: number): void {
+    // FIGHT: a pale arcane white-gold pulse (never lava-coloured), subtle
     const R = layerRadius(curr.arena.layer) + 300
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 40, R, 1.25, 70, 2.4, 1.2, 0.35)
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 10, R * 0.7, 0.9, 30, 3.5, 2.4, 1.0)
-    this.arena.shock(0, 0, t, 1)
-    this.flash(0, 0, 120, 0.5, 900, 500, 2.6, 1.4, 0.5)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 40, R, 1.1, 45, 0.9, 0.85, 1.15)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 10, R * 0.6, 0.8, 22, 1.3, 1.15, 0.75)
+    this.arena.shock(0, 0, t, 0.5)
+    this.flash(0, 0, 120, 0.4, 700, 360, 1.1, 1.05, 1.3)
     if (this.opts.mode === 'match') cameraRig.shake(0.3 * this.opts.fx)
   }
 
@@ -1155,6 +1157,10 @@ export class MatchWorld {
         fx = target.x
         fy = target.y
       }
+    }
+    if (devCamera.focus) {
+      fx = devCamera.focus.x
+      fy = devCamera.focus.y
     }
     cameraRig.update(camera, fx, fy, dt, aspect, this.opts.fx)
   }

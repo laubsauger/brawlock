@@ -11,7 +11,12 @@
  *   Pass `localPlayer` and `state` (the tick's SimState) so lava burn, id-only events and
  *   projectile travel loops can be placed; without them those degrade gracefully.
  * - ui(sound): from UI handlers. The FIGHT hit also plays from the 'phase: fight' event;
- *   calling ui('fight') at the same moment plays it once.
+ *   calling ui('fight') at the same moment plays it once. Cues issued right after unlock(),
+ *   while the context is still resuming, are queued, not dropped.
+ * - test(): the Settings "Test sound" button.
+ *
+ * Levels (default settings, offline-measured): menu / shop music about -19 LUFS, a busy
+ * fight about -15 to -16 LUFS with peaks held near -3.5 dBFS by the master limiter.
  */
 import type { PlayerId, SimEvent, SimState } from '../sim/types'
 import { AudioEngine } from './engine'
@@ -42,6 +47,11 @@ export interface AudioApi {
   playEvents(events: SimEvent[], listener: Listener): void
   ui(sound: UiSound): void
   music(track: 'menu' | 'shop' | 'fight' | 'none'): void
+  /**
+   * Settings "Test sound" button: unlocks if needed, then plays a short reference (a chime,
+   * a Fireball cast, an explosion) through the SFX path at the current volumes.
+   */
+  test(): void
 }
 
 const UI_SFX: Record<UiSound, SfxId> = {
@@ -72,5 +82,8 @@ export const audio: AudioApi = {
   },
   music(track) {
     engine.music(track)
+  },
+  test() {
+    engine.test()
   },
 }

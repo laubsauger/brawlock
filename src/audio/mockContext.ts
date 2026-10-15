@@ -108,9 +108,11 @@ export class MockAudioContext {
   constructor() {
     MockAudioContext.instances.push(this)
   }
+  /** like browsers: the state flips when the promise settles, not synchronously */
   resume() {
-    this.state = 'running'
-    return Promise.resolve()
+    return Promise.resolve().then(() => {
+      this.state = 'running'
+    })
   }
   createGain() {
     return Object.assign(new MockNode(this, 'gain'), { gain: new MockParam(1) })

@@ -8,17 +8,13 @@ import {
   length,
   mix,
   mrt,
-  normalView,
   output,
-  packNormalToRGB,
   pass,
   renderOutput,
-  sample,
   screenCoordinate,
   smoothstep,
   texture,
   uniform,
-  unpackRGBToNormal,
   uv,
   vec2,
   vec3,
@@ -85,13 +81,11 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     const samples = useAo ? 0 : lowDpr ? tier.msaa : 0
     const useFxaa = useAo && lowDpr
     const scenePass = pass(scene, camera, { samples })
-    if (tier.heatHaze || useAo) {
+    if (tier.heatHaze) {
       const outs: Record<string, Node> = { output }
       if (tier.heatHaze) outs[HEAT_MRT] = vec4(0, 0, 0, 0)
-      if (useAo) outs.normal = packNormalToRGB(normalView)
       scenePass.setMRT(mrt(outs))
       if (tier.heatHaze) scenePass.getTexture(HEAT_MRT).type = THREE.UnsignedByteType
-      if (useAo) scenePass.getTexture('normal').type = THREE.UnsignedByteType
     }
     const colorTex = scenePass.getTextureNode('output')
     const uvN = uv()
@@ -112,11 +106,12 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     col = vec3(colorTex.sample(base.sub(ca)).r, colorTex.sample(base).g, colorTex.sample(base.add(ca)).b)
 
     if (useAo) {
-      // GTAO at half resolution from the scene pass depth + MRT normals;
+      // GTAO at half resolution from the scene pass depth;
       // applied softly so lava glow in crevices keeps its punch
-      const nTex = scenePass.getTextureNode('normal')
-      const normalNode = sample((uvs: Node<'vec2'>) => unpackRGBToNormal(nTex.sample(uvs).rgb))
-      const aoPass = ao(scenePass.getTextureNode('depth'), normalNode, camera)
+      // normals are reconstructed from depth: an MRT normal target would be
+      // overwritten by additive sprites across their whole quad (alpha is
+      // not shape-masked) and turn into square AO patches around VFX
+      const aoPass = ao(scenePass.getTextureNode('depth'), null as unknown as Node, camera)
       aoPass.resolutionScale = 0.5
       aoPass.radius.value = 0.6
       aoPass.thickness.value = 1
@@ -170,6 +165,8 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       a.add(tweakParams, 'tileMaterial', ['auto', 'procedural', 'textured'] as const)
       a.add(tweakParams, 'edgeGlow', 0, 3, 0.05)
       a.add(tweakParams, 'edgeWidth', 5, 200, 1)
+      a.add(tweakParams, 'debugFaces', 0, 2, 1)
+      a.add(tweakParams, 'sigils')
     })
     return () => {
       disposed = true

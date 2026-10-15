@@ -127,7 +127,14 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
 }
 
 const MAX_VOICES = 40
-const MUSIC_LEVEL = 1
+/**
+ * Bus calibration at default settings (master 0.8, sfx 1, music 0.6), measured from
+ * offline renders of the production graph (see docs in busGains): a busy fight lands near
+ * -16 LUFS with peaks held at about -3 dBFS by the limiter; menu / shop music near -19 LUFS.
+ */
+export const SFX_LEVEL = 0.6
+export const UI_LEVEL = 0.8
+export const MUSIC_LEVEL = 2.9
 const SFX_REVERB_SEND = 0.16
 const MUSIC_REVERB_SEND = 0.3
 /** gain ramp time constant: short enough to feel instant, long enough to never click */
@@ -153,13 +160,78 @@ const curve = (v: number) => {
   return c * c
 }
 
-interface Graph {
-  ctx: AudioContext
+export interface Graph {
+  ctx: BaseAudioContext
   synth: Synth
   master: GainNode
   sfx: GainNode
   ui: GainNode
   music: GainNode
+}
+
+/** Bus gains for the user's volume settings (pure; shared with offline level checks). */
+export function busGains(v: Volumes): { master: number; sfx: number; ui: number; music: number } {
+  return {
+    master: v.muted ? 0 : curve(v.master),
+    sfx: curve(v.sfx) * SFX_LEVEL,
+    ui: curve(v.sfx) * UI_LEVEL,
+    music: curve(v.music) * MUSIC_LEVEL,
+  }
+}
+
+/**
+ * The bus graph on any context (live, or offline for level checks):
+ *
+ *   voices ─▶ sfx ─┬───────────────▶ master ─▶ glue comp ─▶ limiter ─▶ soft clip ─▶ out
+ *                  └▶ send ─▶ reverb ─┘ ▲
+ *   ui ────────────────────────────────┘ │
+ *   music layers ─▶ music ─┬─────────────┘
+ *                          └▶ send ─▶ reverb
+ *
+ * WebAudio compressors add automatic makeup gain (0.6 x the gain they take off a full-scale
+ * signal), so the limiter's threshold is set where threshold + makeup lands near -3 dBFS.
+ */
+export function buildGraph(ctx: BaseAudioContext): Graph {
+  const synth = createSynth(ctx)
+  const glue = ctx.createDynamicsCompressor()
+  glue.threshold.value = -18
+  glue.knee.value = 12
+  glue.ratio.value = 2
+  glue.attack.value = 0.01
+  glue.release.value = 0.25
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -12
+  limiter.knee.value = 0
+  limiter.ratio.value = 20
+  limiter.attack.value = 0.001
+  limiter.release.value = 0.12
+  // last resort for what the limiter's attack lets through: unity below 0.9, soft to 1.0
+  const clip = ctx.createWaveShaper()
+  clip.curve = softClipCurve()
+  clip.oversample = '2x'
+  glue.connect(limiter)
+  limiter.connect(clip)
+  clip.connect(ctx.destination)
+  const master = ctx.createGain()
+  master.connect(glue)
+  const reverb = ctx.createConvolver()
+  reverb.buffer = impulseResponse(ctx, 1.8)
+  reverb.connect(master)
+  const sfx = ctx.createGain()
+  sfx.connect(master)
+  const sfxSend = ctx.createGain()
+  sfxSend.gain.value = SFX_REVERB_SEND
+  sfx.connect(sfxSend)
+  sfxSend.connect(reverb)
+  const ui = ctx.createGain()
+  ui.connect(master)
+  const music = ctx.createGain()
+  music.connect(master)
+  const musicSend = ctx.createGain()
+  musicSend.gain.value = MUSIC_REVERB_SEND
+  music.connect(musicSend)
+  musicSend.connect(reverb)
+  return { ctx, synth, master, sfx, ui, music }
 }
 
 export class AudioEngine {
@@ -172,6 +244,8 @@ export class AudioEngine {
     { gain: GainNode; end: number; level: number; loop?: { proj: number; panner: StereoPannerNode | null; voice: Voice } }
   >()
   private readonly memory = newCueMemory()
+  private resuming = false
+  private readonly pending: SoundCue[] = []
   private countdown = 0
   private lastCountdown = -Infinity
   private desiredTrack: MusicTrack | 'none' = 'none'
@@ -186,7 +260,7 @@ export class AudioEngine {
 
   unlock(): void {
     if (this.g) {
-      if (this.g.ctx.state === 'suspended') this.g.ctx.resume().catch(() => {})
+      this.resume()
       return
     }
     const C = audioContextCtor()
@@ -201,45 +275,31 @@ export class AudioEngine {
         return
       }
     }
-    const synth = createSynth(ctx)
-    const comp = ctx.createDynamicsCompressor()
-    comp.threshold.value = -12
-    comp.knee.value = 10
-    comp.ratio.value = 4
-    comp.attack.value = 0.003
-    comp.release.value = 0.2
-    // safety net after the compressor: linear to 0.8, soft knee up to full scale
-    const preLimit = ctx.createGain()
-    preLimit.gain.value = 0.5
-    const limiter = ctx.createWaveShaper()
-    limiter.curve = softLimitCurve()
-    limiter.oversample = '2x'
-    comp.connect(preLimit)
-    preLimit.connect(limiter)
-    limiter.connect(ctx.destination)
-    const master = ctx.createGain()
-    master.connect(comp)
-    const reverb = ctx.createConvolver()
-    reverb.buffer = impulseResponse(ctx, 1.8)
-    reverb.connect(master)
-    const sfx = ctx.createGain()
-    sfx.connect(master)
-    const sfxSend = ctx.createGain()
-    sfxSend.gain.value = SFX_REVERB_SEND
-    sfx.connect(sfxSend)
-    sfxSend.connect(reverb)
-    const ui = ctx.createGain()
-    ui.connect(master)
-    const music = ctx.createGain()
-    music.connect(master)
-    const musicSend = ctx.createGain()
-    musicSend.gain.value = MUSIC_REVERB_SEND
-    music.connect(musicSend)
-    musicSend.connect(reverb)
-    this.g = { ctx, synth, master, sfx, ui, music }
+    this.g = buildGraph(ctx)
     this.applyVolumes(true)
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+    this.resume()
     this.applyMusic()
+  }
+
+  /**
+   * Resume a suspended context. Cues requested while the resume is pending (the splash
+   * "ready" chime right after unlock) are queued and played once it runs, not dropped.
+   */
+  private resume(): void {
+    const g = this.g
+    if (!g || g.ctx.state !== 'suspended' || this.resuming) return
+    this.resuming = true
+    // the engine only builds its live graph on an AudioContext (offline graphs never resume)
+    ;(g.ctx as AudioContext)
+      .resume()
+      .then(() => {
+        this.resuming = false
+        const queued = this.pending.splice(0)
+        for (const c of queued) this.play(c)
+      })
+      .catch(() => {
+        this.resuming = false
+      })
   }
 
   setVolumes(v: Volumes): void {
@@ -259,10 +319,11 @@ export class AudioEngine {
         p.setTargetAtTime(v, now, RAMP)
       }
     }
-    set(g.master.gain, this.vol.muted ? 0 : curve(this.vol.master))
-    set(g.sfx.gain, curve(this.vol.sfx))
-    set(g.ui.gain, curve(this.vol.sfx) * 0.8)
-    set(g.music.gain, curve(this.vol.music) * MUSIC_LEVEL)
+    const b = busGains(this.vol)
+    set(g.master.gain, b.master)
+    set(g.sfx.gain, b.sfx)
+    set(g.ui.gain, b.ui)
+    set(g.music.gain, b.music)
   }
 
   playEvents(events: readonly SimEvent[], listener: ListenerLike): void {
@@ -321,13 +382,26 @@ export class AudioEngine {
 
   ui(id: SfxId): void {
     // UI sounds come from gestures: a good moment to resume a suspended context
-    if (this.g && this.g.ctx.state === 'suspended') this.g.ctx.resume().catch(() => {})
+    this.resume()
     this.play({ id, gain: 1, pan: 0 })
+  }
+
+  /** Settings "Test sound": unlock if needed, then a short reference through the SFX path. */
+  test(): void {
+    this.unlock()
+    this.play({ id: 'uiReady', gain: 1, pan: 0 })
+    this.play({ id: 'fireballCast', gain: 1, pan: -0.4, delay: 0.25 })
+    this.play({ id: 'explosion', gain: 1, pan: 0.4, param: 1, delay: 0.75 })
   }
 
   play(c: SoundCue): void {
     const g = this.g
-    if (!g || g.ctx.state !== 'running') return
+    if (!g) return
+    if (g.ctx.state !== 'running') {
+      // right after a gesture the context may still be resuming: keep a few cues for it
+      if (this.resuming && this.pending.length < 8) this.pending.push(c)
+      return
+    }
     if (c.stopKey) this.stopKeyed(c.stopKey)
     if (c.id === null || this.vol.muted) return
     const id = c.id
@@ -465,18 +539,14 @@ function impulseResponse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
   return buf
 }
 
-/**
- * WaveShaper curve over input [-2, 2] (fed through a 0.5 pre-gain): identity below 0.8,
- * then a tanh knee approaching 1.0, so overlapping blasts never hard-clip.
- */
-function softLimitCurve(): Float32Array<ArrayBuffer> {
+/** Identity below 0.9, then a tanh knee that reaches 1.0 at full scale. */
+function softClipCurve(): Float32Array<ArrayBuffer> {
   const n = 2048
   const c = new Float32Array(new ArrayBuffer(n * 4))
   for (let i = 0; i < n; i++) {
-    const v = ((i / (n - 1)) * 2 - 1) * 2
+    const v = (i / (n - 1)) * 2 - 1
     const a = Math.abs(v)
-    const y = a < 0.8 ? a : 0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2)
-    c[i] = Math.sign(v) * y
+    c[i] = Math.sign(v) * (a < 0.9 ? a : 0.9 + 0.1 * Math.tanh((a - 0.9) / 0.1))
   }
   return c
 }

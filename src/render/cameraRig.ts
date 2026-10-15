@@ -35,6 +35,9 @@ function verticalFov(aspect: number): number {
   return Math.max(vRef, vHere) / D2R
 }
 
+/** Dev-only: pin the match camera to a game position (look-dev screenshots). */
+export const devCamera = { focus: null as { x: number; y: number } | null }
+
 /** Audio listener / screen-space helpers, updated every frame (game units). */
 export const cameraListener = { x: 0, y: 0, halfWidth: 1000 }
 

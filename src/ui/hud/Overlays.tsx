@@ -65,7 +65,7 @@ function Tile({ label, value, sub, children }: { label: string; value: string; s
   return (
     <div className="well flex flex-col gap-0.5 px-3 py-2">
       <span className="text-[0.85rem] font-semibold text-ash">{label}</span>
-      <Num value={value} className="text-[1.35rem] leading-tight font-bold" />
+      <Num value={value} className="text-[1.2rem] leading-tight font-bold whitespace-nowrap" />
       {children}
       {sub && <span className="text-[0.8rem] leading-tight text-ash/85">{sub}</span>}
     </div>
@@ -81,7 +81,7 @@ export function CharacterBody() {
   const hpFrac = s.maxHp > 0 ? Math.min(1, (s.alive ? s.hp : 0) / s.maxHp) : 0
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="stat-grid">
         <Tile label="Health" value={`${s.alive ? s.hp : 0} / ${s.maxHp}`} sub={s.maxHp !== BASE.maxHp ? `Base ${BASE.maxHp}, items ${signed(s.maxHp - BASE.maxHp)}` : undefined}>
           <span className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-black/50">
             <span className="block h-full rounded-full bg-gradient-to-r from-[#8e0f17] to-[#ff6b57] transition-[width] duration-300" style={{ width: `${hpFrac * 100}%` }} />

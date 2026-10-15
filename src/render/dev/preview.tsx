@@ -13,10 +13,10 @@ import { MatchView, MenuBackdrop, recenterCamera, renderStats } from '../index'
 import { devTime } from '../stats'
 import { startSimDriver } from './simDriver'
 import { tweakParams } from '../tweaks'
-import { cameraParams } from '../cameraRig'
+import { cameraParams, cameraZoomParam, devCamera } from '../cameraRig'
 
 // dev handles for look-dev from the console
-;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, stats: renderStats, devTime }
+;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime }
 
 const params = new URLSearchParams(location.search)
 const q = params.get('q') as Quality | null

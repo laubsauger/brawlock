@@ -1,15 +1,33 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { MenuBackdropSlot } from './renderBridge'
 
 /**
- * Typographic wordmark. LOGO SLOT: when generated logo art lands, render it
- * here (keep the text as the accessible name) and every screen follows.
+ * Wordmark art (public/brand/wordmark.webp; the PNG master stays alongside).
+ * Falls back to the typographic wordmark if the image fails to load.
  */
 export function Wordmark({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) {
-  const fs = { sm: 'text-4xl', md: 'text-6xl', lg: 'text-[clamp(4.5rem,10vw,8.5rem)]', xl: 'text-[clamp(5rem,14vw,11rem)]' }[size]
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    const fs = { sm: 'text-4xl', md: 'text-6xl', lg: 'text-[clamp(4.5rem,10vw,8.5rem)]', xl: 'text-[clamp(5rem,14vw,11rem)]' }[size]
+    return (
+      <h1 className={`wordmark select-none ${fs}`} aria-label="Brawlock">
+        Brawlock
+      </h1>
+    )
+  }
+  const width = { sm: '220px', md: '340px', lg: 'min(470px, 82vw)', xl: 'min(640px, 86vw)' }[size]
   return (
-    <h1 className={`wordmark select-none ${fs}`} aria-label="Brawlock">
-      Brawlock
+    <h1 className="m-0 leading-none">
+      <img
+        src={`${import.meta.env.BASE_URL}brand/wordmark.webp`}
+        width={1200}
+        height={364}
+        alt="Brawlock"
+        draggable={false}
+        onError={() => setFailed(true)}
+        className="block h-auto select-none"
+        style={{ width, filter: 'drop-shadow(0 8px 30px rgba(0,0,0,.7)) drop-shadow(0 0 24px rgba(255,100,20,.22))' }}
+      />
     </h1>
   )
 }

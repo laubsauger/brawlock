@@ -543,7 +543,7 @@ export function Shop() {
                 <h3 className="mt-4 mb-1.5 flex items-baseline justify-between text-[1.05rem] font-bold text-[#ffd890]">
                   Items <span className="text-sm font-medium text-ash">{v.freeItemSlots} free slots</span>
                 </h3>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="gear-grid">
                   {ITEMS.map((def, i) => {
                     const st = itemState(def)
                     const lvl = v.items[def.id] ?? 0
@@ -601,7 +601,7 @@ export function Shop() {
               Shop opens between rounds. Look around now; buying unlocks in the next shop phase.
             </p>
           )}
-          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-6 gap-2 overflow-y-auto px-4 pb-3" onKeyDown={navKeys}>
+          <div className="spell-grid min-h-0 flex-1 overflow-y-auto px-4 pb-3" onKeyDown={navKeys}>
             {COLUMNS.map((col, c) => {
               const owned = v.spells[c]
               const defs = SPELLS.filter((s) => s.column === c)

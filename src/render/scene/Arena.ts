@@ -287,7 +287,7 @@ export class Arena {
     const shD = length(centreGame.sub(sh.xy))
     const shX = shD.sub(shR).div(140)
     const wave = exp(shX.mul(shX).negate()).mul(sh.w).mul(saturate(float(1.6).sub(shAge))).mul(step(0, shAge))
-    const lift = rise.add(wave.mul(16)).sub(sink)
+    const lift = rise.add(wave.mul(7)).sub(sink)
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
 
     // ---------------- fragment: layered stone
@@ -321,7 +321,7 @@ export class Arena {
     const chips = smoothstep(0.55, 0.75, nMicro.g).mul(smoothstep(0.78, 0.95, edge)).mul(isTop)
     const wear = saturate(isBevel.mul(0.8).add(chips))
     stone = mix(stone, stone.mul(1.65).add(0.015), wear.mul(0.7))
-    stone = mix(stone, stone.mul(0.5), isSide)
+    stone = mix(stone, stone.mul(0.8), isSide)
 
     // engraved sigils on ~1 in 9 tiles: a square-and-diamond glyph (never a
     // circle, so it can't be mistaken for a team ring or an AoE)
@@ -331,7 +331,8 @@ export class Arena {
     const sq = float(1).sub(smoothstep(0.012, 0.03, abs(max(ax, ay).sub(0.42))))
     const dia = float(1).sub(smoothstep(0.012, 0.03, abs(ax.add(ay).sub(0.5))))
     const crossL = float(1).sub(smoothstep(0.01, 0.025, min(ax, ay))).mul(step(max(ax, ay), 0.3))
-    const rune = max(max(sq, dia.mul(0.8)), crossL.mul(0.6)).mul(hasRune).mul(isTop)
+    // sigils read as a UI artifact at gameplay zoom: off by default (tweak 'sigils')
+    const rune = max(max(sq, dia.mul(0.8)), crossL.mul(0.6)).mul(hasRune).mul(isTop).mul(tweaks.uSigils)
     const runePulse = sin(t.mul(1.4).add(seed.mul(40))).mul(0.4).add(0.6)
     stone = stone.mul(float(1).sub(rune.mul(0.45)))
 
@@ -346,11 +347,20 @@ export class Arena {
     const tele = this.uTelegraph.mul(ring)
     const sd = field.sample(gp)
     const W = tweaks.uEdgeWidth
-    const nearLava = exp(sd.div(W)).mul(step(sd, 0))
-    const edgeHeat = exp(sd.div(W.mul(0.5))).mul(step(sd, 0)).mul(float(1).sub(isSide))
+    // clamp, don't gate: the SDF (30-unit texels) reads slightly positive over
+    // the outermost units of an edge tile -- exactly the bevel. Gating with
+    // step(sd, 0) switched the lava light off right at the rim (black band).
+    const sdIn = min(sd, 0)
+    const nearLava = exp(sdIn.div(W))
+    const edgeHeat = exp(sdIn.div(W.mul(0.5))).mul(float(1).sub(isSide))
     // tile walls glow where they meet lava; interior seams stay a dim ember line
-    // (interior seam walls keep a warm underglow so gaps never read as black lines)
-    const sideHeat = exp(h.div(-22)).mul(isSide).mul(smoothstep(-170, -50, sd).mul(0.75).add(0.25))
+    // Lava-facing walls are lit by the lava over their FULL height (hot at the
+    // waterline, still warm under the rim). A pure exp falloff left the upper
+    // wall near-black: that was the "black band under the tile edge".
+    // Interior seam walls keep a dim ember underglow.
+    const outerWall = smoothstep(-170, -50, sd)
+    const wallFall = exp(h.div(-22))
+    const sideHeat = isSide.mul(mix(wallFall.mul(0.05), wallFall.mul(0.6).add(0.4), outerWall))
 
     const albedoLum = stone.r.add(stone.g).add(stone.b).mul(1.4).add(0.05)
     let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), float(0.25), isSide))
@@ -362,15 +372,16 @@ export class Arena {
     em = em.add(vec3(1.2, 0.26, 0.04).mul(edgeHeat.mul(0.2)).mul(tweaks.uEdgeGlow))
     // lava bounce: the shore lights nearby stone orange (modulated by albedo);
     // walls always catch some of it from below
-    em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(0.35))))
-    em = em.add(vec3(2.4, 0.5, 0.06).mul(sideHeat))
+    em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(mix(float(0.08), float(1.1), outerWall)))))
+    em = em.add(vec3(1.9, 0.42, 0.06).mul(sideHeat))
     // telegraph: the doomed ring heats from within, cracks first, then the slab
     const teleP = tele.mul(pulse.mul(0.7).add(0.3))
     em = em.add(vec3(0.16, 0.008, 0.003).mul(teleP).mul(isTop.mul(0.7).add(0.3)))
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
     const hotCol = mix(vec3(3.2, 0.9, 0.16), vec3(1.6, 0.08, 0.02), sinkT)
     em = em.add(hotCol.mul(isRem).mul(float(1).sub(sinkT.mul(0.5))))
-    em = em.add(vec3(1.4, 0.55, 0.16).mul(varying(wave).mul(0.7)))
+    // round-start pulse: pale arcane white-gold, never lava orange
+    em = em.add(vec3(0.75, 0.72, 0.95).mul(varying(wave).mul(0.45)))
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = 'Tiles'
@@ -401,7 +412,9 @@ export class Arena {
         const useLum = top.height === null
         uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), hTex, useLum, 0.018, 10)
       }
-      const uvT = mix(uvTopP, uvSide, isSide)
+      // POM only on the flat tops: on the 45 degree bevel the horizontal-surface
+      // march stretched and darkened the albedo (the dark band under the rim)
+      const uvT = mix(mix(uvTop, uvTopP, isTop), uvSide, isSide)
       const alb = mix(texture(top.albedo, uvT).rgb, texture(side.albedo, uvT).rgb, isSide)
       const orm = mix(texture(top.orm, uvT).rgb, texture(side.orm, uvT).rgb, isSide)
       const tint = n.r.mul(0.3).add(0.85)
@@ -420,7 +433,12 @@ export class Arena {
       m.roughnessNode = saturate(rough)
       m.metalnessNode = float(0)
     }
-    m.emissiveNode = em
+    // debug (Inspector: Arena > debugFaces): 1 = face classes, 2 = lighting only on white
+    const dbg = tweaks.uDebugFaces
+    const dbgClasses = step(0.5, dbg).mul(step(dbg, 1.5))
+    const dbgLight = step(1.5, dbg)
+    m.emissiveNode = mix(mix(em, vec3(isTop, isBevel, isSide).mul(2), dbgClasses), vec3(0, 0, 0), dbgLight)
+    m.colorNode = mix(m.colorNode as Node<'vec3'>, vec3(0.8, 0.8, 0.8), dbgLight)
     return m
   }
 

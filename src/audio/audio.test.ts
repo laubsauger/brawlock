@@ -211,6 +211,7 @@ describe('audio: no AudioContext (node, old browsers)', () => {
       audio.ui('fight')
       audio.music('fight')
       audio.music('none')
+      audio.test()
     }).not.toThrow()
   })
 })
@@ -293,6 +294,44 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     vi.runAllTimers() // only one-shot cleanups remain: would abort if the interval survived
   })
 
+  it('cues issued right after unlock, while the context is resuming, are played once it runs', async () => {
+    vi.useFakeTimers()
+    class Suspended extends MockAudioContext {
+      constructor() {
+        super()
+        this.state = 'suspended'
+      }
+    }
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = Suspended
+    const e = new AudioEngine()
+    e.music('menu') // the menu screen asks for music before any gesture
+    e.unlock()
+    e.ui('uiReady') // the splash "ready" chime, same gesture
+    const m = MockAudioContext.instances.at(-1)!
+    const before = m.sources().length
+    expect(m.state).toBe('suspended') // still resuming: nothing may have played yet
+    for (let i = 0; i < 4; i++) await Promise.resolve() // resume() settles, queue flushes
+    expect(m.state).toBe('running')
+    expect(m.sources().length).toBeGreaterThan(before)
+    // the menu bed (drone + pad) is running from that first gesture on
+    expect(m.leakingSources().length).toBeGreaterThanOrEqual(8)
+    e.music('none')
+    m.currentTime += 3
+    vi.advanceTimersByTime(200)
+    vi.runAllTimers()
+  })
+
+  it('test() unlocks and plays an audible reference through the SFX path', () => {
+    vi.useFakeTimers()
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
+    const e = new AudioEngine()
+    e.test()
+    const m = MockAudioContext.instances.at(-1)!
+    expect(e.ready).toBe(true)
+    expect(m.sources().length).toBeGreaterThan(10)
+    vi.runAllTimers()
+  })
+
   it('music crossfades: the old layer is released and stops its drone', () => {
     vi.useFakeTimers()
     const m = new MockAudioContext()
@@ -304,10 +343,11 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     fight.setIntensity(1)
     fight.schedule(5)
     menu.release(1.6)
-    // every menu source is stopped; only the fight drone keeps running
+    // every menu source is stopped; only the fight layer's bed keeps running, within the
+    // CPU budget of 12 continuous oscillators per layer (drone, pad, two LFOs)
     const running = m.leakingSources()
     expect(running.length).toBeGreaterThan(0)
-    expect(running.length).toBeLessThanOrEqual(4)
+    expect(running.length).toBeLessThanOrEqual(12)
     vi.runAllTimers()
   })
 })

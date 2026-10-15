@@ -15,6 +15,7 @@ import {
   smoothstep,
   step,
   texture,
+  triplanarTexture,
   vec2,
   vec3,
 } from 'three/tsl'
@@ -22,6 +23,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Node } from 'three/webgpu'
 import type { ObstacleState } from '../../sim/types'
 import { S, TILE_TOP_H } from '../coords'
+import { loadSurface, type SurfaceMaps } from './textures'
 import { asV4, gamePos, type WorldCtx } from './world'
 
 /**
@@ -65,8 +67,17 @@ function columnGeometry(): THREE.BufferGeometry {
     pos.setXYZ(i, (x / r) * r * flute, ny, (z / r) * r * flute)
   }
   g.computeVertexNormals()
-  const plinth = new THREE.CylinderGeometry(1.32, 1.4, 0.1, 8, 1)
-  plinth.translate(0, 0.05, 0)
+  // chamfered plinth: wide foot, bevelled step, so the silhouette meets the floor
+  const prof = [
+    [1.0, 0.16],
+    [1.18, 0.15],
+    [1.26, 0.12],
+    [1.3, 0.09],
+    [1.42, 0.07],
+    [1.5, 0.035],
+    [1.54, 0.0],
+  ].map(([r, y]) => new THREE.Vector2(r, y))
+  const plinth = new THREE.LatheGeometry(prof.reverse(), 32)
   const merged = mergeGeometriesSimple([g, plinth])
   return merged
 }
@@ -143,6 +154,9 @@ export class Obstacles {
   private e = new THREE.Euler()
   private v = new THREE.Vector3()
   private sc = new THREE.Vector3()
+  /** shared authored stone set (public/textures/shared/cliff_rock), null = procedural */
+  private maps: SurfaceMaps | null = null
+  private disposed = false
   /** called when a pillar loses hp (x, y, hpFrac) for chip FX */
   onHit: ((x: number, y: number, radius: number, hpFrac: number) => void) | null = null
 
@@ -165,6 +179,16 @@ export class Obstacles {
       this.meshes.push(mesh)
       this.attrs.push(attr)
       this.materials.push(mat)
+    })
+    void loadSurface('shared', 'cliff_rock', ctx.tier.anisotropy).then((m) => {
+      if (!m || this.disposed) return
+      this.maps = m
+      this.materials.forEach((old, k) => {
+        const mat = this.material(k)
+        this.meshes[k].material = mat
+        this.materials[k] = mat
+        old.dispose()
+      })
     })
   }
 
@@ -260,7 +284,7 @@ export class Obstacles {
     let rough: Node<'float'> = float(0.8)
     if (kind === 0) {
       // temple: pale weathered stone, glowing rune band
-      base = mix(vec3(0.2, 0.17, 0.13), vec3(0.33, 0.28, 0.21), n1.r).mul(n2.g.mul(0.3).add(0.8))
+      base = mix(vec3(0.13, 0.125, 0.12), vec3(0.24, 0.225, 0.2), n1.r).mul(n2.g.mul(0.3).add(0.8))
       const band = smoothstep(0.03, 0.0, max(lp.y.sub(0.52).abs().sub(0.04), 0)).mul(step(0.5, sin(lp.x.add(lp.z).mul(18).add(seed.mul(9))).mul(0.5).add(0.5)))
       em = vec3(2.0, 0.7, 0.15).mul(band.mul(dmg.mul(1.5).add(0.15)))
     } else if (kind === 1) {
@@ -278,23 +302,46 @@ export class Obstacles {
       rough = mix(float(0.85), float(0.97), mossMask)
       em = vec3(0.3, 1.5, 0.6).mul(step(0.86, n2.b).mul(mossMask).mul(0.25))
     }
-    base = base.mul(float(1).sub(crack.mul(0.75)))
+    // authored stone (triplanar, world space so non-uniform instance scale never
+    // stretches it), tinted per theme; procedural stays the fallback
+    let height: Node<'float'> = n2.g.mul(0.5).add(n1.r.mul(0.4))
+    let aoTex: Node<'float'> = float(1)
+    const maps = this.maps
+    if (maps) {
+      const sc = float(1 / 1.7)
+      const alb = triplanarTexture(texture(maps.albedo), null, null, sc, positionWorld, normalWorld).rgb
+      const orm = triplanarTexture(texture(maps.orm), null, null, sc, positionWorld, normalWorld).rgb
+      const hTex = maps.height ?? maps.albedo
+      const hh = triplanarTexture(texture(hTex), null, null, sc, positionWorld, normalWorld).r
+      const tint = kind === 0 ? vec3(0.92, 0.88, 0.82) : kind === 1 ? vec3(0.32, 0.3, 0.32) : vec3(0.7, 0.72, 0.66)
+      const stoneT = alb.mul(tint)
+      // keep the theme's character (runes, veins, moss) by blending over the texture
+      base = mix(stoneT, base, kind === 2 ? 0.45 : 0.25)
+      rough = mix(orm.g, rough, 0.3)
+      aoTex = orm.r
+      height = hh.mul(0.8).add(n2.g.mul(0.2))
+    }
+    base = base.mul(float(1).sub(crack.mul(0.75))).mul(aoTex)
+    // ambient occlusion toward the floor: the pillar sits IN the light, not on it
+    const aoFloor = mix(float(0.3), float(1), smoothstep(0, 75, h.sub(TILE_TOP_H)))
+    base = base.mul(aoFloor)
     em = em.add(vec3(2.6, 0.75, 0.12).mul(crack.mul(pow(dmg, 1.3)).mul(1.5)))
     em = em.add(vec3(2.2, 1.6, 1.1).mul(hitK.mul(0.8)))
-    // lava/ember light from the floor on the lower part
-    em = em.add(vec3(0.5, 0.12, 0.02).mul(exp(h.sub(TILE_TOP_H).div(-30))).mul(0.4))
+    // faint warm floor bounce on the lowest band only
+    em = em.add(vec3(0.3, 0.09, 0.02).mul(exp(h.sub(TILE_TOP_H).div(-18))).mul(base.r.add(0.02)))
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = `Obstacle${kind}`
     m.colorNode = base
     m.roughnessNode = saturate(rough.add(n2.r.sub(0.5).mul(0.25)).add(crack.mul(0.2)))
-    m.normalNode = bumpMap(n2.g.mul(0.5).add(n1.r.mul(0.4)).sub(crack.mul(0.6)), float(1.3))
+    m.normalNode = bumpMap(height.sub(crack.mul(0.6)), float(1.3))
     m.metalnessNode = float(0)
     m.emissiveNode = em
     return m
   }
 
   dispose(): void {
+    this.disposed = true
     for (const m of this.meshes) {
       m.geometry.dispose()
       m.dispose()

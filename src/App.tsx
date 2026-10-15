@@ -31,21 +31,26 @@ function useAudioSettings() {
     const unsub = useGame.subscribe((s, prev) => {
       if (s.settings !== prev.settings) apply()
     })
-    // any first gesture may unlock audio; the splash Enter button is the usual one
+    // every gesture may (re)unlock: the first one creates the context, later ones resume it
+    // if the browser suspended it (tab switch, iOS). The splash Enter button is the usual first one.
+    let unlocked = false
     const unlock = () => {
       try {
         audio.unlock()
       } catch {
         /* ignore */
       }
-      apply()
+      if (!unlocked) {
+        unlocked = true
+        apply()
+      }
     }
-    window.addEventListener('pointerdown', unlock, { once: true })
-    window.addEventListener('keydown', unlock, { once: true })
+    window.addEventListener('pointerdown', unlock, true)
+    window.addEventListener('keydown', unlock, true)
     return () => {
       unsub()
-      window.removeEventListener('pointerdown', unlock)
-      window.removeEventListener('keydown', unlock)
+      window.removeEventListener('pointerdown', unlock, true)
+      window.removeEventListener('keydown', unlock, true)
     }
   }, [])
 }
@@ -65,7 +70,10 @@ function useUiScale() {
       const scale = auto * Math.min(1.2, Math.max(0.8, user))
       const root = document.documentElement.style
       root.setProperty('--ui-scale', scale.toFixed(3))
-      root.setProperty('--dock-right-w', `${Math.round(Math.min(700, (window.innerWidth / 2 - 64) / scale))}px`)
+      // docks are in unscaled px (zoom scales them); neither may reach the screen center
+      const half = window.innerWidth / 2
+      root.setProperty('--dock-right-w', `${Math.round(Math.max(300, Math.min(700, (half - 64) / scale)))}px`)
+      root.setProperty('--dock-left-w', `${Math.round(Math.max(240, Math.min(330, (half - 120) / scale)))}px`)
     }
     apply()
     window.addEventListener('resize', apply)

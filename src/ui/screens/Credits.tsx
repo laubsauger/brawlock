@@ -53,7 +53,7 @@ export function Credits() {
           </Block>
 
           <Block title="Typefaces">
-            <Credit who="Grenze Gotisch" what="by Omnibus-Type, SIL Open Font License 1.1" />
+            <Credit who="Cinzel" what="by Natanael Gama, SIL Open Font License 1.1" />
             <Credit who="Barlow Semi Condensed" what="by Jeremy Tribby, SIL Open Font License 1.1" />
           </Block>
 

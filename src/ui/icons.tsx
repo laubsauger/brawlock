@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { hueFor, MASTERY_HUE } from './data/catalog'
 
 /**
@@ -164,7 +164,54 @@ const G: Record<string, ReactNode> = {
   empty: <path d="M12 8v8M8 12h8" strokeOpacity=".35" />,
 }
 
+/** Ids with painted icons in public/icons (256 px) and public/icons/128. Masteries use a mastery_ prefix. */
+const ART_IDS = new Set([
+  'fireball', 'scourge', 'redirector', 'pact', 'boomerang', 'lightning', 'homing', 'twin', 'teleport', 'thrust', 'swap',
+  'cluster', 'drain', 'bouncer', 'recharge', 'windwalk', 'meteor', 'splitter', 'snowball', 'shield', 'rush', 'alteration',
+  'gravity', 'grip', 'warpzone', 'magnetize', 'rockpillar', 'link', 'ring_of_health', 'cursed_ring', 'cape', 'armor',
+  'boots', 'pocket_watch', 'mastery_duration', 'mastery_range', 'mastery_lifesteal', 'mastery_all',
+])
+
+function artFile(id: string): string | null {
+  const file = id === 'duration' || id === 'range' || id === 'lifesteal' || id === 'all' ? `mastery_${id}` : id
+  return ART_IDS.has(file) ? file : null
+}
+
+/** Files that failed once: render the glyph from then on instead of refetching. */
+const failedArt = new Set<string>()
+
+/**
+ * Spell / item / mastery icon: the painted art, or the SVG sigil (tinted by
+ * the shop column hue) when there is no art or it fails to load.
+ */
 export function Sigil({ id, size = 40, hue, dim = false }: { id: string | null; size?: number; hue?: string; dim?: boolean }) {
+  const [, bump] = useState(0)
+  const file = id ? artFile(id) : null
+  if (file && !failedArt.has(file)) {
+    const base = import.meta.env.BASE_URL
+    return (
+      <img
+        src={`${base}icons/128/${file}.png`}
+        srcSet={`${base}icons/128/${file}.png 128w, ${base}icons/${file}.png 256w`}
+        sizes={`${size}px`}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden
+        draggable={false}
+        decoding="async"
+        onError={() => {
+          failedArt.add(file)
+          bump((n) => n + 1)
+        }}
+        style={{ display: 'block', width: size, height: size, opacity: dim ? 0.5 : 1, filter: dim ? 'grayscale(0.7)' : undefined }}
+      />
+    )
+  }
+  return <Glyph id={id} size={size} hue={hue} dim={dim} />
+}
+
+function Glyph({ id, size, hue, dim }: { id: string | null; size: number; hue?: string; dim: boolean }) {
   const color = hue ?? (id === 'duration' || id === 'range' || id === 'lifesteal' || id === 'all' ? MASTERY_HUE : hueFor(id))
   const glyph = (id && G[id]) ?? G.empty
   const gid = `sg-${id ?? 'empty'}`

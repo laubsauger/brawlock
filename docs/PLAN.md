@@ -274,6 +274,10 @@ HUD: HP bar with regen tick, knockback points readout, spell bar (6 columns) wit
 
 Settings: quality tier and individual toggles, resolution scale, fps cap, fx intensity, screen shake, colorblind palette, master, SFX, music and UI volume, mute, keybinds (rebindable), camera zoom speed and edge pan, show perf HUD, Inspector toggle.
 
+### 5.7.1 Visual progression
+
+Upgrades should show on the warlock, not only in the shop. Later (M2): the staff or casting hand, rune patterns and trim evolve with owned spells, spell levels and items (for example column colors appearing on the robe, brighter runes at higher levels), so opponents can read your build at a glance.
+
 ### 5.8 Online experience (esports bar)
 
 The game only matters if online play feels great. Before servers exist (M4), everything below runs P2P with local persistence.

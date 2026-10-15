@@ -11,6 +11,7 @@ import { ItemGrid, SpellRow } from './SpellBar'
 import { NetReadout, TopCenter, displayRound } from './TopBar'
 import { Gold, Vitals } from './Vitals'
 import { Kbd } from '../widgets'
+import { Wordmark } from '../Brand'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { keyLabel, slotKeyLabel, useBinds } from '../lib/keys'
@@ -241,9 +242,9 @@ function WaitingVeil() {
   })
   return (
     <div ref={ref} className="absolute inset-0 grid place-items-center bg-obsidian/80 transition-opacity duration-500" style={{ pointerEvents: 'none' }}>
-      <div className="flex flex-col items-center gap-3">
-        <span className="display text-5xl text-[#ffd890]">Entering the arena</span>
-        <span className="text-ash">Waiting for the first frame from the match…</span>
+      <div className="flex flex-col items-center gap-4">
+        <Wordmark size="md" />
+        <span className="text-[1.05rem] font-semibold text-[#e6d3b8]">Entering the arena…</span>
       </div>
     </div>
   )

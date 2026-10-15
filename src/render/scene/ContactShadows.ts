@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { float, instancedBufferAttribute, length, positionGeometry, smoothstep, vec3 } from 'three/tsl'
+import type { Node } from 'three/webgpu'
 import { asV4 } from './world'
 
 /**
@@ -9,20 +10,28 @@ import { asV4 } from './world'
 export class ContactShadows {
   readonly mesh: THREE.Mesh
   private a: THREE.InstancedBufferAttribute
+  private b: THREE.InstancedBufferAttribute
   private n = 0
   private material: THREE.MeshBasicNodeMaterial
 
   constructor(private capacity = 48) {
     this.a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
     this.a.setUsage(THREE.DynamicDrawUsage)
+    this.b = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
+    this.b.setUsage(THREE.DynamicDrawUsage)
     const A = asV4(instancedBufferAttribute(this.a))
+    const B = instancedBufferAttribute(this.b) as unknown as Node<'float'>
     const q = positionGeometry.xy
     const m = new THREE.MeshBasicNodeMaterial()
     m.transparent = true
     m.depthWrite = false
     m.positionNode = A.xyz.add(vec3(q.x, 0, q.y.negate()).mul(A.w))
     m.colorNode = vec3(0, 0, 0)
-    m.opacityNode = float(1).sub(smoothstep(0.15, 1.0, length(q))).mul(0.62)
+    // dense core hugging the base, soft skirt
+    const r = length(q)
+    const core = float(1).sub(smoothstep(0.35, 0.62, r))
+    const skirt = float(1).sub(smoothstep(0.3, 1.0, r))
+    m.opacityNode = core.mul(0.55).add(skirt.mul(0.45)).mul(B)
     m.name = 'ContactShadow'
     this.material = m
     const g = new THREE.BufferGeometry()
@@ -39,8 +48,8 @@ export class ContactShadows {
     this.n = 0
   }
 
-  /** World-space centre (three units) and radius (three units). */
-  add(x: number, y: number, z: number, r: number): void {
+  /** World-space centre (three units), radius (three units), opacity 0..1. */
+  add(x: number, y: number, z: number, r: number, strength = 0.62): void {
     if (this.n >= this.capacity) return
     const o = this.n * 4
     const a = this.a.array as Float32Array
@@ -48,6 +57,7 @@ export class ContactShadows {
     a[o + 1] = y
     a[o + 2] = z
     a[o + 3] = r
+    ;(this.b.array as Float32Array)[this.n] = strength
     this.n++
   }
 
@@ -58,6 +68,9 @@ export class ContactShadows {
     this.a.clearUpdateRanges()
     this.a.addUpdateRange(0, this.n * 4)
     this.a.needsUpdate = true
+    this.b.clearUpdateRanges()
+    this.b.addUpdateRange(0, this.n)
+    this.b.needsUpdate = true
   }
 
   dispose(): void {

@@ -40,7 +40,7 @@ export function Button({
       }}
       {...rest}
     >
-      {children}
+      {typeof children === 'string' ? <span className="btn-label">{children}</span> : children}
     </button>
   )
 }

@@ -143,7 +143,8 @@ export class PawnView {
     {
       const q = positionGeometry.xy
       const rr = length(q).mul(DECAL_R)
-      const shadowA = float(1).sub(smoothstep(8, 46, rr)).mul(0.6)
+      // contact shadow: dense core right under the feet + a soft skirt
+      const shadowA = float(1).sub(smoothstep(6, 26, rr)).mul(0.45).add(float(1).sub(smoothstep(10, 50, rr)).mul(0.4))
       const ringX = rr.sub(39).div(3)
       const ring = exp(ringX.mul(ringX).negate())
       const auraR = this.dKb.mul(14).add(48)
@@ -151,7 +152,10 @@ export class PawnView {
       const aura = exp(auraX.mul(auraX).negate()).mul(this.dKb)
       const glow = saturate(ring.add(aura.mul(0.7)))
       const pulse = sin(ctx.uTime.mul(6)).mul(0.15).add(0.85)
-      const col = this.dTeam.mul(ring.mul(2.4).add(aura.mul(pulse).mul(this.dKb.mul(3).add(1))))
+      // warm contact light just outside the shadow core: lava-lit floor around the hem
+      const warmX = rr.sub(44).div(14)
+      const warm = exp(warmX.mul(warmX).negate()).mul(0.22)
+      const col = this.dTeam.mul(ring.mul(2.4).add(aura.mul(pulse).mul(this.dKb.mul(3).add(1)))).add(vec3(1.0, 0.42, 0.12).mul(warm))
       const a = max(shadowA.mul(float(1).sub(glow)), glow).mul(this.dAlpha)
       const m = new THREE.MeshBasicNodeMaterial()
       m.transparent = true
