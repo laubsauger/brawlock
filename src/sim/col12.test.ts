@@ -3,6 +3,8 @@ import { FIREBALL_SLOT, frictionPerTick } from './config'
 import { knockbackSpeed } from './combat'
 import { step } from './index'
 import { spawnProjectile } from './projectiles'
+import { RELEASED_SPELLS, SPELLS } from './spells/data'
+import { IMPLEMENTED_SPELLS } from './spells'
 import { cmd, grant, newMatch, pawn, place, run, toCombat } from './testkit'
 import type { ProjectileState, SimEvent, SimState } from './types'
 
@@ -365,8 +367,11 @@ describe('Twin (spells.md §8.8)', () => {
 
 describe('release gate', () => {
   test('implemented but unreleased spells cannot be bought, and nothing is charged', () => {
+    // pick from the live gate so releasing spells never invalidates this test
+    const unreleased = [...IMPLEMENTED_SPELLS].filter((id) => !RELEASED_SPELLS.has(id) && SPELLS[id]?.column)
+    if (unreleased.length === 0) return // everything released: nothing left to gate
     const s = newMatch({ startGold: 100 })
-    step(s, [cmd(0, { kind: 'buySpell', spell: 'thrust' }, { kind: 'buySpell', spell: 'lightning' })])
+    step(s, [cmd(0, ...unreleased.map((spell) => ({ kind: 'buySpell' as const, spell })))])
     expect(pawn(s, 0).slots.slice(0, 6)).toEqual([null, null, null, null, null, null])
     expect(s.scores[0].gold).toBe(100)
     void FIREBALL_SLOT
