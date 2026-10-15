@@ -66,11 +66,8 @@ export const OBSTACLE_RADII: readonly (readonly number[])[] = [
   [70, 45, 60, 40],
   [50, 50, 35, 35, 50],
 ]
-/**
- * M0: obstacles are fully simulated (collision, damage, explosion) but not spawned, because
- * render has no pillar art yet. Flip to true for the faithful 2-8 random pillars per round.
- */
-export const SPAWN_OBSTACLES = false
+/** Original: 2-8 random pillars in [-1000, 1000]^2, re-rolled every shop phase. */
+export const SPAWN_OBSTACLES = true
 
 // --- rounds / shop -------------------------------------------------------------
 export const ROUND_END_SECONDS = 2

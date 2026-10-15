@@ -40,8 +40,14 @@ export function slots(n: number, teams?: number[]): PlayerSlot[] {
   }))
 }
 
-export function newMatch(overrides: Partial<MatchSettings> = {}, n = 2, seed = 1, teams?: number[]): SimState {
-  return createMatch({ ...DEFAULT_SETTINGS, ...overrides }, slots(n, teams), seed)
+/**
+ * A fresh match in its first shop phase. Unit tests set their own geometry, so the random
+ * arena pillars are removed unless `keepObstacles` (they come back at the next shop phase).
+ */
+export function newMatch(overrides: Partial<MatchSettings> = {}, n = 2, seed = 1, teams?: number[], keepObstacles = false): SimState {
+  const s = createMatch({ ...DEFAULT_SETTINGS, ...overrides }, slots(n, teams), seed)
+  if (!keepObstacles) s.obstacles = []
+  return s
 }
 
 export function cmd(player: number, ...cmds: InputCommand[]): PlayerInput {

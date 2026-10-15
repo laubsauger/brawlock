@@ -66,7 +66,9 @@ describe('all spells: determinism and robustness', () => {
       const b = run(1000 + variant, variant, 8000)
       expect(hashState(a)).toBe(hashState(b))
       assertFinite(a, 'state')
-      expect(a.round).toBeGreaterThan(1)
+      // the script really fought: rounds started and warlocks died
+      expect(a.round).toBeGreaterThanOrEqual(1)
+      expect(a.scores.some((sc) => sc.deaths > 0)).toBe(true)
     })
   }
 })

@@ -113,6 +113,39 @@ describe('rounds mode (systems.md §7.2)', () => {
   })
 })
 
+describe('arena pillars (systems.md §7.2)', () => {
+  test('2-8 pillars of the theme’s radii in [-1000, 1000]^2, re-rolled every shop phase', () => {
+    const s = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 1 }, slots(2), 3)
+    const RADII = [[60], [70, 45, 60, 40], [50, 35]]
+    const sets: string[] = []
+    for (let round = 0; round < 6; round++) {
+      expect(s.phase).toBe('shop')
+      expect(s.obstacles.length).toBeGreaterThanOrEqual(2)
+      expect(s.obstacles.length).toBeLessThanOrEqual(8)
+      for (const o of s.obstacles) {
+        expect(Math.abs(o.x)).toBeLessThanOrEqual(1000)
+        expect(Math.abs(o.y)).toBeLessThanOrEqual(1000)
+        expect(o.hp).toBe(400)
+        expect(RADII[s.arena.theme]).toContain(o.radius)
+      }
+      sets.push(s.obstacles.map((o) => `${o.x.toFixed(1)},${o.y.toFixed(1)}`).join(';'))
+      // play the round out: player 1 walks into the lava
+      runUntil(s, (st) => st.phase === 'fight')
+      while (s.phase !== 'shop') step(s, s.phase === 'fight' ? [cmd(1, { kind: 'move', x: -4000, y: 0 })] : [])
+    }
+    expect(new Set(sets).size).toBe(sets.length) // a new layout every shop phase
+  })
+
+  test('Rockpillars vanish at round start; arena pillars stay for the round', () => {
+    const s = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 1 }, slots(2), 3)
+    const arena = s.obstacles.length
+    s.obstacles.push({ id: s.nextEntityId++, x: 0, y: 1500, radius: 90, hp: 400, variant: -1, ticksLeft: 9999, owner: 0 })
+    runUntil(s, (st) => st.phase === 'fight')
+    expect(s.obstacles.length).toBe(arena)
+    expect(s.obstacles.every((o) => o.variant !== -1)).toBe(true)
+  })
+})
+
 describe('teams', () => {
   test('teams mode: allies share the round win and spawn side by side', () => {
     const s = newMatch({ teamMode: 'teams', shopSeconds: 0 }, 4, 1, [1, 1, 2, 2])
