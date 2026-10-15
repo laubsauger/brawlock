@@ -42,3 +42,10 @@ Thumbs.db
 
 # Local history (VS Code extension)
 .lh/
+
+# Generated art masters, variants and previews stay local (hundreds of MB).
+# Finals live in public/. Consider Git LFS or external storage for backups.
+art/archive/
+art/source/
+art/previews/
+art/brand/

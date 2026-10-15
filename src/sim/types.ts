@@ -75,6 +75,11 @@ export interface PlayerSlot {
   team: number
   kind: 'human' | 'bot'
   difficulty?: BotDifficulty
+  /**
+   * Stable per-browser player id (game/profile.ts) or 'bot:<difficulty>', so peers
+   * and local stats recognize players across matches. Net / stats only: the sim ignores it.
+   */
+  profileId?: string
 }
 
 /**
@@ -169,6 +174,8 @@ export interface PawnState {
   lastHitter: PlayerId | null
   /** ticks since last left the arena (lava contact), for render glow */
   lavaTicks: number
+  /** deathmatch: ticks until this dead pawn respawns (absent / 0 = not scheduled) */
+  respawnTicks?: number
 }
 
 export interface ProjectileState {
@@ -181,8 +188,17 @@ export interface ProjectileState {
   vy: number
   radius: number
   ticksLeft: number
-  /** spell specific payload (homing target, bounces left, ...) */
+  /**
+   * spell specific payload. Common keys: timeScale (absent = 1, Warpzone slow),
+   * noTimer (1 = no lifetime, ticksLeft is meaningless), origOwner (caster before a Shield
+   * stole it). Per-kind keys are listed in sim/projectiles.ts.
+   */
   data: Record<string, number>
+  /**
+   * behavior / visual kind when a spell has several projectile types (e.g. 'drainHeal',
+   * 'splitterSpawner', 'splitterChild', 'rechargeRefresh', 'warpzone'). Absent = `spell`.
+   */
+  kind?: string
 }
 
 export interface ObstacleState {
@@ -191,8 +207,12 @@ export interface ObstacleState {
   y: number
   radius: number
   hp: number
-  /** visual variant index inside the current obstacle set */
+  /** visual variant index inside the current obstacle set; -1 = Rockpillar */
   variant: number
+  /** Rockpillar: ticks until it crumbles (absent = permanent arena pillar) */
+  ticksLeft?: number
+  /** Rockpillar: player who raised it (visual only; pillars are neutral to everyone) */
+  owner?: PlayerId
 }
 
 export interface ArenaState {
@@ -228,7 +248,17 @@ export type SimEvent =
   | { type: 'projectileSpawn'; id: EntityId; spell: SpellId }
   | { type: 'projectileHit'; id: EntityId; spell: SpellId; x: number; y: number; target: EntityId | null }
   | { type: 'projectileExpire'; id: EntityId; spell: SpellId; x: number; y: number }
-  | { type: 'damage'; target: EntityId; amount: number; source: PlayerId | null; x: number; y: number; kb: number }
+  | {
+      type: 'damage'
+      target: EntityId
+      amount: number
+      source: PlayerId | null
+      x: number
+      y: number
+      kb: number
+      /** damage soaked by Rush (already subtracted from amount) */
+      absorbed?: number
+    }
   | { type: 'heal'; target: EntityId; amount: number; x: number; y: number }
   | { type: 'teleport'; pawn: EntityId; fromX: number; fromY: number; toX: number; toY: number }
   | { type: 'explosion'; x: number; y: number; radius: number; spell: SpellId }
@@ -238,6 +268,44 @@ export type SimEvent =
   | { type: 'phase'; phase: Phase; round: number }
   | { type: 'roundWin'; team: number; players: PlayerId[] }
   | { type: 'gameOver'; winners: PlayerId[] }
+  /** hitscan beam (Lightning): from the caster to where it stopped */
+  | {
+      type: 'beam'
+      spell: SpellId
+      owner: PlayerId
+      fromX: number
+      fromY: number
+      toX: number
+      toY: number
+      /** entity it stopped on (pawn, projectile, obstacle), null = full range */
+      target: EntityId | null
+      /** true when an enemy Shield / Alteration bubble stopped it */
+      blocked: boolean
+    }
+  /** a Shield bubble touched an enemy projectile */
+  | { type: 'shieldReflect'; pawn: EntityId; projectile: EntityId; x: number; y: number; reflected: boolean; stolen: boolean }
+  /**
+   * position exchange (Swap, Alteration): `pawn` moved from (fromX, fromY) to (toX, toY);
+   * `other` (pawn, obstacle or projectile entity) moved the opposite way. other null = plain blink.
+   */
+  | { type: 'swap'; spell: SpellId; pawn: EntityId; other: EntityId | null; fromX: number; fromY: number; toX: number; toY: number }
+  /** a modifier (buff / debuff / spell state) was added or removed; see ModifierState ids */
+  | { type: 'modifier'; pawn: EntityId; id: string; on: boolean; source: PlayerId | null }
+  /** melee spell contact (Thrust, Windwalk charge) */
+  | { type: 'spellHit'; spell: SpellId; pawn: EntityId; target: EntityId; x: number; y: number }
+  /** projectile bounced (Boomerang, Bouncer retarget, reflect off a pillar) */
+  | { type: 'projectileBounce'; id: EntityId; spell: SpellId; x: number; y: number }
+  /** a cooldown was reset early (Recharge refresh orb) */
+  | { type: 'cooldownReset'; pawn: EntityId; slot: SlotIndex; spell: SpellId }
+  /** streak counter changed (Recharge consecutive hits) */
+  | { type: 'streak'; pawn: EntityId; spell: SpellId; value: number }
+  /**
+   * a pending cast was cancelled before it fired (stop, move, another cast, death, Grip, a
+   * Teleport/Swap/Thrust Stop()); no cooldown was spent. started = the cast point was running.
+   */
+  | { type: 'castCancel'; pawn: EntityId; spell: SpellId; slot: SlotIndex; started: boolean }
+  /** deathmatch respawn */
+  | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
 
 export interface SimState {
   tick: number

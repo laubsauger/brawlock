@@ -2,9 +2,11 @@
  * Wire protocol, M0 (host-authoritative state sync). JSON text frames.
  *
  * Reliable channel (ordered):
- *   client → host  hello   {name, version, key}       first message after connect
+ *   client → host  hello   {name, version, key, profileId, color}   first message after connect
+ *                          key: per-tab reconnect secret; profileId: stable per-browser player id
  *   host → client  welcome {playerId}                 slot assigned
- *   host → client  lobby   {slots, settings}          on every lobby change
+ *   host → client  lobby   {slots, settings, ready, pings}   on every lobby change
+ *   client → host  ready   {ready}                    "wants a rematch" toggle on the results screen
  *   host → client  start   {match, seed, slots, settings, localPlayer}   per client; -1 = spectator
  *   host → client  end     {match, result}            game over, show results
  *   host → client  screen  {screen: 'lobby'}          host went back to the lobby
@@ -15,6 +17,7 @@
  *
  * Unreliable channel (unordered, no retransmit):
  *   client → host  input {match, inputs: InputFrame[]}   all unacked frames, oldest first (redundancy)
+ *   host → client  pings {pings}                    per-player RTT in ms, ~1 Hz (lobby and match)
  *   host → client  snap  {match, n, iv, ack, ev, state}
  *     n     snapshot counter (loss stats), iv snapshot interval in ticks
  *     ack   highest input seq the host applied for this client
@@ -29,7 +32,7 @@ import type { TickEvents } from '../game/frame'
 import type { MatchResult } from '../game/store'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -45,9 +48,17 @@ export interface InputFrame {
 export type { TickEvents }
 
 export type Msg =
-  | { t: 'hello'; name: string; version: number; key: string }
+  | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null }
   | { t: 'welcome'; playerId: PlayerId }
-  | { t: 'lobby'; slots: PlayerSlot[]; settings: MatchSettings }
+  | {
+      t: 'lobby'
+      slots: PlayerSlot[]
+      settings: MatchSettings
+      ready: Record<PlayerId, boolean>
+      pings: Record<PlayerId, number>
+    }
+  | { t: 'ready'; ready: boolean }
+  | { t: 'pings'; pings: Record<PlayerId, number> }
   | { t: 'start'; match: number; seed: number; slots: PlayerSlot[]; settings: MatchSettings; localPlayer: PlayerId }
   | { t: 'input'; match: number; inputs: InputFrame[] }
   | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; state: SimState }
@@ -62,6 +73,8 @@ const TYPES = new Set<Msg['t']>([
   'hello',
   'welcome',
   'lobby',
+  'ready',
+  'pings',
   'start',
   'input',
   'snap',
@@ -185,4 +198,15 @@ export function sanitizeName(name: unknown): string {
   if (typeof name !== 'string') return 'Warlock'
   const clean = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 20)
   return clean || 'Warlock'
+}
+
+/** A client's claimed profile id, or null. 'bot:' ids are reserved for bots. */
+export function sanitizeProfileId(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length < 8 || v.length > 64) return null
+  if (!/^[A-Za-z0-9_-]+$/.test(v)) return null
+  return v
+}
+
+export function sanitizeColor(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff ? v : null
 }

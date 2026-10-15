@@ -6,6 +6,7 @@
  * removes the full previous walk velocity, leaving a -0.2 x walk residue. We scale only the
  * physics (knockback) part and clear the walk part, which is what Stop() intends.
  */
+import { stopPawn } from '../orders'
 import { attr } from './data'
 import type { SpellBehavior } from './types'
 
@@ -28,8 +29,7 @@ export const teleportSpell: SpellBehavior = {
     caster.vy = (caster.vy - caster.walkVy) * keep
     caster.walkVx = 0
     caster.walkVy = 0
-    caster.moveTarget = null
-    caster.cast = null
+    stopPawn(state, caster)
     state.events.push({ type: 'teleport', pawn: caster.id, fromX, fromY, toX: caster.x, toY: caster.y })
   },
 }

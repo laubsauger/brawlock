@@ -8,7 +8,8 @@
  * - music(track): on screen / phase changes ('menu' in menus and lobby, 'shop' in the shop
  *   phase, 'fight' in a round, 'none' to stop). Crossfades; may be called before unlock.
  * - playEvents(events, listener): once per sim tick's events, deduped by tick (eventsSince).
- *   Pass `localPlayer` and `state` (frame.curr) so lava burn and id-only events can be placed.
+ *   Pass `localPlayer` and `state` (the tick's SimState) so lava burn, id-only events and
+ *   projectile travel loops can be placed; without them those degrade gracefully.
  * - ui(sound): from UI handlers. The FIGHT hit also plays from the 'phase: fight' event;
  *   calling ui('fight') at the same moment plays it once.
  */
@@ -26,8 +27,11 @@ export interface Listener {
   halfWidth: number
   /** local player: only their pawn's lava burn is audible */
   localPlayer?: PlayerId
-  /** latest state, to place events that carry only entity ids (cast, castStart, death) */
-  state?: Pick<SimState, 'pawns'>
+  /**
+   * latest state (pass the whole SimState): places events that carry only entity ids
+   * (cast, castStart, death) and gives projectile travel loops their flight
+   */
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles'>>
 }
 
 export interface AudioApi {

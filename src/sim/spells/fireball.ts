@@ -9,9 +9,11 @@ import { cos, sin } from '../math'
 import { damageHitBody, spawnProjectile } from '../projectiles'
 import { attr } from './data'
 import type { ProjectileBehavior, SpellBehavior } from './types'
+import { castAttr } from './util'
 
 export const fireballSpell: SpellBehavior = {
-  onCast({ state, caster, def, level, x, y }) {
+  onCast(ctx) {
+    const { state, caster, def, level, x, y } = ctx
     const speed = attr(def, 'speed', level)
     const range = attr(def, 'range', level)
     let dx = x - caster.x
@@ -28,12 +30,13 @@ export const fireballSpell: SpellBehavior = {
     const kb = attr(def, 'knockback_factor', level) || 1
     spawnProjectile(state, caster.owner, 'fireball', caster.x, caster.y, dx * speed, dy * speed, attr(def, 'radius', level), {
       lifetime: range / speed,
-      data: { damage: attr(def, 'damage', level), kb, level },
+      data: { damage: castAttr(ctx, 'damage'), kb, level },
     })
   },
 }
 
-export const fireballProjectile: ProjectileBehavior = {
+/** SimpleProjectile: damage whatever it touches (data.damage, data.kb), then die. */
+export const simpleProjectile: ProjectileBehavior = {
   collider: STD_PROJECTILE,
   onCollide(state, proj, hit) {
     damageHitBody(state, proj, hit, {
@@ -45,3 +48,6 @@ export const fireballProjectile: ProjectileBehavior = {
     destroyProjectile(state, proj, hit.otherId, hit.x, hit.y)
   },
 }
+
+/** FireballProjectile = SimpleProjectile; only this kind is detonated by Lightning. */
+export const fireballProjectile: ProjectileBehavior = simpleProjectile

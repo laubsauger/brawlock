@@ -4,7 +4,7 @@ import type { InputCommand, MatchSettings, PlayerInput, PlayerSlot, SimEvent, Si
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import { PROTOCOL_VERSION, decode, encode, type TickEvents } from './protocol'
-import { createSession, type SessionDeps } from './session'
+import { createSession, type MatchRecorder, type SessionDeps } from './session'
 import type { NetFactory } from './transport'
 
 const SETTINGS: MatchSettings = {
@@ -54,7 +54,32 @@ const noSim: SimApi = {
   },
 }
 
-function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSim) {
+interface PeerOpts {
+  color?: number | null
+  createBot?: SessionDeps['createBot']
+}
+
+/** MatchRecorder fake: what this peer would write to its local stats. */
+function fakeRecorder() {
+  const r = { started: 0, observed: 0, results: [] as MatchResult[], aborted: 0 }
+  const recorder: MatchRecorder = {
+    start: () => {
+      r.started++
+    },
+    observe: () => {
+      r.observed++
+    },
+    finish: (res) => {
+      r.results.push(res)
+    },
+    abort: () => {
+      r.aborted++
+    },
+  }
+  return { r, recorder }
+}
+
+function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSim, opts: PeerOpts = {}) {
   const store = {
     lobby: {
       role: 'offline',
@@ -65,6 +90,8 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
       slots: [],
       settings: null,
       localPlayer: 0,
+      pings: {},
+      ready: {},
     } as LobbyView,
     screen: 'menu' as Screen,
     result: null as MatchResult | null,
@@ -77,9 +104,11 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
     net: { rtt: 0, loss: 0 },
   }
   const pending: InputCommand[] = []
+  const rec = fakeRecorder()
   const deps: SessionDeps = {
+    recorder: rec.recorder,
+    profile: () => ({ id: `profile-${name}`, name, color: opts.color ?? null }),
     ui: {
-      playerName: () => name,
       lobby: () => store.lobby,
       setLobby: (p) => {
         store.lobby = { ...store.lobby, ...p }
@@ -120,9 +149,11 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
     audio: { playEvents: () => {} },
     createMatch: api.createMatch,
     step: api.step,
-    createBot: () => {
-      throw new Error('no bots in these tests')
-    },
+    createBot:
+      opts.createBot ??
+      (() => {
+        throw new Error('no bots in these tests')
+      }),
     defaultSettings: SETTINGS,
     net,
     startClock: (onPulse) => {
@@ -134,15 +165,15 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
     joinUrl: (code) => roomLink('http://test/', code),
     clientKey: () => key,
   }
-  return { session: createSession(deps), store, out, pending }
+  return { session: createSession(deps), store, out, pending, stats: rec.r }
 }
 
 const LINK: LinkOptions = { latencyMs: 40, jitterMs: 15, loss: 0.05, seed: 11 }
 
-async function hostAndClient(api: SimApi = noSim, link: LinkOptions = LINK) {
+async function hostAndClient(api: SimApi = noSim, link: LinkOptions = LINK, hostOpts: PeerOpts = {}, clientOpts: PeerOpts = {}) {
   const net = createMemoryNet(link)
-  const host = makePeer(net, 'Hosty', 'host-key', api)
-  const client = makePeer(net, 'Clienta', 'client-key', api)
+  const host = makePeer(net, 'Hosty', 'host-key', api, hostOpts)
+  const client = makePeer(net, 'Clienta', 'client-key', api, clientOpts)
   await host.session.openHost()
   const code = codeFromSearch(new URL(host.store.lobby.joinUrl!).search)!
   // typed the way a friend would read it out
@@ -225,7 +256,9 @@ describe('session lobby over the network', () => {
     const t = await pending
     const got: string[] = []
     t.onMessage((d) => got.push(d))
-    t.sendReliable(encode({ t: 'hello', name: 'old', version: PROTOCOL_VERSION + 1, key: 'x' }))
+    t.sendReliable(
+      encode({ t: 'hello', name: 'old', version: PROTOCOL_VERSION + 1, key: 'x', profileId: 'profile-old', color: null }),
+    )
     await vi.advanceTimersByTimeAsync(300)
     const err = got.map(decode).find((m) => m?.t === 'error')
     expect(err && err.t === 'error' && err.message).toMatch(/version mismatch/i)
@@ -303,5 +336,111 @@ describe.skipIf(!sim)(`session match over the network${sim ? '' : ` (SKIPPED: re
     const s = host.out.states[host.out.states.length - 1]
     expect(s.pawns.some((p) => p.owner === 1)).toBe(true)
     expect(s.scores.find((x) => x.id === 1)?.connected).toBe(false)
+  })
+})
+
+const bots = await import('../bots').catch(() => null)
+
+describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () => {
+  const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms)
+
+  /**
+   * Why: the results → rematch → match loop must be one host click and zero client
+   * clicks, with the same lineup and settings but a fresh seed (a new arena roll,
+   * not a replay).
+   */
+  it('rematch keeps slots and settings, draws a new seed, and clients follow without clicking', async () => {
+    const calls: { slots: PlayerSlot[]; settings: MatchSettings; seed: number }[] = []
+    const spy: SimApi = {
+      createMatch: (st, sl, seed) => {
+        calls.push({ settings: structuredClone(st), slots: structuredClone(sl), seed })
+        return sim!.createMatch(st, sl, seed)
+      },
+      step: sim!.step,
+    }
+    const { host, client } = await hostAndClient(spy)
+    host.session.addBot('easy')
+    host.session.updateSettings({ winScore: 5 })
+    host.session.startMatch()
+    await advance(1000)
+
+    // host sends everyone back to the lobby; a client flags "wants rematch"
+    host.session.backToLobby()
+    await advance(300)
+    expect(host.store.screen).toBe('lobby')
+    expect(client.store.screen).toBe('lobby')
+    client.session.setReady(true)
+    await advance(300)
+    expect(host.store.lobby.ready).toEqual({ 1: true })
+    expect(client.store.lobby.ready).toEqual({ 1: true })
+
+    host.session.rematch()
+    await advance(600)
+    expect(host.store.screen).toBe('match')
+    expect(client.store.screen).toBe('match')
+    expect(calls).toHaveLength(2)
+    expect(calls[1].slots).toEqual(calls[0].slots)
+    expect(calls[1].slots).toHaveLength(3)
+    expect(calls[1].settings).toEqual(calls[0].settings)
+    expect(calls[1].seed).not.toBe(calls[0].seed)
+    expect(host.store.lobby.ready).toEqual({})
+    expect(client.store.lobby.ready).toEqual({})
+    // the client is playing the new match, not the old one
+    expect(client.out.states[client.out.states.length - 1].tick).toBeLessThan(40)
+
+    // rematch straight out of a running match restarts it
+    host.session.rematch()
+    await advance(600)
+    expect(calls).toHaveLength(3)
+    expect(calls[2].seed).not.toBe(calls[1].seed)
+    expect(client.store.screen).toBe('match')
+    // aborted matches never reach local stats
+    expect(host.stats.results).toEqual([])
+  })
+
+  it('everyone sees every player ping, the host at 0', async () => {
+    const { host, client } = await hostAndClient()
+    await advance(3000)
+    const hp = host.store.lobby.pings
+    expect(hp[0]).toBe(0)
+    // 2 × 40 ms one-way latency plus up to 2 × 15 ms jitter
+    expect(hp[1]).toBeGreaterThan(70)
+    expect(hp[1]).toBeLessThan(115)
+    expect(client.store.lobby.pings[0]).toBe(0)
+    expect(Math.abs(client.store.lobby.pings[1] - hp[1])).toBeLessThan(15)
+  })
+
+  it('profile ids and preferred colors reach every lobby; a taken color falls back to a free one', async () => {
+    const { host, client } = await hostAndClient(noSim, LINK, { color: 0x123456 }, { color: 0x123456 })
+    const [h, c] = client.store.lobby.slots
+    expect(h).toMatchObject({ profileId: 'profile-Hosty', color: 0x123456 })
+    expect(c.profileId).toBe('profile-Clienta')
+    expect(c.color).not.toBe(0x123456)
+    host.session.addBot('hard')
+    await advance(200)
+    expect(client.store.lobby.slots[2].profileId).toBe('bot:hard')
+  })
+
+  /**
+   * Why: with no server, each peer's stats come from its own recording. Host and
+   * client must both record the same finished match (same winners, scores, length).
+   */
+  it('every peer records the finished match', async () => {
+    const { host, client } = await hostAndClient(sim!, LINK, { createBot: bots!.createBot }, { createBot: bots!.createBot })
+    host.session.updateSettings({ winScore: 1, shopSeconds: 1 })
+    host.session.addBot('brutal')
+    host.session.startMatch()
+    for (let s = 0; s < 400 && host.store.screen !== 'results'; s++) await advance(1000)
+    await advance(1000)
+    expect(host.store.screen).toBe('results')
+    expect(client.store.screen).toBe('results')
+    expect(host.stats.results).toHaveLength(1)
+    expect(client.stats.results).toHaveLength(1)
+    const [hr] = host.stats.results
+    const [cr] = client.stats.results
+    expect(cr).toEqual(hr)
+    expect(hr.ticks).toBeGreaterThan(0)
+    expect(hr.winners.length).toBeGreaterThan(0)
+    expect(client.stats.observed).toBeGreaterThan(100)
   })
 })

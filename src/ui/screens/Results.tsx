@@ -1,0 +1,209 @@
+import { useEffect, useMemo } from 'react'
+import { useGame, type MatchResult } from '../../game/store'
+import type { MatchRecord } from '../../game/stats'
+import { TICK_HZ } from '../../sim'
+import { Button, Crown, Kbd } from '../widgets'
+import { backToLobby, leaveToMenu, rematch, setReady } from '../flow'
+import { hex } from '../lib/view'
+import { duration, readHistory } from '../lib/stats'
+import { isTypingTarget } from '../lib/keys'
+
+interface Row {
+  id: number
+  name: string
+  color: string
+  kind: 'human' | 'bot'
+  score: number
+  kills: number
+  deaths: number
+  /** whole-match damage when the match record has it */
+  damage: number | null
+  winner: boolean
+}
+
+/** The match record the session just stored for this result, if it is the same match. */
+function recordFor(result: MatchResult): MatchRecord | null {
+  const rec = readHistory()[0]
+  if (!rec || Date.now() - rec.date > 10 * 60_000) return null
+  const ids = new Set(result.slots.map((s) => s.id))
+  if (rec.participants.length !== ids.size || !rec.participants.every((p) => ids.has(p.player))) return null
+  return rec
+}
+
+function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
+  return result.slots
+    .map((slot) => {
+      const sc = result.scores.find((s) => s.id === slot.id)
+      const p = rec?.participants.find((x) => x.player === slot.id)
+      return {
+        id: slot.id,
+        name: slot.name,
+        color: hex(slot.color),
+        kind: slot.kind,
+        score: sc?.score ?? 0,
+        kills: sc?.kills ?? 0,
+        deaths: sc?.deaths ?? 0,
+        damage: p ? Math.round(p.damage) : null,
+        winner: result.winners.includes(slot.id),
+      }
+    })
+    .sort((a, b) => b.score - a.score || b.kills - a.kills || (b.damage ?? 0) - (a.damage ?? 0) || a.deaths - b.deaths)
+}
+
+/** Most damage, then most kills, then fewest deaths. */
+function mvpOf(rows: Row[]): Row | null {
+  const best = [...rows].sort((a, b) => (b.damage ?? 0) - (a.damage ?? 0) || b.kills - a.kills || a.deaths - b.deaths)[0]
+  if (!best || (best.kills === 0 && !best.damage)) return null
+  return best
+}
+
+export function Results() {
+  const result = useGame((s) => s.result)
+  const role = useGame((s) => s.lobby.role)
+  const local = useGame((s) => s.lobby.localPlayer)
+  const ready = useGame((s) => s.lobby.ready)
+  const isHost = role !== 'client'
+  const rec = useMemo(() => (result ? recordFor(result) : null), [result])
+
+  // Enter = rematch, the one-click loop
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.repeat || isTypingTarget(e.target) || useGame.getState().settingsOpen) return
+      if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
+      e.preventDefault()
+      if (isHost) rematch()
+      else setReady(!useGame.getState().lobby.ready?.[useGame.getState().lobby.localPlayer])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isHost])
+
+  if (!result) {
+    return (
+      <div className="screen-in grid h-full place-items-center">
+        <div className="panel flex flex-col items-center gap-5 p-10">
+          <p className="text-lg text-ash">No results for this match.</p>
+          <Button onClick={leaveToMenu}>Back to menu</Button>
+        </div>
+      </div>
+    )
+  }
+
+  const rows = rowsOf(result, rec)
+  const mvp = mvpOf(rows)
+  const inMatch = result.slots.some((s) => s.id === local)
+  const won = result.winners.includes(local)
+  const draw = result.winners.length === 0
+  const title = draw ? 'Draw' : !inMatch ? 'Match over' : won ? 'Victory' : 'Defeat'
+  const winnerNames = rows.filter((r) => r.winner).map((r) => r.name)
+  const top2 = rows.slice(0, 2)
+  const line =
+    draw
+      ? 'Nobody took the match.'
+      : rows.length === 2
+        ? `${winnerNames[0]} takes it ${top2[0].score}–${top2[1].score}`
+        : `${winnerNames.join(' and ')} ${winnerNames.length > 1 ? 'win' : 'wins'}`
+  const roundsMode = rec ? rec.gameMode === 'rounds' : true
+  const secs = result.ticks ? result.ticks / TICK_HZ : rec?.durationSec
+  const online = role !== 'offline'
+  const humans = rows.filter((r) => r.kind === 'human')
+  const readyCount = humans.filter((r) => ready?.[r.id]).length
+  const localReady = !!ready?.[local]
+
+  return (
+    <div className="screen-in flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
+      <h1
+        className="wordmark text-center text-[clamp(4.5rem,11vw,8.5rem)]"
+        style={won || !inMatch ? undefined : { filter: 'grayscale(.35) drop-shadow(0 0 18px rgba(196,26,36,.45)) drop-shadow(0 2px 0 rgba(40,0,0,.9))' }}
+      >
+        {title}
+      </h1>
+      <div className="mt-3 mb-6 flex flex-wrap items-center justify-center gap-3 text-center">
+        <span className="text-xl font-semibold text-[#f0d9b8]">{line}</span>
+        <span className="chip">{result.rounds === 1 ? '1 round' : `${result.rounds} rounds`}</span>
+        {secs != null && <span className="chip tabular">{duration(secs)}</span>}
+      </div>
+
+      <div className="panel w-full max-w-3xl p-6">
+        {mvp && (
+          <div
+            className="mb-4 flex items-center gap-4 rounded-lg px-4 py-3"
+            style={{ background: `linear-gradient(90deg, ${mvp.color}26, rgba(0,0,0,.2))`, boxShadow: `inset 0 0 0 1px ${mvp.color}55` }}
+          >
+            <span className="display text-3xl leading-none text-gold">MVP</span>
+            <span className="h-4 w-4 rotate-45 rounded-[3px]" style={{ background: mvp.color, boxShadow: `0 0 12px ${mvp.color}` }} aria-hidden />
+            <span className="text-[1.25rem] font-bold">{mvp.name}</span>
+            <span className="tabular ml-auto text-[1.02rem] text-[#e6d3b8]">
+              {mvp.damage != null && <>{mvp.damage.toLocaleString()} damage, </>}
+              {mvp.kills} {mvp.kills === 1 ? 'kill' : 'kills'}
+            </span>
+          </div>
+        )}
+        <table className="tabular w-full text-left text-[1.08rem]">
+          <thead>
+            <tr className="text-sm text-ash">
+              <th className="pb-2 font-semibold">Warlock</th>
+              <th className="pb-2 text-right font-semibold">{roundsMode ? 'Rounds won' : 'Score'}</th>
+              <th className="pb-2 text-right font-semibold">Kills</th>
+              <th className="pb-2 text-right font-semibold">Deaths</th>
+              <th className="pb-2 text-right font-semibold">Damage</th>
+              {online && <th className="pb-2 text-right font-semibold">Rematch</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className={`border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}>
+                <td className="py-2.5 pr-2">
+                  <span className="flex items-center gap-3">
+                    <span className="h-3.5 w-3.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: r.color, boxShadow: `0 0 8px ${r.color}88` }} aria-hidden />
+                    <span className="truncate font-bold">{r.name}</span>
+                    {r.winner && <Crown title="Winner" />}
+                    {r.id === local && <span className="chip text-gold">You</span>}
+                  </span>
+                </td>
+                <td className="py-2.5 text-right text-[1.2rem] font-bold text-gold">{r.score}</td>
+                <td className="py-2.5 text-right">{r.kills}</td>
+                <td className="py-2.5 text-right">{r.deaths}</td>
+                <td className="py-2.5 text-right">{r.damage != null ? r.damage.toLocaleString() : '–'}</td>
+                {online && (
+                  <td className="py-2.5 text-right">
+                    {r.kind === 'bot' ? (
+                      <span className="text-sm text-ash">Bot</span>
+                    ) : ready?.[r.id] ? (
+                      <span className="chip bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>
+                    ) : (
+                      <span className="text-sm text-ash">–</span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+        {isHost ? (
+          <Button variant="primary" size="lg" sound="ready" onClick={rematch} autoFocus>
+            Rematch <Kbd>Enter</Kbd>
+          </Button>
+        ) : (
+          <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus>
+            {localReady ? 'Waiting for the host…' : 'Rematch'} {!localReady && <Kbd>Enter</Kbd>}
+          </Button>
+        )}
+        <Button size="lg" onClick={backToLobby}>
+          Back to lobby
+        </Button>
+        <Button size="lg" variant="danger" sound="back" onClick={leaveToMenu}>
+          Leave
+        </Button>
+      </div>
+      {online && humans.length > 1 && (
+        <p className="mt-3 text-[0.98rem] text-ash" aria-live="polite">
+          {isHost ? `${readyCount} of ${humans.length - 1} ${humans.length - 1 === 1 ? 'opponent wants' : 'players want'} a rematch.` : localReady ? 'The host sees that you are ready.' : 'The host starts the rematch.'}
+        </p>
+      )}
+    </div>
+  )
+}

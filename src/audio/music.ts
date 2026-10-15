@@ -9,7 +9,9 @@
  * fight: tense drone (minor second), kick, bass pulse, hats; `intensity` (0..1,
  *        raised as the arena shrinks) opens the filter and adds hats and snares
  */
-import { bell, chain, env, filt, noise, osc, thump, type Synth } from './synth'
+import { layers, Voice, type Synth } from './synth'
+
+const { burst, thump, fmBell, click, brass } = layers
 
 export type MusicTrack = 'menu' | 'shop' | 'fight'
 
@@ -42,12 +44,12 @@ const TRACKS: Record<MusicTrack, TrackDef> = {
       ['triangle', 82.41, 0.3],
     ],
     play(l, t, step) {
-      const s = l.synth
+      const v = l.voice(t)
       if (step % 8 === 0) {
-        thump(s, l.out, t, 62, 40, 0.2, 0.3, 0.3)
-        thump(s, l.out, t + 0.28, 60, 40, 0.2, 0.18, 0.3)
+        thump(v, 0, 62, 40, 0.3, 0.3)
+        thump(v, 0.28, 60, 40, 0.3, 0.18)
       }
-      if (step % 8 === 4 && Math.random() < 0.5) bell(s, l.out, t, pick(PHRYGIAN), 0.03, 3)
+      if (step % 8 === 4 && Math.random() < 0.5) fmBell(v, 0, pick(PHRYGIAN), 3.5, 1.2, 3, 0.03)
     },
   },
   shop: {
@@ -63,17 +65,17 @@ const TRACKS: Record<MusicTrack, TrackDef> = {
       ['triangle', 110, 0.25],
     ],
     play(l, t, step) {
-      const s = l.synth
-      if (step % 8 === 0) thump(s, l.out, t, 70, 42, 0.18, 0.2, 0.25)
+      const v = l.voice(t)
+      if (step % 8 === 0) thump(v, 0, 70, 42, 0.25, 0.2)
       if (step % 2 === 0 && Math.random() < 0.7) {
         l.walk = Math.max(0, Math.min(PENTA.length - 1, l.walk + Math.floor(Math.random() * 5) - 2))
         const f = PENTA[l.walk]
-        const lp = filt(s, 'lowpass', 2000, 2)
-        lp.frequency.setValueAtTime(2200, t)
-        lp.frequency.exponentialRampToValueAtTime(400, t + 0.45)
-        lp.connect(env(s, l.out, t, 0.004, 0.05, 0.5))
-        osc(s, 'triangle', f, f, t, 0, t + 0.6).connect(lp)
-        osc(s, 'sawtooth', f * 1.003, f * 1.003, t, 0, t + 0.6).connect(lp)
+        const g = v.gain(0, v.out)
+        const lp = v.filter('lowpass', 2200, 2, g)
+        v.glide(lp.frequency, 0, 2200, 400, 0.45)
+        v.osc('triangle', f, 0, 0.6, lp)
+        v.osc('sawtooth', f, 0, 0.6, lp, 5)
+        v.ad(g.gain, 0, 0.004, 0.05, 0.5)
       }
     },
   },
@@ -89,30 +91,29 @@ const TRACKS: Record<MusicTrack, TrackDef> = {
       ['sine', A1 / 2, 0.8],
     ],
     play(l, t, step) {
-      const s = l.synth
+      const v = l.voice(t)
       const k = l.intensity
       const st = step % 16
-      if (st === 0 || st === 8 || (k > 0.5 && st === 10)) thump(s, l.out, t, 120, 42, 0.2, 0.5, 0.22)
+      if (st === 0 || st === 8 || (k > 0.5 && st === 10)) {
+        thump(v, 0, 120, 42, 0.22, 0.5, v.drive(v.out, 1.8, 0.7))
+        click(v, 0, 0.08, 2500)
+      }
       if ([0, 3, 6, 8, 11, 14].includes(st)) {
-        const lp = filt(s, 'lowpass', 900, 4)
-        lp.frequency.setValueAtTime(900 + 900 * k, t)
-        lp.frequency.exponentialRampToValueAtTime(180, t + 0.16)
-        lp.connect(env(s, l.out, t, 0.003, 0.12, 0.18))
-        osc(s, 'sawtooth', A1, A1, t, 0, t + 0.25).connect(lp)
-        if (k > 0.6) osc(s, 'square', A1 * 2, A1 * 2, t, 0, t + 0.2).connect(lp)
+        const g = v.gain(0, v.out)
+        const lp = v.filter('lowpass', 900, 4, g)
+        v.glide(lp.frequency, 0, 900 + 900 * k, 180, 0.16)
+        v.osc('sawtooth', A1, 0, 0.25, lp)
+        if (k > 0.6) v.osc('square', A1 * 2, 0, 0.2, lp)
+        v.ad(g.gain, 0, 0.003, 0.12, 0.18)
       }
       if (st % 4 === 2 || (k > 0.5 && st % 2 === 1)) {
-        chain(noise(s, s.white, t, t + 0.06), filt(s, 'highpass', 7000), env(s, l.out, t, 0.001, 0.025 + 0.04 * k, 0.03))
+        burst(v, { type: 'highpass', freq: 7000, attack: 0.001, decay: 0.03, gain: 0.04 + 0.05 * k })
       }
       if (k > 0.25 && (st === 4 || st === 12)) {
-        chain(noise(s, s.white, t, t + 0.2), filt(s, 'bandpass', 1800, 0.8), env(s, l.out, t, 0.001, 0.1, 0.14))
-        thump(s, l.out, t, 210, 150, 0.05, 0.07, 0.08)
+        burst(v, { freq: 1800, q: 0.8, attack: 0.001, decay: 0.14, gain: 0.3 })
+        thump(v, 0, 210, 150, 0.08, 0.07)
       }
-      if (step === 0) {
-        const lp = filt(s, 'lowpass', 1200, 1)
-        lp.connect(env(s, l.out, t, 0.02, 0.035, 1.2))
-        for (const f of [220, 261.63, 311.13]) osc(s, 'sawtooth', f, f, t, 0, t + 1.3).connect(lp)
-      }
+      if (step === 0) brass(v, 0, [220, 261.63, 311.13], 1.2, 0.12, [[0, 400], [0.1, 1400], [1.2, 500]])
     },
   },
 }
@@ -144,7 +145,10 @@ export class MusicLayer {
     this.out.connect(dest)
     const t = ctx.currentTime + 0.05
 
-    this.droneFilter = filt(synth, 'lowpass', this.def.droneCutoff, this.def.droneQ)
+    this.droneFilter = ctx.createBiquadFilter()
+    this.droneFilter.type = 'lowpass'
+    this.droneFilter.frequency.value = this.def.droneCutoff
+    this.droneFilter.Q.value = this.def.droneQ
     const dg = ctx.createGain()
     dg.gain.value = this.def.droneGain
     this.droneFilter.connect(dg)
@@ -198,6 +202,11 @@ export class MusicLayer {
     if (this.track !== 'fight') return
     const now = this.synth.ctx.currentTime
     this.droneFilter.frequency.setTargetAtTime(this.def.droneCutoff + 1400 * this.intensity, now, 1.5)
+  }
+
+  /** A one-shot voice into this layer at context time `t`. */
+  voice(t: number): Voice {
+    return new Voice(this.synth, this.out, t)
   }
 
   /** Schedule steps up to `until` (context time). */

@@ -1,7 +1,9 @@
 /**
  * Test helpers for sim tests (no vitest import, safe to use from headless scripts too).
  */
-import { DEFAULT_SETTINGS } from './config'
+import { DEFAULT_SETTINGS, ITEM_SLOT_START } from './config'
+import { SPELLS } from './spells/data'
+import { recomputeStats } from './stats'
 import { createMatch, step } from './index'
 import { removeModifiers, MOD_SPAWN_INVULNERABLE } from './modifiers'
 import type { InputCommand, MatchSettings, PawnState, PlayerInput, PlayerSlot, SimEvent, SimState } from './types'
@@ -55,6 +57,26 @@ export function runUntil(state: SimState, pred: (s: SimState) => boolean, max = 
 export function toCombat(state: SimState): void {
   runUntil(state, (s) => s.phase === 'fight')
   for (const p of state.pawns) removeModifiers(state, p, MOD_SPAWN_INVULNERABLE)
+}
+
+/**
+ * Give a pawn a spell or item at a level without the shop (unreleased spells included).
+ * Returns the slot index.
+ */
+export function grant(state: SimState, player: number, id: string, level = 1): number {
+  const p = pawn(state, player)
+  const def = SPELLS[id]
+  let slot: number
+  if (def && def.kind === 'spell') slot = def.column - 1
+  else {
+    slot = p.slots.indexOf(id)
+    if (slot < 0) slot = p.slots.findIndex((s, i) => i >= ITEM_SLOT_START && s === null)
+  }
+  p.slots[slot] = id
+  p.levels[slot] = level
+  p.cooldowns[slot] = 0
+  recomputeStats(p)
+  return slot
 }
 
 /** Put a pawn somewhere, at rest, with no orders. */

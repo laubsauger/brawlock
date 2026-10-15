@@ -11,8 +11,8 @@
  * (node tests, old browsers) or while the context is not running.
  */
 import { MusicLayer, type MusicTrack } from './music'
-import { planEvents, type ListenerLike, type SoundCue } from './events'
-import { createSynth, RECIPES, type SfxId, type Synth } from './synth'
+import { flightPath, newCueMemory, planEvents, type ListenerLike, type SoundCue } from './events'
+import { createSynth, RECIPES, Voice, type SfxId, type Synth } from './synth'
 import type { SimEvent } from '../sim/types'
 
 interface VoiceSpec {
@@ -29,24 +29,25 @@ interface VoiceSpec {
 }
 
 export const VOICES: Record<SfxId, VoiceSpec> = {
-  fireballCast: { max: 4, level: 1.8, bus: 'sfx' },
-  explosion: { max: 5, level: 0.75, bus: 'sfx' },
+  fireballCast: { max: 4, level: 0.75, bus: 'sfx' },
+  fireballTravel: { max: 6, level: 0.36, bus: 'sfx' },
+  explosion: { max: 5, level: 1.0, bus: 'sfx' },
   fizzle: { max: 3, level: 0.9, bus: 'sfx' },
   hit: { max: 5, level: 0.9, bus: 'sfx', minGap: 0.02 },
   scourgeWindup: { max: 4, level: 0.7, bus: 'sfx' },
-  scourgeBlast: { max: 3, level: 0.7, bus: 'sfx' },
+  scourgeBlast: { max: 3, level: 1.0, bus: 'sfx' },
   teleportOut: { max: 3, level: 1.1, bus: 'sfx' },
   teleportIn: { max: 3, level: 1.0, bus: 'sfx' },
-  lavaSizzle: { max: 1, level: 1.4, bus: 'sfx', minGap: 0.22 },
-  death: { max: 2, level: 0.9, bus: 'sfx' },
+  lavaSizzle: { max: 1, level: 1.2, bus: 'sfx', minGap: 0.22 },
+  death: { max: 2, level: 1.0, bus: 'sfx' },
   obstacleBreak: { max: 3, level: 0.8, bus: 'sfx' },
   shrinkRumble: { max: 1, level: 0.9, bus: 'sfx', minGap: 1 },
   // phase 'fight' event and ui('fight') both trigger it: the gap plays it once
   roundStart: { max: 1, level: 0.75, bus: 'sfx', minGap: 0.8 },
-  roundWin: { max: 1, level: 2, bus: 'sfx', minGap: 1 },
-  gameOver: { max: 1, level: 0.9, bus: 'sfx', minGap: 2 },
-  castGeneric: { max: 3, level: 2.4, bus: 'sfx' },
-  impact: { max: 4, level: 0.7, bus: 'sfx' },
+  roundWin: { max: 1, level: 0.6, bus: 'sfx', minGap: 1 },
+  gameOver: { max: 1, level: 0.7, bus: 'sfx', minGap: 2 },
+  castGeneric: { max: 3, level: 1.6, bus: 'sfx' },
+  impact: { max: 4, level: 1.2, bus: 'sfx' },
   uiHover: { max: 2, level: 1, bus: 'ui', minGap: 0.03 },
   uiClick: { max: 2, level: 1, bus: 'ui', minGap: 0.02 },
   uiBack: { max: 2, level: 1, bus: 'ui', minGap: 0.05 },
@@ -54,6 +55,49 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
   uiError: { max: 1, level: 1, bus: 'ui', minGap: 0.1 },
   uiReady: { max: 1, level: 1, bus: 'ui', minGap: 0.1 },
   uiCountdown: { max: 1, level: 1, bus: 'ui', minGap: 0.2 },
+  castInhale: { max: 6, level: 1.8, bus: 'sfx' },
+  castSnuff: { max: 4, level: 1.2, bus: 'sfx' },
+  beamZap: { max: 3, level: 1.6, bus: 'sfx' },
+  tink: { max: 3, level: 1.4, bus: 'sfx' },
+  reflect: { max: 3, level: 1, bus: 'sfx' },
+  swapWarp: { max: 4, level: 1, bus: 'sfx' },
+  chargeSlam: { max: 3, level: 0.9, bus: 'sfx' },
+  ricochet: { max: 4, level: 1.3, bus: 'sfx', minGap: 0.03 },
+  refresh: { max: 2, level: 1, bus: 'sfx' },
+  streakTick: { max: 1, level: 1, bus: 'ui', minGap: 0.05 },
+  respawnSwell: { max: 2, level: 1, bus: 'sfx' },
+  shieldUp: { max: 3, level: 1, bus: 'sfx' },
+  popOff: { max: 3, level: 0.9, bus: 'sfx' },
+  fade: { max: 3, level: 2.5, bus: 'sfx' },
+  chains: { max: 2, level: 1, bus: 'sfx' },
+  ignite: { max: 2, level: 1, bus: 'sfx' },
+  darkPulse: { max: 2, level: 0.5, bus: 'sfx' },
+  clusterTravel: { max: 8, level: 0.25, bus: 'sfx' },
+  bladeThrow: { max: 3, level: 1, bus: 'sfx' },
+  bladeSpin: { max: 4, level: 0.5, bus: 'sfx' },
+  bladeHit: { max: 3, level: 1, bus: 'sfx' },
+  arcaneCast: { max: 3, level: 1, bus: 'sfx' },
+  homingTravel: { max: 4, level: 0.5, bus: 'sfx' },
+  arcaneBurst: { max: 3, level: 1, bus: 'sfx' },
+  hasteUp: { max: 2, level: 1, bus: 'sfx' },
+  slowDown: { max: 2, level: 1, bus: 'sfx' },
+  twinCast: { max: 3, level: 1, bus: 'sfx' },
+  twinTravel: { max: 6, level: 0.5, bus: 'sfx' },
+  swapCast: { max: 3, level: 1, bus: 'sfx' },
+  swapTravel: { max: 4, level: 0.5, bus: 'sfx' },
+  drainCast: { max: 3, level: 1, bus: 'sfx' },
+  drainTravel: { max: 4, level: 0.5, bus: 'sfx' },
+  drainHit: { max: 3, level: 1, bus: 'sfx' },
+  orbTravel: { max: 6, level: 0.5, bus: 'sfx' },
+  orbAbsorb: { max: 3, level: 1, bus: 'sfx' },
+  rechargeCast: { max: 3, level: 1, bus: 'sfx' },
+  rechargeTravel: { max: 4, level: 0.5, bus: 'sfx' },
+  zapHit: { max: 4, level: 1, bus: 'sfx' },
+  bouncerCast: { max: 3, level: 1, bus: 'sfx' },
+  bouncerTravel: { max: 4, level: 0.5, bus: 'sfx' },
+  bounceZap: { max: 4, level: 1, bus: 'sfx', minGap: 0.03 },
+  dashBurst: { max: 3, level: 1, bus: 'sfx' },
+  redirect: { max: 2, level: 1, bus: 'sfx' },
 }
 
 const MAX_VOICES = 40
@@ -97,6 +141,13 @@ export class AudioEngine {
   private vol: Volumes = { master: 0.8, sfx: 1, music: 0.6, muted: false }
   private readonly voiceEnds = new Map<SfxId, number[]>()
   private readonly lastStart = new Map<SfxId, number>()
+  private readonly keyed = new Map<
+    string,
+    { gain: GainNode; end: number; level: number; loop?: { proj: number; panner: StereoPannerNode | null; voice: Voice } }
+  >()
+  private readonly memory = newCueMemory()
+  private countdown = 0
+  private lastCountdown = -Infinity
   private desiredTrack: MusicTrack | 'none' = 'none'
   private current: MusicLayer | null = null
   private fading: MusicLayer[] = []
@@ -198,8 +249,48 @@ export class AudioEngine {
         this.current?.setIntensity(this.shrinks / 8)
       }
     }
-    if (!this.ready || events.length === 0) return
-    for (const c of planEvents(events, listener)) this.play(c)
+    if (!this.ready) return
+    if (events.length > 0) for (const c of planEvents(events, listener, this.memory)) this.play(c)
+    this.followLoops(listener)
+  }
+
+  /**
+   * Re-aim travel loops at where their projectiles are now (curving Boomerang, Homing,
+   * redirected bolts). Runs on every playEvents call; between calls a loop keeps
+   * extrapolating its last straight flight.
+   */
+  private followLoops(listener: ListenerLike): void {
+    const projectiles = listener.state?.projectiles
+    const g = this.g
+    if (!projectiles || !g) return
+    const now = g.ctx.currentTime
+    for (const [key, kv] of this.keyed) {
+      if (!kv.loop) continue
+      if (kv.end <= now) {
+        this.keyed.delete(key)
+        continue
+      }
+      const pr = projectiles.find((q) => q.id === kv.loop!.proj)
+      if (!pr) {
+        this.stopKeyed(key) // gone without an event we saw
+        continue
+      }
+      const left = Math.min(kv.end - now, 1.5)
+      if (left < 0.06) continue
+      const path = flightPath(pr.x, pr.y, pr.vx, pr.vy, left, listener)
+      const params = [kv.gain.gain, kv.loop.panner?.pan, ...kv.loop.voice.buffers.map((b) => b.node.playbackRate)]
+      for (const p of params) {
+        if (!p) continue
+        p.cancelScheduledValues(now)
+        p.setValueAtTime(p.value, now)
+      }
+      for (const pt of path) {
+        const at = now + pt.t + 0.02
+        kv.gain.gain.linearRampToValueAtTime(pt.gain * kv.level, at)
+        kv.loop.panner?.pan.linearRampToValueAtTime(pt.pan, at)
+        for (const b of kv.loop.voice.buffers) b.node.playbackRate.linearRampToValueAtTime(b.speed * pt.rate, at)
+      }
+    }
   }
 
   ui(id: SfxId): void {
@@ -210,13 +301,16 @@ export class AudioEngine {
 
   play(c: SoundCue): void {
     const g = this.g
-    if (!g || g.ctx.state !== 'running' || this.vol.muted) return
-    const spec = VOICES[c.id]
+    if (!g || g.ctx.state !== 'running') return
+    if (c.stopKey) this.stopKeyed(c.stopKey)
+    if (c.id === null || this.vol.muted) return
+    const id = c.id
+    const spec = VOICES[id]
     const now = g.ctx.currentTime
-    const ends = (this.voiceEnds.get(c.id) ?? []).filter((e) => e > now)
-    this.voiceEnds.set(c.id, ends)
+    const ends = (this.voiceEnds.get(id) ?? []).filter((e) => e > now)
+    this.voiceEnds.set(id, ends)
     if (ends.length >= spec.max) return
-    if (spec.minGap !== undefined && now - (this.lastStart.get(c.id) ?? -Infinity) < spec.minGap) return
+    if (spec.minGap !== undefined && now - (this.lastStart.get(id) ?? -Infinity) < spec.minGap) return
     let total = 0
     for (const list of this.voiceEnds.values()) for (const e of list) if (e > now) total++
     if (total >= MAX_VOICES) return
@@ -225,21 +319,44 @@ export class AudioEngine {
     const out = g.ctx.createGain()
     out.gain.value = c.gain * spec.level
     let tail: AudioNode = out
-    if (c.pan !== 0 && typeof g.ctx.createStereoPanner === 'function') {
-      const p = g.ctx.createStereoPanner()
-      p.pan.value = c.pan
-      out.connect(p)
-      tail = p
+    let panner: StereoPannerNode | null = null
+    if ((c.pan !== 0 || c.path) && typeof g.ctx.createStereoPanner === 'function') {
+      panner = g.ctx.createStereoPanner()
+      panner.pan.value = c.pan
+      out.connect(panner)
+      tail = panner
     }
     tail.connect(spec.bus === 'ui' ? g.ui : g.sfx)
-    let dur = 0.5
+    const param = id === 'uiCountdown' ? this.countdownStep(now) : (c.param ?? 0)
+    const v = new Voice(g.synth, out, t)
     try {
-      dur = RECIPES[c.id](g.synth, out, t, c.param ?? 0)
+      RECIPES[id](v, param)
     } catch {
       // a broken recipe must never take the game down
     }
+    const dur = Math.max(0.05, v.stopAt - t)
+    if (c.path && c.path.length > 1) {
+      // a moving source: follow its flight (pan, distance) and bend its rate (Doppler)
+      out.gain.setValueAtTime(out.gain.value, t)
+      for (const pt of c.path) {
+        const at = t + pt.t
+        out.gain.linearRampToValueAtTime(pt.gain * spec.level, at)
+        panner?.pan.linearRampToValueAtTime(pt.pan, at)
+        for (const b of v.buffers) b.node.playbackRate.linearRampToValueAtTime(b.speed * pt.rate, at)
+      }
+    }
     ends.push(t + dur)
-    this.lastStart.set(c.id, now)
+    this.lastStart.set(id, now)
+    if (c.key) {
+      this.stopKeyed(c.key)
+      const proj = c.key.startsWith('proj:') ? Number(c.key.slice(5)) : NaN
+      this.keyed.set(c.key, {
+        gain: out,
+        end: t + dur,
+        level: spec.level,
+        loop: Number.isFinite(proj) ? { proj, panner, voice: v } : undefined,
+      })
+    }
     setTimeout(
       () => {
         out.disconnect()
@@ -247,6 +364,25 @@ export class AudioEngine {
       },
       (t - now + dur + 0.3) * 1000,
     )
+  }
+
+  /** "3, 2, 1": consecutive countdown blips climb in pitch. */
+  private countdownStep(now: number): number {
+    this.countdown = now - this.lastCountdown < 1.6 ? this.countdown + 1 : 0
+    this.lastCountdown = now
+    return this.countdown
+  }
+
+  /** Cut a keyed voice (cancelled windup, projectile that hit) with a fast fade, no click. */
+  private stopKeyed(key: string): void {
+    const v = this.keyed.get(key)
+    if (!v || !this.g) return
+    this.keyed.delete(key)
+    const now = this.g.ctx.currentTime
+    if (v.end <= now) return
+    v.gain.gain.cancelScheduledValues(now)
+    v.gain.gain.setValueAtTime(v.gain.gain.value, now)
+    v.gain.gain.setTargetAtTime(0, now, 0.015)
   }
 
   music(track: MusicTrack | 'none'): void {

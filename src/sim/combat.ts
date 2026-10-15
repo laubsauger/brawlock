@@ -8,8 +8,9 @@ import {
   OBSTACLE_EXPLODE_RADIUS,
 } from './config'
 import { isCombat, onKill } from './mode'
-import { removeTemporaryModifiers } from './modifiers'
-import { lifestealFactor } from './stats'
+import { MODIFIERS, removeTemporaryModifiers } from './modifiers'
+import { cancelCast } from './orders'
+import { dmgFactor, dmgReduction, lifestealFactor } from './stats'
 import { isEnemy, pawnOf, scoreOf } from './teams'
 import type { ObstacleState, PawnState, PlayerId, ProjectileState, SimState, Vec2 } from './types'
 
@@ -49,9 +50,10 @@ export function knockbackSpeed(
 /** Pawn:receiveDamage. Returns the damage dealt (0 when ignored). */
 export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo): number {
   if (!isCombat(state) || !pawn.alive || pawn.invulnerable) return 0
-  // dmg_factor (1) and dmg_reduction (0) have no M0 modifier; hook point for future ones
-  const amount = info.amount * state.settings.dmgMultiplier
+  let amount = info.amount * state.settings.dmgMultiplier
+  amount = amount * dmgFactor(pawn) - dmgReduction(pawn)
   if (!(amount > 0)) return 0
+  // modifyDamageTaken: no original spell overrides it
   const dp = pawn.kbPoints + amount * (info.kbVulnerability ?? 1)
   pawn.kbPoints = dp > 0 ? dp : 0
   let kb = 0
@@ -61,7 +63,16 @@ export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo
     pawn.vx += kb * n.x
     pawn.vy += kb * n.y
   }
-  // modifyDamagePostKB (Rush) would adjust `amount` here
+  // modifyDamagePostKB (Rush): knockback was already computed from the full amount
+  let absorbed = 0
+  for (const mod of pawn.modifiers.slice()) {
+    const hook = MODIFIERS[mod.id]?.modifyDamagePostKB
+    if (hook) {
+      const delta = hook(state, pawn, mod, { amount, source: info.source })
+      amount += delta
+      if (delta < 0) absorbed -= delta
+    }
+  }
   if (info.source !== null) {
     const sc = scoreOf(state, info.source)
     if (sc) sc.damageThisRound += amount
@@ -72,7 +83,8 @@ export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo
     }
     pawn.lastHitter = info.source
   }
-  state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb })
+  if (absorbed > 0) state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb, absorbed })
+  else state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb })
   const life = pawn.hp - amount
   if (life > 1) pawn.hp = life
   else killPawn(state, pawn, info.source ?? pawn.lastHitter)
@@ -94,6 +106,7 @@ export function heal(state: SimState, pawn: PawnState, amount: number, dpFactor 
  */
 export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | null): void {
   if (!pawn.alive) return
+  cancelCast(state, pawn)
   pawn.hp = 0
   pawn.alive = false
   pawn.vx = 0
@@ -101,7 +114,6 @@ export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | nu
   pawn.walkVx = 0
   pawn.walkVy = 0
   pawn.moveTarget = null
-  pawn.cast = null
   pawn.lavaTicks = 0
   removeTemporaryModifiers(state, pawn)
   const credit = killer !== null && killer !== pawn.owner ? killer : null

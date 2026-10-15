@@ -1,0 +1,6 @@
+Use case: stylized-concept
+Asset type: game splash screen / key art, widescreen 16:9 landscape (wide canvas, e.g. 1920x1080 proportions)
+Scene: night battle over a vast glowing lava caldera. A crumbling platform of cracked obsidian and runed stone tiles floats over the lava, broken edges falling into it. Two hooded warlocks stand on it facing each other, one in the left third and one in the right third of the frame, each hurling a blazing fireball at the other; the fireballs streak toward each other in the middle ground. One warlock has teal-cyan robe trim, the other crimson trim. Rocky volcanic cliffs ring the caldera, with mossy boulders and glowing green vegetation and small green crystal accents along the rim. Moonlit night sky with drifting smoke and embers; a large pale moon sits in the upper-left area.
+Style: cinematic AAA game key art, painterly-rendered 3D, high detail, dramatic lighting: orange lava underglow on the figures, cool blue moonlight rim light.
+Composition: leave a calm, uncluttered, darker area of night sky in the center-top third of the image (space for a logo added later); keep the action in the lower two thirds. Wide establishing shot, slight low angle.
+Constraints: no text, no letters, no logo, no title, no watermark, no UI, no border.

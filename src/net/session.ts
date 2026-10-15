@@ -8,6 +8,8 @@
  *   → snapshot to clients (every tick, or every 2nd tick when large).
  * Client: own 60 Hz pulse; drains local input and sends every unacked frame
  *   (inputs.ts), plays snapshots through the jitter buffer (jitter.ts).
+ * Both feed every played tick to the MatchRecorder, which writes local stats at
+ * game over (game/stats.ts).
  */
 import type { Bot } from '../bots'
 import type { Listener } from '../audio'
@@ -33,8 +35,10 @@ import {
   decode,
   encode,
   encodeSnap,
+  sanitizeColor,
   sanitizeFrames,
   sanitizeName,
+  sanitizeProfileId,
   stateJsonWithoutEvents,
   type Msg,
   type TickEvents,
@@ -47,7 +51,6 @@ import type { HostEndpoint, NetFactory, Transport } from './transport'
 
 /** What the session reads / writes in the UI store. */
 export interface UiPort {
-  playerName(): string
   lobby(): LobbyView
   setLobby(patch: Partial<LobbyView>): void
   screen(): Screen
@@ -67,10 +70,30 @@ export interface FrameSink {
   setNet(rttMs: number, lossPct: number): void
 }
 
+/** Local stats hook (game/stats.ts). Every peer records the matches it plays or watches. */
+export interface MatchRecorder {
+  start(info: { localPlayer: PlayerId; slots: PlayerSlot[]; settings: MatchSettings }): void
+  /** one played tick: its state and the events of every tick since the previous call */
+  observe(state: SimState, events: readonly SimEvent[]): void
+  finish(result: MatchResult): void
+  /** match ended without a result (aborted, rematch mid-match, leave) */
+  abort(): void
+}
+
+export interface LocalProfile {
+  /** stable per-browser player id (game/profile.ts) */
+  id: string
+  name: string
+  /** preferred 0xRRGGBB, granted when free */
+  color: number | null
+}
+
 export interface SessionDeps {
   ui: UiPort
+  profile: () => LocalProfile
+  recorder?: MatchRecorder
   frame: FrameSink
-  input: { drain(): InputCommand[] }
+  input: { drain(): InputCommand[]; onCommand?(cb: (cmd: InputCommand) => void): () => void }
   audio: { playEvents(events: SimEvent[], listener: Listener): void }
   createMatch: (settings: MatchSettings, slots: PlayerSlot[], seed: number) => SimState
   step: (state: SimState, inputs: PlayerInput[]) => void
@@ -97,6 +120,16 @@ export interface SessionApi {
   setTeam(player: PlayerId, team: number): void
   updateSettings(patch: Partial<MatchSettings>): void
   startMatch(): void
+  /**
+   * Results screen, one click. Host / offline: start a new match right away with the
+   * same slots and settings and a new seed (clients follow instantly). Client: same
+   * as setReady(true).
+   */
+  rematch(): void
+  /** Host / offline: everyone back to the lobby, slots kept. Client: own screen only, between matches. */
+  backToLobby(): void
+  /** "Wants a rematch" flag, shown to everyone in lobby.ready. Reset when a match starts. */
+  setReady(ready: boolean): void
   leave(): void
 }
 
@@ -146,6 +179,8 @@ const NOTICE_MS = 6000
 const NET_STATS_MS = 250
 const LISTENER_HALF_WIDTH = 1200
 const MAX_QUEUED_CMDS = 256
+/** host broadcasts per-player pings this often */
+const PING_BROADCAST_MS = 1000
 
 // ---------------------------------------------------------------------------
 
@@ -207,9 +242,14 @@ function botName(d: BotDifficulty): string {
   return `${cap(d)} Bot`
 }
 
+/** Bots of one difficulty share a stats identity, so "you vs Hard bots" is a record. */
+function botProfileId(d: BotDifficulty): string {
+  return `bot:${d}`
+}
+
 function listenerFor(state: SimState, player: PlayerId): Listener {
   const pawn = state.pawns.find((p) => p.owner === player)
-  return { x: pawn?.x ?? 0, y: pawn?.y ?? 0, halfWidth: LISTENER_HALF_WIDTH }
+  return { x: pawn?.x ?? 0, y: pawn?.y ?? 0, halfWidth: LISTENER_HALF_WIDTH, localPlayer: player, state }
 }
 
 function winnersOf(state: SimState): PlayerId[] {
@@ -229,7 +269,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let settings: MatchSettings = { ...deps.defaultSettings }
   let localPlayer: PlayerId = 0
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
-
+  let ready: Record<PlayerId, boolean> = {}
+  let pings: Record<PlayerId, number> = {}
+  let pingTimer: ReturnType<typeof setInterval> | null = null
+  const rec = deps.recorder
   // host
   let endpoint: HostEndpoint | null = null
   let peers: RemotePeer[] = []
@@ -257,12 +300,13 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     return id
   }
 
-  function freeColor(): number {
+  function freeColor(preferred: number | null = null): number {
+    if (preferred !== null && !slots.some((s) => s.color === preferred)) return preferred
     return PLAYER_COLORS.find((c) => !slots.some((s) => s.color === c)) ?? PLAYER_COLORS[slots.length % PLAYER_COLORS.length]
   }
 
-  function addSlot(slot: Omit<PlayerSlot, 'color' | 'team' | 'id'>): PlayerSlot {
-    const s: PlayerSlot = { id: freeId(), color: freeColor(), team: slots.length % 2, ...slot }
+  function addSlot(slot: Omit<PlayerSlot, 'color' | 'team' | 'id'>, preferredColor: number | null = null): PlayerSlot {
+    const s: PlayerSlot = { id: freeId(), color: freeColor(preferredColor), team: slots.length % 2, ...slot }
     slots.push(s)
     return s
   }
@@ -277,8 +321,35 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   }
 
   function publishLobby(): void {
-    ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer })
-    if (role === 'host') broadcast({ t: 'lobby', slots, settings })
+    ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer, ready: { ...ready }, pings: { ...pings } })
+    if (role === 'host') broadcast({ t: 'lobby', slots, settings, ready, pings })
+  }
+
+  /**
+   * Host, ~1 Hz: per-player pings from each link's RTT. Always sent (unreliable, a
+   * lost one is replaced a second later); the store only changes when a value does.
+   */
+  function updatePings(): void {
+    if (role !== 'host') return
+    const next: Record<PlayerId, number> = { [localPlayer]: 0 }
+    for (const p of peers) if (p.playerId !== null) next[p.playerId] = Math.round(p.t.rtt)
+    setPings(next)
+    const data = encode({ t: 'pings', pings })
+    for (const p of peers) if (p.playerId !== null) p.t.sendUnreliable(data)
+  }
+
+  function setPings(next: Record<PlayerId, number>): void {
+    const same =
+      Object.keys(next).length === Object.keys(pings).length &&
+      Object.entries(next).every(([k, v]) => pings[Number(k)] === v)
+    if (same) return
+    pings = next
+    ui.setLobby({ pings: { ...pings } })
+  }
+
+  function setReadyFlags(next: Record<PlayerId, boolean>): void {
+    ready = next
+    publishLobby()
   }
 
   function showNotice(text: string, toClients = false): void {
@@ -326,6 +397,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     welcomeDone = null
     if (noticeTimer) clearTimeout(noticeTimer)
     noticeTimer = null
+    if (pingTimer) clearInterval(pingTimer)
+    pingTimer = null
+    ready = {}
+    pings = {}
+    rec?.abort()
     role = null
     out.reset()
     out.setLocalPlayer(-1)
@@ -344,7 +420,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     settings = { ...deps.defaultSettings }
     localPlayer = 0
     slots = []
-    addSlot({ name: ui.playerName(), kind: 'human' })
+    ready = {}
+    pings = r === 'host' ? { 0: 0 } : {}
+    const me = deps.profile()
+    addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
     ui.setResult(null)
     ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null })
     publishLobby()
@@ -392,6 +471,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!m) return
     if (m.t === 'hello') onHello(p, m)
     else if (m.t === 'input') onInput(p, m)
+    else if (m.t === 'ready') {
+      if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
+    }
     else if (m.t === 'leave') {
       p.t.close()
       peerGone(p, 'left')
@@ -438,7 +520,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         if (m2.takeover.delete(back)) m2.bots.delete(back)
         m2.connectedPatch.set(back, true)
         p.t.sendReliable(encode({ t: 'welcome', playerId: back }))
-        p.t.sendReliable(encode({ t: 'lobby', slots, settings }))
+        p.t.sendReliable(encode({ t: 'lobby', slots, settings, ready, pings }))
         sendStart(p, m2)
         showNotice(`${p.name} reconnected`, true)
         return
@@ -449,7 +531,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, 'The lobby is full.')
       return
     }
-    const slot = addSlot({ name: p.name, kind: 'human' })
+    const profileId = sanitizeProfileId(m.profileId)
+    const slot = addSlot({ name: p.name, kind: 'human', ...(profileId ? { profileId } : {}) }, sanitizeColor(m.color))
     slotKeys.set(slot.id, p.key)
     p.playerId = slot.id
     p.t.sendReliable(encode({ t: 'welcome', playerId: slot.id }))
@@ -559,6 +642,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.state = next
 
     out.pushState(next, at)
+    rec?.observe(next, next.events)
     if (next.events.length) {
       out.pushEvents(next.tick, next.events)
       m.recent.push({ tick: next.tick, events: next.events })
@@ -595,7 +679,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       slots: s.slots,
       scores: s.scores,
       rounds: s.round,
+      ticks: s.tick,
     }
+    recordResult(result)
+    ready = {}
     ui.setResult(result)
     ui.setScreen('results')
     broadcast({ t: 'end', match: m.id, result }, m.id)
@@ -607,9 +694,26 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
   }
 
+  /** Local stats; a broken recorder must never break the session. */
+  function recordResult(result: MatchResult): void {
+    try {
+      rec?.finish(result)
+    } catch (e) {
+      console.error('[session] recording match stats failed', e)
+    }
+  }
+
+  /** End the running match without a result (rematch / back to lobby mid-match). */
+  function stopMatch(m: HostMatch): void {
+    m.stop?.()
+    match = null
+    rec?.abort()
+  }
+
   function abortMatch(m: HostMatch, reason: string): void {
     m.stop?.()
     match = null
+    rec?.abort()
     ui.setLobby({ error: reason })
     ui.setScreen('lobby')
     broadcast({ t: 'notice', text: reason })
@@ -624,6 +728,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!cmatch) return
     cmatch.stop?.()
     cmatch = null
+    rec?.abort()
   }
 
   function onHostMessage(data: string): void {
@@ -641,7 +746,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       case 'lobby':
         slots = m.slots
         settings = m.settings
-        ui.setLobby({ slots: m.slots, settings: m.settings, localPlayer })
+        ready = m.ready ?? {}
+        pings = m.pings ?? {}
+        ui.setLobby({ slots: m.slots, settings: m.settings, localPlayer, ready: { ...ready }, pings: { ...pings } })
+        break
+      case 'pings':
+        setPings(m.pings ?? {})
         break
       case 'start':
         clientStart(m)
@@ -655,6 +765,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       case 'end':
         if (cmatch && cmatch.id !== m.match) return
+        if (cmatch) recordResult(m.result)
         stopClientMatch()
         ui.setResult(m.result)
         ui.setScreen('results')
@@ -695,12 +806,30 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       stop: null,
     }
     cmatch = cm
+    ready = {}
+    ui.setLobby({ ready: {} })
+    rec?.start({ localPlayer: m.localPlayer, slots: m.slots, settings: m.settings })
     deps.input.drain()
     out.reset()
     out.setLocalPlayer(m.localPlayer)
     ui.setResult(null)
     ui.setScreen('match')
-    cm.stop = deps.startClock((t) => clientPulse(cm, t))
+    const stopClock = deps.startClock((t) => clientPulse(cm, t))
+    // send each command the moment it is issued instead of on the next 60 Hz
+    // input tick; a microtask batches several commands from one DOM event
+    let flushQueued = false
+    const unsubscribe = deps.input.onCommand?.(() => {
+      if (flushQueued) return
+      flushQueued = true
+      queueMicrotask(() => {
+        flushQueued = false
+        if (cmatch === cm) clientInputTick(cm, deps.now())
+      })
+    })
+    cm.stop = () => {
+      stopClock()
+      unsubscribe?.()
+    }
   }
 
   function clientPulse(cm: ClientMatch, now: number): void {
@@ -714,6 +843,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
     cm.buffer.pull(now, (state, at, evs) => {
       out.pushState(state, at)
+      if (rec) rec.observe(state, evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events))
       for (const e of evs) {
         out.pushEvents(e.tick, e.events)
         deps.audio.playEvents(e.events, listenerFor(state, cm.localPlayer))
@@ -739,7 +869,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   // API
   // -------------------------------------------------------------------------
 
-  return {
+  const api: SessionApi & { debug(): SessionDebug } = {
     openOffline() {
       teardown()
       epoch++
@@ -763,6 +893,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       endpoint = ep
       ep.onConnection(acceptPeer)
+      pingTimer = setInterval(updatePings, PING_BROADCAST_MS)
       unsubScreen = ui.onScreen((s) => {
         if (role === 'host' && s === 'lobby' && !match) broadcast({ t: 'screen', screen: 'lobby' })
       })
@@ -820,15 +951,23 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           if (my === epoch) fail('The host did not answer. Ask for a fresh link and try again.')
           resolve()
         }, HELLO_TIMEOUT_MS)
+        const me = deps.profile()
         t.sendReliable(
-          encode({ t: 'hello', name: sanitizeName(ui.playerName()), version: PROTOCOL_VERSION, key: deps.clientKey() }),
+          encode({
+            t: 'hello',
+            name: sanitizeName(me.name),
+            version: PROTOCOL_VERSION,
+            key: deps.clientKey(),
+            profileId: me.id,
+            color: me.color,
+          }),
         )
       })
     },
 
     addBot(difficulty) {
       if (!canEdit() || slots.length >= MAX_PLAYERS) return
-      addSlot({ name: botName(difficulty), kind: 'bot', difficulty })
+      addSlot({ name: botName(difficulty), kind: 'bot', difficulty, profileId: botProfileId(difficulty) })
       publishLobby()
     },
 
@@ -855,6 +994,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (!s || s.kind !== 'bot') return
       const autoName = s.difficulty !== undefined && s.name === botName(s.difficulty)
       s.difficulty = difficulty
+      s.profileId = botProfileId(difficulty)
       if (autoName) s.name = botName(difficulty)
       publishLobby()
     },
@@ -913,6 +1053,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         if (bot) m.bots.set(s.id, bot)
       }
       match = m
+      ready = {}
+      publishLobby()
+      rec?.start({ localPlayer, slots: mSlots, settings: mSettings })
       for (const p of peers) if (p.playerId !== null) sendStart(p, m)
       deps.input.drain()
       out.reset()
@@ -923,6 +1066,44 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       ui.setResult(null)
       ui.setScreen('match')
       m.stop = deps.startClock((t) => hostPulse(m, t))
+    },
+
+    rematch() {
+      if (role === 'client') {
+        api.setReady(true)
+        return
+      }
+      if (!isAuthority()) return
+      if (match) stopMatch(match)
+      api.startMatch()
+    },
+
+    backToLobby() {
+      if (role === 'client') {
+        if (!cmatch) ui.setScreen('lobby')
+        return
+      }
+      if (!isAuthority()) return
+      if (match) {
+        stopMatch(match)
+        out.reset()
+      }
+      setReadyFlags({})
+      ui.setScreen('lobby')
+      // the host's onScreen hook also broadcasts this; one extra frame is harmless
+      if (role === 'host') broadcast({ t: 'screen', screen: 'lobby' })
+    },
+
+    setReady(flag: boolean) {
+      if (role === 'client') {
+        // between matches only: the host ignores it mid-match, so don't show it either
+        if (!link || localPlayer < 0 || cmatch) return
+        ready = { ...ready, [localPlayer]: flag }
+        ui.setLobby({ ready: { ...ready } })
+        link.sendReliable(encode({ t: 'ready', ready: flag }))
+      } else if (isAuthority() && !match) {
+        setReadyFlags({ ...ready, [localPlayer]: flag })
+      }
     },
 
     leave() {
@@ -959,4 +1140,5 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
     },
   }
+  return api
 }

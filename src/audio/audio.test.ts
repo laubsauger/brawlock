@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SimEvent } from '../sim/types'
 import { audio } from './index'
 import { AudioEngine, VOICES } from './engine'
-import { HANDLED_EVENTS, IGNORED_EVENTS, kbIntensity, planEvents, spatial } from './events'
+import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
+import { PROJECTILE_BEHAVIORS, SPELL_BEHAVIORS } from '../sim/spells'
 import { MusicLayer } from './music'
-import { createSynth, RECIPES, type SfxId } from './synth'
+import { createSynth, RECIPES, Voice, type SfxId } from './synth'
 import { asContext, MockAudioContext } from './mockContext'
 
 /** One sample of every SimEvent type. The mapped type makes this fail to compile when a type is added. */
@@ -24,6 +25,16 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   phase: { type: 'phase', phase: 'fight', round: 1 },
   roundWin: { type: 'roundWin', team: 0, players: [0] },
   gameOver: { type: 'gameOver', winners: [0] },
+  beam: { type: 'beam', spell: 'lightning', owner: 0, fromX: 0, fromY: 0, toX: 600, toY: 0, target: 2, blocked: false },
+  shieldReflect: { type: 'shieldReflect', pawn: 2, projectile: 9, x: 300, y: 0, reflected: true, stolen: true },
+  swap: { type: 'swap', spell: 'swap', pawn: 1, other: 2, fromX: 0, fromY: 0, toX: 300, toY: 0 },
+  modifier: { type: 'modifier', pawn: 2, id: 'shieldBubble', on: true, source: 1 },
+  spellHit: { type: 'spellHit', spell: 'thrust', pawn: 1, target: 2, x: 280, y: 0 },
+  projectileBounce: { type: 'projectileBounce', id: 9, spell: 'boomerang', x: 300, y: 0 },
+  cooldownReset: { type: 'cooldownReset', pawn: 1, slot: 2, spell: 'recharge' },
+  streak: { type: 'streak', pawn: 1, spell: 'recharge', value: 3 },
+  castCancel: { type: 'castCancel', pawn: 2, spell: 'fireball', slot: 6, started: true },
+  respawn: { type: 'respawn', pawn: 2, owner: 1, x: 900, y: 0 },
 }
 
 const LISTENER = {
@@ -36,6 +47,7 @@ const LISTENER = {
       { id: 1, owner: 0, x: 0, y: 0 },
       { id: 2, owner: 1, x: 300, y: 0 },
     ] as never,
+    projectiles: [{ id: 9, owner: 1, spell: 'fireball', x: 900, y: 0, vx: -1000, vy: 0, radius: 25, ticksLeft: 60, data: {} }],
   },
 }
 
@@ -53,6 +65,7 @@ describe('audio: event mapping', () => {
   it('every cue maps to a recipe and a voice budget', () => {
     const all = planEvents(Object.values(SAMPLES), LISTENER)
     for (const c of all) {
+      if (c.id === null) continue
       expect(RECIPES[c.id], c.id).toBeTypeOf('function')
       expect(VOICES[c.id].max, c.id).toBeGreaterThan(0)
     }
@@ -89,6 +102,82 @@ describe('audio: event mapping', () => {
   it('places id-only events at the pawn when state is given', () => {
     const cast = planEvents([{ type: 'cast', pawn: 2, spell: 'fireball', x: -900, y: 0 }], { ...LISTENER, x: 0 })
     expect(cast[0].pan).toBeGreaterThan(0) // caster at x=300, not the target point at -900
+  })
+
+  it('a fake cast reads to the opponent: windup inhale, then a snuff that cuts it', () => {
+    const start = planEvents([{ type: 'castStart', pawn: 2, spell: 'fireball', ticks: 12 }], LISTENER)
+    expect(start.map((c) => c.id)).toEqual(['castInhale'])
+    const cancel = planEvents([SAMPLES.castCancel], LISTENER)
+    expect(cancel.map((c) => c.id)).toEqual(['castSnuff'])
+    expect(cancel[0].stopKey).toBe(start[0].key)
+    // the enemy's cancel is audible at their position, not only for the local player
+    expect(cancel[0].pan).toBeGreaterThan(0)
+    // Scourge's long charge is cut the same way
+    const scourge = planEvents([SAMPLES.castStart], LISTENER)[0]
+    const cut = planEvents([{ type: 'castCancel', pawn: 1, spell: 'scourge', slot: 7, started: true }], LISTENER)[0]
+    expect(cut.stopKey).toBe(scourge.key)
+  })
+
+  it('a fireball in flight is heard along its path, swoops as it passes, and stops on impact', () => {
+    const [loop] = planEvents([SAMPLES.projectileSpawn], LISTENER)
+    expect(loop.id).toBe('fireballTravel')
+    expect(loop.param).toBeCloseTo(1) // 60 ticks of flight
+    const path = loop.path!
+    // flies from the right (x=900) across the listener at x=0 to the left
+    expect(path[0].pan).toBeGreaterThan(0.3)
+    expect(path.at(-1)!.pan).toBeLessThan(-0.05)
+    // approaching sounds higher, receding lower (Doppler)
+    expect(path[0].rate).toBeGreaterThan(1.05)
+    expect(path.at(-1)!.rate).toBeLessThan(0.97)
+    // the hit cuts the loop
+    expect(planEvents([SAMPLES.projectileHit], LISTENER)[0].stopKey).toBe(loop.key)
+    expect(planEvents([SAMPLES.projectileExpire], LISTENER)[0].stopKey).toBe(loop.key)
+    // without state there is no flight to follow: only cast and impact are heard
+    expect(planEvents([SAMPLES.projectileSpawn], { x: 0, y: 0, halfWidth: 1000 })).toEqual([])
+    // a shot moving away from the listener only falls in pitch
+    expect(flightPath(0, 0, 1000, 0, 0.5, { x: 0, y: 0, halfWidth: 1000 }).every((p) => p.rate <= 1)).toBe(true)
+  })
+
+  it('every spell the sim can cast has a designed sound set, every projectile a flight sound', () => {
+    for (const spell of Object.keys(SPELL_BEHAVIORS)) {
+      expect(SPELL_SOUNDS[spell], `${spell} has no cast sound decision`).toBeDefined()
+    }
+    for (const kind of Object.keys(PROJECTILE_BEHAVIORS)) {
+      expect(PROJECTILE_SOUNDS[kind]?.travel, `${kind} projectile has no travel loop`).toBeDefined()
+      expect(PROJECTILE_SOUNDS[kind]?.hit, `${kind} projectile has no hit decision`).not.toBeUndefined()
+    }
+  })
+
+  it('return orbs hum on the way back and chime when absorbed, instead of thudding', () => {
+    const memory = newCueMemory()
+    const orbState = {
+      ...LISTENER,
+      state: {
+        ...LISTENER.state,
+        projectiles: [{ id: 33, owner: 0, spell: 'drain', kind: 'drainHeal', x: 300, y: 0, vx: -500, vy: 0, radius: 0, ticksLeft: 120, data: {} }],
+      },
+    }
+    const [loop] = planEvents([{ type: 'projectileSpawn', id: 33, spell: 'drain' }], orbState, memory)
+    expect(loop.id).toBe('orbTravel')
+    const [absorb] = planEvents([{ type: 'projectileHit', id: 33, spell: 'drain', x: 0, y: 0, target: 1 }], orbState, memory)
+    expect(absorb.id).toBe('orbAbsorb')
+    expect(absorb.stopKey).toBe(loop.key)
+    // a Drain bolt (moving) hitting an enemy is a wet hit, not a chime
+    const bolt = { ...orbState, state: { ...orbState.state, projectiles: [{ ...orbState.state.projectiles[0], id: 34, kind: undefined, vx: 700 }] } }
+    planEvents([{ type: 'projectileSpawn', id: 34, spell: 'drain' }], bolt, memory)
+    expect(planEvents([{ type: 'projectileHit', id: 34, spell: 'drain', x: 300, y: 0, target: 2 }], bolt, memory)[0].id).toBe('drainHit')
+  })
+
+  it('Lightning detonating a Fireball is one big electric blast, not two explosions', () => {
+    const cues = planEvents(
+      [
+        { type: 'projectileHit', id: 9, spell: 'fireball', x: 300, y: 0, target: null },
+        { type: 'explosion', x: 300, y: 0, radius: 225, spell: 'lightning' },
+      ],
+      LISTENER,
+    )
+    expect(cues.filter((c) => c.id === 'explosion')).toHaveLength(1)
+    expect(cues.some((c) => c.id === 'zapHit')).toBe(true)
   })
 
   it('one fireball blast plays once even if the sim emits hit and explosion', () => {
@@ -131,11 +220,12 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
         const m = new MockAudioContext()
         const s = createSynth(asContext(m))
         const out = m.createGain()
-        const dur = RECIPES[id](s, out as never, 0.01, p)
-        expect(dur, id).toBeGreaterThan(0)
+        const v = new Voice(s, out as never, 0.01)
+        RECIPES[id](v, p)
+        expect(v.stopAt, id).toBeGreaterThan(0.01)
         expect(m.leakingSources(), `${id} leaks sources`).toEqual([])
         expect(m.sources().length, `${id} makes sound`).toBeGreaterThan(0)
-        for (const src of m.sources()) expect(src.stopped!, id).toBeLessThanOrEqual(0.01 + dur + 0.2)
+        for (const src of m.sources()) expect(src.stopped!, id).toBeLessThanOrEqual(v.stopAt)
       }
     }
   })
@@ -158,6 +248,27 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     const thuds = m.nodes.filter((n) => n.kind === 'panner').length
     expect(thuds).toBeLessThanOrEqual(VOICES.hit.max)
     expect(m.sources().length).toBeGreaterThan(before)
+    // a cancelled windup fades its own voice out
+    e.playEvents([SAMPLES.castStart], LISTENER)
+    const keyedOut = m.nodes
+      .filter((n) => n.kind === 'gain')
+      .map((n) => n as unknown as { gain: { value: number; calls: { fn: string; v: number }[] } })
+      .find((n) => n.gain.value > 0.69 && n.gain.value < 0.71) // scourgeWindup level 0.7 x gain 1
+    expect(keyedOut).toBeDefined()
+    e.playEvents([{ type: 'castCancel', pawn: 1, spell: 'scourge', slot: 7, started: true }], LISTENER)
+    expect(keyedOut!.gain.calls.some((c) => c.fn === 'setTarget' && c.v === 0)).toBe(true)
+    // a travel loop follows its projectile when it turns (a later call with the new heading)
+    e.playEvents([SAMPLES.projectileSpawn], LISTENER)
+    const pans = m.nodes.filter((n) => n.kind === 'panner') as unknown as { pan: { calls: { fn: string; v: number }[] } }[]
+    const loopPan = pans.at(-1)!
+    const panCalls = loopPan.pan.calls.length
+    const turned = { ...LISTENER, state: { ...LISTENER.state, projectiles: [{ ...LISTENER.state.projectiles[0], x: 0, y: 0, vx: 1000, vy: 0 }] } }
+    e.playEvents([], turned)
+    const after = loopPan.pan.calls.slice(panCalls)
+    expect(after.length).toBeGreaterThan(2)
+    expect(after.at(-1)!.v).toBeGreaterThan(0.2) // now heading right
+    // and stops when the projectile is gone without an event we saw
+    e.playEvents([], { ...LISTENER, state: { ...LISTENER.state, projectiles: [] } })
     e.setVolumes({ master: 1, sfx: 1, music: 1, muted: true })
     const muted = m.sources().length
     e.playEvents([SAMPLES.explosion], LISTENER)

@@ -10,10 +10,13 @@
  *   (the original swaps in a fresh item entity). New item -> first free item slot.
  * - buyMastery(kind): 5 gold per level (max 6); 'all' raises all three for 13, only while none
  *   is maxed.
- * Spells/items without a behavior module (not `implemented`) are rejected for now.
+ * Passive items (Ring of Health, Cursed Ring, Cape, Armor, Boots, Pocket Watch) take an item
+ * slot; their stats apply at once (max HP rises, current HP does not, systems.md §3.1).
+ * Only ids in RELEASED_SPELLS (sim + tests + VFX shipped) can be bought.
  */
 import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_ANY_PHASE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
-import { SPELLS } from './spells/data'
+import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
+import { recomputeStats } from './stats'
 import { pawnOf, scoreOf } from './teams'
 import type { PlayerId, PlayerScore, SimState, SpellId } from './types'
 
@@ -34,7 +37,7 @@ export function buySpell(state: SimState, player: PlayerId, spell: SpellId): boo
   const def = SPELLS[spell]
   const pawn = pawnOf(state, player)
   const sc = scoreOf(state, player)
-  if (!def || def.kind !== 'spell' || !def.implemented || !pawn || !sc) return false
+  if (!def || def.kind !== 'spell' || !RELEASED_SPELLS.has(spell) || !pawn || !sc) return false
   const slot = def.column - 1
   const current = pawn.slots[slot]
   if (current === null) {
@@ -54,18 +57,21 @@ export function buySpell(state: SimState, player: PlayerId, spell: SpellId): boo
 
 export function buyItem(state: SimState, player: PlayerId, item: SpellId): boolean {
   if (!shopOpen(state)) return false
-  const def = SPELLS[item]
+  const active = SPELLS[item]
+  const passive = PASSIVE_ITEMS[item]
+  const def = active && active.kind === 'item' ? active : passive
   const pawn = pawnOf(state, player)
   const sc = scoreOf(state, player)
-  // passive items (PASSIVE_ITEMS) and unimplemented actives are rejected in M0
-  if (!def || def.kind !== 'item' || !def.implemented || !pawn || !sc) return false
+  if (!def || !RELEASED_SPELLS.has(item) || !pawn || !sc) return false
   let free = -1
   for (let i = ITEM_SLOT_START; i < SLOT_COUNT; i++) {
     if (pawn.slots[i] === item) {
       if (pawn.levels[i] >= def.maxLevel) return false
       if (!pay(sc, def.cost)) return false
       pawn.levels[i] += 1
+      // the original swaps in a fresh item entity, so an upgrade also resets its cooldown
       pawn.cooldowns[i] = 0
+      recomputeStats(pawn)
       return true
     }
     if (free < 0 && pawn.slots[i] === null) free = i
@@ -75,6 +81,7 @@ export function buyItem(state: SimState, player: PlayerId, item: SpellId): boole
   pawn.slots[free] = item
   pawn.levels[free] = 1
   pawn.cooldowns[free] = 0
+  recomputeStats(pawn)
   return true
 }
 

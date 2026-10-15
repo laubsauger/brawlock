@@ -11,11 +11,21 @@ export interface ListenerLike {
   y: number
   halfWidth: number
   localPlayer?: PlayerId
-  state?: Pick<SimState, 'pawns'>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles'>>
+}
+
+/** One automation point of a moving sound, seconds after its start. */
+export interface PathPoint {
+  t: number
+  pan: number
+  gain: number
+  /** playback-rate factor (Doppler) */
+  rate: number
 }
 
 export interface SoundCue {
-  id: SfxId
+  /** sound to play; null = only stop `stopKey` */
+  id: SfxId | null
   /** linear gain multiplier (distance falloff x loudness) */
   gain: number
   /** stereo pan -1..1 */
@@ -24,11 +34,130 @@ export interface SoundCue {
   param?: number
   /** seconds after now */
   delay?: number
+  /** register the voice under this key so a later cue can cut it (windups) */
+  key?: string
+  /** fade out voices registered under this key before playing */
+  stopKey?: string
+  /** pan / gain / rate automation for a moving source (projectile in flight) */
+  path?: PathPoint[]
 }
+
+/** Voice key of a projectile's travel loop. */
+export const projectileKey = (id: EntityId) => `proj:${id}`
+
+/** How a spell's `cast` event sounds. null = silent there (the spell sounds from its own events). */
+export interface SpellSounds {
+  cast: SfxId | null
+  castParam?: number
+}
+
+export const SPELL_SOUNDS: Record<string, SpellSounds> = {
+  fireball: { cast: 'fireballCast' },
+  cluster: { cast: 'fireballCast', castParam: 0.6 },
+  scourge: { cast: null }, // windup + explosion events
+  teleport: { cast: null }, // teleport event
+  lightning: { cast: null }, // beam event
+  swap: { cast: 'swapCast' },
+  thrust: { cast: 'dashBurst' }, // contact = spellHit
+  boomerang: { cast: 'bladeThrow' },
+  homing: { cast: 'arcaneCast' },
+  twin: { cast: 'twinCast' },
+  drain: { cast: 'drainCast' },
+  recharge: { cast: 'rechargeCast' },
+  bouncer: { cast: 'bouncerCast' },
+  redirector: { cast: null }, // spellHit 'redirector' is the grab
+  pact: { cast: null }, // the pact modifier
+}
+
+/**
+ * How a projectile sounds, keyed like the sim's behaviors: `kind ?? spell`.
+ * travel = loop while it flies; hit / expire null = silent (another event is the payoff).
+ */
+export interface ProjectileSounds {
+  travel?: SfxId
+  hit?: SfxId | null
+  hitParam?: number
+  expire?: SfxId | null
+}
+
+export const PROJECTILE_SOUNDS: Record<string, ProjectileSounds> = {
+  fireball: { travel: 'fireballTravel', hit: 'explosion', hitParam: 1, expire: 'fizzle' },
+  cluster: { travel: 'clusterTravel', hit: 'explosion', hitParam: 0.55, expire: 'fizzle' },
+  swap: { travel: 'swapTravel', hit: null, expire: null }, // the swap event plays the exchange
+  boomerang: { travel: 'bladeSpin', hit: 'bladeHit', expire: null },
+  homing: { travel: 'homingTravel', hit: 'arcaneBurst', expire: 'fizzle' },
+  twin: { travel: 'twinTravel', hit: 'impact', expire: null },
+  drain: { travel: 'drainTravel', hit: 'drainHit', expire: 'fizzle' },
+  drainHeal: { travel: 'orbTravel', hit: 'orbAbsorb', expire: null },
+  bouncer: { travel: 'bouncerTravel', hit: 'zapHit', expire: 'fizzle' },
+  recharge: { travel: 'rechargeTravel', hit: 'zapHit', expire: 'fizzle' },
+  rechargeRefresh: { travel: 'orbTravel', hit: null, expire: null }, // cooldownReset plays the refresh
+}
+const DEFAULT_PROJECTILE: ProjectileSounds = { hit: 'impact', expire: 'fizzle' }
+const projectileSounds = (kind: string): ProjectileSounds => PROJECTILE_SOUNDS[kind] ?? DEFAULT_PROJECTILE
+
+/**
+ * What the planner remembers across ticks (owned by the engine): each live projectile's
+ * kind, read from state at spawn, because hit / expire events only carry the spell.
+ */
+export interface CueMemory {
+  projectiles: Map<EntityId, string>
+}
+export const newCueMemory = (): CueMemory => ({ projectiles: new Map() })
+
+/** Exaggerated "speed of sound" (units/s) so a passing fireball audibly swoops. */
+const DOPPLER_C = 5000
+
+/**
+ * Pan, gain and Doppler rate along a straight flight, sampled every 50 ms. The listener sits
+ * above the camera focus (half a screen up), so the pitch bend is smooth as it passes.
+ */
+export function flightPath(x: number, y: number, vx: number, vy: number, seconds: number, l: ListenerLike): PathPoint[] {
+  const h = Math.max(1, l.halfWidth) * 0.5
+  const out: PathPoint[] = []
+  const steps = Math.max(1, Math.ceil(seconds / 0.05))
+  for (let i = 0; i <= steps; i++) {
+    const t = (seconds * i) / steps
+    const px = x + vx * t
+    const py = y + vy * t
+    const sp = spatial(px, py, l)
+    const rx = px - l.x
+    const ry = py - l.y
+    const r = Math.hypot(rx, ry, h)
+    const vr = (vx * rx + vy * ry) / r
+    out.push({ t, pan: sp.pan, gain: sp.gain, rate: Math.max(0.7, Math.min(1.4, DOPPLER_C / (DOPPLER_C + vr))) })
+  }
+  return out
+}
+
+/** Voice key of a pawn's cast windup (Scourge charge, cast-point inhale). */
+export const windupKey = (pawn: EntityId) => `windup:${pawn}`
+
+type ModSound = { on?: [SfxId, number?]; off?: [SfxId, number?] }
+
+/** Modifier sounds by exact sim id. Listed with no sound = heard through another event. */
+const MODIFIER_IDS: Record<string, ModSound> = {
+  pact: { on: ['darkPulse'] },
+  pactSlow: { on: ['slowDown'] },
+  homingHaste: { on: ['hasteUp'] },
+  drainHaste: { on: ['hasteUp'] },
+  drainSlow: { on: ['slowDown'] },
+  redirectorPenalty: {}, // the redirect itself is heard (spellHit)
+  thrust: {}, // the dash is heard from its cast
+  rechargeStreak: {}, // streak events
+  spawnInvulnerable: {}, // round start horn
+}
+
+/** Fallback by id fragment for spells whose modifiers have not landed yet. */
+const MODIFIER_FRAGMENTS: ({ match: string } & ModSound)[] = [
+  { match: 'shield', on: ['shieldUp'], off: ['popOff'] },
+  { match: 'windwalk', on: ['fade', 1], off: ['fade', 0] },
+  { match: 'grip', on: ['chains'] },
+  { match: 'rush', on: ['ignite'], off: ['popOff'] },
+]
 
 /** Event types that intentionally make no sound, with the reason. */
 export const IGNORED_EVENTS: Partial<Record<SimEvent['type'], string>> = {
-  projectileSpawn: 'the cast event already plays the launch; spawn carries no position',
   heal: 'lifesteal heals on every hit and would double each impact; heals show as numbers',
 }
 
@@ -39,6 +168,8 @@ type Handler<K extends SimEvent['type']> = (
 ) => SoundCue[]
 
 interface CueContext {
+  listener: ListenerLike
+  memory: CueMemory
   at(x: number, y: number): { pan: number; gain: number }
   pawnPos(id: EntityId): Vec2 | null
   localPawn: EntityId | null
@@ -73,28 +204,57 @@ const CENTRE = { pan: 0, gain: 1 }
 
 const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   cast: (e, c) => {
-    // Scourge and Teleport sound from their own events (explosion / teleport)
-    if (e.spell === 'scourge' || e.spell === 'teleport') return []
+    const ss = SPELL_SOUNDS[e.spell] ?? { cast: 'castGeneric' }
+    if (!ss.cast) return []
     const p = c.pawnPos(e.pawn) ?? { x: e.x, y: e.y }
-    const sp = c.at(p.x, p.y)
-    return [cue(e.spell === 'fireball' ? 'fireballCast' : 'castGeneric', sp, 0.9)]
+    return [cue(ss.cast, c.at(p.x, p.y), 0.9, { param: ss.castParam ?? 1 })]
   },
   castStart: (e, c) => {
-    if (e.spell !== 'scourge') return []
     const p = c.pawnPos(e.pawn)
     const sp = p ? c.at(p.x, p.y) : CENTRE
-    return [cue('scourgeWindup', sp, 1, { param: Math.max(0.2, e.ticks / 60) })]
+    const key = windupKey(e.pawn)
+    if (e.spell === 'scourge') return [cue('scourgeWindup', sp, 1, { param: Math.max(0.2, e.ticks / 60), key })]
+    // short cast points get an inhale, so a cancelled (fake) cast is heard as inhale + snuff
+    if (e.ticks >= 6) return [cue('castInhale', sp, 0.7, { param: e.ticks / 60, key })]
+    return []
   },
-  projectileSpawn: null,
+  castCancel: (e, c) => {
+    const key = windupKey(e.pawn)
+    // nothing was audible before the cast point began (still turning): just make sure it is cut
+    if (!e.started) return [{ id: null, gain: 0, pan: 0, stopKey: key }]
+    const p = c.pawnPos(e.pawn)
+    const sp = p ? c.at(p.x, p.y) : CENTRE
+    return [cue('castSnuff', sp, 1, { stopKey: key })]
+  },
+  projectileSpawn: (e, c) => {
+    const pr = c.listener.state?.projectiles?.find((q) => q.id === e.id)
+    const kind = pr?.kind ?? e.spell
+    c.memory.projectiles.set(e.id, kind)
+    const id = projectileSounds(kind).travel
+    // the launch itself is the cast sound; the loop needs the projectile's flight from state
+    if (!id || !pr) return []
+    const life = pr.data.noTimer ? 6 : Math.max(0.1, Math.min(6, pr.ticksLeft / 60))
+    const path = flightPath(pr.x, pr.y, pr.vx, pr.vy, Math.min(life, 3), c.listener)
+    return [{ id, gain: path[0].gain, pan: path[0].pan, param: life, key: projectileKey(e.id), path }]
+  },
   projectileHit: (e, c, batch) => {
-    if (e.spell !== 'fireball') return [cue('impact', c.at(e.x, e.y))]
-    // the sim may also emit an explosion for the same blast: play it once
-    const dup = batch.some(
-      (o) => o.type === 'explosion' && o.spell === 'fireball' && Math.hypot(o.x - e.x, o.y - e.y) < 60,
-    )
-    return dup ? [] : [cue('explosion', c.at(e.x, e.y), 1, { param: 1 })]
+    const kind = c.memory.projectiles.get(e.id) ?? e.spell
+    c.memory.projectiles.delete(e.id)
+    const ps = projectileSounds(kind)
+    const stopKey = projectileKey(e.id)
+    // the sim may also emit an explosion for the same blast (Lightning detonation): play it once
+    const blast = ps.hit === 'explosion' && batch.some((o) => o.type === 'explosion' && Math.hypot(o.x - e.x, o.y - e.y) < 60)
+    const id = blast ? null : ps.hit === undefined ? DEFAULT_PROJECTILE.hit : ps.hit
+    return [id ? cue(id, c.at(e.x, e.y), 1, { param: ps.hitParam, stopKey }) : { id: null, gain: 0, pan: 0, stopKey }]
   },
-  projectileExpire: (e, c) => [cue('fizzle', c.at(e.x, e.y), 0.8)],
+  projectileExpire: (e, c) => {
+    const kind = c.memory.projectiles.get(e.id) ?? e.spell
+    c.memory.projectiles.delete(e.id)
+    const ps = projectileSounds(kind)
+    const id = ps.expire === undefined ? DEFAULT_PROJECTILE.expire : ps.expire
+    const stopKey = projectileKey(e.id)
+    return [id ? cue(id, c.at(e.x, e.y), 0.8, { stopKey }) : { id: null, gain: 0, pan: 0, stopKey }]
+  },
   damage: (e, c) => {
     if (e.source === null && e.kb === 0) {
       // lava: only the local pawn's burn is audible (rate-limited by the engine). Without
@@ -110,13 +270,48 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const sp = c.at(e.x, e.y)
     if (e.spell === 'scourge') return [cue('scourgeBlast', sp)]
     if (e.spell === 'obstacle') return [cue('explosion', sp, 1, { param: 1.4 })]
+    if (e.spell === 'homing') return [cue('arcaneBurst', sp, 1.1)]
+    // Lightning detonating a Fireball: a bigger fire blast laced with electricity
+    if (e.spell === 'lightning') return [cue('explosion', sp, 1, { param: 1.25 }), cue('zapHit', sp, 0.7)]
     return [cue('explosion', sp, 1, { param: Math.max(0.6, Math.min(1.6, e.radius / 225)) })]
   },
   death: (e, c) => {
     const p = c.pawnPos(e.pawn)
     const sp = p ? c.at(p.x, p.y) : CENTRE
-    return [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) })]
+    return [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn) })]
   },
+  respawn: (e, c) => [cue('respawnSwell', c.at(e.x, e.y))],
+  beam: (e, c) => {
+    const out = [cue('beamZap', c.at(e.fromX, e.fromY))]
+    if (e.blocked) out.push(cue('tink', c.at(e.toX, e.toY), 1, { delay: 0.01 }))
+    else if (e.target !== null) out.push(cue('impact', c.at(e.toX, e.toY), 0.8, { delay: 0.01 }))
+    return out
+  },
+  shieldReflect: (e, c) => [cue('reflect', c.at(e.x, e.y), 1, { param: e.stolen ? 1 : 0 })],
+  swap: (e, c) => {
+    const glass = e.spell === 'alteration' ? 1 : 0
+    return [
+      cue('swapWarp', c.at(e.fromX, e.fromY), 1, { param: glass }),
+      cue('swapWarp', c.at(e.toX, e.toY), 0.8, { param: glass, delay: 0.04 }),
+    ]
+  },
+  modifier: (e, c) => {
+    const id = e.id.toLowerCase()
+    const m = MODIFIER_IDS[e.id] ?? MODIFIER_FRAGMENTS.find((x) => id.includes(x.match))
+    const s = m && (e.on ? m.on : m.off)
+    if (!s) return []
+    const p = c.pawnPos(e.pawn)
+    return [cue(s[0], p ? c.at(p.x, p.y) : CENTRE, 1, { param: s[1] ?? 0 })]
+  },
+  spellHit: (e, c) => [cue(e.spell === 'redirector' ? 'redirect' : 'chargeSlam', c.at(e.x, e.y))],
+  projectileBounce: (e, c) => [cue('ricochet', c.at(e.x, e.y), 0.9)],
+  cooldownReset: (e, c) => {
+    const p = c.pawnPos(e.pawn)
+    const mine = e.pawn === c.localPawn
+    return [cue('refresh', p ? c.at(p.x, p.y) : CENTRE, mine ? 1 : 0.5)]
+  },
+  // a personal combo counter: only the owner hears it
+  streak: (e, c) => (e.pawn === c.localPawn && e.value > 0 ? [cue('streakTick', CENTRE, 0.8, { param: e.value })] : []),
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),
@@ -125,11 +320,15 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
 }
 
 /** Sound cues for one tick's events, placed relative to the listener. */
-export function planEvents(events: readonly SimEvent[], listener: ListenerLike): SoundCue[] {
+export function planEvents(events: readonly SimEvent[], listener: ListenerLike, memory: CueMemory = newCueMemory()): SoundCue[] {
   const pawns = listener.state?.pawns
   const local =
     listener.localPlayer !== undefined && pawns ? (pawns.find((p) => p.owner === listener.localPlayer)?.id ?? null) : null
+  // forget projectiles whose end we never saw (snapshots skipped)
+  if (memory.projectiles.size > 512) memory.projectiles.clear()
   const ctx: CueContext = {
+    listener,
+    memory,
     at: (x, y) => spatial(x, y, listener),
     pawnPos: (id) => {
       const p = pawns?.find((q) => q.id === id)

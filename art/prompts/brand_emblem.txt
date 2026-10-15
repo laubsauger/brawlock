@@ -1,0 +1,7 @@
+Use case: logo-brand
+Asset type: game emblem that also works as an app icon and favicon
+Subject: a hooded warlock head-and-shoulders silhouette, the deep hood hiding the face in total shadow except for two glowing ember-orange eyes. Behind it, a round sigil: a cracked black obsidian disc whose glowing molten-lava cracks form a radial rune pattern, framing the hood.
+Style: bold, iconic, high-contrast emblem with a painterly-rendered 3D look, strong silhouette that still reads at 32 px. Symmetrical, centered, square composition, subject fills about 90% of the canvas.
+Color: near-black hood and disc, molten orange-red lava cracks, orange glowing eyes.
+Background: genuinely transparent background (alpha channel).
+Constraints: no text, no letters, no numbers, no border frame, no background scene, no drop-shadow box, no watermark.

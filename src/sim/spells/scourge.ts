@@ -8,10 +8,13 @@
 import { damageArea } from '../combat'
 import { attr } from './data'
 import type { SpellBehavior } from './types'
+import { castAttr } from './util'
 
 export const scourgeSpell: SpellBehavior = {
-  onCast({ state, caster, def, level }) {
-    const damage = attr(def, 'damage', level)
+  onCast(ctx) {
+    const { state, caster, def, level } = ctx
+    // Pact raises the damage, and with it the Lv1 self cost (original quirk, §12.10)
+    const damage = castAttr(ctx, 'damage')
     const radius = attr(def, 'radius', level)
     state.events.push({ type: 'explosion', x: caster.x, y: caster.y, radius, spell: 'scourge' })
     const hits = damageArea(state, caster.owner, caster.x, caster.y, radius, {

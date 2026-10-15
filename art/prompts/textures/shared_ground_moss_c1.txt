@@ -1,0 +1,12 @@
+Use your built-in image_gen tool to generate exactly ONE image, then copy the generated PNG file unchanged (plain cp; do not resize, convert or edit it) to the exact path /private/tmp/claude-501/-Users-flo-work-code-brawlock/1f913911-16dd-4766-ab99-72b6a905d863/scratchpad/texcand/shared_ground_moss_c1.png, overwriting if present. Do not create, edit or delete any other files. Do not run git. Do not generate variants. When done, print the source path of the generated file.
+
+Image spec:
+Use case: photorealistic-natural
+Input images: Image 1 is an old, low-resolution texture from a 2010s game. Use it ONLY as a loose reference for the general kind of surface and layout. Do not copy or approximate it; the result must be dramatically more detailed, modern and realistic.
+Asset type: seamless tileable PBR base-color (albedo) texture for a AAA game, square.
+View: perfectly top-down orthographic, flat-on to the surface, no perspective, no horizon, no vanishing lines.
+Lighting: perfectly even, flat, diffuse; no baked shadows, no directional light, no specular glare or wet highlights, no vignette, no darkening toward the borders. Pure albedo.
+Tiling: seamless and tileable in both directions; the surface continues across all four edges with no border, frame or edge treatment. Fill the whole canvas edge to edge with the material at uniform density (no focal point, no single large feature in the middle).
+Quality: photoreal, Unreal Engine 5 / Quixel Megascans-grade scanned surface. High-frequency micro detail, believable material breakup (chips, cracks, grime, wear, growth in crevices), rich but controlled color variation, crisp at 1024 px, and still good when repeated across a large floor.
+Material: Lush ground cover for a volcanic caldera rim: dense green cushion moss mixed with short grass blades, small clover, a few tiny pebbles and dark soil showing through, rich deep green with subtle yellow-green and blue-green variation.
+Constraints: no text, no letters, no numbers, no logo, no watermark, no characters, no props, no UI.

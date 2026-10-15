@@ -3,7 +3,7 @@
  * Owned by the sim workstream; signatures are the contract.
  */
 import { DT } from './types'
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from './types'
+import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
 import { ARENA_SHOP_LAYER, DEFAULT_SETTINGS, PAWN_DP_REGEN, frictionPerTick } from './config'
 import { killPawn } from './combat'
 import { lavaTick } from './lava'
@@ -13,6 +13,7 @@ import { applyCommand, cooldownTick, pawnPreTick } from './pawn'
 import { physicsStep } from './physics'
 import { createPawn, respawnPawn } from './spawn'
 import { PROJECTILE_BEHAVIORS } from './spells'
+import { isAlive, kindOf, timeScale } from './projectiles'
 import { assignTeams, isActive, pawnOf, scoreOf } from './teams'
 
 export * from './types'
@@ -57,7 +58,8 @@ export {
   tileCornerMask,
 } from './arena'
 export type { ArenaTile } from './arena'
-export { SPELLS, SPELL_IDS, PASSIVE_ITEMS, attr, cooldownSeconds, spellDef } from './spells/data'
+export { SPELLS, SPELL_IDS, PASSIVE_ITEMS, RELEASED_SPELLS, attr, cooldownSeconds, spellDef } from './spells/data'
+export { IMPLEMENTED_SPELLS } from './spells'
 export type { SpellDef, PassiveItemDef } from './spells/data'
 export { cooldownTicks } from './pawn'
 export { shopOpen } from './shop'
@@ -166,29 +168,52 @@ function projectilePreTick(state: SimState): void {
   const n = state.projectiles.length
   for (let i = 0; i < n; i++) {
     const p = state.projectiles[i]
-    if (!p.data.dead) PROJECTILE_BEHAVIORS[p.spell]?.onTick?.(state, p)
+    if (!isAlive(p)) continue
+    PROJECTILE_BEHAVIORS[kindOf(p)]?.onTick?.(state, p, DT * timeScale(p))
   }
 }
 
-/** Projectile:onPostTick: lifetimes run out after movement. */
+/**
+ * Projectile:onPostTick: lifetimes (actor timers, Warpzone-scaled) run out after movement;
+ * destroyed projectiles get onDestroy (Splitter splits, Snowball explodes, Swap blinks) and are
+ * removed. Projectiles spawned by onDestroy start next tick.
+ */
 function projectilePostTick(state: SimState): void {
-  let removed = false
   const n = state.projectiles.length
+  const gone: { p: ProjectileState; expired: boolean }[] = []
   for (let i = 0; i < n; i++) {
     const p = state.projectiles[i]
     if (p.data.dead) {
-      removed = true
+      gone.push({ p, expired: false })
       continue
     }
-    p.ticksLeft -= 1
+    if (p.data.noTimer === 1) continue
+    p.ticksLeft -= timeScale(p)
     if (p.ticksLeft <= 0) {
-      PROJECTILE_BEHAVIORS[p.spell]?.onExpire?.(state, p)
-      state.events.push({ type: 'projectileExpire', id: p.id, spell: p.spell, x: p.x, y: p.y })
       p.data.dead = 1
+      gone.push({ p, expired: true })
+    }
+  }
+  if (gone.length === 0) return
+  for (const { p, expired } of gone) {
+    if (expired) state.events.push({ type: 'projectileExpire', id: p.id, spell: p.spell, x: p.x, y: p.y })
+    PROJECTILE_BEHAVIORS[kindOf(p)]?.onDestroy?.(state, p, expired)
+  }
+  state.projectiles = state.projectiles.filter((p) => !p.data.dead)
+}
+
+/** Rockpillars crumble after their duration (GAME task, real time). */
+function obstacleTick(state: SimState): void {
+  let removed = false
+  for (const o of state.obstacles) {
+    if (o.ticksLeft === undefined) continue
+    o.ticksLeft -= 1
+    if (o.ticksLeft <= 0) {
+      o.hp = 0
       removed = true
     }
   }
-  if (removed) state.projectiles = state.projectiles.filter((p) => !p.data.dead)
+  if (removed) state.obstacles = state.obstacles.filter((o) => o.hp > 0)
 }
 
 function regenTick(state: SimState): void {
@@ -223,6 +248,7 @@ export function step(state: SimState, inputs: PlayerInput[]): void {
   projectilePreTick(state)
   physicsStep(state)
   projectilePostTick(state)
+  obstacleTick(state)
   tickModifiers(state)
   lavaTick(state)
   if (state.phase !== 'gameOver') phaseTick(state)

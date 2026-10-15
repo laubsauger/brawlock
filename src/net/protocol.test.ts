@@ -56,9 +56,11 @@ function fakeState(tick: number): SimState {
 describe('protocol', () => {
   it('round-trips every message type unchanged (JSON on both channels)', () => {
     const msgs: Msg[] = [
-      { t: 'hello', name: 'Ann', version: PROTOCOL_VERSION, key: 'k' },
+      { t: 'hello', name: 'Ann', version: PROTOCOL_VERSION, key: 'k', profileId: 'p-1234567', color: 0xff00ff },
       { t: 'welcome', playerId: 3 },
-      { t: 'lobby', slots, settings },
+      { t: 'lobby', slots, settings, ready: { 1: true }, pings: { 0: 0, 1: 42 } },
+      { t: 'ready', ready: true },
+      { t: 'pings', pings: { 0: 0, 1: 42 } },
       { t: 'start', match: 1, seed: 0xdeadbeef, slots, settings, localPlayer: 1 },
       { t: 'input', match: 1, inputs: [{ seq: 1, tick: 10, cmds: [{ kind: 'move', x: 1.5, y: -2 }] }] },
       { t: 'snap', match: 1, n: 9, iv: 1, ack: 4, ev: [], state: fakeState(9) },

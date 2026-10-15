@@ -1,0 +1,11 @@
+Use your built-in image_gen tool to generate exactly ONE image, then copy the generated PNG file unchanged (plain cp; do not resize, convert or edit it) to the exact path /private/tmp/claude-501/-Users-flo-work-code-brawlock/1f913911-16dd-4766-ab99-72b6a905d863/scratchpad/texcand/shared_scorch_decal_c2.png, overwriting if present. Do not create, edit or delete any other files. Do not run git. Do not generate variants. When done, print the source path of the generated file.
+
+Image spec:
+Use case: photorealistic-natural
+
+Asset type: PBR decal texture for a AAA game, square, with a genuinely transparent background (alpha channel).
+View: perfectly top-down orthographic, flat-on, no perspective.
+Lighting: perfectly even, flat, diffuse; no baked directional shadows or highlights.
+Quality: photoreal, Unreal Engine 5 / Quixel Megascans-grade scanned surface. High-frequency micro detail, believable material breakup (chips, cracks, grime, wear, growth in crevices), rich but controlled color variation, crisp at 1024 px, and still good when repeated across a large floor.
+Material: A scorch burn mark decal seen from directly above: an irregular blackened soot splat with a charred near-black center fading outward into ragged radial streaks and sooty speckles, a few tiny dull ember specks. The mark is centered and fades to fully transparent before the image edges.
+Constraints: no text, no letters, no numbers, no logo, no watermark, no characters, no props, no UI.

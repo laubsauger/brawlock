@@ -18,10 +18,12 @@ import { createBot } from '../bots'
 import { startClock } from '../net/clock'
 import { codeFromSearch } from '../net/code'
 import { joinUrlFor, peerNet } from '../net/peer'
-import { createSession, type SessionApi } from '../net/session'
+import { createSession, type MatchRecorder, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
+import { getProfile } from './profile'
+import { MatchTracker, recordMatch } from './stats'
 import { useGame } from './store'
 
 export type { SessionApi } from '../net/session'
@@ -55,9 +57,26 @@ export function roomCodeFromUrl(): string | null {
   return typeof location === 'undefined' ? null : codeFromSearch(location.search)
 }
 
+/** Feeds game/stats.ts: one tracker per match, recorded at game over. */
+function createRecorder(): MatchRecorder {
+  let tracker: MatchTracker | null = null
+  return {
+    start: (info) => {
+      tracker = new MatchTracker(info)
+    },
+    observe: (state, events) => tracker?.observe(state, events),
+    finish: (result) => {
+      if (tracker) recordMatch(tracker.finish(result), getProfile().id)
+      tracker = null
+    },
+    abort: () => {
+      tracker = null
+    },
+  }
+}
+
 const impl = createSession({
   ui: {
-    playerName: () => useGame.getState().settings.playerName,
     lobby: () => useGame.getState().lobby,
     setLobby: (p) => useGame.getState().setLobby(p),
     screen: () => useGame.getState().screen,
@@ -81,6 +100,8 @@ const impl = createSession({
       frame.net.lossPct = lossPct
     },
   },
+  profile: () => getProfile(),
+  recorder: createRecorder(),
   input,
   audio,
   createMatch,
@@ -105,6 +126,9 @@ export const session: SessionApi = {
   setTeam: impl.setTeam,
   updateSettings: impl.updateSettings,
   startMatch: impl.startMatch,
+  rematch: impl.rematch,
+  backToLobby: impl.backToLobby,
+  setReady: impl.setReady,
   leave: impl.leave,
 }
 

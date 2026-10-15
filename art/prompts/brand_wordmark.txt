@@ -1,0 +1,7 @@
+Use case: logo-brand
+Asset type: game logo wordmark for a dark-fantasy arena brawler game
+Text (verbatim): "BRAWLOCK" — one word, all capitals, exactly 8 letters spelled B-R-A-W-L-O-C-K. Render this exact spelling and nothing else.
+Style: stylized molten, forged lettering. Heavy angular dark-fantasy display letters forged from blackened iron, with glowing molten orange-gold lava cracks running through the letter faces, white-hot bevelled edges, a few sparks and embers, strong rim light. Chiselled and dramatic but very legible; consistent letter heights.
+Composition: wide landscape canvas (3:2). The word sits centered horizontally on one line and fills about 90% of the width. No other elements.
+Background: genuinely transparent background (alpha channel).
+Constraints: no tagline, no subtitle, no other words or letters, no frame, no badge, no background scene, no drop-shadow box, no watermark.

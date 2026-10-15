@@ -3,10 +3,170 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0604" />
-    <title>BRAWLOCK</title>
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0d0806" />
+    <title>Brawlock</title>
+    <meta name="description" content="A top-down arena brawler in the browser. Knock rival warlocks into the lava, with friends or bots." />
+
+    <!-- Brand slots (public/brand). Placeholders until the final art from Codex image generation lands;
+         keep the file names and swap the files. Vite prefixes these paths with the Pages base at build. -->
+    <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/brand/favicon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png" />
+    <link rel="manifest" href="/brand/site.webmanifest" />
+
+    <!-- Share cards need absolute URLs; the live site is the GitHub Pages deploy. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Brawlock" />
+    <meta property="og:title" content="Brawlock" />
+    <meta property="og:description" content="Knock rival warlocks into the lava. A browser remake of Warlock Brawl, with friends or bots." />
+    <meta property="og:url" content="https://laubsauger.github.io/brawlock/" />
+    <meta property="og:image" content="https://laubsauger.github.io/brawlock/brand/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="628" />
+    <meta property="og:image:alt" content="The Brawlock wordmark over a glowing lava arena." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Brawlock" />
+    <meta name="twitter:description" content="Knock rival warlocks into the lava. With friends or bots, in the browser." />
+    <meta name="twitter:image" content="https://laubsauger.github.io/brawlock/brand/og-image.jpg" />
+
+    <link rel="preload" as="image" href="/brand/splash.webp" fetchpriority="high" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- display=block for the wordmark face: no fallback-font flash on the splash -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@500..900&display=block" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap" />
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #0d0806; color: #f2e4cf; font-family: "Barlow Semi Condensed", system-ui, sans-serif; }
+
+      /* Splash: painted before any script runs. src/ui/SplashScreen.tsx drives the bar, the stage
+         and the Enter button once the bundle is in. Enter is the first gesture, so audio unlocks there. */
+      .splash {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #0d0806;
+        color: #f2e4cf;
+        -webkit-font-smoothing: antialiased;
+        transition: opacity 700ms ease, visibility 0s linear 700ms;
+      }
+      .splash.splash-out { opacity: 0; visibility: hidden; pointer-events: none; }
+      .splash.splash-out .splash-art { transform: scale(1.1); }
+      .splash-art {
+        position: absolute;
+        inset: -2%;
+        background: #0d0806 url('/brand/splash.webp') center / cover no-repeat;
+        animation: splash-drift 16s ease-out both;
+        transition: transform 700ms ease-in;
+      }
+      .splash-vignette {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 50% 42% at 50% 46%, rgba(13, 8, 6, 0.75), rgba(13, 8, 6, 0.25) 70%, transparent),
+          radial-gradient(ellipse at center, transparent 40%, rgba(13, 8, 6, 0.9) 100%);
+      }
+      .splash-center {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(640px, calc(100vw - 32px));
+        text-align: center;
+      }
+      /* WORDMARK SLOT: swap this text for <img src="/brand/wordmark.webp"> when the art exists. */
+      .splash-wordmark {
+        margin: 0;
+        padding: 0 0.06em 0.04em 0;
+        white-space: nowrap;
+        font-family: "Grenze Gotisch", Georgia, serif;
+        font-weight: 900;
+        font-size: clamp(4.5rem, 15vw, 10.5rem);
+        line-height: 0.85;
+        background: linear-gradient(176deg, #fff6dc 0%, #ffd77a 26%, #ffb238 46%, #ff6a1f 68%, #b3161f 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(0 0 22px rgba(255, 110, 30, 0.4)) drop-shadow(0 3px 0 rgba(60, 10, 0, 0.9));
+        animation: splash-rise 900ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+        user-select: none;
+      }
+      .splash-action { min-height: 84px; display: grid; place-items: center; margin-top: 18px; }
+      .splash-progress { width: min(340px, 80vw); margin-top: 6px; transition: opacity 300ms ease; }
+      .splash[data-mode='ready'] .splash-progress { opacity: 0; }
+      .splash-bar { height: 3px; border-radius: 3px; background: rgba(242, 228, 207, 0.12); overflow: hidden; }
+      .splash-bar i {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, #b3161f, #ff6a1f 60%, #ffd77a);
+        box-shadow: 0 0 12px rgba(255, 140, 40, 0.8);
+        transform: scaleX(0.04);
+        transform-origin: left center;
+        transition: transform 420ms cubic-bezier(0.3, 0.8, 0.3, 1);
+      }
+      .splash-stage, .splash-quip, .splash-foot { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.8); }
+      .splash-stage { margin-top: 10px; font-size: 15px; font-weight: 600; color: #c9b39b; }
+      .splash-quip { min-height: 20px; margin-top: 4px; font-size: 14px; font-style: italic; color: #a39080; transition: opacity 260ms ease; }
+      .splash-quip.swap { opacity: 0; }
+      .splash-foot { position: absolute; left: 0; right: 0; bottom: 20px; font-size: 14px; color: #a39080; text-align: center; }
+      @keyframes splash-drift { from { transform: scale(1.08); } to { transform: scale(1); } }
+      @keyframes splash-rise { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
+      @media (prefers-reduced-motion: reduce) {
+        .splash-art, .splash-wordmark { animation: none; }
+        .splash, .splash-art, .splash-bar i, .splash-quip { transition: none; }
+      }
+    </style>
   </head>
   <body>
+    <div id="splash" class="splash" data-mode="loading" role="dialog" aria-modal="true" aria-label="Brawlock is loading">
+      <div class="splash-art" aria-hidden="true"></div>
+      <div class="splash-vignette" aria-hidden="true"></div>
+      <div class="splash-center">
+        <h1 class="splash-wordmark">Brawlock</h1>
+        <div id="splash-action" class="splash-action"></div>
+        <div class="splash-progress" aria-live="polite">
+          <div class="splash-bar" role="progressbar" aria-label="Loading"><i id="splash-fill"></i></div>
+          <div id="splash-stage" class="splash-stage">Loading the game</div>
+          <div id="splash-quip" class="splash-quip">Stoking the caldera…</div>
+        </div>
+      </div>
+      <div class="splash-foot">Sound starts when you enter.</div>
+      <noscript><div class="splash-foot" style="bottom: 44px; color: #ff9b8a">Brawlock needs JavaScript to open the arena.</div></noscript>
+    </div>
+    <script>
+      // Flavor lines while the real stages load (cosmetic; stops once the splash is gone).
+      (function () {
+        var lines = [
+          'Stoking the caldera…',
+          'Counting the tiles that are left…',
+          'Warming the lava to a polite boil…',
+          'Polishing fireballs…',
+          'Teaching warlocks to swim. Failing…',
+          'Sweeping ash off the arena…',
+          'Reading the fine print on the pact…',
+          'Testing the knockback on a volunteer…',
+        ];
+        var el = document.getElementById('splash-quip');
+        var splash = document.getElementById('splash');
+        var i = Math.floor(Math.random() * lines.length);
+        if (el) el.textContent = lines[i];
+        var timer = setInterval(function () {
+          if (!el || !splash || splash.hidden || splash.dataset.mode !== 'loading') return clearInterval(timer);
+          el.classList.add('swap');
+          setTimeout(function () {
+            i = (i + 1) % lines.length;
+            el.textContent = lines[i];
+            el.classList.remove('swap');
+          }, 260);
+        }, 1900);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

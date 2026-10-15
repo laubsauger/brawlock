@@ -7,17 +7,20 @@
  * - cast (point, not IMMEDIATE / IGNORE_TURN): clears the move order, turns to face the target,
  *   then counts the cast point down and fires. No-target spells skip the turn.
  * - IMMEDIATE spells fire on the order without turning or interrupting.
- * - stop, a new move or another cast during turn / cast point cancels the pending cast
- *   (no cooldown is spent).
+ * - stop (= hold), a new move or another cast during turn / cast point cancels the pending cast
+ *   ('castCancel', no cooldown spent). There is no backswing: after a spell fires the pawn obeys
+ *   the next order on the following tick.
  * - walk model per tick: v -= walk_prev; v *= friction; walk = derived; v += walk.
  */
 import { DT } from './types'
 import type { InputCommand, PawnState, PlayerId, SimState } from './types'
 import { FACING_TOLERANCE, PAWN_WALK_SPEED_CAP, SLOT_COUNT, TURN_PER_TICK, ARRIVE_EPSILON, ticks } from './config'
 import { angleDiff, atan2, wrapAngle } from './math'
-import { modifiersPreTick } from './modifiers'
+import { modifiersOnSpellCast, modifiersPreTick } from './modifiers'
+import { cancelCast, stopPawn } from './orders'
 import { buyItem, buyMastery, buySpell } from './shop'
 import { SPELLS, SPELL_BEHAVIORS, cooldownSeconds } from './spells'
+import type { CastContext } from './spells/types'
 
 /** Turn toward `desired` by at most TURN_PER_TICK. Returns the remaining |difference|. */
 function turnToward(pawn: PawnState, desired: number): number {
@@ -33,7 +36,10 @@ export function cooldownTicks(spell: string, level: number): number {
   return def ? ticks(cooldownSeconds(def, level)) : 0
 }
 
-/** Fire the spell in `slot` now: start its cooldown, emit 'cast', run the behavior. */
+/**
+ * Fire the spell in `slot` now: start its cooldown, emit 'cast', run the caster's modifier
+ * onSpellCast hooks (Pact, Windwalk, Grip, Link), then the spell behavior.
+ */
 export function fireSpell(state: SimState, pawn: PawnState, slot: number, x: number, y: number): void {
   const spell = pawn.slots[slot]
   if (!spell) return
@@ -43,14 +49,17 @@ export function fireSpell(state: SimState, pawn: PawnState, slot: number, x: num
   const level = pawn.levels[slot]
   pawn.cooldowns[slot] = ticks(cooldownSeconds(def, level))
   state.events.push({ type: 'cast', pawn: pawn.id, spell, x, y })
-  behavior.onCast({ state, caster: pawn, def, slot, level, x, y })
+  const ctx: CastContext = { state, caster: pawn, def, slot, level, x, y, overrides: {} }
+  modifiersOnSpellCast(state, pawn, ctx)
+  if (!pawn.alive) return
+  behavior.onCast(ctx)
 }
 
 function startCast(state: SimState, pawn: PawnState, slot: number, x: number, y: number): void {
   const spell = pawn.slots[slot]
   if (!spell) return
   const def = SPELLS[spell]
-  if (!def || !def.implemented || !SPELL_BEHAVIORS[spell]) return
+  if (!def || !SPELL_BEHAVIORS[spell]) return
   if (pawn.cooldowns[slot] > 0) return
   if (def.immediate) {
     fireSpell(state, pawn, slot, x, y)
@@ -59,6 +68,7 @@ function startCast(state: SimState, pawn: PawnState, slot: number, x: number, y:
   // the identical order again (resent input) must not restart the cast point
   const c = pawn.cast
   if (c && c.slot === slot && c.x === x && c.y === y) return
+  cancelCast(state, pawn)
   pawn.moveTarget = null
   pawn.cast = { slot, spell, ticksLeft: ticks(def.castPoint), x, y, started: false }
 }
@@ -67,12 +77,11 @@ export function applyCommand(state: SimState, player: PlayerId, pawn: PawnState,
   switch (cmd.kind) {
     case 'move':
       if (!pawn.alive) return
+      cancelCast(state, pawn)
       pawn.moveTarget = { x: cmd.x, y: cmd.y }
-      pawn.cast = null
       return
     case 'stop':
-      pawn.moveTarget = null
-      pawn.cast = null
+      stopPawn(state, pawn)
       return
     case 'cast':
       if (!pawn.alive) return

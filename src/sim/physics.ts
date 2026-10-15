@@ -3,13 +3,15 @@
  * resolved in TOI order, notification by alliance x channel matrix and initiative, elastic
  * response, warlock push-out rules, arena wall at 5910.
  *
- * Broad phase: the original sorts swept X extents (sort-and-sweep). With at most ~10 pawns,
- * a few dozen projectiles and 8 pillars we test every pair instead. The result is identical:
- * the broad phase only discards pairs whose swept X ranges are disjoint, and such pairs can
- * never have a time of impact inside the tick, so the candidate set equals the narrow-phase
- * set. (This stops being exact once time_scale != 1 exists — Warpzone — because the original
- * broad phase sweeps with scaled velocity and the narrow phase with raw velocity.)
- * Ties in TOI resolve by pair generation order (ascending entity ids), which is deterministic.
+ * Every actor contributes collision components (CCs): a pawn has its body CC plus temporary
+ * CCs from modifiers (Shield, Alteration, Thrust, Windwalk); projectiles one (or none); obstacles
+ * one. CCs of the same actor never interact.
+ *
+ * Broad phase: like the original, a pair is only considered if the X extents swept with
+ * velocity x dt x time_scale overlap. We test that per pair instead of sorting (n is tiny);
+ * the candidate set is identical. The narrow phase then uses RAW velocities, ignoring time_scale
+ * (original quirk, spells.md §12.13). Ties in TOI resolve by pair generation order (ascending
+ * actor ids, body CC before temporary CCs), which is deterministic.
  */
 import { DT } from './types'
 import type { ObstacleState, PawnState, PlayerId, ProjectileState, SimState } from './types'
@@ -23,30 +25,27 @@ import {
   type BodyRef,
   type ColliderProfile,
   type CollisionHit,
-  STD_PROJECTILE,
   collMatrix,
 } from './collision'
-import {
-  GAME_ARENA_RADIUS,
-  OBSTACLE_ELASTICITY,
-  OBSTACLE_MASS,
-  ORIGINAL_TICK_SCALE,
-  PAWN_ELASTICITY,
-  PAWN_MASS,
-  PAWN_RADIUS,
-} from './config'
+import { GAME_ARENA_RADIUS, OBSTACLE_ELASTICITY, OBSTACLE_MASS, ORIGINAL_TICK_SCALE, PAWN_ELASTICITY, PAWN_MASS, PAWN_RADIUS } from './config'
+import { MODIFIERS } from './modifiers'
+import { isAlive, kindOf, timeScale } from './projectiles'
 import { PROJECTILE_BEHAVIORS } from './spells'
-import { NEUTRAL_OWNER, alliance } from './teams'
+import { pawnMass } from './stats'
+import { ALLIANCE_ALLY, ALLIANCE_ENEMY, NEUTRAL_OWNER, alliance } from './teams'
+
+const PAWN_DEFAULT_MASK = BIT_PLAYER | BIT_PROJECTILE | BIT_OBSTACLE
 
 /** Pawn body CC: ENEMY, ALLY -> {PLAYER, PROJECTILE, OBSTACLE}, init 0, elastic 0.5. */
 export const PAWN_COLLIDER: ColliderProfile = {
   channel: CH_PLAYER,
   init: 0,
-  mat: collMatrix(0, BIT_PLAYER | BIT_PROJECTILE | BIT_OBSTACLE, BIT_PLAYER | BIT_PROJECTILE | BIT_OBSTACLE),
+  mat: collMatrix(0, PAWN_DEFAULT_MASK, PAWN_DEFAULT_MASK),
   elastic: true,
   elasticity: PAWN_ELASTICITY,
   mass: PAWN_MASS,
   notifiesOther: true,
+  acceptDamage: true,
 }
 
 /** Obstacle CC: ENEMY, ALLY -> {PLAYER, PROJECTILE}, static, mass 10000, elastic 0.5. */
@@ -58,9 +57,32 @@ export const OBSTACLE_COLLIDER: ColliderProfile = {
   elasticity: OBSTACLE_ELASTICITY,
   mass: OBSTACLE_MASS,
   notifiesOther: true,
+  acceptDamage: true,
 }
 
-/** Kinematic view of a body. Pawns and projectiles are used directly; obstacles get a proxy. */
+/** Body CC of a pawn with its modifiers' accept-mask changes applied (Shield, Thrust, Windwalk). */
+export function pawnBodyProfile(pawn: PawnState): ColliderProfile {
+  let ally = PAWN_DEFAULT_MASK
+  let enemy = PAWN_DEFAULT_MASK
+  for (const m of pawn.modifiers) {
+    const f = MODIFIERS[m.id]?.bodyMask
+    if (f) [ally, enemy] = f(m, ally, enemy)
+  }
+  const mass = pawnMass(pawn)
+  if (ally === PAWN_DEFAULT_MASK && enemy === PAWN_DEFAULT_MASK && mass === PAWN_MASS) return PAWN_COLLIDER
+  const mat: [number, number, number] = [0, 0, 0]
+  mat[ALLIANCE_ALLY] = ally
+  mat[ALLIANCE_ENEMY] = enemy
+  return { ...PAWN_COLLIDER, mat, mass }
+}
+
+export function projectileProfile(p: ProjectileState): ColliderProfile | null {
+  const b = PROJECTILE_BEHAVIORS[kindOf(p)]
+  if (!b) return null
+  return typeof b.collider === 'function' ? b.collider(p) : b.collider
+}
+
+/** Kinematic view of a body. Pawns and projectiles are used directly; obstacles likewise. */
 interface Kin {
   x: number
   y: number
@@ -68,14 +90,17 @@ interface Kin {
   vy: number
 }
 
-interface Body {
+export interface Body {
   ref: BodyRef
+  /** actor entity id */
   id: number
   owner: PlayerId
   k: Kin
   radius: number
   cc: ColliderProfile
   isStatic: boolean
+  /** time scale of the actor (Warpzone), 1 for pawns and obstacles */
+  ts: number
 }
 
 interface Pair {
@@ -86,37 +111,39 @@ interface Pair {
   notifyB: boolean
 }
 
-function pawnBody(p: PawnState): Body {
-  return { ref: { kind: 'pawn', pawn: p }, id: p.id, owner: p.owner, k: p, radius: PAWN_RADIUS, cc: PAWN_COLLIDER, isStatic: false }
-}
+const STATIC_KIN = (o: ObstacleState): Kin => ({ x: o.x, y: o.y, vx: 0, vy: 0 })
 
-function projectileBody(p: ProjectileState): Body {
-  const cc = PROJECTILE_BEHAVIORS[p.spell]?.collider ?? STD_PROJECTILE
-  return { ref: { kind: 'projectile', proj: p }, id: p.id, owner: p.owner, k: p, radius: p.radius, cc, isStatic: false }
-}
-
-function obstacleBody(o: ObstacleState): Body {
-  return {
-    ref: { kind: 'obstacle', obstacle: o },
-    id: o.id,
-    owner: NEUTRAL_OWNER,
-    k: { x: o.x, y: o.y, vx: 0, vy: 0 },
-    radius: o.radius,
-    cc: OBSTACLE_COLLIDER,
-    isStatic: true,
+/** All active collision components, ordered by actor id (body CC before temporary CCs). */
+export function collectBodies(state: SimState): Body[] {
+  const out: Body[] = []
+  for (const p of state.pawns) {
+    if (!p.alive) continue
+    out.push({ ref: { kind: 'pawn', pawn: p, cc: 'body', mod: null }, id: p.id, owner: p.owner, k: p, radius: PAWN_RADIUS, cc: pawnBodyProfile(p), isStatic: false, ts: 1 })
+    for (const m of p.modifiers) {
+      const c = MODIFIERS[m.id]?.collider?.(state, p, m)
+      if (c) out.push({ ref: { kind: 'pawn', pawn: p, cc: m.id, mod: m }, id: p.id, owner: p.owner, k: p, radius: c.radius, cc: c.profile, isStatic: false, ts: 1 })
+    }
   }
+  for (const p of state.projectiles) {
+    if (!isAlive(p)) continue
+    const cc = projectileProfile(p)
+    if (cc) out.push({ ref: { kind: 'projectile', proj: p }, id: p.id, owner: p.owner, k: p, radius: p.radius, cc, isStatic: !!p.data.static, ts: timeScale(p) })
+  }
+  for (const o of state.obstacles) {
+    if (o.hp > 0) out.push({ ref: { kind: 'obstacle', obstacle: o }, id: o.id, owner: NEUTRAL_OWNER, k: STATIC_KIN(o), radius: o.radius, cc: OBSTACLE_COLLIDER, isStatic: true, ts: 1 })
+  }
+  // stable: keeps body-before-temporary order inside one pawn
+  return out.sort((a, b) => a.id - b.id)
 }
 
-function destroyed(b: Body): boolean {
+export function bodyDestroyed(b: Body): boolean {
   const r = b.ref
-  if (r.kind === 'pawn') return !r.pawn.alive
-  if (r.kind === 'projectile') return r.proj.ticksLeft <= 0 || !!r.proj.data.dead
+  if (r.kind === 'pawn') return !r.pawn.alive || (r.mod !== null && !r.pawn.modifiers.includes(r.mod))
+  if (r.kind === 'projectile') return !isAlive(r.proj)
   return r.obstacle.hp <= 0
 }
 
-/**
- * Earliest t in [0, dt] at which two moving circles touch, or -1. Already overlapping = 0.
- */
+/** Earliest t in [0, dt] at which two moving circles touch, or -1. Already overlapping = 0. */
 export function timeOfImpact(a: Kin, b: Kin, r: number, dt: number): number {
   const px = b.x - a.x
   const py = b.y - a.y
@@ -133,11 +160,22 @@ export function timeOfImpact(a: Kin, b: Kin, r: number, dt: number): number {
   return t <= dt ? (t > 0 ? t : 0) : -1
 }
 
-function notify(state: SimState, self: Body, other: Body, nx: number, ny: number, x: number, y: number, overlapping: boolean): void {
-  if (self.ref.kind !== 'projectile') return // pawn CC modifiers (Shield, Thrust, ...) hook in here later
-  const proj = self.ref.proj
-  const hit: CollisionHit = { other: other.ref, otherId: other.id, nx, ny, x, y, overlapping }
-  PROJECTILE_BEHAVIORS[proj.spell]?.onCollide?.(state, proj, hit)
+function sweptX(b: Body): [number, number] {
+  const x1 = b.k.x + b.k.vx * DT * b.ts
+  return b.k.x < x1 ? [b.k.x - b.radius, x1 + b.radius] : [x1 - b.radius, b.k.x + b.radius]
+}
+
+function notify(state: SimState, self: Body, hit: CollisionHit): void {
+  const r = self.ref
+  if (r.kind === 'projectile') {
+    // both sides of a pair are told even if the first reaction destroyed the second
+    // (Fireball vs Fireball: both explode), as in the original
+    PROJECTILE_BEHAVIORS[kindOf(r.proj)]?.onCollide?.(state, r.proj, hit)
+  } else if (r.kind === 'pawn' && r.mod) {
+    // a temporary CC whose modifier was just removed (e.g. two Thrusts hitting each other)
+    // must not react twice
+    if (r.pawn.alive && r.pawn.modifiers.includes(r.mod)) MODIFIERS[r.mod.id]?.onColliderHit?.(state, r.pawn, r.mod, hit)
+  }
 }
 
 /** Momentum exchange along n (from a to b), original formula with per-body elasticity. */
@@ -151,6 +189,13 @@ function momentumResponse(a: Body, b: Body, nx: number, ny: number): void {
   a.k.vy -= (j / ma) * ny
   b.k.vx += (j / mb) * nx
   b.k.vy += (j / mb) * ny
+}
+
+function syncObstacle(b: Body): void {
+  if (b.ref.kind === 'obstacle') {
+    b.k.vx = 0
+    b.k.vy = 0
+  }
 }
 
 function elasticResponse(a: Body, b: Body, nx: number, ny: number): void {
@@ -196,14 +241,9 @@ function elasticResponse(a: Body, b: Body, nx: number, ny: number): void {
       momentumResponse(a, b, nx, ny)
     }
   }
-  if (a.isStatic) {
-    a.k.vx = 0
-    a.k.vy = 0
-  }
-  if (b.isStatic) {
-    b.k.vx = 0
-    b.k.vy = 0
-  }
+  // a static actor's velocity is forced back to 0 after every collision
+  if (a.isStatic) syncObstacle(a)
+  if (b.isStatic) syncObstacle(b)
 }
 
 /** Hard world boundary: clamp onto the circle and drop the radial velocity (a slide). */
@@ -220,45 +260,46 @@ function arenaBounds(k: Kin): void {
   k.vy -= vr * uy
 }
 
+/** Notification flags for an ordered pair (a dominates: init(a) <= init(b)). */
+export function notifications(state: SimState, a: Body, b: Body): [boolean, boolean] {
+  const al = alliance(state, a.owner, b.owner)
+  const fa = (a.cc.mat[al] & (1 << b.cc.channel)) !== 0
+  const fb = (b.cc.mat[al] & (1 << a.cc.channel)) !== 0
+  const oa = a.cc.notifiesOther && fa
+  const ob = b.cc.notifiesOther && fb
+  return [a.cc.init < b.cc.init ? fa : fa && ob, fb && oa]
+}
+
 /** Collision detection + resolution + integration for one tick. */
 export function physicsStep(state: SimState): void {
-  const bodies: Body[] = []
-  for (const p of state.pawns) if (p.alive) bodies.push(pawnBody(p))
-  for (const p of state.projectiles) if (!(p.ticksLeft <= 0 || p.data.dead)) bodies.push(projectileBody(p))
-  for (const o of state.obstacles) if (o.hp > 0) bodies.push(obstacleBody(o))
-  bodies.sort((a, b) => a.id - b.id)
+  const bodies = collectBodies(state)
+  const swept = bodies.map(sweptX)
 
   const pairs: Pair[] = []
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
-      // a = lower initiative (dominant); equal keeps id order
       let a = bodies[i]
       let b = bodies[j]
+      if (a.id === b.id) continue // CCs of one actor never touch
+      if (a.isStatic && b.isStatic) continue
+      if (swept[i][1] < swept[j][0] || swept[j][1] < swept[i][0]) continue
       if (b.cc.init < a.cc.init) {
         const t = a
         a = b
         b = t
       }
-      if (a.isStatic && b.isStatic) continue
-      const al = alliance(state, a.owner, b.owner)
-      const fa = (a.cc.mat[al] & (1 << b.cc.channel)) !== 0
-      const fb = (b.cc.mat[al] & (1 << a.cc.channel)) !== 0
-      const oa = a.cc.notifiesOther && fa
-      const ob = b.cc.notifiesOther && fb
-      const notifyA = a.cc.init < b.cc.init ? fa : fa && ob
-      const notifyB = fb && oa
+      const [notifyA, notifyB] = notifications(state, a, b)
       if (!notifyA && !notifyB) continue
       const toi = timeOfImpact(a.k, b.k, a.radius + b.radius, DT)
       if (toi < 0) continue
       pairs.push({ toi, a, b, notifyA, notifyB })
     }
   }
-  // stable sort keeps generation order for equal TOI
   pairs.sort((p, q) => p.toi - q.toi)
 
   for (const pr of pairs) {
     const { a, b, toi } = pr
-    if (destroyed(a) || destroyed(b)) continue
+    if (bodyDestroyed(a) || bodyDestroyed(b)) continue
     const ax = a.k.x + a.k.vx * toi
     const ay = a.k.y + a.k.vy * toi
     const bx = b.k.x + b.k.vx * toi
@@ -276,8 +317,8 @@ export function physicsStep(state: SimState): void {
     const hx = (ax + bx) * 0.5
     const hy = (ay + by) * 0.5
     const overlapping = toi === 0
-    if (pr.notifyA) notify(state, a, b, nx, ny, hx, hy, overlapping)
-    if (pr.notifyB) notify(state, b, a, -nx, -ny, hx, hy, overlapping)
+    if (pr.notifyA) notify(state, a, { other: b.ref, otherId: b.id, nx, ny, x: hx, y: hy, distance: d, overlapping, radius: a.radius, otherRadius: b.radius })
+    if (pr.notifyB) notify(state, b, { other: a.ref, otherId: a.id, nx: -nx, ny: -ny, x: hx, y: hy, distance: d, overlapping, radius: b.radius, otherRadius: a.radius })
     if (a.cc.elastic && b.cc.elastic) elasticResponse(a, b, nx, ny)
   }
 
@@ -288,9 +329,12 @@ export function physicsStep(state: SimState): void {
     arenaBounds(p)
   }
   for (const p of state.projectiles) {
-    p.x += p.vx * DT
-    p.y += p.vy * DT
+    if (p.data.static) continue
+    const s = DT * timeScale(p)
+    p.x += p.vx * s
+    p.y += p.vy * s
     arenaBounds(p)
   }
   if (state.obstacles.some((o) => o.hp <= 0)) state.obstacles = state.obstacles.filter((o) => o.hp > 0)
 }
+

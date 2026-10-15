@@ -176,6 +176,7 @@ Target: Dota-class responsiveness or better on a normal connection.
   - Optional host-advantage compensation: confirmed input delay for the host equals the median client delay.
 - **Fallback**: if cross-engine determinism ever fails in practice, the same `step(state, inputs)` sim supports classic state sync with own-pawn prediction and delta snapshots.
 - **Clock sync**: RTT probes on the unreliable channel; client keeps a smoothed tick offset.
+- **Room codes**: 5 letters without I/O (pattern from Pit of Carnage). The host registers PeerJS id `brawlock-<CODE>`; friends type the code or open `?room=CODE`.
 - **Topology limits**: P2P star (the host browser is the server). Roughly 10–20% of NATs need TURN (PeerJS provides free TURN; own TURN later). Host leaving ends the match in v1; host migration is post-v1.
 - **Reconnect**: rejoin by the same link within the abandon window; a bot holds the pawn meanwhile (original `bot_on_dc`).
 - **Dedicated servers (M4)**: Bun process running the same `sim/` as input arbiter and authority, many rooms per process, 2–3 regional VMs. WebSocket first behind a transport interface, WebTransport datagrams later (server-side WebTransport libraries for Node/Bun are still immature; see `tech.md`). Per-match hosting (Edgegap) for ranked. Hathora, Rivet game hosting and Unity Multiplay are gone, so we avoid platform lock-in.
@@ -191,7 +192,7 @@ Target: Dota-class responsiveness or better on a normal connection.
 
 ### 5.1 Art direction
 
-Dark fantasy arena at night. Volcanic caldera, glowing lava with heat shimmer, tiles of obsidian and runed stone that crack, glow and sink as the arena shrinks. Warlocks read instantly by silhouette and team color. Spells carry a clear color language per column so players learn threats by hue and shape.
+Target look: "Unreal Engine quality without the performance penalty". Dark fantasy arena at night. Volcanic caldera framed by rocky cliffs, boulders, moss and glowing green vegetation or crystal accents on the rim, glowing lava with heat shimmer, tiles of obsidian and runed stone that crack, glow and sink as the arena shrinks. Warlocks read instantly by silhouette and team color. Spells carry a clear color language per column so players learn threats by hue and shape.
 
 ### 5.2 Readability rules
 
@@ -200,21 +201,34 @@ Dark fantasy arena at night. Volcanic caldera, glowing lava with heat shimmer, t
 - Knockback shows strength: trail length and hit-spark size scale with impulse; knockback points visible as a growing aura and a number.
 - Lava danger: tiles about to drop pulse red one second before the shrink.
 - Floating combat numbers, crisp and color coded, with stacking.
+- Name tag with a compact HP bar over every pawn; broadcast-style kill feed (killer, cause icon, victim; lava kills credit the last hitter).
 - VFX never hide a projectile hitbox. Effects have a hitbox-core layer drawn on top.
 
 ### 5.3 Characters and world
 
-- Warlock characters: rigged glTF, idle, run, cast (3 variants), knocked-back tumble, burn, death, victory. Sources: CC0 packs (KayKit, Quaternius) as base, customized; or commissioned. Cosmetic variants chosen in the lobby.
-- Tiles: generated in code (rounded-corner logic from the original), PBR materials from CC0 libraries (Poly Haven, ambientCG), three themes matching the original's three obstacle sets (ruins, rocks, debris).
-- Obstacles: destructible pillars with crack stages and an explosion.
+- Warlock characters: rigged glTF, idle, run, cast (3 variants), knocked-back tumble, burn, death, victory. Robe and cape get faked cloth motion in a TSL vertex shader (sway and trail from velocity and acceleration, stronger toward the hem), driven by a small damped spring per pawn that also takes hit impulses, and constrained outside body and leg capsules so it never clips. M0's procedural placeholder already uses the same technique. Decision (2026-10-15): CC0 rigged base (KayKit / Quaternius), heavily customized: TSL materials, hood, robe and cape geometry with the cloth shader, team-color runes, glowing staff. Cosmetic variants chosen in the lobby.
+- Tiles: generated in code (rounded-corner logic from the original), PBR materials from CC0 libraries (Poly Haven, ambientCG), three themes matching the original's three obstacle sets: ruined temple stone, volcanic rock, mossy overgrown.
+- Lighting: warm lava bounce from below, cool moonlit key light, soft shadows on High and up, height fog and haze over the lava.
+- Obstacles: destructible pillars (sim done: 400 HP, explosion r300, 2–8 random per round, re-rolled each shop phase) with per-theme art, crack stages and an explosion. Spawning switches on once the art exists.
 - Lava: TSL shader with flow noise, emissive bloom, heat distortion, ember particles.
 
 ### 5.4 VFX, camera, post
 
+**VFX definition of done.** No spell, projectile, ability or hit ships as a plain shape. Each one has:
+
+- Layers: hot emissive core into bloom, soft glow, trail with heat falloff, secondary particles (embers, sparks, smoke), light cast on nearby ground, heat distortion where it fits, an impact decal that fades.
+- A full arc: anticipation (windup telegraph), action (cast flash), impact (directional burst, shockwave, debris), dissipation (smoke, settling embers).
+- Its own sound set (cast, travel loop where fitting, impact).
+- A readable collision core that stays visible above the effect.
+
+A spell counts as implemented only when its sim behavior, tests and this VFX standard are all done; VFX is not deferred to a later polish pass.
+
+
 - GPU particles with TSL compute (WebGPU tier), instanced CPU particles as fallback.
+- Heavy impacts: directional spark cone along the knockback normal, ground shockwave, victim flash, camera kick toward the hit, all scaled by impulse.
 - Hit stop of 2–4 frames on big hits, scaled screen shake (setting), chromatic flash on own damage.
 - Camera: top-down tilted follow with smoothed zoom (original: 500–1500, default 1100), optional free pan, spectator cam on death.
-- Post: bloom, ACES or AgX tone mapping, vignette, optional SSAO/GTAO and SMAA by tier.
+- Post: bloom, ACES or AgX tone mapping, vignette, subtle film grain, per-object motion blur (velocity-stretched projectiles and knocked-back pawns), optional camera motion blur on Ultra, SSAO/GTAO and SMAA by tier.
 
 ### 5.5 Quality tiers
 
@@ -237,11 +251,11 @@ Auto-detect on first launch from a 3-second GPU timestamp benchmark during the s
 ### 5.7 Screens and flow
 
 ```
-Splash (logo, loading, GPU benchmark)
+Splash (static HTML that paints before JS; real loading progress, GPU benchmark; "Enter" is the audio-unlock gesture)
   └ Main menu (animated arena backdrop)
       ├ Play vs Bots  → Lobby (offline)
       ├ Host Game     → Lobby (share link, slots)
-      ├ Join Game     → Lobby (from link or code)
+      ├ Join Game     → Lobby (5-letter room code, or a ?room=CODE link)
       ├ Settings      (video, audio, controls, gameplay, accessibility)
       └ Credits
 Lobby: player list with color and cosmetic, bot slots with difficulty, match options (all original lobby options), ready, start
@@ -256,20 +270,40 @@ HUD: HP bar with regen tick, knockback points readout, spell bar (6 columns) wit
 
 **Character sheet** (hotkey C): live stats and their sources: HP and max HP, regen, move speed, knockback points and what they multiply, knockback taken factor (Armor, Cursed Ring), damage factor, debuff duration factor, mastery bonuses (duration, range, lifesteal), owned spells with levels and next-level deltas.
 
-**Shop**: affordability states, previews with exact before and after numbers per level, hover tooltips with mechanics, purchase feedback (sound, flash, level pip animation), shows whether buying is allowed right now.
+**Shop** is a highlight of the round, not a menu: side panel that keeps your warlock practicing in view, opens automatically with the countdown, big spell cards by role color, affordability states, previews with exact before and after numbers per level, hover tooltips with mechanics, purchase feedback (sound, flash, level pip animation), shows whether buying is allowed right now.
 
 Settings: quality tier and individual toggles, resolution scale, fps cap, fx intensity, screen shake, colorblind palette, master, SFX, music and UI volume, mute, keybinds (rebindable), camera zoom speed and edge pan, show perf HUD, Inspector toggle.
 
+### 5.8 Online experience (esports bar)
+
+The game only matters if online play feels great. Before servers exist (M4), everything below runs P2P with local persistence.
+
+- **Zero-friction joining**: 5-letter room code or link, name remembered, join in two clicks, reconnect with the same pawn.
+- **Lobby**: player cards with name, color, ping bars, host crown, ready state and your head-to-head record against each opponent; bot slots with difficulty.
+- **One-click rematch** from the results screen; clients follow automatically. Back-to-lobby keeps everyone.
+- **Pings**: per-player latency in lobby and scoreboard. Map pings (alt-click to mark a spot for teammates) in M1.
+- **Statistics**: post-match board (score, kills, deaths, damage, rounds won, MVP); career totals; match history; **encounters** (per-opponent wins, losses, last played); local leaderboard of players you have met with a local rating. Profiles use a stable per-browser id.
+- **Global leaderboards, ranked and matchmaking** need authoritative servers (M4); results from P2P matches cannot be trusted for ranking.
+- **Spectating**: mid-match joiners spectate and play the next match.
+
 ## 6. Controls
 
-Right-click move, `S` stop (also cancels a windup such as Scourge), quick-cast at cursor, mouse wheel zoom, `Space` center camera, `Tab` scoreboard, `B` shop, `Esc` menu. Two keybind presets, both fully rebindable:
+Controls must feel exactly like Dota to veteran players.
+
+- Right-click move (every click sends a move; spam is fine), `S` stop, `H` hold (same as stop), mouse wheel zoom, `Space` center camera, `Tab` scoreboard, `B` shop, `Esc` menu.
+- **Animation canceling, Dota semantics**: a stop, a new move or another cast during the turn or cast point cancels the cast with no cooldown spent (fake casts and baits work, and the opponent sees and hears the fizzle). After release there is no backswing lock: the next right-click moves immediately, and the backswing animation is cut visually.
+- **Cast modes** like Dota: Quick Cast (default, fires at the cursor on key press), Quick Cast on Key Release (shows range ring and aim line while held), Normal Cast (targeting reticle, left-click confirms). Global setting plus per-slot override.
+- Right-click move markers, range indicators from the sim's spell data.
+
+Keybind presets, fully rebindable with conflict detection:
 
 | Preset | Spell columns 1–6 | Items 1–6 | Character sheet |
 |---|---|---|---|
+| Dota (default) | `Q W E D F R` | `Z X C V B N` | `C` |
+| Modern | `Q W E R D F` | `1–6` | `C` |
 | Classic (the original's column labels, WC3 era) | `D R T E C Y` | `1–6` | `K` |
-| Modern (default) | `Q W E R D F` | `1–6` | `C` |
 
-Gamepad and alternative WASD movement are post-v1 experiments.
+Gamepad, shift-queued orders and alternative WASD movement are post-v1 experiments.
 
 ## 7. Bots
 
@@ -310,7 +344,7 @@ All 24 spells, Fireball and Scourge levels, 10 items, 3 masteries, shop UI with 
 
 ### M2: Presentation
 
-Final characters and animations, tile and lava art, VFX pass per spell, sound design and music, UI art pass, logo, favicon and splash via Codex image gen, quality tiers with auto-detect, accessibility (colorblind, reduced motion), credits.
+Final characters and animations, tile and lava art, VFX refinement pass across all spells, sound design and music, UI art pass, logo, favicon and splash via Codex image gen, quality tiers with auto-detect, accessibility (colorblind, reduced motion), credits.
 
 ### M3: Bots v2
 
@@ -342,4 +376,4 @@ New spells and items, map variants and hazards, alternative movement schemes, dr
 6. **three.js WebGPU is still labeled experimental** upstream; pin the version and upgrade deliberately.
 7. **Determinism across browsers**: engine trig differs even between V8 versions. All sim trig goes through `sim/math.ts` (fdlibm-style); CI compares state hashes across engines.
 8. **Small genre audience** (Spellsworn and Battlerite sit at tens of concurrent players; Spellbreak and Magicka: Wizard Wars shut down). Bots, instant solo play and near-zero hosting cost matter more than server scale.
-9. **Character art** is the biggest presentation cost; decide CC0 base vs commission early in M2.
+9. **Character art** is the biggest presentation lever. Decided: CC0 base, customized. Risk: stylized low-poly bases cap fidelity; revisit (AI 3D gen or commission) if the customized base cannot reach the bar.

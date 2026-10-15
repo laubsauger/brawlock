@@ -1,12 +1,18 @@
 /**
  * Spell and item data for every original spell (docs/research/spells.md §2.2, §8, §11).
- * Numbers only; behavior lives in sim/spells/*.ts. `implemented` marks the spells the sim
- * can cast; buying anything else is rejected until its behavior module lands.
+ * Numbers only; behavior lives in sim/spells/*.ts.
+ *
+ * Release gate: a spell is only buyable once sim behavior, tests AND its VFX ship together.
+ * RELEASED_SPELLS (below) is that list; the coordinator adds ids as render lands their VFX.
+ * IMPLEMENTED_SPELLS (spells/index.ts) = has sim behavior (used by tests).
  *
  * Attribute lookup follows the original (`CastInfo:attribute`): a class constant wins over
  * a per-level KV value of the same name; a missing name reads as 0.
  */
 import type { SpellId } from '../types'
+
+/** Buyable in the shop (sim + tests + VFX done). Spell, active item and passive item ids. */
+export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>(['fireball', 'scourge', 'teleport'])
 
 export interface SpellDef {
   id: SpellId
@@ -35,6 +41,7 @@ export interface SpellDef {
   levels: Readonly<Record<string, readonly number[]>>
   /** class constants (win over `levels`) */
   consts: Readonly<Record<string, number>>
+  /** purchasable now (= RELEASED_SPELLS.has(id)); kept under this name for the UI catalog */
   implemented: boolean
 }
 
@@ -65,8 +72,8 @@ function spell(
     ignoreTurn: false,
     levels: {},
     consts: {},
-    implemented: false,
     ...o,
+    implemented: RELEASED_SPELLS.has(id),
   }
 }
 
@@ -89,8 +96,8 @@ function item(
     ignoreTurn: false,
     levels: {},
     consts: {},
-    implemented: false,
     ...o,
+    implemented: RELEASED_SPELLS.has(id),
   }
 }
 
@@ -102,7 +109,6 @@ const DEFS: SpellDef[] = [
     cooldown: rep(4.8),
     levels: { damage: [70, 77, 84, 91, 98, 105, 112], range: rep(1000) },
     consts: { speed: 1000, radius: 25, knockback_factor: 1 },
-    implemented: true,
   }),
   item('scourge', 'Scourge', 7, 3, {
     target: 'none',
@@ -110,7 +116,6 @@ const DEFS: SpellDef[] = [
     cooldown: rep(3, 3),
     levels: { damage: [100, 110, 120], radius: [250, 250, 250], dp_reduce: [0, 20, 30] },
     consts: { kb_factor_min: 0.75, kb_factor_max: 1, self_cost: 100 },
-    implemented: true,
   }),
   item('redirector', 'Redirector', 8, 1, {
     target: 'point',
@@ -166,7 +171,6 @@ const DEFS: SpellDef[] = [
     cooldown: [16, 13.5, 11.5, 10, 9, 8, 7],
     levels: { range: [770, 840, 910, 980, 1050, 1120, 1190] },
     consts: { velocity_keep: 0.8 },
-    implemented: true,
   }),
   spell('thrust', 'Thrust', 2, 11, UP_6, {
     target: 'point',
@@ -197,7 +201,7 @@ const DEFS: SpellDef[] = [
     castPoint: 0.2,
     cooldown: [22, 21, 20, 19, 18, 17, 16],
     levels: { damage: [60, 70, 80, 90, 100, 110, 120], buff_duration: [4, 5, 6, 7, 8, 9, 10] },
-    // coll_radius is deliberately absent: the original reads a missing key (= 0), spells.md §12.3
+    // the original read a missing `coll_radius` (= 0, a point); v1 uses the defined 24.5 (§12.3)
     consts: { projectile_speed: 700, changed_speed: 600, radius: 24.5, range: 850, extra_time: 1.2, knockback_factor: 0.2, speed_change: 50, heal_speed: 650, heal_dist: 64 },
   }),
   spell('bouncer', 'Bouncer', 3, 14, UP_6, {
@@ -359,7 +363,7 @@ export function cooldownSeconds(def: SpellDef, level: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Passive items (systems.md §3.1). Data only in M0: buying them is rejected.
+// Passive items (systems.md §3.1): stat modifiers applied by stats.ts recomputeStats.
 // ---------------------------------------------------------------------------
 
 export interface PassiveItemDef {
@@ -369,6 +373,7 @@ export interface PassiveItemDef {
   maxLevel: number
   /** absolute per-level stat deltas (not additive between levels) */
   levels: Readonly<Record<'hp_bonus' | 'hp_regen' | 'kb_reduction' | 'speed_bonus_abs' | 'debuff_factor', readonly number[]>>
+  /** purchasable now (= RELEASED_SPELLS.has(id)) */
   implemented: boolean
 }
 
@@ -381,7 +386,7 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     cost: 4,
     maxLevel: 5,
     levels: { hp_bonus: [100, 190, 270, 340, 400], hp_regen: z(5), kb_reduction: z(5), speed_bonus_abs: z(5), debuff_factor: z(5) },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('ring_of_health'),
   },
   cursed_ring: {
     id: 'cursed_ring',
@@ -389,7 +394,7 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     cost: 4,
     maxLevel: 2,
     levels: { hp_bonus: [100, 200], hp_regen: z(2), kb_reduction: [0.15, 0.15], speed_bonus_abs: z(2), debuff_factor: [0.25, 0.3] },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('cursed_ring'),
   },
   cape: {
     id: 'cape',
@@ -398,7 +403,7 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     maxLevel: 3,
     // server values; the original shop UI showed 2 / 3.5 / 4.5 (systems.md §3.1)
     levels: { hp_bonus: z(3), hp_regen: [1.5, 2.5, 3.5], kb_reduction: z(3), speed_bonus_abs: z(3), debuff_factor: z(3) },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('cape'),
   },
   armor: {
     id: 'armor',
@@ -406,7 +411,7 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     cost: 6,
     maxLevel: 3,
     levels: { hp_bonus: z(3), hp_regen: z(3), kb_reduction: [0.12, 0.18, 0.22], speed_bonus_abs: z(3), debuff_factor: z(3) },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('armor'),
   },
   boots: {
     id: 'boots',
@@ -414,7 +419,7 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     cost: 5,
     maxLevel: 3,
     levels: { hp_bonus: z(3), hp_regen: z(3), kb_reduction: z(3), speed_bonus_abs: [18, 29, 40], debuff_factor: z(3) },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('boots'),
   },
   pocket_watch: {
     id: 'pocket_watch',
@@ -422,6 +427,6 @@ export const PASSIVE_ITEMS: Readonly<Record<string, PassiveItemDef>> = {
     cost: 2,
     maxLevel: 2,
     levels: { hp_bonus: z(2), hp_regen: z(2), kb_reduction: z(2), speed_bonus_abs: z(2), debuff_factor: [-0.35, -0.45] },
-    implemented: false,
+    implemented: RELEASED_SPELLS.has('pocket_watch'),
   },
 }

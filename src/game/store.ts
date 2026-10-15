@@ -12,8 +12,18 @@ export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'resu
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra'
 
-/** Hotkey preset (docs/PLAN.md §6). Modern = Q W E R D F, Classic = D R T E C Y. */
-export type KeyPreset = 'modern' | 'classic'
+/**
+ * Hotkey preset (docs/PLAN.md §6, tables in src/ui/lib/keys.ts).
+ * Dota = Q W E D F R + Z X C V B N, Modern = Q W E R D F + 1-6, Classic = D R T E C Y + 1-6.
+ */
+export type KeyPreset = 'dota' | 'modern' | 'classic'
+
+/**
+ * Dota cast modes. quick: the key casts at the cursor at once. release: hold
+ * the key to aim (range ring), cast on release. normal: the key enters
+ * targeting, left click casts, right click or Esc cancels.
+ */
+export type CastMode = 'quick' | 'release' | 'normal'
 
 /** Graphics backend found at boot. 'fallback' = no WebGPU, three runs on WebGL2. */
 export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
@@ -29,6 +39,11 @@ export interface Settings {
   playerName: string
   showPerf: boolean
   keyPreset: KeyPreset
+  /** per-action overrides on top of the preset: action id -> KeyboardEvent.code */
+  keybinds: Partial<Record<string, string>>
+  castMode: CastMode
+  /** per-slot cast mode override, slot index 0..11 -> mode */
+  castModeSlots: Partial<Record<number, CastMode>>
 }
 
 export type NetRole = 'offline' | 'host' | 'client'
@@ -49,6 +64,10 @@ export interface LobbyView {
    * a bot took over", join retries). Written by the session, cleared after a few seconds.
    */
   notice?: string | null
+  /** round-trip ping per player in ms, measured by the host (host 0, bots absent). ~1 Hz. */
+  pings: Record<number, number>
+  /** players who asked for a rematch on the results screen; reset when a match starts */
+  ready: Record<number, boolean>
 }
 
 export interface MatchResult {
@@ -56,6 +75,8 @@ export interface MatchResult {
   slots: PlayerSlot[]
   scores: PlayerScore[]
   rounds: number
+  /** match length in sim ticks (60 Hz) */
+  ticks?: number
 }
 
 interface GameStore {
@@ -92,7 +113,10 @@ const defaultSettings: Settings = {
   muted: false,
   playerName: 'Warlock',
   showPerf: false,
-  keyPreset: 'modern',
+  keyPreset: 'dota',
+  keybinds: {},
+  castMode: 'quick',
+  castModeSlots: {},
 }
 
 function loadSettings(): Settings {
@@ -118,6 +142,8 @@ export const useGame = create<GameStore>((set, get) => ({
     slots: [],
     settings: null,
     localPlayer: 0,
+    pings: {},
+    ready: {},
   },
   shopOpen: false,
   scoreboardOpen: false,
