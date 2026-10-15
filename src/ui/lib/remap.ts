@@ -7,6 +7,8 @@
 import { useGame } from '../../game/store'
 import { ACTION_LABEL, PRESETS, PRESETS_ALT, RESERVED_KEYS, keyLabel, resolveBinds, slotAction, type BindAction, type Binds } from './keys'
 import { toast } from './toast'
+import { frame } from '../../game/frame'
+import { displayName } from '../data/catalog'
 
 type Which = 'primary' | 'secondary'
 
@@ -38,8 +40,11 @@ export function sameGroup(a: number, b: number): boolean {
   return a !== b && a >= 0 && b >= 0 && a < 12 && b < 12 && a < 6 === b < 6
 }
 
-function slotName(slot: number): string {
-  return slot < 6 ? `column ${slot + 1}` : `item ${slot - 5}`
+/** What a slot holds right now ("Fireball"), or where it is ("column 3") when empty or outside a match. */
+export function slotName(slot: number): string {
+  const pawn = frame.curr?.pawns.find((p) => p.owner === frame.localPlayer)
+  const id = pawn?.slots[slot]
+  return id ? displayName(id) : slot < 6 ? `column ${slot + 1}` : `item slot ${slot - 5}`
 }
 
 /** Swap both keys of two slots. Returns false for slots in different groups. */

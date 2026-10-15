@@ -5,8 +5,8 @@
  * then press the key it should use (startSlotCapture).
  */
 import type { DragEvent, HTMLAttributes } from 'react'
-import { ACTION_LABEL, keyLabel, slotAction } from './keys'
-import { assignKey, sameGroup, swapSlots } from './remap'
+import { keyLabel, slotAction } from './keys'
+import { assignKey, sameGroup, slotName, swapSlots } from './remap'
 import { pop } from './motion'
 import { toast } from './toast'
 import { sfx } from './sound'
@@ -84,7 +84,7 @@ export function startSlotCapture(slot: number, el: HTMLElement): void {
   capture?.stop()
   const action = slotAction(slot)
   el.dataset.capture = 'true'
-  toast(`Press the key for ${ACTION_LABEL[action].toLowerCase()}. Esc cancels.`)
+  toast(`Press the key for ${slotName(slot)}. Esc cancels.`)
   const onKey = (e: KeyboardEvent) => {
     e.preventDefault()
     e.stopImmediatePropagation()
@@ -100,7 +100,7 @@ export function startSlotCapture(slot: number, el: HTMLElement): void {
       return
     }
     sfx('click')
-    toast(r.note ?? `${keyLabel(e.code)} now casts ${ACTION_LABEL[action].toLowerCase()}. Ctrl+Z undoes.`)
+    toast(r.note ?? `${keyLabel(e.code)} now casts ${slotName(slot)}. Ctrl+Z undoes.`)
     pop(el, 1.15)
     stop()
   }
