@@ -1,21 +1,30 @@
 /**
- * Rounds mode (original ModeLTS, systems.md §7.2): shop -> fight -> roundEnd -> shop | gameOver.
+ * Game modes (systems.md §7).
  *
+ * Rounds (original ModeLTS, §7.2): shop -> fight -> roundEnd -> shop | gameOver.
  * - shop: settings.shopSeconds, combat off (no damage), players move/cast to practice,
  *   arena at layer 14, everyone respawned.
- * - fight: round += 1, re-team, respawn all active players with 2 s invulnerability,
- *   arena at 13 + active players (clamped 1..21), one layer removed every 10 s.
+ * - fight: round += 1, re-team, temp actors (projectiles, Rockpillars) removed, respawn all
+ *   active players with 2 s invulnerability, arena at 13 + active players (clamped 1..21),
+ *   one layer removed every 10 s.
  * - roundEnd: entered the moment one team (or none) is left alive; +1 score to every member of
  *   the winning team at once; after 2 s round gold to everyone, then win check.
  *
- * TODO(deathmatch): ModeDeathmatch (60 s rounds, 10 s respawn, 1 score per kill, no shrink,
- * systems.md §7.3) is not implemented; 'deathmatch' currently plays as rounds.
+ * Deathmatch (ModeDeathmatch, §7.3): one shop phase before round 1, then back-to-back 60 s
+ * 'fight' rounds (phaseTicksLeft counts down). Every round start re-teams and rebuilds the
+ * platform (13 + players) and pillars; only round 1 respawns everyone with 2 s invulnerability;
+ * the arena never shrinks. A kill gives +1 score to every member of the killer's team; the
+ * victim respawns 10 s later (pawn.respawnTicks) with 2 s invulnerability. v1 fix: a death
+ * nobody caused (lava without a last hitter) scores for nobody. Round gold every round end; the
+ * win check (first to winScore) runs at round ends only, like the original.
  */
 import { clampLayer } from './arena'
 import {
   ARENA_BASE_LAYER,
   ARENA_LAYER_PER_PLAYER,
   ARENA_SHOP_LAYER,
+  DM_RESPAWN_SECONDS,
+  DM_ROUND_SECONDS,
   OBSTACLE_COUNT_MAX,
   OBSTACLE_COUNT_MIN,
   OBSTACLE_HP,
@@ -28,7 +37,7 @@ import {
   TEAM_DRAW,
   ticks,
 } from './config'
-import { MOD_SPAWN_INVULNERABLE, addModifier } from './modifiers'
+import { MOD_SPAWN_INVULNERABLE, addModifier, removeTemporaryModifiers } from './modifiers'
 import { randomInt, randomRange } from './rng'
 import { respawnPawn } from './spawn'
 import { activePlayers, assignTeams, isActive, scoreOf, teamOf } from './teams'
@@ -37,6 +46,10 @@ import type { PawnState, PlayerId, SimState } from './types'
 /** Damage is only dealt while combat is on (original GAME.combat). */
 export function isCombat(state: SimState): boolean {
   return state.phase === 'fight'
+}
+
+function isDeathmatch(state: SimState): boolean {
+  return state.settings.gameMode === 'deathmatch'
 }
 
 function emitPhase(state: SimState): void {
@@ -56,14 +69,24 @@ function spawnObstacles(state: SimState): void {
   }
 }
 
+function newPlatform(state: SimState): void {
+  state.arena.theme = randomInt(state, 0, OBSTACLE_RADII.length - 1)
+  spawnObstacles(state)
+}
+
+/** Respawn with the 2 s round-start invulnerability. */
+function spawnInvulnerable(state: SimState, pawn: PawnState): void {
+  respawnPawn(state, pawn)
+  addModifier(state, pawn, MOD_SPAWN_INVULNERABLE, ticks(SPAWN_INVULN_SECONDS), null)
+}
+
 /** Shop phase (Mode:prepareForRound). */
 export function prepareForRound(state: SimState): void {
   state.phase = 'shop'
   state.phaseTicksLeft = ticks(state.settings.shopSeconds)
   state.projectiles = []
   state.arena.nextShrinkTick = -1
-  state.arena.theme = randomInt(state, 0, OBSTACLE_RADII.length - 1)
-  spawnObstacles(state)
+  newPlatform(state)
   state.arena.layer = ARENA_SHOP_LAYER
   for (const pawn of state.pawns) {
     if (isActive(state, pawn.owner)) respawnPawn(state, pawn)
@@ -71,24 +94,42 @@ export function prepareForRound(state: SimState): void {
   emitPhase(state)
 }
 
-/** Fight phase (Mode:onRoundStart). */
+/** Fight phase (Mode:onRoundStart / ModeDeathmatch:onRoundStart). */
 export function startRound(state: SimState): void {
+  const dm = isDeathmatch(state)
+  const first = state.round === 0
   state.round += 1
-  state.projectiles = []
   state.phase = 'fight'
-  state.phaseTicksLeft = -1
   assignTeams(state)
+  const players = activePlayers(state).length
+  if (dm) {
+    state.phaseTicksLeft = ticks(DM_ROUND_SECONDS)
+    state.arena.nextShrinkTick = -1 // never shrinks in deathmatch
+    newPlatform(state)
+    state.arena.layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
+    if (first) {
+      state.projectiles = []
+      for (const sc of state.scores) sc.damageThisRound = 0
+      for (const pawn of state.pawns) {
+        if (!isActive(state, pawn.owner)) pawn.alive = false
+        else spawnInvulnerable(state, pawn)
+      }
+    }
+    emitPhase(state)
+    return
+  }
+  state.phaseTicksLeft = -1
+  state.projectiles = []
+  state.obstacles = state.obstacles.filter((o) => o.ticksLeft === undefined) // temp actors (Rockpillar)
   for (const sc of state.scores) sc.damageThisRound = 0
-  const invuln = ticks(SPAWN_INVULN_SECONDS)
   for (const pawn of state.pawns) {
     if (!isActive(state, pawn.owner)) {
       pawn.alive = false
       continue
     }
-    respawnPawn(state, pawn)
-    addModifier(state, pawn, MOD_SPAWN_INVULNERABLE, invuln, null)
+    removeTemporaryModifiers(state, pawn)
+    spawnInvulnerable(state, pawn)
   }
-  const players = activePlayers(state).length
   state.arena.layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
   state.arena.nextShrinkTick = state.tick + ticks(SHRINK_PERIOD)
   emitPhase(state)
@@ -101,9 +142,17 @@ export function aliveTeams(state: SimState): number[] {
   return Array.from(teams).sort((a, b) => a - b)
 }
 
-/** ModeLTS:onKill. Called by killPawn after the death is recorded. */
-export function onKill(state: SimState, _victim: PawnState, _killer: PlayerId | null): void {
+/** ModeLTS:onKill / ModeDeathmatch:onKill. Called by killPawn after the death is recorded. */
+export function onKill(state: SimState, victim: PawnState, killer: PlayerId | null): void {
   if (!isCombat(state)) return
+  if (isDeathmatch(state)) {
+    if (killer !== null) {
+      const team = teamOf(state, killer)
+      for (const id of activePlayers(state)) if (teamOf(state, id) === team) scoreOf(state, id)!.score += 1
+    }
+    victim.respawnTicks = ticks(DM_RESPAWN_SECONDS)
+    return
+  }
   const teams = aliveTeams(state)
   if (teams.length <= 1) roundWon(state, teams.length === 1 ? teams[0] : null)
 }
@@ -151,7 +200,21 @@ export function endRound(state: SimState): void {
     state.events.push({ type: 'gameOver', winners })
     return
   }
-  prepareForRound(state)
+  if (isDeathmatch(state)) startRound(state)
+  else prepareForRound(state)
+}
+
+/** Deathmatch respawn timers (10 s after death, 2 s invulnerability). */
+function respawnTick(state: SimState): void {
+  for (const pawn of state.pawns) {
+    if (pawn.alive || !pawn.respawnTicks) continue
+    pawn.respawnTicks -= 1
+    if (pawn.respawnTicks > 0) continue
+    delete pawn.respawnTicks
+    if (!isActive(state, pawn.owner)) continue
+    spawnInvulnerable(state, pawn)
+    state.events.push({ type: 'respawn', pawn: pawn.id, owner: pawn.owner, x: pawn.x, y: pawn.y })
+  }
 }
 
 /** Phase timers and arena shrink. Runs once per tick after combat resolution. */
@@ -163,6 +226,12 @@ export function phaseTick(state: SimState): void {
       state.events.push({ type: 'arenaShrink', layer: a.layer })
     }
     a.nextShrinkTick += ticks(SHRINK_PERIOD)
+  }
+  if (isDeathmatch(state) && state.phase === 'fight') {
+    respawnTick(state)
+    state.phaseTicksLeft -= 1
+    if (state.phaseTicksLeft <= 0) endRound(state)
+    return
   }
   if (state.phase === 'shop' || state.phase === 'roundEnd') {
     if (state.phaseTicksLeft > 0) state.phaseTicksLeft -= 1

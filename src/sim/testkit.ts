@@ -8,6 +8,28 @@ import { createMatch, step } from './index'
 import { removeModifiers, MOD_SPAWN_INVULNERABLE } from './modifiers'
 import type { InputCommand, MatchSettings, PawnState, PlayerInput, PlayerSlot, SimEvent, SimState } from './types'
 
+/** Events of one type, narrowed. */
+export const of = <T extends SimEvent['type']>(events: SimEvent[], type: T): Extract<SimEvent, { type: T }>[] =>
+  events.filter((e): e is Extract<SimEvent, { type: T }> => e.type === type)
+
+/** A match already in combat (shop skipped, invulnerability removed). */
+export function fight(n = 2, teams?: number[], overrides: Partial<MatchSettings> = {}): SimState {
+  const s = newMatch({ ...(teams ? { teamMode: 'teams' as const } : {}), ...overrides }, n, 1, teams)
+  toCombat(s)
+  return s
+}
+
+/** Issue a cast and step until it fires (turn + cast point). Returns all events seen. */
+export function castNow(s: SimState, player: number, slot: number, x: number, y: number): SimEvent[] {
+  step(s, [cmd(player, { kind: 'cast', slot, x, y })])
+  const ev = [...s.events]
+  for (let i = 0; i < 90 && !ev.some((e) => e.type === 'cast'); i++) {
+    step(s, [])
+    ev.push(...s.events)
+  }
+  return ev
+}
+
 export function slots(n: number, teams?: number[]): PlayerSlot[] {
   return Array.from({ length: n }, (_, i) => ({
     id: i,

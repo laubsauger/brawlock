@@ -32,7 +32,7 @@ export {
   GAME_ARENA_RADIUS,
   ARENA_MAX_LAYER,
   SHRINK_PERIOD,
-  SHOP_ANY_PHASE,
+  SHOP_RULE,
   SPAWN_OBSTACLES,
   MASTERY_COST,
   MASTERY_ALL_COST,
@@ -62,7 +62,8 @@ export { SPELLS, SPELL_IDS, PASSIVE_ITEMS, RELEASED_SPELLS, attr, cooldownSecond
 export { IMPLEMENTED_SPELLS } from './spells'
 export type { SpellDef, PassiveItemDef } from './spells/data'
 export { cooldownTicks } from './pawn'
-export { shopOpen } from './shop'
+export { canBuy, shopOpen } from './shop'
+export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
 export { alliance, isEnemy, pawnOf, scoreOf, slotOf, teamOf, ALLIANCE_SELF, ALLIANCE_ALLY, ALLIANCE_ENEMY } from './teams'

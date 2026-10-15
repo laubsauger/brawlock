@@ -2,17 +2,27 @@ import * as THREE from 'three/webgpu'
 import { S } from '../coords'
 
 /**
- * DOM overlay anchored to world positions: floating combat numbers (red
- * damage, green heal, 1 s, stacked per target), name tags with compact HP
- * bars and knockback-point tint, and short callouts on big moments.
- * Imperative: pooled elements, positions written every frame, no React.
+ * DOM overlay anchored to world positions (pooled elements, positions written
+ * every frame, no React):
+ * - Dota-style overhead plates: name, segmented HP bar (separator every 100
+ *   HP, team fill, white damage trail that drains after a hit) and right under
+ *   it the knockback-points meter (Warlock's "mana bar") shifting yellow ->
+ *   orange -> red with the multiplier, "x1.4" shown past x1.1.
+ * - combat numbers: overshoot pop-in, arcing drift, size/heat/shake scaled by
+ *   damage and knockback, rapid hits merged, lava ticks grouped (small,
+ *   orange), heals green with "+".
+ * - short callouts on big moments.
  */
 
 const NUM_POOL = 64
 const PLATE_POOL = 12
 const CALLOUT_POOL = 4
-const NUM_LIFE = 1
+const NUM_LIFE = 1.05
 const CALLOUT_LIFE = 1.1
+/** KB meter full scale (multiplier x2 at 1000 points) */
+const KB_FULL = 1000
+
+export type NumberKind = 'dmg' | 'heal' | 'burn'
 
 interface FloatNum {
   el: HTMLDivElement
@@ -22,21 +32,34 @@ interface FloatNum {
   y: number
   h: number
   stack: number
-  jitter: number
+  driftX: number
   target: number
-  kind: 'dmg' | 'heal'
+  kind: NumberKind
   amount: number
+  kb: number
+  pulseAt: number
 }
 
 interface Plate {
   el: HTMLDivElement
   name: HTMLDivElement
+  bar: HTMLDivElement
   fill: HTMLDivElement
+  trail: HTMLDivElement
+  ticks: HTMLDivElement
   kb: HTMLDivElement
+  kbFill: HTMLDivElement
+  mult: HTMLDivElement
   lastName: string
   lastColor: number
   lastHp: number
+  lastMax: number
   lastKb: number
+  lastMult: string
+  lastOpacity: string
+  trailFrac: number
+  trailHoldUntil: number
+  id: number
 }
 
 interface Callout {
@@ -49,6 +72,8 @@ interface Callout {
 }
 
 export interface PlateInput {
+  /** stable id (pawn id) so trails follow the right warlock */
+  id: number
   x: number
   y: number
   h: number
@@ -61,23 +86,34 @@ export interface PlateInput {
   local: boolean
 }
 
+const OUTLINE = '-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 2px 0 #000,0 -2px 0 #000,2px 0 0 #000,-2px 0 0 #000'
+
 const css = `
 .bl-ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;contain:strict;font-family:Nunito,ui-rounded,system-ui,sans-serif}
-.bl-num{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;white-space:nowrap;letter-spacing:.02em;
-  text-shadow:0 0 2px #000,0 1px 0 #000,0 0 6px rgba(0,0,0,.9);transform-origin:50% 100%}
-.bl-num.dmg{color:rgb(255,50,50)}
-.bl-num.heal{color:rgb(50,255,50)}
-.bl-plate{position:absolute;left:0;top:0;width:96px;margin-left:-48px;will-change:transform;display:flex;flex-direction:column;align-items:center;gap:2px}
-.bl-plate .nm{font-size:11px;font-weight:800;line-height:1;letter-spacing:.04em;text-shadow:0 0 2px #000,0 1px 1px #000,0 0 5px rgba(0,0,0,.8);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
-.bl-plate .bar{position:relative;width:64px;height:6px;border-radius:2px;background:rgba(10,6,6,.82);box-shadow:0 0 0 1px rgba(0,0,0,.85),0 0 6px rgba(0,0,0,.6);overflow:hidden}
-.bl-plate .fill{position:absolute;inset:1px;transform-origin:0 50%;border-radius:1px}
-.bl-plate .kb{position:absolute;left:1px;right:1px;bottom:-0px;height:1px;transform-origin:0 50%;background:#ffb347;box-shadow:0 0 4px #ff7a1a}
-.bl-plate.local .bar{width:72px;height:7px}
+.bl-num{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;white-space:nowrap;letter-spacing:.01em;line-height:1;transform-origin:50% 80%}
+.bl-plate{position:absolute;left:0;top:0;width:120px;margin-left:-60px;will-change:transform,opacity;display:flex;flex-direction:column;align-items:center}
+.bl-plate .nm{font-size:11px;font-weight:800;line-height:1.1;letter-spacing:.03em;margin-bottom:2px;text-shadow:0 0 2px #000,0 1px 1px #000,0 0 5px rgba(0,0,0,.9);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.bl-plate .bar{position:relative;width:78px;height:8px;background:#120b0b;box-shadow:0 0 0 1px #000,0 1px 4px rgba(0,0,0,.7);overflow:hidden}
+.bl-plate .trail,.bl-plate .fill{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
+.bl-plate .trail{background:#f4efe6}
+.bl-plate .fill{box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -2px 0 rgba(0,0,0,.25)}
+.bl-plate .ticks{position:absolute;inset:0}
+.bl-plate .kbrow{position:relative;width:78px;height:3px;margin-top:1px;background:#0d0808;box-shadow:0 0 0 1px #000}
+.bl-plate .kbf{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
+.bl-plate .mult{position:absolute;left:82px;top:-7px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap}
+.bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
+.bl-plate.local .mult{left:90px}
 .bl-call{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;font-size:26px;letter-spacing:.08em;white-space:nowrap;
   color:#ffe2a8;text-shadow:0 0 3px #000,0 2px 0 #4a1000,0 0 14px rgba(255,110,20,.95),0 0 28px rgba(255,60,0,.6);text-transform:uppercase}
 `
 
 let styleInjected = false
+
+function kbColor(f: number): string {
+  // yellow (55deg) -> orange -> red (0deg) as the multiplier climbs
+  const hue = Math.round(55 * (1 - Math.min(1, f)))
+  return `hsl(${hue} 100% ${Math.round(55 - f * 8)}%)`
+}
 
 export class WorldOverlay {
   readonly root: HTMLDivElement
@@ -88,6 +124,7 @@ export class WorldOverlay {
   private w = 1
   private h = 1
   private ro: ResizeObserver
+  private lastNow = 0
 
   constructor(parent: HTMLElement) {
     if (!styleInjected) {
@@ -99,33 +136,36 @@ export class WorldOverlay {
     this.root = document.createElement('div')
     this.root.className = 'bl-ov'
     parent.appendChild(this.root)
+    const div = (cls: string) => {
+      const d = document.createElement('div')
+      d.className = cls
+      return d
+    }
     for (let i = 0; i < PLATE_POOL; i++) {
-      const el = document.createElement('div')
-      el.className = 'bl-plate'
+      const el = div('bl-plate')
       el.style.display = 'none'
-      const name = document.createElement('div')
-      name.className = 'nm'
-      const bar = document.createElement('div')
-      bar.className = 'bar'
-      const fill = document.createElement('div')
-      fill.className = 'fill'
-      const kb = document.createElement('div')
-      kb.className = 'kb'
-      bar.append(fill, kb)
-      el.append(name, bar)
+      const name = div('nm')
+      const bar = div('bar')
+      const trail = div('trail')
+      const fill = div('fill')
+      const ticks = div('ticks')
+      bar.append(trail, fill, ticks)
+      const kb = div('kbrow')
+      const kbFill = div('kbf')
+      const mult = div('mult')
+      kb.append(kbFill, mult)
+      el.append(name, bar, kb)
       this.root.appendChild(el)
-      this.plates.push({ el, name, fill, kb, lastName: '', lastColor: -1, lastHp: -1, lastKb: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
-      const el = document.createElement('div')
-      el.className = 'bl-num'
+      const el = div('bl-num')
       el.style.display = 'none'
       this.root.appendChild(el)
-      this.nums.push({ el, active: false, born: 0, x: 0, y: 0, h: 0, stack: 0, jitter: 0, target: -1, kind: 'dmg', amount: 0 })
+      this.nums.push({ el, active: false, born: 0, x: 0, y: 0, h: 0, stack: 0, driftX: 0, target: -1, kind: 'dmg', amount: 0, kb: 0, pulseAt: -10 })
     }
     for (let i = 0; i < CALLOUT_POOL; i++) {
-      const el = document.createElement('div')
-      el.className = 'bl-call'
+      const el = div('bl-call')
       el.style.display = 'none'
       this.root.appendChild(el)
       this.callouts.push({ el, active: false, born: 0, x: 0, y: 0, h: 0 })
@@ -140,17 +180,20 @@ export class WorldOverlay {
   }
 
   /** Floating combat number at a game position (h = height in game units). */
-  number(target: number, x: number, y: number, h: number, amount: number, kind: 'dmg' | 'heal', now: number): void {
+  number(target: number, x: number, y: number, h: number, amount: number, kind: NumberKind, now: number, kb = 0): void {
     const amt = Math.round(amount)
     if (amt <= 0) return
-    // merge bursts on the same target into one number, stack the rest
     let stack = 0
     for (const n of this.nums) {
-      if (!n.active || n.target !== target || n.kind !== kind) continue
+      if (!n.active || n.target !== target) continue
       const age = now - n.born
-      if (age < 0.1) {
+      // lava ticks group into one running number; rapid hits merge
+      if (n.kind === kind && ((kind === 'burn' && age < 0.9) || age < 0.12)) {
         n.amount += amt
-        n.el.textContent = String(n.amount)
+        n.kb = Math.max(n.kb, kb)
+        n.pulseAt = now
+        if (kind === 'burn') n.born = Math.max(n.born, now - 0.25)
+        this.styleNum(n)
         return
       }
       if (age < 0.45) stack++
@@ -163,14 +206,43 @@ export class WorldOverlay {
     slot.y = y
     slot.h = h
     slot.stack = stack
-    slot.jitter = (Math.random() - 0.5) * 22
+    slot.driftX = (Math.random() - 0.5) * 2 * (kind === 'burn' ? 10 : 34)
     slot.target = target
     slot.kind = kind
     slot.amount = amt
-    slot.el.className = `bl-num ${kind}`
-    slot.el.textContent = String(amt)
-    slot.el.style.fontSize = `${Math.round(15 + Math.min(13, amt / 9))}px`
+    slot.kb = kb
+    slot.pulseAt = -10
+    this.styleNum(slot)
     slot.el.style.display = ''
+  }
+
+  private styleNum(n: FloatNum): void {
+    const k = Math.min(1, n.kb / 1500)
+    let size: number
+    let color: string
+    let glow: string
+    if (n.kind === 'heal') {
+      size = 15 + Math.min(8, n.amount / 12)
+      color = 'rgb(70,255,90)'
+      glow = 'rgba(40,255,90,.55)'
+      n.el.textContent = `+${n.amount}`
+    } else if (n.kind === 'burn') {
+      size = 13 + Math.min(4, n.amount / 40)
+      color = 'rgb(255,140,40)'
+      glow = 'rgba(255,90,10,.5)'
+      n.el.textContent = String(n.amount)
+    } else {
+      size = 16 + Math.min(14, n.amount / 8) + k * 10
+      // red -> hot orange-yellow with knockback
+      const g = Math.round(55 + k * 140)
+      const b = Math.round(45 + k * 40)
+      color = `rgb(255,${g},${b})`
+      glow = `rgba(255,${Math.round(60 + k * 120)},20,${(0.45 + k * 0.4).toFixed(2)})`
+      n.el.textContent = String(n.amount)
+    }
+    n.el.style.fontSize = `${Math.round(size)}px`
+    n.el.style.color = color
+    n.el.style.textShadow = `${OUTLINE},0 0 ${Math.round(8 + k * 10)}px ${glow}`
   }
 
   /** Short punchy text for big moments. Callers keep it rare. */
@@ -194,8 +266,10 @@ export class WorldOverlay {
     return true
   }
 
-  update(camera: THREE.Camera, now: number, plates: PlateInput[], plateCount: number): void {
-    // name tags
+  update(camera: THREE.Camera, now: number, plates: PlateInput[], plateCount: number, focusX: number, focusY: number): void {
+    const dt = Math.min(0.1, Math.max(0, now - this.lastNow))
+    this.lastNow = now
+    // ---- overhead plates
     for (let i = 0; i < PLATE_POOL; i++) {
       const p = this.plates[i]
       const inp = i < plateCount ? plates[i] : null
@@ -204,7 +278,12 @@ export class WorldOverlay {
         continue
       }
       if (p.el.style.display === 'none') p.el.style.display = ''
-      p.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 30).toFixed(1)}px,0)`
+      p.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 34).toFixed(1)}px,0)`
+      if (p.id !== inp.id) {
+        p.id = inp.id
+        p.trailFrac = 1
+        p.lastHp = -1
+      }
       if (p.lastName !== inp.name) {
         p.name.textContent = inp.name
         p.lastName = inp.name
@@ -212,26 +291,51 @@ export class WorldOverlay {
       if (p.lastColor !== inp.color) {
         const hex = `#${inp.color.toString(16).padStart(6, '0')}`
         p.name.style.color = hex
-        p.fill.style.background = `linear-gradient(180deg, ${hex}, ${hex}cc)`
+        p.fill.style.background = `linear-gradient(180deg, ${hex}, ${hex} 55%, ${hex}bb)`
         p.el.classList.toggle('local', inp.local)
         p.lastColor = inp.color
       }
+      if (p.lastMax !== inp.maxHp) {
+        // separator every 100 HP
+        const segs = Math.max(1, inp.maxHp / 100)
+        const pct = 100 / segs
+        p.ticks.style.background = `repeating-linear-gradient(90deg, transparent 0 calc(${pct.toFixed(3)}% - 1px), rgba(0,0,0,.75) calc(${pct.toFixed(3)}% - 1px) ${pct.toFixed(3)}%)`
+        p.lastMax = inp.maxHp
+      }
       const hpf = Math.max(0, Math.min(1, inp.hp / Math.max(1, inp.maxHp)))
-      if (Math.abs(hpf - p.lastHp) > 0.002) {
-        p.fill.style.transform = `scaleX(${hpf.toFixed(3)})`
+      if (p.lastHp >= 0 && hpf < p.lastHp - 0.001) p.trailHoldUntil = now + 0.35
+      if (hpf > p.trailFrac) p.trailFrac = hpf
+      if (now > p.trailHoldUntil) p.trailFrac = Math.max(hpf, p.trailFrac - 0.55 * dt)
+      if (Math.abs(hpf - p.lastHp) > 0.0005) {
+        p.fill.style.transform = `scaleX(${hpf.toFixed(4)})`
         p.lastHp = hpf
       }
-      const kbf = Math.max(0, Math.min(1, inp.kbPoints / 2000))
-      if (Math.abs(kbf - p.lastKb) > 0.004) {
-        p.kb.style.transform = `scaleX(${kbf.toFixed(3)})`
-        // the bar frame heats up as knockback points grow
-        const glow = Math.round(kbf * 14)
-        p.kb.parentElement!.style.boxShadow = `0 0 0 1px rgba(0,0,0,.85),0 0 ${4 + glow}px rgba(255,${Math.round(150 - kbf * 110)},20,${(0.25 + kbf * 0.6).toFixed(2)})`
+      p.trail.style.transform = `scaleX(${p.trailFrac.toFixed(4)})`
+      const kbf = Math.max(0, inp.kbPoints / KB_FULL)
+      if (Math.abs(kbf - p.lastKb) > 0.003) {
+        p.kbFill.style.transform = `scaleX(${Math.min(1, kbf).toFixed(3)})`
+        const c = kbColor(Math.min(1, kbf * 0.75))
+        p.kbFill.style.background = c
+        p.kbFill.style.boxShadow = `0 0 ${Math.round(2 + kbf * 6)}px ${c}`
+        const mult = 1 + inp.kbPoints / KB_FULL
+        const txt = mult > 1.1 ? `×${mult.toFixed(1)}` : ''
+        if (txt !== p.lastMult) {
+          p.mult.textContent = txt
+          p.mult.style.color = c
+          p.lastMult = txt
+        }
         p.lastKb = kbf
+      }
+      // fade slightly with distance from the camera focus
+      const d = Math.hypot(inp.x - focusX, inp.y - focusY)
+      const op = inp.local ? '1' : Math.max(0.72, 1 - Math.max(0, d - 600) / 2400).toFixed(2)
+      if (op !== p.lastOpacity) {
+        p.el.style.opacity = op
+        p.lastOpacity = op
       }
     }
 
-    // floating numbers
+    // ---- combat numbers
     for (const n of this.nums) {
       if (!n.active) continue
       const t = (now - n.born) / NUM_LIFE
@@ -240,14 +344,30 @@ export class WorldOverlay {
         n.el.style.display = 'none'
         continue
       }
-      const rise = 46 * (1 - Math.pow(1 - t, 3)) + n.stack * 17
-      const pop = t < 0.12 ? 1.45 - (t / 0.12) * 0.45 : 1
-      const op = t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1
-      n.el.style.transform = `translate3d(${(this.v.x + n.jitter).toFixed(1)}px,${(this.v.y - 56 - rise).toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)})`
+      // overshoot pop-in (ease-out-back), re-pulse on merges
+      const pt = Math.min(1, t / 0.2)
+      const c1 = 2.4
+      const back = 1 + (c1 + 1) * Math.pow(pt - 1, 3) + c1 * Math.pow(pt - 1, 2)
+      let scale = 0.35 + 0.65 * back
+      const pa = now - n.pulseAt
+      if (pa < 0.15) scale *= 1 + 0.28 * (1 - pa / 0.15)
+      // arc: quick rise that eases off, slight sideways drift
+      const rise = (n.kind === 'burn' ? 34 : 58) * (1 - Math.pow(1 - t, 2.4)) + n.stack * 18
+      const dx = n.driftX * t
+      // heavy knockback: a short shudder
+      let sx = 0
+      let sy = 0
+      if (n.kb > 900 && t < 0.25) {
+        const a = (1 - t / 0.25) * Math.min(4, n.kb / 400)
+        sx = Math.sin(now * 95) * a
+        sy = Math.cos(now * 83) * a
+      }
+      const op = t > 0.68 ? 1 - (t - 0.68) / 0.32 : 1
+      n.el.style.transform = `translate3d(${(this.v.x + dx + sx).toFixed(1)}px,${(this.v.y - 56 - rise + sy).toFixed(1)}px,0) translate(-50%,0) scale(${scale.toFixed(3)})`
       n.el.style.opacity = op.toFixed(3)
     }
 
-    // callouts
+    // ---- callouts
     for (const c of this.callouts) {
       if (!c.active) continue
       const t = (now - c.born) / CALLOUT_LIFE
@@ -258,7 +378,7 @@ export class WorldOverlay {
       }
       const pop = t < 0.1 ? 0.6 + (t / 0.1) * 0.65 : t < 0.2 ? 1.25 - ((t - 0.1) / 0.1) * 0.25 : 1
       const op = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1
-      c.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 110 - t * 24).toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)}) rotate(-4deg)`
+      c.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 120 - t * 24).toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)}) rotate(-4deg)`
       c.el.style.opacity = op.toFixed(3)
     }
   }

@@ -180,6 +180,13 @@ describe('audio: event mapping', () => {
     expect(cues.some((c) => c.id === 'zapHit')).toBe(true)
   })
 
+  it('a Link tether hums for as long as it holds and is cut when it breaks', () => {
+    const on = planEvents([{ type: 'modifier', pawn: 2, id: 'link', on: true, source: 1 }], LISTENER)
+    expect(on.map((c) => c.id)).toEqual(['linkLoop'])
+    const off = planEvents([{ type: 'modifier', pawn: 2, id: 'link', on: false, source: 1 }], LISTENER)
+    expect(off[0].stopKey).toBe(on[0].key)
+  })
+
   it('one fireball blast plays once even if the sim emits hit and explosion', () => {
     const cues = planEvents(
       [

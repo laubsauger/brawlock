@@ -1028,6 +1028,245 @@ const redirect: Recipe = (v) => {
   clang(v, 0.02, 1200, 0.3, 0.08, { ratio: 2.4, index: 2, partials: [1, 2.4] })
 }
 
+/** Meteor called down: a deep rising rumble with a distant whistle. */
+const meteorCast: Recipe = (v) => {
+  whoosh(v, 0, 0.5, 120, 600, 0.8, 0.6, 'brown')
+  const g = v.gain(0, v.out)
+  const o = v.osc('sine', 2400, 0, 0.5, g)
+  v.glide(o.frequency, 0, 2400, 1500, 0.45)
+  v.ad(g.gain, 0, 0.1, 0.04, 0.35)
+  click(v, 0, 0.2, 2500)
+}
+
+/** Meteor hovering then falling: a roar that swells and a whistle dropping in pitch. p = seconds */
+const meteorFall: Recipe = (v, p) => {
+  const dur = clamp(p || 1.15, 0.3, 3)
+  const env = v.gain(0, v.out)
+  env.gain.setValueAtTime(0, v.at(0))
+  env.gain.linearRampToValueAtTime(0.35, v.at(dur * 0.45))
+  env.gain.linearRampToValueAtTime(1, v.at(dur))
+  env.gain.exponentialRampToValueAtTime(0.001, v.at(dur + 0.05))
+  const lp = v.filter('lowpass', 300, 1, env)
+  v.glide(lp.frequency, 0, 300, 2500, dur)
+  v.noise('pink', 0, dur + 0.06, v.gain(1.2, lp))
+  v.noise('crackle', 0, dur + 0.06, v.filter('highpass', 2500, 0.7, v.gain(0.4, env)))
+  const wg = v.gain(0.05, env)
+  const o = v.osc('sine', 1800, 0, dur + 0.06, wg)
+  v.glide(o.frequency, 0, 1800, 500, dur)
+}
+
+/** Meteor lands: the biggest blast in the game, with rocks raining after. */
+const meteorImpact: Recipe = (v) => {
+  explosion(v, 1.6)
+  for (let i = 0; i < 7; i++) {
+    const t = 0.12 + v.rand() * 0.6
+    thump(v, t, 300 + v.rand() * 300, 140, 0.06, 0.12)
+    burst(v, { at: t, noise: 'crackle', freq: 1500, q: 1, decay: 0.05, gain: 0.6 })
+  }
+}
+
+/** Splitter released: a pulse-charged launch. */
+const splitterCast: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const o = v.osc('square', 220, 0, 0.25, v.filter('lowpass', 2000, 4, g))
+  v.glide(o.frequency, 0, 220 * v.vary(0.04), 110, 0.2)
+  v.ad(g.gain, 0, 0.003, 0.25, 0.2)
+  whoosh(v, 0, 0.25, 700, 2600, 1.2, 0.45)
+  click(v, 0, 0.3, 3000)
+}
+
+/** Splitter main bolt / spawner in flight: a throbbing low hum. p = seconds */
+const splitterTravel: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const am = tremolo(v, 0, dur, 12, 0.8, env, 'square')
+  const o = v.osc('sawtooth', 110, 0, dur, v.filter('bandpass', 700, 3, v.gain(0.3, am)))
+  v.osc('sine', 3, 0, dur, v.gain(8, o.frequency))
+  v.noise('pink', 0, dur, v.filter('bandpass', 1500, 2, v.gain(0.3, env)))
+}
+
+/** A Splitter child bolt: a quick zip as it leaves the spawner. p = seconds */
+const childZip: Recipe = (v, p) => {
+  const dur = clamp(p || 0.5, 0.1, 2)
+  const g = v.gain(0, v.out)
+  const o = v.osc('triangle', 1800 * v.vary(0.1), 0, dur, g)
+  v.glide(o.frequency, 0, 1800, 900, Math.min(dur, 0.15))
+  v.ahr(g.gain, 0, 0.003, 0.2, Math.max(0, dur - 0.1), 0.08)
+}
+
+/** Snowball thrown: a soft whump and a packed-snow crunch. */
+const snowCast: Recipe = (v) => {
+  whoosh(v, 0, 0.3, 300, 1200, 0.9, 0.5, 'pink')
+  burst(v, { noise: 'crackle', type: 'lowpass', freq: 2500, attack: 0.01, decay: 0.15, gain: 1.2 })
+  thump(v, 0, 140, 70, 0.12, 0.2)
+}
+
+/** Snowball rolling: a crunching rumble. p = seconds */
+const snowRoll: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const am = tremolo(v, 0, dur, 6, 0.5, env)
+  v.noise('crackle', 0, dur, v.filter('bandpass', 1400, 1, v.gain(1.4, am)))
+  v.noise('brown', 0, dur, v.filter('lowpass', 500, 0.8, v.gain(0.6, am)))
+}
+
+/** Snowball catching a warlock: a packed crunch. */
+const snowGrab: Recipe = (v) => {
+  burst(v, { noise: 'crackle', freq: 1800, q: 0.9, attack: 0.002, decay: 0.12, gain: 2 })
+  burst(v, { noise: 'pink', freq: 900, q: 1, decay: 0.08, gain: 1.5 })
+  thump(v, 0, 160, 70, 0.12, 0.2)
+}
+
+/** Snowball bursting: an icy shatter with a glassy ring. */
+const snowBurst: Recipe = (v) => {
+  click(v, 0, 0.5, 4000)
+  burst(v, { noise: 'crackle', type: 'highpass', freq: 3000, attack: 0.002, decay: 0.35, gain: 1.8 })
+  burst(v, { noise: 'pink', freq: 1800, to: 600, q: 0.9, attack: 0.002, decay: 0.25, gain: 2.5 })
+  ring(v, 0, 2600, [1, 1.47, 2.31, 3.1], [0.5, 0.35, 0.25, 0.15], 0.06)
+  thump(v, 0, 120, 50, 0.2, 0.25, v.drive(v.out, 2, 0.45))
+}
+
+/** Gravity orb released: a deep swell sucking inward. */
+const gravityCast: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const o = v.osc('sine', 60, 0, 0.5, v.drive(g, 2, 0.6))
+  v.glide(o.frequency, 0, 60, 110, 0.4)
+  v.ad(g.gain, 0, 0.1, 0.5, 0.35)
+  whoosh(v, 0, 0.45, 3000, 400, 1, 0.45, 'pink')
+}
+
+/** Gravity orb in flight: a throbbing low drone with a filter sweeping inward. p = seconds */
+const gravityHum: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const am = tremolo(v, 0, dur, 3.5, 0.6, env)
+  const lp = v.filter('lowpass', 900, 5, v.drive(v.gain(0.4, am), 1.5, 0.8))
+  for (const cents of [-10, 10]) v.osc('sawtooth', 55, 0, dur, lp, cents)
+  v.osc('sine', 0.7, 0, dur, v.gain(500, lp.frequency))
+  v.noise('pink', 0, dur, v.filter('bandpass', 400, 2, v.gain(0.5, am)))
+}
+
+/** Gravity orb collapsing: a reverse rush into a thump. */
+const gravityEnd: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const bp = v.filter('bandpass', 400, 1.2, g)
+  v.glide(bp.frequency, 0, 400, 3000, 0.2)
+  v.noise('pink', 0, 0.25, bp)
+  g.gain.setValueAtTime(0, v.at(0))
+  g.gain.linearRampToValueAtTime(0.8, v.at(0.2))
+  g.gain.exponentialRampToValueAtTime(0.001, v.at(0.23))
+  thump(v, 0.2, 140, 45, 0.25, 0.4, v.drive(v.out, 2, 0.5))
+  click(v, 0.2, 0.4, 2500)
+}
+
+/** Grip thrown: a chain whip and a clink. */
+const gripCast: Recipe = (v) => {
+  whoosh(v, 0, 0.2, 900, 3000, 1.5, 0.45)
+  clang(v, 0.02, 1100, 0.15, 0.08, { ratio: 2.32, index: 2, partials: [1, 2.32] })
+}
+
+/** Grip in flight: a whirling chain rattle. p = seconds */
+const gripTravel: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const am = tremolo(v, 0, dur, 21, 0.9, env, 'square')
+  v.noise('crackle', 0, dur, v.filter('bandpass', 2600, 2, v.gain(1.4, am)))
+  v.noise('white', 0, dur, v.filter('bandpass', 1200, 3, v.gain(0.3, env)))
+}
+
+/** Warpzone opened: a descending warble, time bending. */
+const warpCast: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const o = v.osc('sine', 900, 0, 0.6, g)
+  v.glide(o.frequency, 0, 900, 220, 0.5)
+  v.osc('sine', 9, 0, 0.6, v.gain(60, o.frequency))
+  v.ad(g.gain, 0, 0.02, 0.3, 0.5)
+  whoosh(v, 0, 0.5, 2500, 500, 1, 0.35, 'pink')
+}
+
+/** Warpzone active (loop): detuned tones beating slowly, drifting down. p = seconds */
+const warpHum: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const g = v.gain(0.03, env)
+  for (const [f, d] of [
+    [330, 0],
+    [333.5, 0],
+    [495, 0.3],
+  ] as const) {
+    const o = v.osc('sine', f, d, dur - d, g)
+    v.glide(o.frequency, d, f, f * 0.94, Math.max(0.1, dur - d))
+  }
+  v.noise('pink', 0, dur, v.filter('bandpass', 700, 4, v.gain(0.25, tremolo(v, 0, dur, 0.8, 0.6, env))))
+}
+
+/** Magnetize thrown: an FM hum snapping out. */
+const magnetCast: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const car = v.osc('sine', 220, 0, 0.3, g)
+  v.osc('sine', 330, 0, 0.3, v.gain(400, car.frequency))
+  v.ad(g.gain, 0, 0.005, 0.3, 0.25)
+  whoosh(v, 0, 0.2, 1000, 3500, 1.4, 0.35)
+}
+
+/** Magnetize bolt in flight: an electric hum. p = seconds */
+const magnetTravel: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  const car = v.osc('sine', 110, 0, dur, v.gain(0.12, env))
+  v.osc('sine', 165, 0, dur, v.gain(150, car.frequency))
+  v.noise('crackle', 0, dur, v.filter('highpass', 4000, 0.8, v.gain(0.3, env)))
+}
+
+/** Magnetized: a swelling hum and a clank. */
+const magnetOn: Recipe = (v) => {
+  const g = v.gain(0, v.out)
+  const car = v.osc('sine', 110, 0, 0.6, g)
+  v.osc('sine', 165, 0, 0.6, v.gain(220, car.frequency))
+  v.ahr(g.gain, 0, 0.08, 0.3, 0.2, 0.3)
+  clang(v, 0, 700, 0.3, 0.1, { ratio: 2.4, index: 2, partials: [1, 2.4, 4.1] })
+}
+
+/** Rockpillar: stone grinding up out of the ground and settling with a thud. */
+const pillarRise: Recipe = (v) => {
+  const am = tremolo(v, 0, 0.35, 19, 0.7, v.out)
+  burst(v, { noise: 'crackle', freq: 900, q: 1, attack: 0.15, decay: 0.2, gain: 2.5, dest: am })
+  burst(v, { noise: 'brown', type: 'lowpass', freq: 400, attack: 0.15, decay: 0.25, gain: 0.5 })
+  thump(v, 0.32, 110, 45, 0.25, 0.3, v.drive(v.out, 2, 0.5))
+  burst(v, { at: 0.32, noise: 'pink', freq: 900, q: 1, decay: 0.08, gain: 1.5 })
+  tail(v, 0.33, 0.3, 220, 0.15)
+}
+
+/** Link thrown: an electric whip. */
+const linkCast: Recipe = (v) => {
+  whoosh(v, 0, 0.18, 1500, 5000, 1.6, 0.4)
+  zapHit(v, 0)
+}
+
+/** Link bolt in flight: a crackling arc. p = seconds */
+const linkTravel: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p)
+  v.noise('crackle', 0, dur, v.filter('bandpass', 3000, 1.2, v.gain(1, env)))
+  const car = v.osc('sawtooth', 140, 0, dur, v.filter('bandpass', 2200, 5, v.gain(0.15, env)))
+  v.osc('square', 70, 0, dur, v.gain(60, car.frequency))
+}
+
+/** Link tether holding (loop until the modifier ends): a buzzing electric strain. p = max seconds */
+const linkLoop: Recipe = (v, p) => {
+  const { env, dur } = loopEnv(v, p || 8)
+  const am = tremolo(v, 0, dur, 13, 0.5, env)
+  const car = v.osc('sawtooth', 98, 0, dur, v.filter('bandpass', 1500, 3, v.gain(0.12, am)))
+  v.osc('square', 49, 0, dur, v.gain(40, car.frequency))
+  v.noise('crackle', 0, dur, v.filter('highpass', 3500, 0.8, v.gain(0.3, env)))
+}
+
+/** Alteration armed: a glassy shimmer around the warlock. */
+const altArm: Recipe = (v) => {
+  fmBell(v, 0, 1318.5, 2.76, 2, 0.6, 0.12)
+  fmBell(v, 0.04, 1975.5, 2.76, 1.5, 0.5, 0.08)
+  burst(v, { freq: 7000, q: 3, attack: 0.05, decay: 0.4, gain: 0.3 })
+}
+
+/** Rush absorbing damage: a short flame flare. */
+const flare: Recipe = (v) => {
+  whoosh(v, 0, 0.2, 400, 2000, 0.9, 0.5, 'pink')
+  burst(v, { noise: 'crackle', freq: 2500, q: 0.8, attack: 0.005, decay: 0.15, gain: 0.6 })
+}
+
 // --- UI --------------------------------------------------------------------
 
 const uiHover: Recipe = (v) => {
@@ -1150,6 +1389,32 @@ export const RECIPES = {
   bounceZap,
   dashBurst,
   redirect,
+  meteorCast,
+  meteorFall,
+  meteorImpact,
+  splitterCast,
+  splitterTravel,
+  childZip,
+  snowCast,
+  snowRoll,
+  snowGrab,
+  snowBurst,
+  gravityCast,
+  gravityHum,
+  gravityEnd,
+  gripCast,
+  gripTravel,
+  warpCast,
+  warpHum,
+  magnetCast,
+  magnetTravel,
+  magnetOn,
+  pillarRise,
+  linkCast,
+  linkTravel,
+  linkLoop,
+  altArm,
+  flare,
   uiHover,
   uiClick,
   uiBack,

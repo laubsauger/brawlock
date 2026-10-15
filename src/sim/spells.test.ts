@@ -167,9 +167,7 @@ describe('Scourge (spells.md §8.2)', () => {
     const p0 = pawn(s, 0)
     place(p0, 0, 0)
     place(pawn(s, 1), 100, 0)
-    s.scores[0].gold = 100
-    step(s, [cmd(0, { kind: 'buyItem', item: 'scourge' }, { kind: 'buyItem', item: 'scourge' })])
-    expect(p0.levels[SCOURGE_SLOT]).toBe(3)
+    p0.levels[SCOURGE_SLOT] = 3 // bought in the shop phase
     p0.kbPoints = 50
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
     const events = [...s.events, ...run(s, 54)]

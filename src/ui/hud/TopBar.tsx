@@ -77,13 +77,13 @@ export function PhasePlate() {
   })
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="hud-plate chamfer flex items-center gap-4 px-5 py-1.5" style={{ ['--c' as string]: '8px' }}>
-        <span ref={round} className="text-[1.02rem] font-semibold text-ash" />
-        <span ref={timer} className="tabular min-w-[3.2rem] text-center text-[1.6rem] leading-none font-bold text-bone" />
-        <span ref={phase} className="chip text-[0.9rem] text-[#ffd890]" />
+    <div className="flex flex-col items-center gap-0.5">
+      <div className="hud-plate hud-top flex h-9 items-center gap-3 px-4">
+        <span ref={round} className="text-[0.9rem] font-semibold text-ash" />
+        <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
+        <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
       </div>
-      <div ref={shrink} className="shrink-warn hud-text-shadow text-[0.98rem] font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
+      <div ref={shrink} className="shrink-warn hud-text-shadow text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
     </div>
   )
 }
@@ -153,15 +153,15 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
   return (
     <div
       ref={root}
-      className={`flex h-[46px] items-stretch overflow-hidden transition-opacity ${side === 'right' ? 'flex-row-reverse' : ''}`}
+      className={`flex h-9 items-stretch overflow-hidden transition-opacity ${side === 'right' ? 'flex-row-reverse' : ''}`}
       style={{ background: `linear-gradient(${toCenter}, ${p.color}55, rgba(14,8,5,.88) 70%)`, boxShadow: `inset 0 0 0 1px ${p.color}66, 0 6px 24px rgba(0,0,0,.45)` }}
     >
       <span className="w-1.5" style={{ background: p.color, boxShadow: `0 0 12px ${p.color}` }} aria-hidden />
-      <span className={`flex min-w-[9rem] max-w-[14rem] flex-col justify-center px-3 ${side === 'right' ? 'items-end text-right' : ''}`}>
-        <span className="hud-text-shadow truncate text-[1.05rem] leading-tight font-bold">{p.name}</span>
-        {local && <span className="text-[0.75rem] leading-tight font-semibold text-gold">You</span>}
+      <span className={`flex min-w-[8rem] max-w-[13rem] flex-col justify-center px-2.5 ${side === 'right' ? 'items-end text-right' : ''}`}>
+        <span className="hud-text-shadow truncate text-[0.95rem] leading-tight font-bold">{p.name}</span>
+        {local && <span className="text-[0.68rem] leading-none font-semibold text-gold">You</span>}
       </span>
-      <span ref={score} className="tabular hud-text-shadow grid w-12 place-items-center bg-black/35 text-[1.7rem] font-bold text-[#fff1d6]">
+      <span ref={score} className="tabular hud-text-shadow grid w-10 place-items-center bg-black/35 text-[1.4rem] font-bold text-[#fff1d6]">
         0
       </span>
     </div>
@@ -181,20 +181,20 @@ export function TopCenter() {
   if (players.length === 2) {
     const [a, b] = players[1].id === local ? [players[1], players[0]] : players
     return (
-      <div className="flex flex-col items-center gap-1" aria-label="Scores">
-        <div className="flex items-start gap-2">
+      <div className="flex flex-col items-center gap-0.5" aria-label="Scores">
+        <div className="flex items-start gap-1">
           <BroadcastSide p={a} side="left" local={a.id === local} />
           <PhasePlate />
           <BroadcastSide p={b} side="right" local={b.id === local} />
         </div>
-        {winScore ? <span className="hud-text-shadow text-[0.82rem] font-semibold text-ash">First to {winScore}</span> : null}
+        {winScore ? <span className="hud-text-shadow text-[0.75rem] leading-none font-semibold text-ash">First to {winScore}</span> : null}
       </div>
     )
   }
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-1">
       <PhasePlate />
-      <div className="flex flex-wrap justify-center gap-1.5" aria-label="Scores">
+      <div className="flex flex-wrap justify-center gap-1" aria-label="Scores">
         {players.map((p) => (
           <ScorePill key={p.id} p={p} local={p.id === local} />
         ))}

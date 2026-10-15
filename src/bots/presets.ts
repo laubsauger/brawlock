@@ -25,6 +25,13 @@
  * | walkOffLava      |   -   | no    | yes    | yes   | yes    | no       |
  * | dodgeAvoidsLava  |   -   | no    | no     | yes   | yes    | no       |
  * | buys spells      |   no  | yes   | yes    | yes   | yes    | yes      |
+ * | comboChance      |   -   | 0     | 0      | 0.5   | 0.9    | -        |
+ * | thrustAttack     |   -   | no    | no     | yes   | yes    | no       |
+ *
+ * comboChance: chance per think to detonate its own Fireball with Lightning when the
+ * Fireball flies next to an enemy (the original AI never combined spells).
+ * thrustAttack: Thrust into a nearby enemy when the ground past them is safe (the original
+ * only used Thrust to leave lava).
  *
  * Dummy issues no commands at all: a practice target that stands where it spawned.
  */
@@ -72,6 +79,10 @@ export interface BotParams {
   retargetChance: number
   /** buy random spells between rounds (original behaviour) */
   buys: boolean
+  /** chance per think to Lightning its own Fireball when it passes an enemy */
+  comboChance: number
+  /** use Thrust as an attack on a close enemy, not only to leave lava */
+  thrustAttack: boolean
 }
 
 const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
@@ -94,6 +105,8 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   dodgeAvoidsLava: false,
   retargetChance: 1 / 5,
   buys: true,
+  comboChance: 0,
+  thrustAttack: false,
 }
 
 export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
@@ -133,6 +146,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     shrinkLookahead: 1.5,
     walkOffLava: true,
     dodgeAvoidsLava: true,
+    comboChance: 0.5,
+    thrustAttack: true,
   },
   brutal: {
     ...ORIGINAL,
@@ -151,5 +166,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     shrinkLookahead: 3,
     walkOffLava: true,
     dodgeAvoidsLava: true,
+    comboChance: 0.9,
+    thrustAttack: true,
   },
 }

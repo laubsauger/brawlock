@@ -50,6 +50,35 @@ function useAudioSettings() {
   }, [])
 }
 
+/**
+ * HUD scale = resolution scale (viewport height vs 1080p, clamped 0.85..1.35,
+ * as Dota scales its HUD) × the UI scale setting. Published as --ui-scale;
+ * HUD clusters and the docks apply it with CSS zoom. The right dock's width
+ * (in unscaled px) is capped so it never reaches the screen center, where
+ * the camera keeps your warlock.
+ */
+function useUiScale() {
+  useEffect(() => {
+    const apply = () => {
+      const user = useGame.getState().settings.uiScale ?? 1
+      const auto = Math.min(1.35, Math.max(0.85, window.innerHeight / 1080))
+      const scale = auto * Math.min(1.2, Math.max(0.8, user))
+      const root = document.documentElement.style
+      root.setProperty('--ui-scale', scale.toFixed(3))
+      root.setProperty('--dock-right-w', `${Math.round(Math.min(700, (window.innerWidth / 2 - 64) / scale))}px`)
+    }
+    apply()
+    window.addEventListener('resize', apply)
+    const unsub = useGame.subscribe((s, prev) => {
+      if (s.settings.uiScale !== prev.settings.uiScale) apply()
+    })
+    return () => {
+      window.removeEventListener('resize', apply)
+      unsub()
+    }
+  }, [])
+}
+
 /** The mute key (M by default) works anywhere, F2 toggles the perf overlay. Never while typing. */
 function useGlobalKeys() {
   useEffect(() => {
@@ -73,6 +102,7 @@ export default function App() {
   const settingsOpen = useGame((s) => s.settingsOpen)
   useAudioSettings()
   useGlobalKeys()
+  useUiScale()
 
   // menu music everywhere outside a match; the HUD drives shop / fight music
   useEffect(() => {

@@ -349,7 +349,8 @@ export class Arena {
     const nearLava = exp(sd.div(W)).mul(step(sd, 0))
     const edgeHeat = exp(sd.div(W.mul(0.5))).mul(step(sd, 0)).mul(float(1).sub(isSide))
     // tile walls glow where they meet lava; interior seams stay a dim ember line
-    const sideHeat = exp(h.div(-22)).mul(isSide).mul(smoothstep(-170, -50, sd).mul(0.9).add(0.06))
+    // (interior seam walls keep a warm underglow so gaps never read as black lines)
+    const sideHeat = exp(h.div(-22)).mul(isSide).mul(smoothstep(-170, -50, sd).mul(0.75).add(0.25))
 
     const albedoLum = stone.r.add(stone.g).add(stone.b).mul(1.4).add(0.05)
     let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), float(0.25), isSide))

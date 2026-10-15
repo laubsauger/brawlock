@@ -44,6 +44,8 @@ export interface Settings {
   castMode: CastMode
   /** per-slot cast mode override, slot index 0..11 -> mode */
   castModeSlots: Partial<Record<number, CastMode>>
+  /** HUD and in-match panel scale on top of the automatic resolution scale, 0.8..1.2 */
+  uiScale: number
 }
 
 export type NetRole = 'offline' | 'host' | 'client'
@@ -117,6 +119,7 @@ const defaultSettings: Settings = {
   keybinds: {},
   castMode: 'quick',
   castModeSlots: {},
+  uiScale: 1,
 }
 
 function loadSettings(): Settings {

@@ -55,7 +55,7 @@ export class Lava {
     col = col.add(vec3(1.9, 0.5, 0.07).mul(rim.mul(0.75)))
     // under the platform only thin seams show: keep them a dull ember red
     const under = smoothstep(-20, -70, sd)
-    col = mix(col, vec3(0.32, 0.05, 0.01), under)
+    col = mix(col, vec3(0.55, 0.1, 0.018), under)
 
     // frame the arena: crust thickens far from the centre
     const far = smoothstep(2600, 6200, length(p))

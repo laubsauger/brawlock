@@ -39,7 +39,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Original | v1 decision |
 |---|---|
 | Movement, turning and cast points came from the Dota unit controller | Re-implemented explicitly in the sim: turn rate 1.2 (Dota units, rad per 0.03 s), cast point per spell from KV data, move-while-turning rules |
-| Shop is never closed server-side (buy mid-fight, while dead) | **Open decision.** Default: keep faithful (buy any time) and show it clearly in UI |
+| Shop is never closed server-side (buy mid-fight, while dead) | Decided 2026-10-15: buy during the shop phase or while dead; read-only mid-fight. One constant restores buy-anytime |
 | Deathmatch: lava suicide scores for own team | Fixed |
 | Score win condition iteration bug | Fixed: winners are players with max score ≥ limit |
 | `math.random` float coercion makes bot wander jitter | Fixed (intended float ranges) |
@@ -368,7 +368,7 @@ New spells and items, map variants and hazards, alternative movement schemes, dr
 
 ## 11. Risks and open decisions
 
-1. **Shop timing**: faithful buy-anytime, or shop-phase only? Default faithful.
+1. **Shop timing**: decided, shop phase or while dead (see §2).
 2. **Original effective tick rate** is uncertain (Dota think scheduling), so friction feel is tuned by playtest against the converted constant.
 3. **NAT traversal** without TURN fails for some players; PeerJS TURN is shared and rate-limited.
 4. **Host advantage** in P2P; compensated in M1, removed with dedicated servers in M4.

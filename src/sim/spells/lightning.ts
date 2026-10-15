@@ -3,7 +3,9 @@
  * Candidate CCs: (Lightning accepts the channel for that alliance — ENEMY {PLAYER, PROJECTILE,
  * OBSTACLE} — AND the CC accepts PROJECTILE from that alliance AND it is not a Warpzone) OR it is
  * an own / allied Fireball. Hit-testable when |perpendicular distance of its centre| <= 25 + r
- * and its centre lies 0 < s < best ahead; the nearest wins.
+ * and its centre lies 0 < s < best ahead; the nearest wins. A warlock's bubble (Alteration) and
+ * body share one centre, so on equal distance the larger CC wins: the bubble blocks, as the docs
+ * require (the original's tie order was table iteration order).
  * - own / allied Fireball: detonates (r225, 0 -> 2/3 (damage + 70), knockback factor 1.35)
  * - CC accepts damage: damage along the BEAM direction, knockback factor 0.92
  * - enemy Shield / Alteration bubble: the beam stops there with no effect
@@ -44,7 +46,8 @@ export const lightningSpell: SpellBehavior = {
       const ry = b.k.y - caster.y
       const s = rx * a.dx + ry * a.dy
       const perp = Math.abs(rx * a.dy - ry * a.dx)
-      if (perp <= half + b.radius && s > 0 && s < best) {
+      const better = s < best || (winner !== null && s === best && b.radius > winner.radius)
+      if (perp <= half + b.radius && s > 0 && better) {
         best = s
         winner = b
         winnerIsFireball = friendlyFireball

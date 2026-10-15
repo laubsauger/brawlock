@@ -10,7 +10,6 @@
 
     <!-- Brand slots (public/brand). Placeholders until the final art from Codex image generation lands;
          keep the file names and swap the files. Vite prefixes these paths with the Pages base at build. -->
-    <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
     <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="48x48" href="/brand/favicon-48.png" />
@@ -25,14 +24,15 @@
     <meta property="og:url" content="https://laubsauger.github.io/brawlock/" />
     <meta property="og:image" content="https://laubsauger.github.io/brawlock/brand/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="628" />
-    <meta property="og:image:alt" content="The Brawlock wordmark over a glowing lava arena." />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Two hooded warlocks trade fireballs across a crumbling arena over lava, under the Brawlock wordmark." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Brawlock" />
     <meta name="twitter:description" content="Knock rival warlocks into the lava. With friends or bots, in the browser." />
     <meta name="twitter:image" content="https://laubsauger.github.io/brawlock/brand/og-image.jpg" />
 
     <link rel="preload" as="image" href="/brand/splash.webp" fetchpriority="high" />
+    <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- display=block for the wordmark face: no fallback-font flash on the splash -->
@@ -62,6 +62,7 @@
         position: absolute;
         inset: -2%;
         background: #0d0806 url('/brand/splash.webp') center / cover no-repeat;
+        filter: saturate(0.9) brightness(0.55);
         animation: splash-drift 16s ease-out both;
         transition: transform 700ms ease-in;
       }
@@ -69,8 +70,9 @@
         position: absolute;
         inset: 0;
         background:
-          radial-gradient(ellipse 50% 42% at 50% 46%, rgba(13, 8, 6, 0.75), rgba(13, 8, 6, 0.25) 70%, transparent),
-          radial-gradient(ellipse at center, transparent 40%, rgba(13, 8, 6, 0.9) 100%);
+          radial-gradient(ellipse 46% 40% at 50% 46%, rgba(13, 8, 6, 0.7), rgba(13, 8, 6, 0.2) 70%, transparent),
+          radial-gradient(ellipse at center, transparent 38%, rgba(13, 8, 6, 0.92) 100%),
+          linear-gradient(to bottom, rgba(13, 8, 6, 0.5), transparent 24%, transparent 68%, rgba(13, 8, 6, 0.95));
       }
       .splash-center {
         position: relative;
@@ -80,8 +82,20 @@
         width: min(640px, calc(100vw - 32px));
         text-align: center;
       }
-      /* WORDMARK SLOT: swap this text for <img src="/brand/wordmark.webp"> when the art exists. */
+      /* Wordmark art over the live-text fallback: if the image fails, the text shows. */
+      .splash-mark { position: relative; display: grid; place-items: center; animation: splash-rise 900ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+      .splash-mark img {
+        grid-area: 1 / 1;
+        width: min(640px, 86vw);
+        height: auto;
+        aspect-ratio: 1576 / 477;
+        filter: drop-shadow(0 10px 40px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 30px rgba(255, 100, 20, 0.25));
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      .splash-mark img.failed { display: none; }
       .splash-wordmark {
+        grid-area: 1 / 1;
         margin: 0;
         padding: 0 0.06em 0.04em 0;
         white-space: nowrap;
@@ -94,9 +108,10 @@
         background-clip: text;
         color: transparent;
         filter: drop-shadow(0 0 22px rgba(255, 110, 30, 0.4)) drop-shadow(0 3px 0 rgba(60, 10, 0, 0.9));
-        animation: splash-rise 900ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
         user-select: none;
+        visibility: hidden;
       }
+      .splash-mark img.failed + .splash-wordmark { visibility: visible; }
       .splash-action { min-height: 84px; display: grid; place-items: center; margin-top: 18px; }
       .splash-progress { width: min(340px, 80vw); margin-top: 6px; transition: opacity 300ms ease; }
       .splash[data-mode='ready'] .splash-progress { opacity: 0; }
@@ -118,7 +133,7 @@
       @keyframes splash-drift { from { transform: scale(1.08); } to { transform: scale(1); } }
       @keyframes splash-rise { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
       @media (prefers-reduced-motion: reduce) {
-        .splash-art, .splash-wordmark { animation: none; }
+        .splash-art, .splash-mark { animation: none; }
         .splash, .splash-art, .splash-bar i, .splash-quip { transition: none; }
       }
     </style>
@@ -128,7 +143,10 @@
       <div class="splash-art" aria-hidden="true"></div>
       <div class="splash-vignette" aria-hidden="true"></div>
       <div class="splash-center">
-        <h1 class="splash-wordmark">Brawlock</h1>
+        <div class="splash-mark">
+          <img src="/brand/wordmark.webp" width="1200" height="364" alt="Brawlock" draggable="false" onerror="this.classList.add('failed')" />
+          <h1 class="splash-wordmark" aria-hidden="true">Brawlock</h1>
+        </div>
         <div id="splash-action" class="splash-action"></div>
         <div class="splash-progress" aria-live="polite">
           <div class="splash-bar" role="progressbar" aria-label="Loading"><i id="splash-fill"></i></div>

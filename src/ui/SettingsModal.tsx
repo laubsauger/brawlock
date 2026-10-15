@@ -253,6 +253,11 @@ export function SettingsModal() {
             onBlur={() => setName(name.trim() ? chooseName(name) : s.playerName)}
           />
         </Row>
+        <Row label="HUD scale" hint="On top of the automatic scale for your screen size">
+          <div className="w-56">
+            <Slider label="HUD scale" value={s.uiScale ?? 1} min={0.8} max={1.2} step={0.05} onChange={(uiScale) => setSettings({ uiScale })} />
+          </div>
+        </Row>
         <Row label="Performance overlay" hint="Frame rate, frame time, GPU time and ping. Also F2">
           <Switch label="Performance overlay" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />
         </Row>

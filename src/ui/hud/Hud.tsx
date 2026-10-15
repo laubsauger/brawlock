@@ -200,7 +200,7 @@ function StatusLayer() {
   return (
     <>
       <div ref={vignette} className="low-hp-vignette" data-on="false" />
-      <div ref={dead} className="absolute right-0 bottom-[150px] left-0 text-center" style={{ display: 'none' }}>
+      <div ref={dead} className="absolute right-0 left-0 text-center" style={{ display: 'none', bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 10px)' }}>
         <span className="hud-text-shadow text-lg font-semibold text-[#ffcfb8]">Knocked out. Watching the rest of the round.</span>
       </div>
     </>
@@ -222,8 +222,8 @@ function AimHint() {
   return (
     <div
       ref={ref}
-      className="hud-text-shadow absolute right-0 bottom-[184px] left-0 text-center text-[1.1rem] font-semibold text-[#ffe2b0] transition-opacity duration-150"
-      style={{ opacity: 0 }}
+      className="hud-text-shadow absolute right-0 left-0 text-center text-[1.1rem] font-semibold text-[#ffe2b0] transition-opacity duration-150"
+      style={{ opacity: 0, bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 40px)' }}
       aria-live="polite"
     />
   )
@@ -273,35 +273,40 @@ export function Hud() {
     <div className="hud select-none">
       <StatusLayer />
 
-      <div className="absolute top-3 right-0 left-0 flex justify-center">
-        <TopCenter />
+      <div className="absolute top-0 right-0 left-0 flex justify-center">
+        <div className="hud-scale origin-top">
+          <TopCenter />
+        </div>
       </div>
 
-      <div className="absolute top-3 left-4">
+      <div className="hud-scale absolute top-2 left-3">
         <NetReadout />
       </div>
 
-      <div className="absolute top-3 right-4">
+      <div className="hud-scale absolute top-2 right-3">
         <Killfeed />
       </div>
 
       <Banner />
       <AimHint />
 
-      <div className="absolute right-0 bottom-3 left-0 flex justify-center px-3">
-        <div className="hud-plate chamfer flex items-end gap-4 px-4 pt-3 pb-3" style={{ ['--c' as string]: '12px' }}>
-          <div className="flex w-[440px] flex-col gap-2.5">
-            <Vitals />
-            <SpellRow />
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <Gold />
-            <ItemGrid />
+      {/* Dota-style bottom cluster, flush to the screen edge */}
+      <div className="absolute right-0 bottom-0 left-0 flex justify-center">
+        <div className="hud-scale">
+          <div className="hud-plate hud-bottom flex items-end gap-3 px-3 pt-2 pb-2">
+            <div className="flex w-[342px] flex-col gap-1.5">
+              <Vitals />
+              <SpellRow />
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <Gold />
+              <ItemGrid />
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="absolute bottom-4 left-4 hidden xl:block">
+      <div className="hud-scale absolute bottom-2 left-3 hidden xl:block">
         <Hints />
       </div>
 

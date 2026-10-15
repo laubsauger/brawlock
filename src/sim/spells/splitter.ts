@@ -64,7 +64,17 @@ export const splitterProjectile: ProjectileBehavior = {
     spawnProjectile(state, p.owner, 'splitter', p.x + d.ox, p.y + d.oy, dx * d.spawnerSpeed, dy * d.spawnerSpeed, 1, {
       lifetime: d.spawnerTime,
       kind: 'splitterSpawner',
-      data: { ...d, t: 0, wave: 0 },
+      data: {
+        damage: d.damage,
+        kb: d.kb,
+        spawnerTime: d.spawnerTime,
+        waves: d.waves,
+        childSpeed: d.childSpeed,
+        childRadius: d.childRadius,
+        childTime: d.childTime,
+        t: 0,
+        wave: 0,
+      },
     })
   },
 }

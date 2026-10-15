@@ -6,7 +6,8 @@ import { BotController } from './controller'
 import { interceptTime, leadPoint } from './aim'
 import { isSafe } from './arena'
 import { dangerAt } from './danger'
-import { isBuyable } from './spells'
+import { escapeRange } from './spells'
+import { RELEASED_SPELLS } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
 const BOT = 0
@@ -350,7 +351,7 @@ describe('bots: scourge and shop', () => {
       const bot = createBot(BOT, 'medium', seed)
       for (let t = 0; t < 120; t++) {
         state.tick = t
-        for (const c of bot.think(state)) if (c.kind === 'buySpell') expect(isBuyable(c.spell)).toBe(true)
+        for (const c of bot.think(state)) if (c.kind === 'buySpell') expect(RELEASED_SPELLS.has(c.spell)).toBe(true)
       }
     }
   })
@@ -376,3 +377,101 @@ describe('bots: determinism', () => {
   })
 })
 
+
+describe('bots: M1 spells', () => {
+  /** Run a bot until it casts from `slot` (or give up); the target walks at `v`. */
+  function firstCast(bot: Bot, state: SimState, slot: number, ticks = 600, walk?: { pawn: number; vx: number; vy: number }) {
+    for (let t = 0; t < ticks; t++) {
+      state.tick = t
+      const p = walk ? state.pawns.find((q) => q.owner === walk.pawn)! : null
+      if (p && walk) {
+        p.vx = walk.vx
+        p.vy = walk.vy
+      }
+      const c = bot.think(state).find((x) => x.kind === 'cast' && x.slot === slot)
+      if (c && c.kind === 'cast') return { tick: t, x: c.x, y: c.y }
+      if (p && walk) {
+        p.x += walk.vx * DT
+        p.y += walk.vy * DT
+      }
+    }
+    return null
+  }
+
+  it('never wastes Lightning on an enemy out of its 600 reach, uses it inside', () => {
+    const far = makePawn(BOT, 0, 0)
+    far.slots[0] = 'lightning'
+    far.slots[FIREBALL_SLOT] = null // only Lightning to shoot
+    const s1 = makeState([far, makePawn(ENEMY, 900, 0)])
+    expect(firstCast(createBot(BOT, 'easy', 3), s1, 0)).toBeNull()
+    const near = makePawn(BOT, 0, 0)
+    near.slots[0] = 'lightning'
+    near.slots[FIREBALL_SLOT] = null
+    const s2 = makeState([near, makePawn(ENEMY, 450, 0)])
+    expect(firstCast(createBot(BOT, 'easy', 3), s2, 0)).not.toBeNull()
+  })
+
+  it('brutal detonates its own Fireball with Lightning as it passes an enemy', () => {
+    const me = makePawn(BOT, 0, 0)
+    me.slots[0] = 'lightning'
+    me.cooldowns[FIREBALL_SLOT] = 600 // Fireball already in flight
+    const enemy = makePawn(ENEMY, 520, 160)
+    const state = makeState([me, enemy])
+    // our Fireball flying past the enemy, ~100 units off its path, inside Lightning's reach
+    state.projectiles.push({ ...makeFireball(BOT, 200, 60, 1000, 0), id: 77 })
+    const bot = createBot(BOT, 'brutal', 21) as BotController
+    let combo: { x: number; y: number } | null = null
+    for (let t = 0; t < 30 && !combo; t++) {
+      state.tick = t
+      const c = bot.think(state).find((x) => x.kind === 'cast' && x.slot === 0)
+      if (c && c.kind === 'cast') combo = c
+    }
+    expect(combo).not.toBeNull()
+    // aimed at the Fireball (where it will be), not at the enemy
+    expect(Math.abs(combo!.y - 60)).toBeLessThan(5)
+  })
+
+  it('escapes lava with Swap to safe ground within its reach', () => {
+    const me = makePawn(BOT, 1000, 0)
+    me.slots[TELEPORT_SLOT] = 'swap'
+    me.levels[TELEPORT_SLOT] = 1
+    const state = makeState([me, makePawn(ENEMY, -300, 200)], { arena: { layer: 8, nextShrinkTick: -1, theme: 0 } })
+    const reach = escapeRange('swap', 1)
+    expect(reach).toBeGreaterThan(900)
+    const c = firstCast(createBot(BOT, 'brutal', 5), state, TELEPORT_SLOT)
+    expect(c).not.toBeNull()
+    expect(isSafe(8, c!.x, c!.y)).toBe(true)
+    expect(Math.hypot(c!.x - 1000, c!.y)).toBeLessThanOrEqual(reach + 1e-6)
+  })
+
+  it('aims Meteor where a walking target will be when it lands', () => {
+    const me = makePawn(BOT, 0, 0)
+    me.slots[3] = 'meteor'
+    me.slots[FIREBALL_SLOT] = null
+    const state = makeState([me, makePawn(ENEMY, 600, -300)])
+    const shot = firstCast(createBot(BOT, 'brutal', 8), state, 3, 600, { pawn: ENEMY, vx: 0, vy: 210 })
+    expect(shot).not.toBeNull()
+    const enemy = state.pawns[1]
+    // lands 0.2 s cast point + 1.15 s fall after the order executes; meteor radius >= 225
+    const landY = enemy.y + 210 * (0.2 + 1.15)
+    expect(Math.hypot(shot!.x - enemy.x, shot!.y - landY)).toBeLessThan(225)
+    // aiming at the target's current position would have missed by the walk distance
+    expect(Math.hypot(enemy.x - enemy.x, landY - enemy.y)).toBeGreaterThan(225)
+  })
+
+  it('hard Thrusts into a close enemy only when the ground past them is safe', () => {
+    const setup = (enemyX: number, layer: number) => {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[1] = 'thrust'
+      me.levels[1] = 1
+      me.slots[FIREBALL_SLOT] = null
+      me.cooldowns[7] = 600 // no Scourge, so the dash is the only close-range option
+      return makeState([me, makePawn(ENEMY, enemyX, 0)], { arena: { layer, nextShrinkTick: -1, theme: 0 } })
+    }
+    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 15), 1, 300)).not.toBeNull()
+    // layer 5 (radius 400): past the enemy at x=300 is lava, so no dash
+    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 5), 1, 300)).toBeNull()
+    // easy keeps the original behaviour: Thrust only to leave lava
+    expect(firstCast(createBot(BOT, 'easy', 4), setup(300, 15), 1, 300)).toBeNull()
+  })
+})

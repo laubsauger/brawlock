@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
-import { shopOpen, TICK_HZ, type InputCommand, type SpellId } from '../../sim'
+import { TICK_HZ, type InputCommand, type SpellId } from '../../sim'
 import { Sigil } from '../icons'
 import {
   COLUMNS,
@@ -25,7 +25,7 @@ import {
 import { keyLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { sfx } from '../lib/sound'
 import { usePolled, useTick } from '../lib/ticker'
-import { localView } from '../lib/view'
+import { canBuyNow, localView } from '../lib/view'
 import { Button, Kbd } from '../widgets'
 import { CharacterBody } from './Overlays'
 import { displayRound } from './TopBar'
@@ -70,7 +70,7 @@ function readShop(): ShopView {
     freeItemSlots: pawn ? free : 0,
     masteries: { duration: 0, range: 0, lifesteal: 0, ...v?.score?.masteries },
     phase: v?.state.phase ?? '',
-    open: v ? shopOpen(v.state) : false,
+    open: v ? canBuyNow(v.state) : false,
   }
 }
 
@@ -103,7 +103,7 @@ function stateNote(state: CardState): string | undefined {
     case 'locked':
       return 'You already own a spell in this column'
     case 'closed':
-      return 'The shop is closed'
+      return 'Buying opens between rounds'
     default:
       return undefined
   }
@@ -197,7 +197,7 @@ function ShopClock() {
     if (s.phase === 'shop' || s.phase === 'warmup') {
       const secs = Math.max(0, Math.ceil(s.phaseTicksLeft / TICK_HZ))
       t = `Round ${displayRound(s)} in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
-    } else if (s.phase === 'fight') t = 'Open during the fight'
+    } else if (s.phase === 'fight') t = canBuyNow(s) ? 'You are out: buy for the next round' : 'Round in progress'
     else if (s.phase === 'roundEnd') t = 'Round over'
     if (t !== last.current) {
       ref.current.textContent = last.current = t
@@ -596,7 +596,11 @@ export function Shop() {
               Close <Kbd>{keyLabel(binds.shop)}</Kbd>
             </Button>
           </header>
-          {!v.open && <p className="px-5 pb-2 text-[0.95rem] text-[#ffb08f]">The shop is closed.</p>}
+          {!v.open && (
+            <p className="mx-4 mb-2 rounded-md bg-[rgba(255,140,60,0.1)] px-3 py-2 text-[0.98rem] font-semibold text-[#ffcf9a] ring-1 ring-[rgba(255,150,70,0.3)]" role="status">
+              Shop opens between rounds. Look around now; buying unlocks in the next shop phase.
+            </p>
+          )}
           <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-6 gap-2 overflow-y-auto px-4 pb-3" onKeyDown={navKeys}>
             {COLUMNS.map((col, c) => {
               const owned = v.spells[c]

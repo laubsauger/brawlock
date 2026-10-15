@@ -74,8 +74,17 @@ export const SPAWN_OBSTACLES = false
 
 // --- rounds / shop -------------------------------------------------------------
 export const ROUND_END_SECONDS = 2
-/** Faithful: the original never closes the shop server-side (PLAN §11 open decision). */
-export const SHOP_ANY_PHASE = true
+/** deathmatch: round length and respawn delay (ModeDeathmatch) */
+export const DM_ROUND_SECONDS = 60
+export const DM_RESPAWN_SECONDS = 10
+/**
+ * When purchases are accepted (PLAN §11 decision, by the user):
+ * - 'shopPhaseOrDead' (default): during the shop phase, or while the buyer's pawn is dead
+ *   (spectating) in any phase except gameOver.
+ * - 'anyPhase': faithful to the original, which never closed the shop server-side.
+ */
+export type ShopRule = 'shopPhaseOrDead' | 'anyPhase'
+export const SHOP_RULE: ShopRule = 'shopPhaseOrDead'
 export const SPELL_MAX_LEVEL = 7
 export const MASTERY_MAX_LEVEL = 6
 export const MASTERY_COST = 5

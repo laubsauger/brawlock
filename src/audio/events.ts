@@ -67,6 +67,19 @@ export const SPELL_SOUNDS: Record<string, SpellSounds> = {
   bouncer: { cast: 'bouncerCast' },
   redirector: { cast: null }, // spellHit 'redirector' is the grab
   pact: { cast: null }, // the pact modifier
+  shield: { cast: null }, // shield modifier
+  rush: { cast: null }, // rush modifier
+  alteration: { cast: null }, // alteration modifier + swap event
+  windwalk: { cast: null }, // windwalk modifier
+  meteor: { cast: 'meteorCast' },
+  splitter: { cast: 'splitterCast' },
+  snowball: { cast: 'snowCast' },
+  gravity: { cast: 'gravityCast' },
+  grip: { cast: 'gripCast' },
+  warpzone: { cast: 'warpCast' },
+  magnetize: { cast: 'magnetCast' },
+  rockpillar: { cast: 'pillarRise' },
+  link: { cast: 'linkCast' },
 }
 
 /**
@@ -92,6 +105,16 @@ export const PROJECTILE_SOUNDS: Record<string, ProjectileSounds> = {
   bouncer: { travel: 'bouncerTravel', hit: 'zapHit', expire: 'fizzle' },
   recharge: { travel: 'rechargeTravel', hit: 'zapHit', expire: 'fizzle' },
   rechargeRefresh: { travel: 'orbTravel', hit: null, expire: null }, // cooldownReset plays the refresh
+  meteor: { travel: 'meteorFall', hit: null, expire: null }, // the explosion event is the landing
+  splitter: { travel: 'splitterTravel', hit: 'zapHit', expire: null },
+  splitterSpawner: { travel: 'splitterTravel', hit: null, expire: null },
+  splitterChild: { travel: 'childZip', hit: 'impact', hitParam: 0.6, expire: null },
+  snowball: { travel: 'snowRoll', hit: null, expire: null }, // snowball modifier + explosion event
+  gravity: { travel: 'gravityHum', hit: 'gravityEnd', expire: 'gravityEnd' },
+  grip: { travel: 'gripTravel', hit: 'tink', expire: null }, // grip modifier = chains
+  warpzone: { travel: 'warpHum', hit: null, expire: 'popOff' },
+  magnetize: { travel: 'magnetTravel', hit: null, expire: 'fizzle' }, // magnetize modifier
+  link: { travel: 'linkTravel', hit: null, expire: 'fizzle' }, // link modifier = tether loop
 }
 const DEFAULT_PROJECTILE: ProjectileSounds = { hit: 'impact', expire: 'fizzle' }
 const projectileSounds = (kind: string): ProjectileSounds => PROJECTILE_SOUNDS[kind] ?? DEFAULT_PROJECTILE
@@ -133,7 +156,12 @@ export function flightPath(x: number, y: number, vx: number, vy: number, seconds
 /** Voice key of a pawn's cast windup (Scourge charge, cast-point inhale). */
 export const windupKey = (pawn: EntityId) => `windup:${pawn}`
 
-type ModSound = { on?: [SfxId, number?]; off?: [SfxId, number?] }
+type ModSound = {
+  on?: [SfxId, number?]
+  off?: [SfxId, number?]
+  /** loop for as long as the modifier lasts (param = max seconds), cut when it ends */
+  loop?: [SfxId, number]
+}
 
 /** Modifier sounds by exact sim id. Listed with no sound = heard through another event. */
 const MODIFIER_IDS: Record<string, ModSound> = {
@@ -146,6 +174,14 @@ const MODIFIER_IDS: Record<string, ModSound> = {
   thrust: {}, // the dash is heard from its cast
   rechargeStreak: {}, // streak events
   spawnInvulnerable: {}, // round start horn
+  windwalk: { on: ['fade', 1], off: ['fade', 0] },
+  rush: { on: ['ignite'], off: ['popOff'] },
+  snowball: { on: ['snowGrab'] },
+  shield: { on: ['shieldUp'], off: ['popOff'] },
+  grip: { on: ['chains'] },
+  alteration: { on: ['altArm'], off: ['popOff'] },
+  magnetize: { on: ['magnetOn'], off: ['popOff'] },
+  link: { loop: ['linkLoop', 12], off: ['popOff'] },
 }
 
 /** Fallback by id fragment for spells whose modifiers have not landed yet. */
@@ -233,7 +269,13 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const id = projectileSounds(kind).travel
     // the launch itself is the cast sound; the loop needs the projectile's flight from state
     if (!id || !pr) return []
-    const life = pr.data.noTimer ? 6 : Math.max(0.1, Math.min(6, pr.ticksLeft / 60))
+    // Meteor: hover + fall; other untimed projectiles loop until their hit / expire cuts them
+    const life =
+      pr.data.hoverTime !== undefined
+        ? pr.data.hoverTime + (pr.data.fallTime ?? 0)
+        : pr.data.noTimer
+          ? 6
+          : Math.max(0.1, Math.min(6, pr.ticksLeft / 60))
     const path = flightPath(pr.x, pr.y, pr.vx, pr.vy, Math.min(life, 3), c.listener)
     return [{ id, gain: path[0].gain, pan: path[0].pan, param: life, key: projectileKey(e.id), path }]
   },
@@ -262,7 +304,11 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
       const mine = c.localPawn !== null ? e.target === c.localPawn : c.nearListener(e.x, e.y)
       return mine ? [cue('lavaSizzle', CENTRE)] : []
     }
-    return [cue('hit', c.at(e.x, e.y), 1, { param: kbIntensity(e.kb) })]
+    const sp = c.at(e.x, e.y)
+    const out = [cue('hit', sp, 1, { param: kbIntensity(e.kb) })]
+    // Rush soaked part of it: a flame flare over the hit
+    if (e.absorbed && e.absorbed > 0) out.push(cue('flare', sp, 0.8))
+    return out
   },
   heal: null,
   teleport: (e, c) => [cue('teleportOut', c.at(e.fromX, e.fromY)), cue('teleportIn', c.at(e.toX, e.toY), 1, { delay: 0.03 })],
@@ -271,6 +317,8 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     if (e.spell === 'scourge') return [cue('scourgeBlast', sp)]
     if (e.spell === 'obstacle') return [cue('explosion', sp, 1, { param: 1.4 })]
     if (e.spell === 'homing') return [cue('arcaneBurst', sp, 1.1)]
+    if (e.spell === 'meteor') return [cue('meteorImpact', sp)]
+    if (e.spell === 'snowball') return [cue('snowBurst', sp)]
     // Lightning detonating a Fireball: a bigger fire blast laced with electricity
     if (e.spell === 'lightning') return [cue('explosion', sp, 1, { param: 1.25 }), cue('zapHit', sp, 0.7)]
     return [cue('explosion', sp, 1, { param: Math.max(0.6, Math.min(1.6, e.radius / 225)) })]
@@ -296,12 +344,18 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     ]
   },
   modifier: (e, c) => {
-    const id = e.id.toLowerCase()
-    const m = MODIFIER_IDS[e.id] ?? MODIFIER_FRAGMENTS.find((x) => id.includes(x.match))
-    const s = m && (e.on ? m.on : m.off)
-    if (!s) return []
+    const lower = e.id.toLowerCase()
+    const m = MODIFIER_IDS[e.id] ?? MODIFIER_FRAGMENTS.find((x) => lower.includes(x.match))
+    if (!m) return []
     const p = c.pawnPos(e.pawn)
-    return [cue(s[0], p ? c.at(p.x, p.y) : CENTRE, 1, { param: s[1] ?? 0 })]
+    const sp = p ? c.at(p.x, p.y) : CENTRE
+    const key = `mod:${e.pawn}:${e.id}`
+    const out: SoundCue[] = []
+    if (e.on && m.loop) out.push(cue(m.loop[0], sp, 1, { param: m.loop[1], key }))
+    const s = e.on ? m.on : m.off
+    if (s) out.push(cue(s[0], sp, 1, { param: s[1] ?? 0, stopKey: !e.on && m.loop ? key : undefined }))
+    else if (!e.on && m.loop) out.push({ id: null, gain: 0, pan: 0, stopKey: key })
+    return out
   },
   spellHit: (e, c) => [cue(e.spell === 'redirector' ? 'redirect' : 'chargeSlam', c.at(e.x, e.y))],
   projectileBounce: (e, c) => [cue('ricochet', c.at(e.x, e.y), 0.9)],

@@ -1,6 +1,7 @@
 import { frame } from '../../game/frame'
 import type { PawnState, PlayerScore, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
+import * as sim from '../../sim'
 
 /** 0xRRGGBB -> #rrggbb */
 export function hex(color: number): string {
@@ -53,3 +54,15 @@ export function kbMultiplier(kbPoints: number): number {
 }
 
 export const TEAM_NAMES = ['Red', 'Blue', 'Teal', 'Purple', 'Yellow', 'Orange', 'Green', 'Pink', 'Gray', 'Light Blue']
+
+/**
+ * Whether the local player can buy right now. The sim's canBuy(state, player)
+ * (shop phase, or your pawn is dead) when it exists; before that, shopOpen().
+ * Looked up by key so the build works whether or not the sim exports it yet.
+ */
+type CanBuy = (state: SimState, player: number) => boolean
+const simApi = sim as unknown as Record<string, unknown>
+export function canBuyNow(state: SimState): boolean {
+  const fn = simApi['canBuy'] as CanBuy | undefined
+  return typeof fn === 'function' ? fn(state, frame.localPlayer) : sim.shopOpen(state)
+}

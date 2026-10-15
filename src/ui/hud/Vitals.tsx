@@ -76,29 +76,29 @@ export function Vitals() {
   })
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       <div ref={hpFrame} className="hp-frame" role="meter" aria-label="Health">
         <div ref={hpTrail} className="hp-trail" />
         <div ref={hpFill} className="hp-fill" />
-        <div className="hud-text-shadow absolute inset-0 flex items-center justify-between px-2.5 text-[0.98rem] font-bold">
+        <div className="hud-text-shadow absolute inset-0 flex items-center justify-between px-2 text-[0.88rem] font-bold">
           <span ref={hpText} className="tabular">
             –
           </span>
-          <span ref={regenText} className="tabular text-[0.85rem] font-semibold text-[#ffe0cc]/85" />
+          <span ref={regenText} className="tabular text-[0.78rem] font-semibold text-[#ffe0cc]/85" />
         </div>
       </div>
       <div
-        className="flex items-center gap-2.5"
+        className="flex items-center gap-2"
         title="Knockback points. Every hit you take adds points, and every point makes the next hit push you further. They reset when you respawn."
       >
-        <span className="text-[0.82rem] font-semibold text-ash">Knockback</span>
+        <span className="text-[0.74rem] font-semibold text-ash">Knockback</span>
         <div ref={kbFrame} className="kb-frame flex-1" role="meter" aria-label="Knockback points">
           <div ref={kbFill} className="kb-fill" style={{ transform: 'scaleX(0)' }} />
         </div>
-        <span ref={kbMult} className="tabular w-12 text-right text-[0.98rem] font-bold text-[#ffcf8a]">
+        <span ref={kbMult} className="tabular w-11 text-right text-[0.86rem] font-bold text-[#ffcf8a]">
           ×1.00
         </span>
-        <span ref={kbPts} className="tabular w-10 text-right text-[0.82rem] text-ash">
+        <span ref={kbPts} className="tabular w-9 text-right text-[0.74rem] text-ash">
           0
         </span>
       </div>
@@ -116,7 +116,7 @@ export function Gold() {
     ref.current.textContent = String(Math.floor(g))
   })
   return (
-    <div className="flex items-center gap-1.5 text-[1.15rem] font-bold text-gold" title="Gold">
+    <div className="flex h-[18px] items-center gap-1 text-[0.98rem] leading-none font-bold text-gold" title="Gold">
       <span className="coin" aria-hidden />
       <span ref={ref} className="tabular">
         0

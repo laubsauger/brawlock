@@ -84,7 +84,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
     >
       {info.spell && (
         <div className="icon">
-          <Sigil id={info.spell} size={isItem ? 38 : 52} />
+          <Sigil id={info.spell} size={isItem ? 31 : 42} />
         </div>
       )}
       <div className="cd" />
@@ -105,7 +105,7 @@ export function SpellRow() {
   const slots = usePolled(readSlots, slotsKey, 6)
   const binds = useBinds()
   return (
-    <div className="flex gap-2" aria-label="Spells">
+    <div className="flex gap-1.5" aria-label="Spells">
       {slots.slice(0, SPELL_SLOTS).map((info, i) => (
         <Slot key={i} index={i} info={info} keyLabel={slotKeyLabel(binds, i)} />
       ))}
@@ -117,7 +117,7 @@ export function ItemGrid() {
   const slots = usePolled(readSlots, slotsKey, 6)
   const binds = useBinds()
   return (
-    <div className="grid grid-cols-3 gap-1.5" aria-label="Items">
+    <div className="grid grid-cols-3 gap-1" aria-label="Items">
       {slots.slice(SPELL_SLOTS).map((info, i) => (
         <Slot key={i} index={SPELL_SLOTS + i} info={info} keyLabel={slotKeyLabel(binds, SPELL_SLOTS + i)} />
       ))}

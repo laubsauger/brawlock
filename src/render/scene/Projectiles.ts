@@ -98,6 +98,8 @@ export class Projectiles {
     colorOf: (owner: number) => number,
     camera: THREE.Camera,
     aspect: number,
+    /** spells drawn by a VFX module instead of the built-in look */
+    skip?: (spell: string) => boolean,
   ): void {
     this.frameId++
     const fid = this.frameId
@@ -107,6 +109,7 @@ export class Projectiles {
     const trailBudget = this.ctx.tier.particles
     for (let i = 0; i < curr.length && n < CAPACITY; i++) {
       const p = curr[i]
+      if (skip && skip(p.spell)) continue
       let x = p.x
       let y = p.y
       if (prev) {

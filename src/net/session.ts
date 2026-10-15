@@ -646,8 +646,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (next.events.length) {
       out.pushEvents(next.tick, next.events)
       m.recent.push({ tick: next.tick, events: next.events })
-      deps.audio.playEvents(next.events, listenerFor(next, localPlayer))
     }
+    // every tick, even without events: audio re-aims projectile travel loops
+    deps.audio.playEvents(next.events, listenerFor(next, localPlayer))
     while (m.recent.length && m.recent[0].tick <= next.tick - EVENT_REDUNDANCY_TICKS) m.recent.shift()
     if (peers.length) sendSnapshots(m, next)
 
@@ -844,10 +845,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     cm.buffer.pull(now, (state, at, evs) => {
       out.pushState(state, at)
       if (rec) rec.observe(state, evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events))
-      for (const e of evs) {
-        out.pushEvents(e.tick, e.events)
-        deps.audio.playEvents(e.events, listenerFor(state, cm.localPlayer))
-      }
+      for (const e of evs) out.pushEvents(e.tick, e.events)
+      // once per played state, even without events: audio re-aims travel loops
+      const played = evs.length === 0 ? [] : evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events)
+      deps.audio.playEvents(played, listenerFor(state, cm.localPlayer))
     })
     if (now - cm.lastStats >= NET_STATS_MS) {
       cm.lastStats = now

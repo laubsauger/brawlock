@@ -63,6 +63,11 @@ const SCOURGE_CHANNEL_SECONDS = 1.0
 const SCOURGE_RADIUS = 250
 const SCOURGE_GIVE_UP_CHANCE = 1 / 3
 const DODGE_REACH = 5000
+/** Thrust contact range worth dashing for. */
+const THRUST_ATTACK_RANGE = 380
+/** Lightning reach and the Fireball detonation radius it triggers (spells.md §8.6). */
+const LIGHTNING_RANGE = 600
+const FIREBALL_DETONATE_RADIUS = 225
 /** How far ahead a lava-aware dodge checks the ground. */
 const DODGE_LOOKAHEAD = 150
 
@@ -77,6 +82,8 @@ export type BotAction =
   | 'shoot'
   | 'offLava'
   | 'wander'
+  | 'combo'
+  | 'thrust'
 
 const secToTicks = (s: number) => Math.round(s * TICK_HZ)
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -268,6 +275,28 @@ export class BotController implements Bot {
       }
     }
 
+    // 8b. Combo (new): Lightning its own Fireball as it passes an enemy (r225 blast).
+    if (p.comboChance > 0 && this.rng.chance(p.comboChance)) {
+      const combo = this.lightningCombo(state, me, enemies)
+      if (combo) {
+        this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+        return this.act('combo', [combo])
+      }
+    }
+
+    // 8c. Thrust attack (new): dash into a close enemy when the ground past them is safe.
+    if (p.thrustAttack && closest && closestDist <= THRUST_ATTACK_RANGE && this.rng.chance(p.castChance)) {
+      const slot = me.slots.indexOf('thrust')
+      if (slot >= 0 && castable(me, slot)) {
+        const d = Math.max(1, closestDist)
+        const past = { x: closest.x + ((closest.x - me.x) / d) * 150, y: closest.y + ((closest.y - me.y) / d) * 150 }
+        if (isSafeWithMargin(safety, past.x, past.y, 60)) {
+          this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+          return this.act('thrust', [{ kind: 'cast', slot, x: past.x, y: past.y }])
+        }
+      }
+    }
+
     // 9. Shoot a random projectile spell at the target (falls through if not castable).
     if (target && this.rng.chance(p.castChance)) {
       const options = this.slotsWithRole(me, 'projectile')
@@ -448,16 +477,37 @@ export class BotController implements Bot {
     const p = this.params
     const info = BOT_SPELLS[spell]
     let point: Vec2 = { x: target.x, y: target.y }
-    if (info?.speed && this.rng.chance(p.leadChance)) {
-      const windup = p.leadWindup ? info.castPoint + p.reactionDelay : 0
+    const windup = info && p.leadWindup ? info.castPoint + p.reactionDelay : 0
+    if (info?.landDelay !== undefined && this.rng.chance(p.leadChance)) {
+      // lands where the target will be after the fall, not where it is
+      const t = info.landDelay + windup
+      point = { x: target.x + target.vx * t, y: target.y + target.vy * t }
+    } else if (info?.speed && this.rng.chance(p.leadChance)) {
       point = leadPoint(me, target, { x: target.vx, y: target.vy }, info.speed, windup)
     }
-    if (p.rangeCheck && info?.range && dist(me, point) > info.range) return null
+    if ((p.rangeCheck || info?.hitscan) && info?.range && dist(me, point) > info.range) return null
     if (p.aimErrorRad > 0) {
       // triangular in [-err, err]: mostly close, occasionally at the limit
       point = rotateAround(me, point, (this.rng.next() + this.rng.next() - 1) * p.aimErrorRad)
     }
     return point
+  }
+
+  /** Lightning at our own Fireball when it is about to pass an enemy within the blast radius. */
+  private lightningCombo(state: SimState, me: PawnState, enemies: PawnState[]): InputCommand | null {
+    const slot = me.slots.indexOf('lightning')
+    if (slot < 0 || !castable(me, slot) || me.cast) return null
+    // the beam fires after the cast point and our reaction: aim where the Fireball will be
+    const lag = (BOT_SPELLS.lightning?.castPoint ?? 0.2) + this.params.reactionDelay
+    for (const pr of state.projectiles) {
+      if (pr.owner !== this.player || pr.spell !== 'fireball' || pr.kind !== undefined) continue
+      const fx = pr.x + pr.vx * lag
+      const fy = pr.y + pr.vy * lag
+      if (Math.hypot(fx - me.x, fy - me.y) > LIGHTNING_RANGE * 0.95) continue
+      const victim = enemies.find((e) => Math.hypot(e.x + e.vx * lag - fx, e.y + e.vy * lag - fy) < FIREBALL_DETONATE_RADIUS * 0.8)
+      if (victim) return { kind: 'cast', slot, x: fx, y: fy }
+    }
+    return null
   }
 
   private checkPendingBuy(tick: number, me: PawnState | null, gold: number): void {

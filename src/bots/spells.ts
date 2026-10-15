@@ -4,11 +4,11 @@
  * numbers from docs/research/spells.md §2.2 and §8).
  *
  * Bots read their spells from `pawn.slots` every think, so they also work when taking
- * over a human's pawn. Buy pools are filtered by the sim's `implemented` flag; a purchase
+ * over a human's pawn. Buy pools are filtered by the sim's RELEASED_SPELLS; a purchase
  * the sim still rejects is detected from state and that spell is skipped until the next
  * shop phase.
  */
-import { attr, spellDef } from '../sim'
+import { RELEASED_SPELLS, attr, spellDef } from '../sim'
 import type { SpellId } from '../sim/types'
 
 export type BotSpellRole = 'projectile' | 'escape' | 'scourge'
@@ -21,6 +21,10 @@ export interface BotSpellInfo {
   range?: number
   /** seconds of windup before the effect fires */
   castPoint: number
+  /** lands at the aim point this long after it fires (Meteor): lead by time, not by speed */
+  landDelay?: number
+  /** instant beam: pointless beyond its range, so always range-checked */
+  hitscan?: boolean
 }
 
 export const BOT_SPELLS: Record<SpellId, BotSpellInfo> = {
@@ -28,7 +32,7 @@ export const BOT_SPELLS: Record<SpellId, BotSpellInfo> = {
   scourge: { role: 'scourge', castPoint: 0.9 },
   // column 1
   boomerang: { role: 'projectile', range: 800, castPoint: 0.2 },
-  lightning: { role: 'projectile', range: 600, castPoint: 0.2 },
+  lightning: { role: 'projectile', range: 600, castPoint: 0.2, hitscan: true },
   homing: { role: 'projectile', range: 4500, castPoint: 0.2 },
   twin: { role: 'projectile', range: 800, castPoint: 0.2 },
   // column 2 (escape)
@@ -41,7 +45,7 @@ export const BOT_SPELLS: Record<SpellId, BotSpellInfo> = {
   bouncer: { role: 'projectile', speed: 900, range: 900, castPoint: 0.2 },
   recharge: { role: 'projectile', speed: 900, range: 900, castPoint: 0.2 },
   // column 4 (Windwalk never bought or used by the original AI)
-  meteor: { role: 'projectile', range: 1000, castPoint: 0.2 },
+  meteor: { role: 'projectile', range: 1000, castPoint: 0.2, landDelay: 1.15 },
   splitter: { role: 'projectile', speed: 700, range: 900, castPoint: 0 },
   snowball: { role: 'projectile', speed: 400, range: 575, castPoint: 0.2 },
   // column 6
@@ -67,15 +71,20 @@ export const BUY_MIN_GOLD = 15
 /** Seconds between purchases (original next_buy_time += 40). */
 export const BUY_INTERVAL = 40
 
-/** False for spells the sim cannot cast yet (buying them is rejected). */
+/** Only spells the sim has released are for sale. */
 export function isBuyable(spell: SpellId): boolean {
-  return spellDef(spell)?.implemented === true
+  return RELEASED_SPELLS.has(spell)
 }
 
-/** How far an escape spell moves us; the aim point is clamped to this. */
+/**
+ * How far an escape spell moves us; the aim point is clamped to this. Teleport and Thrust
+ * have a range; Swap flies to the cursor for at most speed x max_time (no hit = blink there).
+ */
 export function escapeRange(spell: SpellId, level: number): number {
   const def = spellDef(spell)
-  const r = def ? attr(def, 'range', level) : 0
-  // Thrust / Swap have no plain range attribute; keep a conservative reach.
-  return r > 0 ? r : 700
+  if (!def) return 700
+  const r = attr(def, 'range', level)
+  if (r > 0) return r
+  const reach = attr(def, 'speed', level) * attr(def, 'max_time', level)
+  return reach > 0 ? reach : 700
 }

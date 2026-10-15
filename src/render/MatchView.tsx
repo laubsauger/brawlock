@@ -95,7 +95,7 @@ function MatchScene({ fx, quality, overlayEl }: { fx: number; quality: Parameter
     const r = gl as unknown as THREE.WebGPURenderer
     r.shadowMap.enabled = tierCfg.shadowMap > 0
     r.shadowMap.type = THREE.PCFShadowMap
-    const world = new MatchWorld({ source: globalSource, tier: tierConfig(eff), fx, overlayParent: overlayEl, mode: 'match' })
+    const world = new MatchWorld({ source: globalSource, tier: tierConfig(eff), fx, overlayParent: overlayEl, mode: 'match', quality: eff })
     scene.add(world.root)
     scene.background = new THREE.Color(0x0b0604)
     scene.fogNode = world.fogNode

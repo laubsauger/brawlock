@@ -21,6 +21,10 @@ import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
 import { Scorches } from './Scorches'
 import { createWorldCtx, type WorldCtx } from './world'
+import { spellVfxModules, vfxForModifier, vfxForSpell, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../vfx/registry'
+import '../vfx/spells'
+import { toWorld } from '../coords'
+import type { Quality } from '../../game/store'
 
 /** Shared with the post pipeline: hurt flash, heat haze data. */
 export const postState = {
@@ -38,6 +42,15 @@ export interface MatchWorldOptions {
   overlayParent: HTMLElement | null
   /** 'menu' = slow orbit camera, no cursor, no overlay */
   mode: 'match' | 'menu'
+  /** effective quality tier name (for VFX modules) */
+  quality?: Quality
+}
+
+/** spell id carried by an event, for VFX module claiming */
+function eventSpell(e: SimEvent): string | null {
+  if ('spell' in e && typeof e.spell === 'string') return e.spell
+  if (e.type === 'teleport') return 'teleport'
+  return null
 }
 
 interface Flash {
@@ -102,6 +115,12 @@ export class MatchWorld {
   private ndc = new THREE.Vector2()
   private hit = new THREE.Vector3()
   private tmpV = new THREE.Vector3()
+  // ---- spell VFX plugin modules (match only)
+  private modulesOn: boolean
+  private inited = new Set<SpellVfx>()
+  private vfxFrame = { now: 0, dt: 0, state: null as SimState | null, prev: null as SimState | null, alpha: 1 }
+  private pawnInfos = new Map<number, PawnRenderInfo>()
+  readonly vfx: VfxCtx
   private hemi: THREE.HemisphereLight
   private moon: THREE.DirectionalLight
   private contact = new ContactShadows(48)
@@ -152,13 +171,102 @@ export class MatchWorld {
     this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.ground.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.projectiles.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
-      this.plates.push({ x: 0, y: 0, h: 0, name: '', color: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
+      this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
     }
     postState.sdf = ctx.field.texture
     postState.hurt = 0
     this.arena.setLayer(14, 0, false)
     if (opts.mode === 'match') cameraRig.reset()
+    this.modulesOn = opts.mode === 'match'
+    this.vfx = this.buildVfxCtx()
   }
+
+  private buildVfxCtx(): VfxCtx {
+    const self = this
+    const fr = this.vfxFrame
+    const info = (v: PawnView | undefined, id: number): PawnRenderInfo | null => {
+      if (!v) return null
+      let pi = self.pawnInfos.get(id)
+      if (!pi) {
+        pi = { x: 0, y: 0, h: 0, color: 0, owner: -1, alive: false, onLava: false, tip: new THREE.Vector3() }
+        self.pawnInfos.set(id, pi)
+      }
+      pi.x = v.x
+      pi.y = v.y
+      pi.h = v.h
+      pi.color = v.color.getHex()
+      pi.owner = v.owner
+      pi.alive = v.alive && !v.dead
+      pi.onLava = v.onLava
+      v.tipWorld(pi.tip)
+      return pi
+    }
+    return {
+      get now() {
+        return fr.now
+      },
+      get dt() {
+        return fr.dt
+      },
+      get state() {
+        return fr.state
+      },
+      get prev() {
+        return fr.prev
+      },
+      get alpha() {
+        return fr.alpha
+      },
+      get localPlayer() {
+        return self.opts.source.buf.localPlayer
+      },
+      get fx() {
+        return self.opts.fx
+      },
+      get quality() {
+        return self.opts.quality ?? 'high'
+      },
+      tier: this.opts.tier,
+      scene: this.root,
+      get camera() {
+        return self.lastCamera!
+      },
+      world: this.ctx,
+      particles: this.particles,
+      smoke: this.smoke,
+      debris: this.debris,
+      billboards: this.billboards,
+      ground: this.ground,
+      groundShadow: this.groundShadow,
+      scorches: this.scorches,
+      contact: this.contact,
+      glow: this.ctx.glow,
+      pawn: (id) => info(self.views.get(id), id),
+      pawnOf: (owner) => {
+        for (const [id, v] of self.views) if (v.owner === owner) return info(v, id)
+        return null
+      },
+      colorOf: (owner) => (fr.state ? self.colorOf(fr.state, owner) : 0xffffff),
+      floorAt: (x, y) => (isLocationSafe(x, y, self.arena.currentLayer) ? TILE_TOP_H : LAVA_H),
+      isLava: (x, y) => !isLocationSafe(x, y, self.arena.currentLayer),
+      toWorld: (x, y, h, out) => toWorld(x, y, h, out),
+      flash: (x, y, h, life, radius, size, r, g, b) => self.flash(x, y, h, life, radius, size, r, g, b),
+      shake: (a) => {
+        if (self.opts.mode === 'match') cameraRig.shake(a * self.opts.fx)
+      },
+      shakeNear: (x, y, a) => {
+        if (self.opts.mode === 'match') self.shakeNear(x, y, a * self.opts.fx)
+      },
+      kick: (dx, dy, a) => {
+        if (self.opts.mode === 'match') cameraRig.kick(dx, dy, a * self.opts.fx)
+      },
+      hitStop: (sec) => {
+        if (self.opts.fx > 0.05) self.hitStop = Math.max(self.hitStop, Math.min(4 / 60, sec))
+      },
+    }
+  }
+
+  private lastCamera: THREE.PerspectiveCamera | null = null
 
   setFx(fx: number): void {
     this.ctx.uFx.value = fx
@@ -192,14 +300,30 @@ export class MatchWorld {
       const alpha = !buf.prev || span <= 0 ? 1 : Math.max(0, Math.min(1, (performance.now() - buf.currAt) / span))
       const prev = buf.prev && buf.prev.tick <= curr.tick ? buf.prev : null
 
+      this.lastCamera = camera
+      const fr = this.vfxFrame
+      fr.now = t
+      fr.dt = dt
+      fr.state = curr
+      fr.prev = prev
+      fr.alpha = alpha
+      if (this.modulesOn) {
+        for (const m of spellVfxModules()) {
+          if (this.inited.has(m)) continue
+          this.inited.add(m)
+          m.init?.(this.vfx)
+        }
+      }
       this.updateArena(curr, t, first, alpha)
       this.consumeEvents(curr, t, first)
+      if (this.modulesOn) for (const m of spellVfxModules()) m.frame?.(this.vfx)
       this.updatePawns(prev, curr, alpha, t, dt)
       this.obstacles.setTheme(curr.arena.theme)
       this.obstacles.update(curr.obstacles, t, !first)
       for (const o of curr.obstacles) this.blobShadow(o.x, o.y, o.radius * 1.5)
       this.updateLocalHelpers(curr)
-      this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect)
+      this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
+      if (this.modulesOn) this.drawModules(prev, curr, alpha)
     }
 
     this.ambient(dt, t)
@@ -218,12 +342,13 @@ export class MatchWorld {
     this.updateCursor(camera)
     if (this.overlay) {
       let n = 0
-      for (const v of this.views.values()) {
+      for (const [id, v] of this.views) {
         if (n >= this.plates.length) break
         const pl = this.plates[n++]
+        pl.id = id
         pl.x = v.x
         pl.y = v.y
-        pl.h = v.h + 150
+        pl.h = v.h + 190
         pl.name = v.name
         pl.color = v.color.getHex()
         pl.hp = v.hp
@@ -232,7 +357,7 @@ export class MatchWorld {
         pl.visible = v.alive && !v.dead
         pl.local = v.owner === buf.localPlayer
       }
-      this.overlay.update(camera, t, this.plates, n)
+      this.overlay.update(camera, t, this.plates, n, cameraRig.fx, cameraRig.fy)
     }
     postState.hurt = Math.max(0, postState.hurt - dt * 3.2)
 
@@ -359,17 +484,24 @@ export class MatchWorld {
   private handleEvent(e: SimEvent, tickEvents: SimEvent[], curr: SimState, t: number): void {
     const fx = this.opts.fx
     const match = this.opts.mode === 'match'
+    // spell VFX modules see every event; built-in VFX is skipped when claimed
+    let claimed = false
+    if (this.modulesOn) {
+      for (const m of spellVfxModules()) if (m.onEvent?.(e, this.vfx) === true) claimed = true
+      const sp = eventSpell(e)
+      if (sp !== null && vfxForSpell(sp)) claimed = true
+    }
     switch (e.type) {
       case 'projectileHit':
       case 'projectileExpire':
-        this.explodeProjectile(e.x, e.y, e.spell, e.type === 'projectileHit')
+        if (!claimed) this.explodeProjectile(e.x, e.y, e.spell, e.type === 'projectileHit')
         if (e.type === 'projectileHit' && e.target !== null) {
           const ob = this.obstacles.get(e.target)
           if (ob) this.obstacleChips(e.x, e.y, 40, ob.hp / 400, spellLook(e.spell).trail)
         }
         break
       case 'obstacleDestroyed':
-        this.obstacleBlast(e.x, e.y)
+        if (!claimed) this.obstacleBlast(e.x, e.y)
         break
       case 'damage': {
         const v = this.viewOfPawn(e.target)
@@ -400,12 +532,13 @@ export class MatchWorld {
           dy /= dl
         }
         if (e.kb > 0) {
-          this.hitImpact(e.x, e.y, e.kb, dx, dy, v)
+          if (!claimed) this.hitImpact(e.x, e.y, e.kb, dx, dy, v)
           v?.impulse(dx, dy, e.kb)
-        } else {
+        } else if (!claimed) {
           this.lavaHiss(e.x, e.y, v)
         }
-        this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 120, e.amount, 'dmg', t)
+        const burn = e.kb <= 0 && e.source === null
+        this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 120, e.amount, burn ? 'burn' : 'dmg', t, e.kb)
         if (match && this.isLocalPawn(curr, e.target)) {
           cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * fx)
           if (e.kb > 0) cameraRig.kick(dx, dy, Math.min(900, 250 + e.kb * 0.5) * fx)
@@ -422,16 +555,17 @@ export class MatchWorld {
       case 'heal': {
         const v = this.viewOfPawn(e.target)
         this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 120, e.amount, 'heal', t)
-        const n = this.particles.budget(10)
+        const n = claimed ? 0 : this.particles.budget(10)
         for (let i = 0; i < n; i++) {
           this.particles.spawn(e.x + (Math.random() - 0.5) * 50, e.y + (Math.random() - 0.5) * 50, TILE_TOP_H + 20 + Math.random() * 60, 0, 0, 90, 0.7, 10, 2, 0.4, 2.2, 0.5, 40, 1, 8)
         }
         break
       }
       case 'teleport':
-        this.teleportFx(e.fromX, e.fromY, e.toX, e.toY)
+        if (!claimed) this.teleportFx(e.fromX, e.fromY, e.toX, e.toY)
         break
       case 'explosion':
+        if (claimed) break
         if (e.spell.startsWith('scourge')) this.scourgeBlast(e.x, e.y, e.radius)
         else this.genericBlast(e.x, e.y, e.radius, spellLook(e.spell).trail)
         if (match) this.shakeNear(e.x, e.y, 0.3 * fx)
@@ -443,6 +577,7 @@ export class MatchWorld {
       case 'cast': {
         const v = this.viewOfPawn(e.pawn)
         v?.castRelease(t)
+        if (claimed) break
         if (e.spell.startsWith('scourge') && !tickEvents.some((x) => x.type === 'explosion' && x.spell.startsWith('scourge'))) {
           if (v) this.scourgeBlast(v.x, v.y, 250)
         }
@@ -456,7 +591,7 @@ export class MatchWorld {
       case 'death': {
         const v = this.viewOfPawn(e.pawn)
         if (v) {
-          this.deathBurst(v)
+          if (!claimed) this.deathBurst(v)
           if (v.onLava && t - this.lastCallout > 1) {
             this.lastCallout = t
             this.overlay?.callout('Melted', v.x, v.y, v.h + 120, t)
@@ -473,11 +608,12 @@ export class MatchWorld {
         // diff already happened this frame (removedRing filled in updateArena)
         break
       case 'phase':
-        if (e.phase === 'fight') this.roundStart(curr, t)
+        if (e.phase === 'fight' && !claimed) this.roundStart(curr, t)
         break
       case 'roundWin':
       case 'gameOver': {
         const winners = e.type === 'roundWin' ? e.players : e.winners
+        if (claimed) break
         for (const v of this.views.values()) {
           if (!winners.includes(v.owner) || !v.alive) continue
           const n = this.particles.budget(60)
@@ -494,10 +630,12 @@ export class MatchWorld {
         if (e.started) this.viewOfPawn(e.pawn)?.castCancel(t)
         break
       case 'swap':
+        if (claimed) break
         this.teleportFx(e.fromX, e.fromY, e.toX, e.toY)
         if (e.other !== null) this.teleportFx(e.toX, e.toY, e.fromX, e.fromY)
         break
       case 'respawn': {
+        if (claimed) break
         const floor = isLocationSafe(e.x, e.y, this.arena.currentLayer) ? TILE_TOP_H + 1 : LAVA_H + 2
         this.ground.spawn(RING_IMPLODE, e.x, e.y, floor, 10, 160, 0.4, 12, 1.4, 1.2, 1.0)
         this.flash(e.x, e.y, 80, 0.35, 220, 200, 1.6, 1.4, 1.2)
@@ -505,6 +643,35 @@ export class MatchWorld {
       }
       default:
         break
+    }
+  }
+
+  /** Route claimed projectiles and pawn modifiers to their VFX modules. */
+  private drawModules(prev: SimState | null, curr: SimState, alpha: number): void {
+    for (const p of curr.projectiles) {
+      const m = vfxForSpell(p.spell)
+      if (!m || !m.drawProjectile) continue
+      let x = p.x
+      let y = p.y
+      if (prev) {
+        for (const q of prev.projectiles) {
+          if (q.id === p.id) {
+            x = q.x + (p.x - q.x) * alpha
+            y = q.y + (p.y - q.y) * alpha
+            break
+          }
+        }
+      }
+      m.drawProjectile(p, x, y, this.vfx)
+    }
+    for (const p of curr.pawns) {
+      if (!p.alive || p.modifiers.length === 0) continue
+      const v = this.views.get(p.id)
+      if (!v) continue
+      for (const mod of p.modifiers) {
+        const m = vfxForModifier(mod.id)
+        if (m && m.drawModifier) m.drawModifier(p, mod, v.x, v.y, this.vfx)
+      }
     }
   }
 
@@ -1012,6 +1179,8 @@ export class MatchWorld {
   }
 
   dispose(): void {
+    for (const m of this.inited) m.dispose?.()
+    this.inited.clear()
     for (const v of this.views.values()) v.dispose()
     this.views.clear()
     this.lava.dispose()
@@ -1032,3 +1201,5 @@ export class MatchWorld {
     if (postState.sdf === this.ctx.field.texture) postState.sdf = null
   }
 }
+
+const claimedProjectile = (spell: string): boolean => !!vfxForSpell(spell)?.drawProjectile

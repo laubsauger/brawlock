@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { FIREBALL_SLOT, SCOURGE_SLOT } from './config'
-import { step } from './index'
+import { canBuy, step } from './index'
 import { SPELLS } from './spells/data'
 import { cmd, newMatch, pawn, runUntil } from './testkit'
 import type { InputCommand } from './types'
@@ -102,16 +102,46 @@ describe('masteries (systems.md §4)', () => {
   })
 })
 
-describe('shop timing', () => {
-  test('faithful: buying works mid-fight (SHOP_ANY_PHASE) but not after game over', () => {
-    const s = newMatch({ shopSeconds: 1, winScore: 1 })
-    runUntil(s, (st) => st.phase === 'fight')
+describe('shop timing (SHOP_RULE = shopPhaseOrDead)', () => {
+  test('allowed in the shop phase', () => {
+    const s = newMatch()
+    expect(canBuy(s, 0)).toBe(true)
     buy(s, { kind: 'buySpell', spell: 'teleport' })
     expect(pawn(s, 0).slots[1]).toBe('teleport')
+  })
+
+  test('rejected mid-fight while alive, nothing charged', () => {
+    const s = newMatch({ shopSeconds: 1 })
+    runUntil(s, (st) => st.phase === 'fight')
+    expect(canBuy(s, 0)).toBe(false)
+    buy(s, { kind: 'buySpell', spell: 'teleport' }, { kind: 'buyItem', item: 'fireball' }, { kind: 'buyMastery', mastery: 'range' })
+    expect(pawn(s, 0).slots[1]).toBeNull()
+    expect(pawn(s, 0).levels[FIREBALL_SLOT]).toBe(1)
+    expect(s.scores[0].gold).toBe(30)
+  })
+
+  test('allowed while your pawn is dead (spectating), in any phase but gameOver', () => {
+    const s = newMatch({ shopSeconds: 1, winScore: 1 }, 3)
+    runUntil(s, (st) => st.phase === 'fight')
+    const p0 = pawn(s, 0)
+    p0.x = 3000 // lava
+    runUntil(s, () => !p0.alive)
+    expect(s.phase).toBe('fight') // two others still fighting
+    expect(canBuy(s, 0)).toBe(true)
+    expect(canBuy(s, 1)).toBe(false)
+    buy(s, { kind: 'buySpell', spell: 'teleport' })
+    expect(p0.slots[1]).toBe('teleport')
+  })
+
+  test('closed for everyone after game over', () => {
+    const s = newMatch({ shopSeconds: 1, winScore: 1 })
+    runUntil(s, (st) => st.phase === 'fight')
     pawn(s, 1).x = 3000
     runUntil(s, (st) => st.phase === 'gameOver')
-    const gold = s.scores[0].gold
-    buy(s, { kind: 'buyItem', item: 'fireball' })
-    expect(s.scores[0].gold).toBe(gold)
+    expect(canBuy(s, 0)).toBe(false)
+    expect(canBuy(s, 1)).toBe(false)
+    const gold = s.scores[1].gold
+    step(s, [cmd(1, { kind: 'buyItem', item: 'fireball' })])
+    expect(s.scores[1].gold).toBe(gold)
   })
 })

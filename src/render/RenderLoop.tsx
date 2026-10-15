@@ -8,19 +8,25 @@ import {
   length,
   mix,
   mrt,
+  normalView,
   output,
+  packNormalToRGB,
   pass,
   renderOutput,
+  sample,
   screenCoordinate,
   smoothstep,
   texture,
   uniform,
+  unpackRGBToNormal,
   uv,
   vec2,
   vec3,
   vec4,
 } from 'three/tsl'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
+import { ao } from 'three/addons/tsl/display/GTAONode.js'
+import { fxaa } from 'three/addons/tsl/display/FXAANode.js'
 import type { Node } from 'three/webgpu'
 import type { Quality } from '../game/store'
 import { ZOOM_MAX, ZOOM_MIN, cameraParams, cameraZoomParam } from './cameraRig'
@@ -72,12 +78,20 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
 
   const pipeline = useMemo(() => {
     if (!tier.post) return null
-    const samples = eff === 'ultra' || gl.getPixelRatio() < 1.5 ? tier.msaa : 0
+    // GTAO needs a single-sampled depth buffer: with AO the scene pass drops
+    // MSAA (retina DPR supersamples anyway; FXAA covers low DPR on Ultra)
+    const lowDpr = gl.getPixelRatio() < 1.5
+    const useAo = tier.ao && (!lowDpr || eff === 'ultra')
+    const samples = useAo ? 0 : lowDpr ? tier.msaa : 0
+    const useFxaa = useAo && lowDpr
     const scenePass = pass(scene, camera, { samples })
-    if (tier.heatHaze) {
-      scenePass.setMRT(mrt({ output, [HEAT_MRT]: vec4(0, 0, 0, 0) }))
-      const ht = scenePass.getTexture(HEAT_MRT)
-      ht.type = THREE.UnsignedByteType
+    if (tier.heatHaze || useAo) {
+      const outs: Record<string, Node> = { output }
+      if (tier.heatHaze) outs[HEAT_MRT] = vec4(0, 0, 0, 0)
+      if (useAo) outs.normal = packNormalToRGB(normalView)
+      scenePass.setMRT(mrt(outs))
+      if (tier.heatHaze) scenePass.getTexture(HEAT_MRT).type = THREE.UnsignedByteType
+      if (useAo) scenePass.getTexture('normal').type = THREE.UnsignedByteType
     }
     const colorTex = scenePass.getTextureNode('output')
     const uvN = uv()
@@ -97,6 +111,19 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     const base = uvN.add(off)
     col = vec3(colorTex.sample(base.sub(ca)).r, colorTex.sample(base).g, colorTex.sample(base.add(ca)).b)
 
+    if (useAo) {
+      // GTAO at half resolution from the scene pass depth + MRT normals;
+      // applied softly so lava glow in crevices keeps its punch
+      const nTex = scenePass.getTextureNode('normal')
+      const normalNode = sample((uvs: Node<'vec2'>) => unpackRGBToNormal(nTex.sample(uvs).rgb))
+      const aoPass = ao(scenePass.getTextureNode('depth'), normalNode, camera)
+      aoPass.resolutionScale = 0.5
+      aoPass.radius.value = 0.6
+      aoPass.thickness.value = 1
+      aoPass.distanceExponent.value = 1.5
+      const aoVal = aoPass.getTextureNode().sample(uvN).r
+      col = col.mul(mix(float(1), aoVal, 0.75))
+    }
     if (tier.bloom) {
       const b = bloom(colorTex, 1, 0.4, 1.0)
       b.strength = u.bloomStrength
@@ -108,7 +135,8 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     col = col.mul(float(1).sub(vig))
     col = mix(col, col.mul(vec3(1.25, 0.55, 0.5)), smoothstep(0.25, 0.9, r).mul(u.hurt).mul(0.8))
 
-    const toned = renderOutput(vec4(col, 1))
+    let toned: Node<'vec4'> = renderOutput(vec4(col, 1))
+    if (useFxaa) toned = fxaa(toned) as unknown as Node<'vec4'>
     // integer pixel seed (hash() truncates to uint, so fractional seeds band)
     const px = screenCoordinate.xy.floor()
     const seed = px.x.add(px.y.mul(1999)).add(u.frame.mul(7919))

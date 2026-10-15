@@ -14,16 +14,27 @@
  * slot; their stats apply at once (max HP rises, current HP does not, systems.md §3.1).
  * Only ids in RELEASED_SPELLS (sim + tests + VFX shipped) can be bought.
  */
-import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_ANY_PHASE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
+import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
 import { recomputeStats } from './stats'
 import { pawnOf, scoreOf } from './teams'
 import type { PlayerId, PlayerScore, SimState, SpellId } from './types'
 
-/** Whether purchases are accepted right now. */
+/**
+ * Whether the shop is open for everyone right now (shop phase; any phase under 'anyPhase').
+ * A dead player may still buy outside it: use canBuy(state, player) for one player.
+ */
 export function shopOpen(state: SimState): boolean {
   if (state.phase === 'gameOver') return false
-  return SHOP_ANY_PHASE || state.phase === 'shop'
+  return (SHOP_RULE as string) === 'anyPhase' || state.phase === 'shop'
+}
+
+/** Whether `player` may buy right now (SHOP_RULE): shop phase, or their pawn is dead. */
+export function canBuy(state: SimState, player: PlayerId): boolean {
+  if (state.phase === 'gameOver') return false
+  if (shopOpen(state)) return true
+  const pawn = pawnOf(state, player)
+  return !!pawn && !pawn.alive
 }
 
 function pay(sc: PlayerScore, cost: number): boolean {
@@ -33,7 +44,7 @@ function pay(sc: PlayerScore, cost: number): boolean {
 }
 
 export function buySpell(state: SimState, player: PlayerId, spell: SpellId): boolean {
-  if (!shopOpen(state)) return false
+  if (!canBuy(state, player)) return false
   const def = SPELLS[spell]
   const pawn = pawnOf(state, player)
   const sc = scoreOf(state, player)
@@ -56,7 +67,7 @@ export function buySpell(state: SimState, player: PlayerId, spell: SpellId): boo
 }
 
 export function buyItem(state: SimState, player: PlayerId, item: SpellId): boolean {
-  if (!shopOpen(state)) return false
+  if (!canBuy(state, player)) return false
   const active = SPELLS[item]
   const passive = PASSIVE_ITEMS[item]
   const def = active && active.kind === 'item' ? active : passive
@@ -86,7 +97,7 @@ export function buyItem(state: SimState, player: PlayerId, item: SpellId): boole
 }
 
 export function buyMastery(state: SimState, player: PlayerId, kind: 'duration' | 'range' | 'lifesteal' | 'all'): boolean {
-  if (!shopOpen(state)) return false
+  if (!canBuy(state, player)) return false
   const sc = scoreOf(state, player)
   if (!sc || !pawnOf(state, player)) return false
   const m = sc.masteries

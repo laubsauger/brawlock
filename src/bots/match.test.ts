@@ -21,22 +21,31 @@ try {
   simReason = ` (skipped: sim cannot run a match yet: ${(e as Error).message})`
 }
 
-function play(diffs: BotDifficulty[], seed: number, maxSeconds: number) {
+function play(diffs: BotDifficulty[], seed: number, maxSeconds: number, kit?: Record<number, string>) {
   const sl = slots(diffs)
   const state: SimState = createMatch(SETTINGS, sl, seed)
+  // hand every pawn a kit directly (column slot -> spell) to exercise unreleased spells
+  if (kit) for (const p of state.pawns) for (const [slot, spell] of Object.entries(kit)) {
+    p.slots[Number(slot)] = spell
+    p.levels[Number(slot)] = 1
+  }
   const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
   const maxTicks = maxSeconds * 60
   let deaths = 0
   let casts = 0
+  const spells = new Set<string>()
   for (let i = 0; i < maxTicks && state.phase !== 'gameOver'; i++) {
     const inputs = bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) }))
     step(state, inputs)
     for (const e of state.events) {
       if (e.type === 'death') deaths++
-      if (e.type === 'cast') casts++
+      if (e.type === 'cast') {
+        casts++
+        spells.add(e.spell)
+      }
     }
   }
-  return { state, deaths, casts }
+  return { state, deaths, casts, spells }
 }
 
 describe('bots: headless matches on the real sim', () => {
@@ -54,5 +63,12 @@ describe('bots: headless matches on the real sim', () => {
     const dummy = state.scores.find((s) => s.id === 1)!
     expect(brutal.score).toBeGreaterThanOrEqual(2)
     expect(dummy.score).toBe(0)
+  })
+
+  it.skipIf(simReason !== '')(`bots fight with M1 spells (Lightning, Homing, Swap, Meteor) without stalling${simReason}`, () => {
+    const kit = { 0: 'lightning', 1: 'swap', 2: 'drain', 3: 'meteor' }
+    const { state, spells } = play(['brutal', 'hard'], 11, 900, kit)
+    expect(state.phase).toBe('gameOver')
+    for (const s of ['lightning', 'drain', 'meteor', 'fireball']) expect(spells.has(s), `${s} was never cast`).toBe(true)
   })
 })

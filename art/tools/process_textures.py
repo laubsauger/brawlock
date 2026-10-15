@@ -87,24 +87,28 @@ def min_cut(cost):
     return path
 
 
-def pick_shift(T, axis):
-    """Roll offset near half size whose wrap pair (the two source lines that become the new
-    edges) differs no more than a typical adjacent pair, so the seam does not land on a joint."""
+def pick_shifts(T, axis, k=3):
+    """Roll offsets near half size, best first, whose wrap pair (the two source lines that become
+    the new edges) differs least, so the tile boundary does not land on a joint."""
     L = T.shape[axis]
     g = blur_wrap(T.mean(-1), 1.0)
-    best, best_d = L // 2, np.inf
+    cands = []
     for s in range(L // 2 - 48, L // 2 + 49, 2):
         a = np.take(g, L - s - 1, axis=axis)
         b = np.take(g, L - s, axis=axis)
-        d = np.abs(a - b).mean()
-        if d < best_d:
-            best, best_d = s, d
-    return best
+        cands.append((np.abs(a - b).mean(), s))
+    picked = []
+    for _, s in sorted(cands):  # keep candidates at least 8 px apart
+        if all(abs(s - q) >= 8 for q in picked):
+            picked.append(s)
+        if len(picked) == k:
+            break
+    return picked
 
 
-def seam_pass(T):
+def seam_pass(T, shift):
     H, W = T.shape[:2]
-    T2 = np.roll(T, (pick_shift(T, 0), pick_shift(T, 1)), (0, 1))
+    T2 = np.roll(T, shift, (0, 1))
     err = blur_wrap(np.abs(T - T2).sum(-1), 1.5)
     b = int(BAND * W)
     xs = np.arange(W)[None, :]
@@ -248,20 +252,24 @@ def process(key, cand):
     A = np.asarray(src).astype(np.float64)
     if tiling:
         raw = seam_stats(A)
-        F = seam_pass(A)
-        F8 = F.round().clip(0, 255).astype(np.uint8)
-        sx, sy = seam_stats(F8)
-        ok = sx <= 1.2 and sy <= 1.2
-        print(f"{flat}: raw seam ratio x={raw[0]:.2f} y={raw[1]:.2f} -> final x={sx:.2f} y={sy:.2f} {'OK' if ok else 'FAIL'}")
-        if not ok:
-            raise SystemExit(f"{flat}: seam check failed")
+        # every map is built with periodic filters, so all are seamless by construction; the 1.2x
+        # check samples one line pair, so try the best few roll offsets (rank order) until the
+        # albedo and every derived map pass it
+        sys_, sxs = pick_shifts(A, 0), pick_shifts(A, 1)
+        combos = sorted(((i + j, sys_[i], sxs[j]) for i in range(len(sys_)) for j in range(len(sxs))))
+        for _, dy, dx in combos:
+            F8 = seam_pass(A, (dy, dx)).round().clip(0, 255).astype(np.uint8)
+            normal, orm, height = maps(F8.astype(np.float64), key)
+            h8 = (height * 255).round().astype(np.uint8)
+            ratios = {nm: seam_stats(m_) for nm, m_ in
+                      (("albedo", F8), ("normal", normal), ("orm", orm), ("height", h8))}
+            if all(max(v) <= 1.2 for v in ratios.values()):
+                break
+        else:
+            raise SystemExit(f"{flat}: seam check failed for all offsets: {ratios}")
         alb = F8
-        normal, orm, height = maps(F8.astype(np.float64), key)
-        h8 = (height * 255).round().astype(np.uint8)
-        for m_, nm in ((normal, "normal"), (orm, "orm"), (h8, "height")):
-            mx, my = seam_stats(m_)
-            if mx > 1.2 or my > 1.2:
-                raise SystemExit(f"{flat}: {nm} seam check failed x={mx:.2f} y={my:.2f}")
+        print(f"{flat}: raw seam ratio x={raw[0]:.2f} y={raw[1]:.2f}, roll ({dy},{dx}) -> " +
+              " ".join(f"{nm} {v[0]:.2f}/{v[1]:.2f}" for nm, v in ratios.items()) + " OK")
     else:
         # kill the faint low-alpha haze the generator leaves in the "transparent" area, and force
         # a radial fade so the decal is exactly 0 at the borders
