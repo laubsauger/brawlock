@@ -1,7 +1,20 @@
 /**
  * Audio API contract. Owned by the audio workstream; signatures are the contract.
+ *
+ * Usage:
+ * - unlock(): from the first user gesture (any click / keydown), safe to call on every one.
+ *   Browsers refuse to start audio before a gesture; everything else is a no-op until then.
+ * - setVolumes(): at startup with the persisted settings and whenever they change (ramps, no clicks).
+ * - music(track): on screen / phase changes ('menu' in menus and lobby, 'shop' in the shop
+ *   phase, 'fight' in a round, 'none' to stop). Crossfades; may be called before unlock.
+ * - playEvents(events, listener): once per sim tick's events, deduped by tick (eventsSince).
+ *   Pass `localPlayer` and `state` (frame.curr) so lava burn and id-only events can be placed.
+ * - ui(sound): from UI handlers. The FIGHT hit also plays from the 'phase: fight' event;
+ *   calling ui('fight') at the same moment plays it once.
  */
-import type { SimEvent } from '../sim/types'
+import type { PlayerId, SimEvent, SimState } from '../sim/types'
+import { AudioEngine } from './engine'
+import type { SfxId } from './synth'
 
 export type UiSound = 'hover' | 'click' | 'back' | 'buy' | 'error' | 'ready' | 'countdown' | 'fight'
 
@@ -11,6 +24,10 @@ export interface Listener {
   y: number
   /** visible half-width in game units, for stereo pan and falloff */
   halfWidth: number
+  /** local player: only their pawn's lava burn is audible */
+  localPlayer?: PlayerId
+  /** latest state, to place events that carry only entity ids (cast, castStart, death) */
+  state?: Pick<SimState, 'pawns'>
 }
 
 export interface AudioApi {
@@ -23,10 +40,33 @@ export interface AudioApi {
   music(track: 'menu' | 'shop' | 'fight' | 'none'): void
 }
 
+const UI_SFX: Record<UiSound, SfxId> = {
+  hover: 'uiHover',
+  click: 'uiClick',
+  back: 'uiBack',
+  buy: 'uiBuy',
+  error: 'uiError',
+  ready: 'uiReady',
+  countdown: 'uiCountdown',
+  fight: 'roundStart',
+}
+
+const engine = new AudioEngine()
+
 export const audio: AudioApi = {
-  unlock() {},
-  setVolumes() {},
-  playEvents() {},
-  ui() {},
-  music() {},
+  unlock() {
+    engine.unlock()
+  },
+  setVolumes(v) {
+    engine.setVolumes(v)
+  },
+  playEvents(events, listener) {
+    engine.playEvents(events, listener)
+  },
+  ui(sound) {
+    engine.ui(UI_SFX[sound])
+  },
+  music(track) {
+    engine.music(track)
+  },
 }
