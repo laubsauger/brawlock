@@ -10,6 +10,7 @@ import {
   MASTERY_COST,
   MASTERY_MAX_LEVEL,
   PASSIVE_ITEMS,
+  RELEASED_SPELLS,
   SPELL_IDS,
   SPELL_MAX_LEVEL,
   attr,
@@ -103,7 +104,8 @@ export const SPELLS: ShopSpell[] = SPELL_IDS.map((id) => simSpell(id)!)
     column: d.column - 1,
     buy: d.cost,
     upgrades: d.upgradeCosts,
-    implemented: d.implemented,
+    // the same set the sim's shop checks before accepting a purchase
+    implemented: RELEASED_SPELLS.has(d.id),
     desc: DESC[d.id] ?? '',
   }))
 
@@ -113,10 +115,10 @@ const ITEM_ORDER = ['fireball', 'scourge', 'ring_of_health', 'cursed_ring', 'cap
 export const ITEMS: ShopItem[] = ITEM_ORDER.flatMap((id): ShopItem[] => {
   const active = simSpell(id)
   if (active && active.kind === 'item') {
-    return [{ id, name: active.name, cost: active.cost, maxLevel: active.maxLevel, implemented: active.implemented, desc: DESC[id] ?? '' }]
+    return [{ id, name: active.name, cost: active.cost, maxLevel: active.maxLevel, implemented: RELEASED_SPELLS.has(id), desc: DESC[id] ?? '' }]
   }
   const passive = PASSIVE_ITEMS[id]
-  if (passive) return [{ id, name: passive.name, cost: passive.cost, maxLevel: passive.maxLevel, implemented: passive.implemented, desc: DESC[id] ?? '' }]
+  if (passive) return [{ id, name: passive.name, cost: passive.cost, maxLevel: passive.maxLevel, implemented: RELEASED_SPELLS.has(id), desc: DESC[id] ?? '' }]
   return []
 })
 
@@ -163,6 +165,18 @@ export function spellDef(id: SpellId | null | undefined): ShopSpell | undefined 
 
 export function itemDef(id: SpellId | null | undefined): ShopItem | undefined {
   return id ? ITEMS.find((s) => s.id === id) : undefined
+}
+
+/** Passive items (Ring of Health, Cape, ...) only change stats; nothing to cast. */
+export function isPassive(id: SpellId | null | undefined): boolean {
+  return !!id && !!PASSIVE_ITEMS[id]
+}
+
+/** One-line stats summary ("Max HP +100, Regen +1.5/s") for tooltips. */
+export function statsSummary(id: SpellId, level: number): string {
+  return levelStats(id, Math.max(1, level))
+    .map(([k, v]) => `${k} ${v}`)
+    .join(', ')
 }
 
 /** Display name for any spell or item id. */

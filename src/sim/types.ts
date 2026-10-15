@@ -128,6 +128,8 @@ export interface CastState {
    * true once the cast point countdown runs (a 'castStart' event was emitted).
    */
   started?: boolean
+  /** ticks spent turning toward the target so far (bounded, see CAST_TURN_LIMIT_TICKS) */
+  turnTicks?: number
 }
 
 export interface ModifierState {
@@ -199,6 +201,8 @@ export interface ProjectileState {
    * 'splitterSpawner', 'splitterChild', 'rechargeRefresh', 'warpzone'). Absent = `spell`.
    */
   kind?: string
+  /** level of the spell that created it (child projectiles inherit), for level-scaled visuals */
+  level?: number
 }
 
 export interface ObstacleState {
@@ -243,8 +247,8 @@ export interface PlayerScore {
  * (tick, index).
  */
 export type SimEvent =
-  | { type: 'cast'; pawn: EntityId; spell: SpellId; x: number; y: number }
-  | { type: 'castStart'; pawn: EntityId; spell: SpellId; ticks: number }
+  | { type: 'cast'; pawn: EntityId; spell: SpellId; x: number; y: number; level?: number }
+  | { type: 'castStart'; pawn: EntityId; spell: SpellId; ticks: number; level?: number }
   | { type: 'projectileSpawn'; id: EntityId; spell: SpellId }
   | { type: 'projectileHit'; id: EntityId; spell: SpellId; x: number; y: number; target: EntityId | null }
   | { type: 'projectileExpire'; id: EntityId; spell: SpellId; x: number; y: number }
@@ -261,7 +265,8 @@ export type SimEvent =
     }
   | { type: 'heal'; target: EntityId; amount: number; x: number; y: number }
   | { type: 'teleport'; pawn: EntityId; fromX: number; fromY: number; toX: number; toY: number }
-  | { type: 'explosion'; x: number; y: number; radius: number; spell: SpellId }
+  /** level is set when a caster's spell exploded (absent for pillar explosions) */
+  | { type: 'explosion'; x: number; y: number; radius: number; spell: SpellId; level?: number }
   | {
       type: 'death'
       pawn: EntityId
@@ -297,6 +302,7 @@ export type SimEvent =
       target: EntityId | null
       /** true when an enemy Shield / Alteration bubble stopped it */
       blocked: boolean
+      level?: number
     }
   /** a Shield bubble touched an enemy projectile */
   | { type: 'shieldReflect'; pawn: EntityId; projectile: EntityId; x: number; y: number; reflected: boolean; stolen: boolean }
@@ -308,7 +314,7 @@ export type SimEvent =
   /** a modifier (buff / debuff / spell state) was added or removed; see ModifierState ids */
   | { type: 'modifier'; pawn: EntityId; id: string; on: boolean; source: PlayerId | null }
   /** melee spell contact (Thrust, Windwalk charge) */
-  | { type: 'spellHit'; spell: SpellId; pawn: EntityId; target: EntityId; x: number; y: number }
+  | { type: 'spellHit'; spell: SpellId; pawn: EntityId; target: EntityId; x: number; y: number; level?: number }
   /** projectile bounced (Boomerang, Bouncer retarget, reflect off a pillar) */
   | { type: 'projectileBounce'; id: EntityId; spell: SpellId; x: number; y: number }
   /** a cooldown was reset early (Recharge refresh orb) */
@@ -320,6 +326,11 @@ export type SimEvent =
    * Teleport/Swap/Thrust Stop()); no cooldown was spent. started = the cast point was running.
    */
   | { type: 'castCancel'; pawn: EntityId; spell: SpellId; slot: SlotIndex; started: boolean }
+  /**
+   * a successful buy or upgrade (never emitted for a rejected one). level = the level after the
+   * purchase. Buying all masteries at once emits one event per mastery raised.
+   */
+  | { type: 'purchase'; player: PlayerId; pawn: EntityId; kind: 'spell' | 'item' | 'mastery'; id: string; level: number }
   /** deathmatch respawn */
   | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
 

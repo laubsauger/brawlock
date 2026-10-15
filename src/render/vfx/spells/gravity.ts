@@ -23,7 +23,7 @@ import { asV4 } from '../../scene/world'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, implode,
-  kitAdopt, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, projShadow, screenAngle,
+  kitAdopt, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, projShadow, screenAngle, tierCap, flashT, levelOfThing, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'gravity'
@@ -34,8 +34,8 @@ const LILAC_DIM = pal('gravity', 'core', 0.45)
 const ABYSS = palMix('gravity', 0.15, 0.05)
 const RIM = pal('gravity', 'core', 2.6)
 
-const N_STREAK = 22
-const N_ROCK = 12
+const N_STREAK = 26
+const N_ROCK = 14
 
 /** Screen-space lens: instanced sprites sampling the framebuffer with a radial pull. */
 class Lens {
@@ -142,7 +142,7 @@ function diskMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.depthWrite = false
   m.side = THREE.DoubleSide
   m.blending = THREE.AdditiveBlending
-  m.colorNode = hot.mul(bands.mul(0.85).add(0.15)).mul(radial).mul(A0.x)
+  m.colorNode = tierCap(ctx, hot.mul(bands.mul(0.85).add(0.15)).mul(radial).mul(A0.x), 2.0, 0.7, 0.7)
   m.opacityNode = float(1)
   m.name = 'VfxB-GravityDisk'
   return m
@@ -196,6 +196,7 @@ function drawOrb(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
   const outro = Math.min(1, Math.max(0, left / 0.25))
   const k = intro * outro
   const pullR = d.pawnRadius || 550
+  const tier = tierOfLevel(ctx, levelOfThing(p))
   const dpsR = d.dpsRadius || 250
 
   // the core: event horizon at the sim radius, lens around it
@@ -208,18 +209,18 @@ function drawOrb(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
     qa.setFromAxisAngle(ax.set(0, 1, 0), t * 0.5)
     disks.quat.copy(tiltQ).multiply(qa)
     const i = disks.add(x * S, H * S, -y * S, 26 * k * S, 26 * k * S, 26 * k * S)
-    disks.set(i, 0, 1.2 * k, o.seed, 0, 0)
+    disks.set(i, 0, (1.0 + 0.2 * tier) * k, o.seed, 0, 0)
   }
   // ground: darkened well, DPS ring (pulses per tick), inward ripples ending at the pull radius
   const pulse = Math.max(0, 1 - (t - o.pulseAt) / 0.18)
   drawShadow(x, y, fh - 0.3, dpsR, 0.62 * k, 0.75, 0.2, p.id)
-  drawCircle(x, y, fh + 0.2, dpsR, STYLE_RING, LILAC[0], LILAC[1], LILAC[2], (0.45 + 0.9 * pulse) * k, 0, 0, o.seed, 0.06 * pulse, 0.8, 0, o.born)
+  drawCircle(x, y, fh + 0.2, dpsR, STYLE_RING, LILAC[0], LILAC[1], LILAC[2], (0.5 + 0.5 * pulse) * k, 0, 0, o.seed, 0, 0.8, 0, o.born)
   drawCircle(x, y, fh + 0.1, pullR, STYLE_RIPPLES, LILAC_DIM[0], LILAC_DIM[1], LILAC_DIM[2], 0.3 * k, 0, 7, o.seed, 0, 0.7, 0, o.born)
   light(ctx, x, y, dpsR * 0.7, 0.3 * k, LILAC, 0.3)
   projShadow(ctx, x, y, H, 40)
 
   // infall: light streaks and rock chips spiralling in from the pull radius
-  for (let i = 0; i < N_STREAK; i++) {
+  for (let i = 0; i < N_STREAK - 8 + 4 * tier; i++) {
     const s = (i * 0.618 + o.seed) % 1
     const ph = (s + t * (0.55 + (i % 5) * 0.08)) % 1
     const rr = pullR * Math.pow(1 - ph, 1.4) * 0.97 + 30
@@ -235,7 +236,7 @@ function drawOrb(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
     glowG(px, py, ph2, 22 + 18 * ph, i % 3 === 0 ? RIM : LILAC, 0.5 * fade, 2, 0, 3 + 4 * ph, ang)
   }
   if (rocks) {
-    for (let i = 0; i < N_ROCK; i++) {
+    for (let i = 0; i < N_ROCK - 4 + 3 * tier; i++) {
       const s = (i * 0.381 + o.seed * 0.7) % 1
       const ph = (s + t * (0.35 + (i % 4) * 0.06)) % 1
       const rr = pullR * 0.8 * Math.pow(1 - ph, 1.3) + 35
@@ -272,7 +273,7 @@ registerSpellVfx({
     lens = kitAdopt(new Lens(10))
     const dg = new THREE.RingGeometry(1.0, 5.0, 72, 1)
     disks = kitAdopt(new InstPool(dg, 1, 10, (A) => diskMaterial(ctx, A), 8, 'vfxB-gravity-disks'))
-    rocks = kitAdopt(new InstPool(new THREE.IcosahedronGeometry(1, 0), 0, 10 * N_ROCK, () => rockMaterial(), 5, 'vfxB-gravity-rocks'))
+    rocks = kitAdopt(new InstPool(new THREE.IcosahedronGeometry(1, 0), 0, 10 * (N_ROCK + 2), () => rockMaterial(), 5, 'vfxB-gravity-rocks'))
   },
   dispose() {
     lens = null
@@ -305,7 +306,7 @@ registerSpellVfx({
         ctx.ground.spawn(RING_IMPLODE, e.x, e.y, fh, 20, 240, 0.25, 12, LILAC[0], LILAC[1], LILAC[2])
         ctx.ground.spawn(RING_EXPAND, e.x, e.y, fh, 10, 160, 0.35, 8, LILAC_DIM[0], LILAC_DIM[1], LILAC_DIM[2])
         burst(ctx, e.x, e.y, H, 24, 200, 500, 0.25, 0.45, 9, 2, RIM, 0.8, -300, 3, -0.08, 20, 200)
-        ctx.flash(e.x, e.y, H, 0.08, 160, 140, LILAC[0] * 0.6, LILAC[1] * 0.6, LILAC[2] * 0.6)
+        flashT(ctx, e.x, e.y, H, 0.08, 160, 140, LILAC[0] * 0.6, LILAC[1] * 0.6, LILAC[2] * 0.6)
         return true
       }
       case 'projectileBounce':

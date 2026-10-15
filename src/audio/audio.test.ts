@@ -5,6 +5,8 @@ import { AudioEngine, VOICES } from './engine'
 import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
 import { PROJECTILE_BEHAVIORS, SPELL_BEHAVIORS } from '../sim/spells'
 import { MusicLayer } from './music'
+import { AmbienceLayer, edgeProximity } from './ambience'
+import { isLocationSafeAtLayer } from '../sim'
 import { createSynth, RECIPES, Voice, type SfxId } from './synth'
 import { asContext, MockAudioContext } from './mockContext'
 
@@ -35,6 +37,7 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   streak: { type: 'streak', pawn: 1, spell: 'recharge', value: 3 },
   castCancel: { type: 'castCancel', pawn: 2, spell: 'fireball', slot: 6, started: true },
   respawn: { type: 'respawn', pawn: 2, owner: 1, x: 900, y: 0 },
+  purchase: { type: 'purchase', player: 0, pawn: 1, kind: 'spell', id: 'teleport', level: 1 },
 }
 
 const LISTENER = {
@@ -102,6 +105,24 @@ describe('audio: event mapping', () => {
   it('places id-only events at the pawn when state is given', () => {
     const cast = planEvents([{ type: 'cast', pawn: 2, spell: 'fireball', x: -900, y: 0 }], { ...LISTENER, x: 0 })
     expect(cast[0].pan).toBeGreaterThan(0) // caster at x=300, not the target point at -900
+  })
+
+  it('purchases chime for the local player only: new buys, upgrades and masteries differ', () => {
+    const buy = (player: number, kind: 'spell' | 'item' | 'mastery', level: number): SimEvent => ({
+      type: 'purchase',
+      player,
+      pawn: player === 0 ? 1 : 2,
+      kind,
+      id: 'x',
+      level,
+    })
+    expect(planEvents([buy(0, 'spell', 1)], LISTENER).map((c) => c.id)).toEqual(['buyNew'])
+    expect(planEvents([buy(0, 'item', 3)], LISTENER).map((c) => c.id)).toEqual(['buyUpgrade'])
+    expect(planEvents([buy(0, 'mastery', 2)], LISTENER).map((c) => c.id)).toEqual(['buyMastery'])
+    // the opponent's shopping is private
+    expect(planEvents([buy(1, 'spell', 1)], LISTENER)).toEqual([])
+    // and louder than a UI tick
+    expect(planEvents([buy(0, 'spell', 1)], LISTENER)[0].gain).toBeGreaterThan(1)
   })
 
   it('a fake cast reads to the opponent: windup inhale, then a snuff that cuts it', () => {
@@ -349,5 +370,59 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     expect(running.length).toBeGreaterThan(0)
     expect(running.length).toBeLessThanOrEqual(12)
     vi.runAllTimers()
+  })
+})
+
+describe('audio: lava ambience', () => {
+  afterEach(() => {
+    delete (globalThis as { AudioContext?: unknown }).AudioContext
+    vi.useRealTimers()
+  })
+
+  it('edge proximity: 1 on lava, 0 in the middle, rising and pointing at the lava near the edge', () => {
+    const safe = (x: number, y: number) => isLocationSafeAtLayer(15, x, y) // radius 1400
+    expect(edgeProximity(2000, 0, safe).proximity).toBe(1)
+    expect(edgeProximity(0, 0, safe).proximity).toBe(0)
+    // tiles reach x = 1440 at this layer: 40 units from the lava
+    const near = edgeProximity(1400, 0, safe)
+    expect(near.proximity).toBeGreaterThan(0.5)
+    expect(near.pan).toBeGreaterThan(0.5) // lava to the right
+    expect(edgeProximity(-1400, 0, safe).pan).toBeLessThan(-0.5)
+    // further in, quieter
+    expect(edgeProximity(1300, 0, safe).proximity).toBeLessThan(near.proximity)
+  })
+
+  it('the bed follows the music: menu bed, then the match bed, then silence with every source stopped', () => {
+    vi.useFakeTimers()
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
+    const e = new AudioEngine()
+    e.unlock()
+    const m = MockAudioContext.instances.at(-1)!
+    e.music('menu')
+    const menuSources = m.leakingSources().length
+    e.music('fight')
+    expect(m.leakingSources().length).toBeGreaterThan(menuSources) // match bed adds the edge layer
+    e.music('none')
+    m.currentTime += 4
+    vi.advanceTimersByTime(200)
+    expect(m.leakingSources()).toEqual([])
+    vi.runAllTimers()
+  })
+
+  it('the edge sizzle swells as the local pawn nears the lava and stays silent in the middle', () => {
+    const m = new MockAudioContext()
+    const s = createSynth(asContext(m))
+    const amb = new AmbienceLayer(s, m.createGain() as never, 'match')
+    amb.setEdge(0, 0)
+    amb.setEdge(0.8, 0.6)
+    const targets = m.nodes
+      .filter((n) => n.kind === 'gain')
+      .flatMap((n) => (n as unknown as { gain: { calls: { fn: string; v: number }[] } }).gain.calls)
+      .filter((c) => c.fn === 'setTarget')
+    expect(targets.some((c) => c.v === 0)).toBe(true)
+    expect(targets.some((c) => Math.abs(c.v - 0.64 * 1.8) < 1e-9)).toBe(true) // 0.8^2 x edge boost
+    amb.schedule(5) // bubbles schedule cleanly
+    amb.release(1)
+    expect(m.leakingSources()).toEqual([])
   })
 })

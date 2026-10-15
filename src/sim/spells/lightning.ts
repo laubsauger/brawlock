@@ -60,7 +60,7 @@ export const lightningSpell: SpellBehavior = {
       if (winnerIsFireball && r.kind === 'projectile') {
         const fb = r.proj
         const radius = attr(def, 'fb_radius', level)
-        state.events.push({ type: 'explosion', x: fb.x, y: fb.y, radius, spell: 'lightning' })
+        state.events.push({ type: 'explosion', x: fb.x, y: fb.y, radius, spell: 'lightning', level })
         destroyProjectile(state, fb, null)
         damageArea(state, caster.owner, fb.x, fb.y, radius, {
           amountMin: 0,
@@ -87,6 +87,7 @@ export const lightningSpell: SpellBehavior = {
       toY: caster.y + a.dy * best,
       target: winner ? winner.id : null,
       blocked,
+      level,
     })
   },
 }

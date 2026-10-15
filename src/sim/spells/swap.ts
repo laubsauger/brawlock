@@ -24,6 +24,7 @@ export const swapSpell: SpellBehavior = {
     const maxTime = attr(def, 'max_time', level) * rangeFactor(state, caster.owner)
     const lifetime = Math.min(a.dist / speed, maxTime)
     spawnProjectile(state, caster.owner, 'swap', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: lifetime > 0 ? lifetime : 1e-9,
       rangeMastery: false,
       data: { combat: isCombat(state) ? 1 : 0 },

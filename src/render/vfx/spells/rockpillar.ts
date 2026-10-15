@@ -14,7 +14,7 @@ import type { SimEvent } from '../../../sim/types'
 import { TILE_TOP_H } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, pal, palMix, rand } from './kitB'
+import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, pal, palMix, rand, flashT, levelOf, tierOfLevel } from './kitB'
 
 const SPELL = 'rockpillar'
 const DEF = SPELLS[SPELL]
@@ -72,13 +72,13 @@ function dust(ctx: VfxCtx, x: number, y: number, R: number, n: number, rise: num
   }
 }
 
-function summon(ctx: VfxCtx, p: Pillar): void {
+function summon(ctx: VfxCtx, p: Pillar, tier = 0): void {
   const fh = floorH(ctx, p.x, p.y)
   ctx.aoeRing(p.x, p.y, p.r, RUNE[0], RUNE[1], RUNE[2], 0.4)
   ctx.ground.spawn(RING_EXPAND, p.x, p.y, fh, p.r * 0.3, p.r - 3, 0.3, 10, EARTH[0] * 2, EARTH[1] * 2, EARTH[2] * 2)
-  chips(ctx, p.x, p.y, p.r, 40, 900)
+  chips(ctx, p.x, p.y, p.r, 30 + 12 * tier, 900)
   dust(ctx, p.x, p.y, p.r, 14, 160)
-  ctx.flash(p.x, p.y, fh + 80, 0.1, p.r, p.r * 1.2, RUNE[0] * 0.5, RUNE[1] * 0.5, RUNE[2] * 0.5)
+  flashT(ctx, p.x, p.y, fh + 80, 0.1, p.r, p.r * 1.2, RUNE[0] * 0.5, RUNE[1] * 0.5, RUNE[2] * 0.5)
   ctx.shakeNear(p.x, p.y, 0.22)
 }
 
@@ -116,7 +116,7 @@ registerSpellVfx({
       if (p) {
         p.destroyed = true
         // the built-in pillar blast plays (not claimed); add the runes bursting
-        glowG(e.x, e.y, TILE_TOP_H + 120, 260, RUNE, 0.6, 2, 2)
+        flashT(ctx, e.x, e.y, TILE_TOP_H + 120, 0.15, p.r, 220, RUNE[0] * 0.5, RUNE[1] * 0.5, RUNE[2] * 0.5)
         ctx.ground.spawn(RING_EXPAND, e.x, e.y, floorH(ctx, e.x, e.y), 20, p.r, 0.3, 10, RUNE[0], RUNE[1], RUNE[2])
       }
     }
@@ -133,7 +133,7 @@ registerSpellVfx({
       if (!p) {
         p = { x: o.x, y: o.y, r: o.radius, born: ctx.now, seen: frameNo, ticksLeft: o.ticksLeft ?? 0, destroyed: false }
         pillars.set(o.id, p)
-        if (primed) summon(ctx, p)
+        if (primed) summon(ctx, p, tierOfLevel(ctx, o.owner === undefined ? 1 : levelOf(ctx, o.owner, SPELL)))
       }
       p.seen = frameNo
       p.ticksLeft = o.ticksLeft ?? 0

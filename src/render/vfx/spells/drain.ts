@@ -16,12 +16,16 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_DISC, G_RUNE, G_SHOCK, PH, acquireKit, palFor, pawnById, releaseKit, trailFrom, windupProgress, type KitA, type Pal, type TrailStyle } from './kitA'
+import { G_CROSS, G_DISC, G_RUNE, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pawnById, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type Pal, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('drain')
 /** heal orb: the drain hue, lifted toward its pale life-green core */
-const H: Pal = { hot: P.hot, body: [P.hot[0] * 0.45, P.hot[1] * 0.6, P.hot[2] * 0.35], edge: P.body, tail: P.edge, light: [P.light[0] * 1.4, P.light[1] * 1.6, P.light[2]], spark: P.hot }
+const H: Pal = { hot: [P.hot[0] * 1.05, P.hot[1] * 1.05, P.hot[2] * 1.05], body: [P.hot[0] * 0.55, P.hot[1] * 0.65, P.hot[2] * 0.5], edge: [P.hot[0] * 0.3, P.hot[1] * 0.42, P.hot[2] * 0.25], tail: P.body, light: [P.light[0] * 1.4, P.light[1] * 1.6, P.light[2]], spark: P.hot }
+/** the parasite bolt keeps a dark sickly core (no white centre): reads apart from the heal orb */
+const BOLT_CORE: [number, number, number] = [P.body[0] * 1.7, P.body[1] * 1.7, P.body[2] * 1.7]
+/** last '+' mote per heal orb */
+const plusAt = new Map<number, number>()
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
@@ -70,12 +74,12 @@ function bloom(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const rr = 15 + Math.random() * 25
-    ps.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, h + Math.random() * 60, Math.cos(a) * 40, Math.sin(a) * 40, 140 + Math.random() * 160, 0.7 + Math.random() * 0.4, 9, 2, H.spark[0], H.spark[1], H.spark[2], -40, 1, 10)
+    pspawn(ps, x + Math.cos(a) * rr, y + Math.sin(a) * rr, h + Math.random() * 60, Math.cos(a) * 40, Math.sin(a) * 40, 140 + Math.random() * 160, 0.7 + Math.random() * 0.4, 9, 2, H.spark[0], H.spark[1], H.spark[2], -40, 1, 10)
   }
   const fl = k.floor(x, y)
-  ctx.ground.spawn(RING_IMPLODE, x, y, fl, 15, 90, 0.3, 8, H.body[0], H.body[1], H.body[2])
+  kring(ctx, RING_IMPLODE, x, y, fl, 15, 90, 0.3, 8, H.body[0], H.body[1], H.body[2])
   k.pulse(G_RUNE, false, x, y, fl + 2, 50, 80, 0.5, 0, 2, H.body, 0.9, 1, 1, x)
-  ctx.flash(x, y, h + 40, 0.22, 170, 110, H.body[0] * 1.2, H.body[1] * 1.2, H.body[2] * 1.2)
+  kflash(ctx, x, y, h + 40, 0.22, 170, 110, H.body[0] * 1.2, H.body[1] * 1.2, H.body[2] * 1.2)
 }
 
 /** signature charge-up: sickly tendrils curling in from around the caster into the hand */
@@ -110,6 +114,7 @@ const mod: SpellVfx = {
     releaseKit(K)
     K = null
     seen.clear()
+    plusAt.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -128,6 +133,7 @@ const mod: SpellVfx = {
         const dy = e.y - info.y
         const l = Math.hypot(dx, dy) || 1
         k.muzzle(o.x, o.y, o.h, dx / l, dy / l, P, 0.9)
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         return
       }
       case 'damage': {
@@ -136,14 +142,14 @@ const mod: SpellVfx = {
         const v = ctx.pawn(e.target)
         const h = (v?.h ?? 30) + 60
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 0.8)
+        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 0.8, a.tier)
         // siphon: essence ripped out of the victim, swirling up
         const ps = ctx.particles
         const n = ps.budget(18)
         for (let i = 0; i < n; i++) {
           const ang = Math.random() * Math.PI * 2
           const sp = 60 + Math.random() * 160
-          ps.spawn(e.x + Math.cos(ang) * 20, e.y + Math.sin(ang) * 20, h - 30 + Math.random() * 60, Math.cos(ang) * sp, Math.sin(ang) * sp, 80 + Math.random() * 120, 0.4 + Math.random() * 0.3, 14, 3, P.body[0] * 1.5, P.body[1] * 1.5, P.body[2] * 1.5, -100, 2, 6)
+          pspawn(ps, e.x + Math.cos(ang) * 20, e.y + Math.sin(ang) * 20, h - 30 + Math.random() * 60, Math.cos(ang) * sp, Math.sin(ang) * sp, 80 + Math.random() * 120, 0.4 + Math.random() * 0.3, 14, 3, P.body[0] * 1.5, P.body[1] * 1.5, P.body[2] * 1.5, -100, 2, 6)
         }
         return true
       }
@@ -167,7 +173,7 @@ const mod: SpellVfx = {
         }
         const fl = k.floor(e.x, e.y)
         k.pulse(G_SHOCK, false, e.x, e.y, fl + 1.5, 70, 70, 0.3, Math.random() * 6, 0, P.body, 1.0, 0.1, 0.95, 0.1)
-        ctx.flash(e.x, e.y, PH, 0.16, 140, 80, P.hot[0] * 0.6, P.hot[1] * 0.6, P.hot[2] * 0.6)
+        kflash(ctx, e.x, e.y, PH, 0.16, 140, 80, P.hot[0] * 0.6, P.hot[1] * 0.6, P.hot[2] * 0.6)
         const ns = ctx.smoke.budget(4)
         for (let i = 0; i < ns; i++) ctx.smoke.spawn(e.x, e.y, PH, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 40, 1.0, 30, 100, P.edge[0] * 0.08, P.edge[1] * 0.08, P.edge[2] * 0.08, 20, 1.2, 8)
         return
@@ -176,14 +182,14 @@ const mod: SpellVfx = {
         if (e.spell !== 'drain') return
         const ps = ctx.particles
         const n = ps.budget(10)
-        for (let i = 0; i < n; i++) ps.spawn(e.x, e.y, PH, (Math.random() - 0.5) * 160, (Math.random() - 0.5) * 160, -60 - Math.random() * 60, 0.5, 9, 2, P.body[0], P.body[1], P.body[2], -400, 1, 0)
+        for (let i = 0; i < n; i++) pspawn(ps, e.x, e.y, PH, (Math.random() - 0.5) * 160, (Math.random() - 0.5) * 160, -60 - Math.random() * 60, 0.5, 9, 2, P.body[0], P.body[1], P.body[2], -400, 1, 0)
         ctx.smoke.spawn(e.x, e.y, PH, 0, 0, 30, 1.0, 30, 90, 0.04, 0.05, 0.02, 20, 1, 8)
         return
       }
       case 'projectileBounce':
         if (e.spell !== 'drain') return
-        ctx.flash(e.x, e.y, PH, 0.1, 110, 60, P.body[0], P.body[1], P.body[2])
-        ctx.ground.spawn(RING_EXPAND, e.x, e.y, k.floor(e.x, e.y), 8, 50, 0.2, 5, P.body[0], P.body[1], P.body[2])
+        kflash(ctx, e.x, e.y, PH, 0.1, 110, 60, P.body[0], P.body[1], P.body[2])
+        kring(ctx, RING_EXPAND, e.x, e.y, k.floor(e.x, e.y), 8, 50, 0.2, 5, P.body[0], P.body[1], P.body[2])
         return
       case 'death':
         if (e.cause !== 'drain') return
@@ -216,7 +222,10 @@ const mod: SpellVfx = {
             break
           }
         }
-        if (!alive) seen.delete(id)
+        if (!alive) {
+          seen.delete(id)
+          plusAt.delete(id)
+        }
       }
     }
   },
@@ -240,15 +249,21 @@ const mod: SpellVfx = {
       // life orb returning to the caster
       const r = 20
       k.cores.add(x, y, PH + 10, r, dx, dy, 1.2, p.id, H.edge, H.body, H.hot)
-      k.glowAt(x, y, PH + 10, 90, H.body[0] * 0.45, H.body[1] * 0.45, H.body[2] * 0.45, 1.7, 0.3)
-      ctx.glow.add(x, y, 160, 0.7, H.light[0], H.light[1], H.light[2])
+      k.halo(x, y, PH + 10, 90, H.body[0] * 0.45, H.body[1] * 0.45, H.body[2] * 0.45, 1.7, 0.3)
+      ctx.glow.add(x, y, 130, 0.5, H.light[0], H.light[1], H.light[2])
       ctx.projectileShadow(x, y, PH + 10, r)
-      k.trailPoint(p.id * 4, x, y, PH + 10, HEAL, p.owner)
+      k.trailPoint(p.id * 16, x, y, PH + 10, HEAL, p.owner)
+      // '+' glyphs on the orb and shed along its path: unmistakably a heal
+      k.air.add(G_CROSS, x, y, PH + 12, 22, Math.PI / 4, H.hot[0], H.hot[1], H.hot[2], 1.1, 1)
+      if (ctx.now - (plusAt.get(p.id) ?? -1) > 0.07) {
+        plusAt.set(p.id, ctx.now)
+        k.pulse(G_CROSS, true, x, y, PH + 14, 15, 11, 0.45, Math.PI / 4, 0, H.body, 1.0, 1, 1, 0)
+      }
       const ps = ctx.particles
       const n = ps.budget(ctx.dt * 40)
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2
-        ps.spawn(x + Math.cos(a) * 16, y + Math.sin(a) * 16, PH + 10 + (Math.random() - 0.5) * 20, -dx * 60, -dy * 60, 30 + Math.random() * 50, 0.5 + Math.random() * 0.3, 6, 1, H.spark[0], H.spark[1], H.spark[2], 0, 1, 6)
+        pspawn(ps, x + Math.cos(a) * 16, y + Math.sin(a) * 16, PH + 10 + (Math.random() - 0.5) * 20, -dx * 60, -dy * 60, 30 + Math.random() * 50, 0.5 + Math.random() * 0.3, 6, 1, H.spark[0], H.spark[1], H.spark[2], 0, 1, 6)
       }
       return
     }
@@ -258,21 +273,22 @@ const mod: SpellVfx = {
     if (t === 1 && st.turned === 0) {
       // the one-time re-aim: snap pulse + a lash along the new heading
       k.pulse(G_SHOCK, true, x, y, PH, 60, 60, 0.25, 0, 0, P.body, 1.2, 0.15, 0.95, 0.12)
-      ctx.flash(x, y, PH, 0.12, 120, 70, P.hot[0] * 0.6, P.hot[1] * 0.6, P.hot[2] * 0.6)
+      kflash(ctx, x, y, PH, 0.12, 120, 70, P.hot[0] * 0.6, P.hot[1] * 0.6, P.hot[2] * 0.6)
       const ps = ctx.particles
       const n = ps.budget(10)
       for (let i = 0; i < n; i++) {
         const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.5
         const v = 300 + Math.random() * 400
-        ps.spawn(x, y, PH, Math.cos(a) * v, Math.sin(a) * v, (Math.random() - 0.5) * 60, 0.15, 7, 1, P.spark[0], P.spark[1], P.spark[2], 0, 4, -0.12)
+        pspawn(ps, x, y, PH, Math.cos(a) * v, Math.sin(a) * v, (Math.random() - 0.5) * 60, 0.15, 7, 1, P.spark[0], P.spark[1], P.spark[2], 0, 4, -0.12)
       }
     }
     st.turned = t
-    k.cores.add(x, y, PH, r, dx, dy, 0.6, p.id, P.edge, P.body, P.hot)
-    k.glowAt(x, y, PH, r * 4, P.body[0] * 0.3, P.body[1] * 0.3, P.body[2] * 0.3, 1.5, 0.6)
-    ctx.glow.add(x, y, 180, 0.6, P.light[0], P.light[1], P.light[2])
+    k.cores.add(x, y, PH, r, dx, dy, 0.6, p.id, P.edge, P.body, BOLT_CORE)
+    k.halo(x, y, PH, r * 4, P.body[0] * 0.3, P.body[1] * 0.3, P.body[2] * 0.3, 1.5, 0.6)
+    ctx.glow.add(x, y, 140, 0.45, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
     // three writhing tendrils
     const px = -dy
     const py = dx
@@ -280,12 +296,12 @@ const mod: SpellVfx = {
       const ph = now * (9 + j * 2.3) + p.id + j * 2.1
       const s = Math.sin(ph) * (14 + j * 4)
       const c = Math.cos(ph * 1.3) * 12
-      k.trailPoint(p.id * 4 + 1 + j, x - dx * r * 0.5 + px * s, y - dy * r * 0.5 + py * s, PH + c, TENDRIL)
+      k.trailPoint(p.id * 16 + 1 + j, x - dx * r * 0.5 + px * s, y - dy * r * 0.5 + py * s, PH + c, TENDRIL)
     }
     // drips
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 20)
-    for (let i = 0; i < n; i++) ps.spawn(x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r, PH - r * 0.5, 0, 0, -20, 0.45, 7, 4, P.body[0], P.body[1], P.body[2], -500, 0, 0)
+    for (let i = 0; i < n; i++) pspawn(ps, x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r, PH - r * 0.5, 0, 0, -20, 0.45, 7, 4, P.body[0], P.body[1], P.body[2], -500, 0, 0)
   },
 
   drawModifier(pawn, m, x, y, ctx) {
@@ -306,7 +322,7 @@ const mod: SpellVfx = {
       const n = ps.budget(ctx.dt * 16)
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2
-        ps.spawn(x + Math.cos(a) * 22, y + Math.sin(a) * 22, h0 + 40 + Math.random() * 70, 0, 0, -10, 0.55, 8, 4, P.body[0], P.body[1], P.body[2], -380, 0, 0)
+        pspawn(ps, x + Math.cos(a) * 22, y + Math.sin(a) * 22, h0 + 40 + Math.random() * 70, 0, 0, -10, 0.55, 8, 4, P.body[0], P.body[1], P.body[2], -380, 0, 0)
       }
     } else {
       // drainHaste: green wind wisps trailing at the feet
@@ -315,7 +331,7 @@ const mod: SpellVfx = {
       const n = ps.budget(ctx.dt * 18)
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2
-        ps.spawn(x + Math.cos(a) * 20, y + Math.sin(a) * 20, h0 + 10, -pawn.vx * 0.2, -pawn.vy * 0.2, 60 + Math.random() * 60, 0.4, 7, 1, H.spark[0], H.spark[1], H.spark[2], 0, 2, 5)
+        pspawn(ps, x + Math.cos(a) * 20, y + Math.sin(a) * 20, h0 + 10, -pawn.vx * 0.2, -pawn.vy * 0.2, 60 + Math.random() * 60, 0.4, 7, 1, H.spark[0], H.spark[1], H.spark[2], 0, 2, 5)
       }
     }
   },

@@ -20,7 +20,7 @@ export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>([
   'meteor',
   'snowball',
   'windwalk',
-  // 'shield' held: renders as a white ball on the Low tier (2026-10-15)
+  'shield',
   'rush',
   'alteration',
   'gravity',
@@ -30,6 +30,9 @@ export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>([
   'link',
   'grip',
   // column 1-3 and active items that passed review
+  'lightning',
+  'boomerang',
+  'rockpillar',
   'homing',
   'twin',
   'thrust',

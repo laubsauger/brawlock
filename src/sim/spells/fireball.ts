@@ -29,6 +29,7 @@ export const fireballSpell: SpellBehavior = {
     // knockback_factor: KV lookup returns 0, replaced by 1 (spells.md §5.3)
     const kb = attr(def, 'knockback_factor', level) || 1
     spawnProjectile(state, caster.owner, 'fireball', caster.x, caster.y, dx * speed, dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: range / speed,
       data: { damage: castAttr(ctx, 'damage'), kb, level },
     })

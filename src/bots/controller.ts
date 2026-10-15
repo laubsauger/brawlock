@@ -40,6 +40,8 @@ import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
 import { dangerAt, dodgeDirection } from './danger'
+import { insideAny, threatZones, type ThreatZone } from './threats'
+import { firstBlocking, inPillar, routeAround, shieldedFrom } from './pillars'
 import { BOT_PRESETS, type BotParams } from './presets'
 import { botSeed, Rng } from './prng'
 import {
@@ -67,6 +69,13 @@ const DODGE_REACH = 5000
 const THRUST_ATTACK_RANGE = 380
 /** Lightning reach and the Fireball detonation radius it triggers (spells.md §8.6). */
 const LIGHTNING_RANGE = 600
+const PAWN_BODY = 30
+/** How often (ticks) a bot checks between decisions whether it is pushing into a pillar. */
+const UNSTICK_TICKS = 6
+/** Extra clearance beyond an area threat's radius, units. */
+const THREAT_MARGIN = 30
+/** Directions tried when leaving an area threat (radians off straight away). */
+const FLEE_ANGLES = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75, 2.2, -2.2, Math.PI]
 const FIREBALL_DETONATE_RADIUS = 225
 /** How far ahead a lava-aware dodge checks the ground. */
 const DODGE_LOOKAHEAD = 150
@@ -84,12 +93,20 @@ export type BotAction =
   | 'wander'
   | 'combo'
   | 'thrust'
+  | 'flee'
+  | 'hold'
 
 const secToTicks = (s: number) => Math.round(s * TICK_HZ)
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y)
 
 /** Alliance by current team, as the sim decides it. */
 export const areEnemies = (state: SimState, a: PlayerId, b: PlayerId): boolean => isEnemy(state, a, b)
+
+/** A pawn standing here would overlap a pillar (its radius + our body + a little slack). */
+function blockedByObstacle(state: SimState, x: number, y: number): boolean {
+  for (const o of state.obstacles) if (Math.hypot(x - o.x, y - o.y) < o.radius + PAWN_BODY + 8) return true
+  return false
+}
 
 function castable(me: PawnState, slot: number): boolean {
   return me.slots[slot] != null && (me.cooldowns[slot] ?? 0) <= 0
@@ -123,6 +140,8 @@ export class BotController implements Bot {
   private spellEndTick = 0
   private scourgeEndTick = 0
   private dodgeDir: Vec2 | null = null
+  private lastWalk: { tick: number; dist: number } | null = null
+  private lastCheck: { tick: number; dist: number; x: number; y: number } | null = null
   private lastDodgeTick = -Infinity
   private nextBuyTick = -1
   private pendingBuy: { spell: SpellId; tick: number; gold: number } | null = null
@@ -154,6 +173,10 @@ export class BotController implements Bot {
       this.nextThinkTick = state.tick + this.thinkTicks
       const cmds = this.decide(state)
       if (cmds.length > 0) this.queue.push({ at: state.tick + this.delayTicks, cmds })
+    } else if (state.tick % UNSTICK_TICKS === 0) {
+      // between decisions: a player notices when they are walking into a pillar
+      const cmds = this.unstick(state)
+      if (cmds.length > 0) this.queue.push({ at: state.tick + this.delayTicks, cmds })
     }
 
     if (this.queue.length === 0 || this.queue[0].at > state.tick) return []
@@ -170,6 +193,8 @@ export class BotController implements Bot {
     this.spellEndTick = 0
     this.scourgeEndTick = 0
     this.dodgeDir = null
+    this.lastWalk = null
+    this.lastCheck = null
     this.lastDodgeTick = -Infinity
     this.nextBuyTick = -1
     this.pendingBuy = null
@@ -225,6 +250,14 @@ export class BotController implements Bot {
       }
     }
 
+    // 2b. Area threats (new): walk (or blink) out of a charging Scourge, a Meteor's landing
+    // spot or a Gravity zone. Before the cast lock: leaving beats finishing our own windup.
+    const zones = threatZones(state, this.player)
+    if (zones.length > 0 && this.rng.chance(p.threatChance)) {
+      const flee = this.fleeThreats(state, me, zones, safety)
+      if (flee) return this.act('flee', flee)
+    }
+
     // 3. Retarget: lost target or 1/5 chance -> closest enemy.
     const current = this.target === null ? null : state.pawns.find((o) => o.owner === this.target)
     if (!current || !current.alive || !areEnemies(state, this.player, current.owner) || this.rng.chance(p.retargetChance)) {
@@ -249,7 +282,7 @@ export class BotController implements Bot {
     const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
     // Danger where we will be when this decision lands (a player plans from where they are going).
     const self = this.predictSelf(me, tick)
-    const danger = dangerAt(threats, self.x, self.y)
+    const danger = this.dangerHere(state, threats, self.x, self.y)
     const mustDodge = p.dodge && danger >= p.dodgeThreshold
 
     // 6. Scourge channel: keep it unless in danger or the enemy walked away.
@@ -315,10 +348,55 @@ export class BotController implements Bot {
     // 10. Move: off lava (or off a tile about to sink) by the shortest way, else wander.
     if (p.walkOffLava && (onLava || !isSafe(safety, me.x, me.y))) {
       const tile = nearestTileCentre(safety, me.x, me.y, true) ?? nearestTileCentre(layer, me.x, me.y, true)
-      if (tile) return this.act('offLava', [{ kind: 'move', x: tile.x, y: tile.y }])
+      if (tile) {
+        const via = routeAround(state, me, tile, layer)
+        return this.act('offLava', [{ kind: 'move', x: via.x, y: via.y }])
+      }
     }
+    // pushing into a pillar since the last think (knocked against it, or it was not in the
+    // way when we planned): pick somewhere else
+    if (this.pushingIntoPillar(state, me)) this.pickWander(state, me, target, safety)
     const w = this.wander!
-    return this.act('wander', [{ kind: 'move', x: w.x, y: w.y }])
+    // never walk into an active area threat: wait at its edge instead
+    if (zones.length > 0 && insideAny(zones, w.x, w.y, THREAT_MARGIN) && !insideAny(zones, me.x, me.y)) {
+      return this.act('hold', [{ kind: 'stop' }])
+    }
+    const via = routeAround(state, me, w, layer)
+    return this.act('wander', [{ kind: 'move', x: via.x, y: via.y }])
+  }
+
+  /** Reflex between decisions: pushing into a pillar -> walk around it toward the same goal. */
+  private unstick(state: SimState): InputCommand[] {
+    const me = state.pawns.find((p) => p.owner === this.player)
+    if (!me || !me.alive || !me.moveTarget || me.cast) {
+      this.lastCheck = null
+      return []
+    }
+    const target = me.moveTarget
+    const dist = Math.hypot(target.x - me.x, target.y - me.y)
+    const last = this.lastCheck
+    this.lastCheck = { tick: state.tick, dist, x: target.x, y: target.y }
+    if (!last || last.x !== target.x || last.y !== target.y || dist < 40) return []
+    if (!inPillar(state, me.x, me.y, 8)) return []
+    const expected = (me.moveSpeed * (state.tick - last.tick)) / TICK_HZ
+    if (last.dist - dist >= 0.3 * expected) return []
+    const goal = this.wander && Math.hypot(this.wander.x - target.x, this.wander.y - target.y) > 1 ? this.wander : target
+    const via = routeAround(state, me, goal, state.arena.layer)
+    if (Math.hypot(via.x - target.x, via.y - target.y) < 20) return []
+    this.lastCheck = null
+    return [{ kind: 'move', x: via.x, y: via.y }]
+  }
+
+  /** Own progress check: walking, touching a pillar, and barely closer than at the last think. */
+  private pushingIntoPillar(state: SimState, me: PawnState): boolean {
+    const target = me.moveTarget
+    const last = this.lastWalk
+    const dist = target ? Math.hypot(target.x - me.x, target.y - me.y) : -1
+    this.lastWalk = target ? { tick: state.tick, dist } : null
+    if (!target || !last || me.cast || dist < 40) return false
+    if (!inPillar(state, me.x, me.y, 6)) return false
+    const expected = (me.moveSpeed * (state.tick - last.tick)) / TICK_HZ
+    return last.dist - dist < 0.3 * expected
   }
 
   private act(action: BotAction, cmds: InputCommand[]): InputCommand[] {
@@ -357,6 +435,70 @@ export class BotController implements Bot {
     x += vx * (end - t) / TICK_HZ
     y += vy * (end - t) / TICK_HZ
     return { x, y }
+  }
+
+  /**
+   * Leave the area threats we will be standing in when this order lands: the shortest way
+   * out that ends on safe ground (never into lava), preferring paths away from bolts. When
+   * walking cannot make it before the most urgent one strikes, blink out (threatEscape).
+   */
+  private fleeThreats(state: SimState, me: PawnState, zones: ThreatZone[], safety: number): InputCommand[] | null {
+    const from = this.predictSelf(me, state.tick)
+    const inside = zones.filter((z) => Math.hypot(from.x - z.x, from.y - z.y) < z.r || Math.hypot(me.x - z.x, me.y - z.y) < z.r)
+    if (inside.length === 0) return null
+    inside.sort((a, b) => a.fireIn - b.fireIn)
+    const urgent = inside[0]
+    let bx = from.x - urgent.x
+    let by = from.y - urgent.y
+    if (Math.hypot(bx, by) < 1) {
+      // on top of it: head for the arena centre
+      bx = -from.x
+      by = -from.y
+      if (Math.hypot(bx, by) < 1) bx = 1
+    }
+    const bl = Math.hypot(bx, by)
+    const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
+    let best: { dir: Vec2; dist: number; cost: number } | null = null
+    for (const a of FLEE_ANGLES) {
+      const c = Math.cos(a)
+      const s = Math.sin(a)
+      const dir = { x: (bx / bl) * c - (by / bl) * s, y: (bx / bl) * s + (by / bl) * c }
+      let dist = 0
+      let pathOk = true
+      for (let step = 20; step <= 900; step += 20) {
+        const px = from.x + dir.x * step
+        const py = from.y + dir.y * step
+        // lava or a pillar in the way: this direction is no way out
+        if (!isSafe(safety, px, py) || blockedByObstacle(state, px, py)) {
+          pathOk = false
+          break
+        }
+        if (!insideAny(zones, px, py, THREAT_MARGIN)) {
+          dist = step
+          break
+        }
+      }
+      if (!pathOk || dist === 0) continue
+      const end = { x: from.x + dir.x * dist, y: from.y + dir.y * dist }
+      if (!isSafeWithMargin(safety, end.x, end.y, 40)) continue
+      const cost = dist + 15 * dangerAt(threats, end.x, end.y)
+      if (!best || cost < best.cost) best = { dir, dist, cost }
+    }
+    if (!best) return null
+    const walkTime = best.dist / Math.max(1, me.moveSpeed)
+    if (walkTime > urgent.fireIn && this.params.threatEscape) {
+      const esc = this.findSlot(me, 'escape')
+      if (esc >= 0) {
+        const range = escapeRange(me.slots[esc]!, me.levels[esc] || 1)
+        const reach = Math.min(range, best.dist + 80)
+        const to = { x: from.x + best.dir.x * reach, y: from.y + best.dir.y * reach }
+        if (isSafeWithMargin(safety, to.x, to.y, 40) && !insideAny(zones, to.x, to.y) && !blockedByObstacle(state, to.x, to.y)) {
+          return [{ kind: 'cast', slot: esc, x: to.x, y: to.y }]
+        }
+      }
+    }
+    const go = best.dist + 40
+    return [{ kind: 'move', x: from.x + best.dir.x * go, y: from.y + best.dir.y * go }]
   }
 
   /** The layer the bot plans against: the next one when a shrink is imminent. */
@@ -403,6 +545,7 @@ export class BotController implements Bot {
       const a = this.rng.range(0, Math.PI * 2)
       const r = this.rng.range(0, radius)
       const cand = { x: centre.x + Math.cos(a) * r, y: centre.y + Math.sin(a) * r }
+      if (inPillar(state, cand.x, cand.y)) continue
       if (!p.safeWander || isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
     }
     if (!point) {
@@ -449,20 +592,36 @@ export class BotController implements Bot {
    * (`from`). Keeps the previous side while it still lowers danger: re-deciding every
    * think with a reaction delay makes a bot standing on the line zig-zag across it.
    */
+  /** Danger at a point; with useCover, bolts a pillar stops before they reach it do not count. */
+  private dangerHere(state: SimState, threats: ProjectileState[], x: number, y: number): number {
+    if (!this.params.useCover || state.obstacles.length === 0) return dangerAt(threats, x, y)
+    return dangerAt(
+      threats.filter((p) => !shieldedFrom(state, p, x, y)),
+      x,
+      y,
+    )
+  }
+
   private dodgeMove(state: SimState, from: Vec2, threats: ProjectileState[], danger: number): InputCommand {
     const lowers = (d: Vec2, reach: number) =>
-      dangerAt(threats, from.x + d.x * reach, from.y + d.y * reach) < danger
+      this.dangerHere(state, threats, from.x + d.x * reach, from.y + d.y * reach) < danger
     const prev = state.tick - this.lastDodgeTick <= 2 * this.thinkTicks ? this.dodgeDir : null
     // on the line: keep our side, else break toward the arena centre (away from lava)
     let dir = dodgeDirection(threats, from.x, from.y, prev ?? { x: -from.x, y: -from.y })
     if (prev && lowers(prev, 40)) dir = prev
-    if (this.params.dodgeAvoidsLava) {
-      const layer = this.safetyLayer(state)
-      for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.4, -1.4]) {
+    const layer = this.safetyLayer(state)
+    const clear = (d: Vec2) => {
+      const ahead = { x: from.x + d.x * DODGE_LOOKAHEAD, y: from.y + d.y * DODGE_LOOKAHEAD }
+      // never dodge into a pillar; lava only when the preset knows to look
+      if (firstBlocking(state, from, ahead)) return false
+      return !this.params.dodgeAvoidsLava || isSafe(layer, ahead.x, ahead.y)
+    }
+    if (!clear(dir) || !lowers(dir, DODGE_LOOKAHEAD)) {
+      for (const a of [0.5, -0.5, 1.0, -1.0, 1.4, -1.4, 1.9, -1.9]) {
         const c = Math.cos(a)
         const s = Math.sin(a)
         const d = { x: dir.x * c - dir.y * s, y: dir.x * s + dir.y * c }
-        if (isSafe(layer, from.x + d.x * DODGE_LOOKAHEAD, from.y + d.y * DODGE_LOOKAHEAD) && lowers(d, DODGE_LOOKAHEAD)) {
+        if (clear(d) && lowers(d, DODGE_LOOKAHEAD)) {
           dir = d
           break
         }

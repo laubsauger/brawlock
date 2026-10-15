@@ -17,10 +17,24 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_SHOCK, PH, acquireKit, hash01, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type Pal, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
-const P = palFor('bouncer')
+/**
+ * Bouncer's identity is a light pure yellow (palette). At mid luminance without much bloom
+ * (Medium) a pure yellow reads olive-green, so the body/edge tones are warmed toward gold
+ * (more red, less blue) while the hot core stays the palette's pale yellow.
+ */
+const B0 = palFor('bouncer')
+const warm = (c: readonly number[], r: number, g: number, b: number): [number, number, number] => [c[0] * r, c[1] * g, c[2] * b]
+const P: Pal = {
+  hot: B0.hot,
+  body: warm(B0.body, 1.25, 0.95, 0.45),
+  edge: warm(B0.edge, 1.35, 0.9, 0.35),
+  tail: warm(B0.tail, 1.5, 0.75, 0.3),
+  light: warm(B0.light, 1.25, 0.95, 0.45),
+  spark: warm(B0.spark, 1.1, 0.97, 0.6),
+}
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
@@ -28,8 +42,24 @@ const dir = { x: 0, y: 0 }
 const first = new Map<number, number>()
 const lastPos = new Map<number, { x: number; y: number; vx: number; vy: number }>()
 
-const TRAIL: TrailStyle = trailFrom(P, { life: 0.9, width: 34, widthTail: 0.25, intensity: 2.4, falloff: 1.7, noise: 0.15, spacing: 5, rim: 0.35 }, 0.6)
-const ORB: TrailStyle = trailFrom(P, { life: 0.1, width: 7, widthTail: 0.2, intensity: 2.0, falloff: 1.8, noise: 0, spacing: 3, rim: 0 }, 0.9)
+/** crisp ricochet line: thin bright core, the kinks stay where the bounces happened */
+const TRAIL: TrailStyle = trailFrom(P, { life: 0.9, width: 24, widthTail: 0.3, intensity: 2.2, falloff: 2.4, noise: 0.1, spacing: 5, rim: 0.3 }, 0.6)
+/** the comet body: a short wide flame-less tail that tapers the head into a teardrop */
+const TAIL: TrailStyle = trailFrom(P, { life: 0.11, width: 30, widthTail: 0.05, intensity: 0.6, falloff: 1.8, noise: 0.75, spacing: 4, rim: 0 }, 0.4)
+/** teardrop outline in collision radii: (along velocity, sideways, up); nose at +1, tail at -2.2 */
+const SHELL: readonly (readonly [number, number, number])[] = [
+  [1, 0, 0],
+  [0.55, 0.85, 0.15],
+  [-0.4, 0.9, 0.1],
+  [-1.4, 0.45, 0],
+  [-2.2, 0, 0],
+  [-1.4, -0.45, 0],
+  [-0.4, -0.9, -0.1],
+  [0.55, -0.85, -0.15],
+]
+const SHELL_N = SHELL.length
+/** golden hot centre (the palette's pale core would turn the whole head cream) */
+const CORE: [number, number, number] = [P.hot[0] * 0.6 + P.body[0] * 0.8, P.hot[1] * 0.6 + P.body[1] * 0.8, P.hot[2] * 0.4 + P.body[2] * 0.5]
 
 /** short lashing arcs (retarget flash, dying fizzle) */
 interface Arc {
@@ -89,7 +119,7 @@ function ricochet(k: KitA, ctx: VfxCtx, x: number, y: number, s: number, vx: num
   for (let i = 0; i < nr; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 500 + Math.random() * 600
-    ctx.particles.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 300, 0.08 + Math.random() * 0.08, 5, 1, P.hot[0], P.hot[1], P.hot[2], -600, 5, -0.18)
+    pspawn(ctx.particles, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 300, 0.08 + Math.random() * 0.08, 5, 1, P.hot[0], P.hot[1], P.hot[2], -600, 5, -0.18)
   }
   const ps = ctx.particles
   const n = ps.budget(8 + 18 * s)
@@ -99,11 +129,11 @@ function ricochet(k: KitA, ctx: VfxCtx, x: number, y: number, s: number, vx: num
   for (let i = 0; i < n; i++) {
     const a = Math.atan2(by, bx) + (Math.random() - 0.5) * 2.4
     const sp = (350 + Math.random() * 700) * (0.5 + s * 0.5)
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 240, 0.16 + Math.random() * 0.18, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1300, 3, -0.12)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 240, 0.16 + Math.random() * 0.18, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1300, 3, -0.12)
   }
-  ctx.flash(x, y, PH, 0.1, 110 + 90 * s, 60 + 60 * s, P.hot[0] * (0.4 + 0.5 * s), P.hot[1] * (0.4 + 0.5 * s), P.hot[2] * (0.4 + 0.5 * s))
+  kflash(ctx, x, y, PH, 0.1, 110 + 90 * s, 60 + 60 * s, P.hot[0] * (0.4 + 0.5 * s), P.hot[1] * (0.4 + 0.5 * s), P.hot[2] * (0.4 + 0.5 * s))
   k.pulse(G_SHOCK, true, x, y, PH, 50 + 40 * s, 50 + 40 * s, 0.2, Math.random() * 6, 0, P.body, 0.6 + 0.8 * s, 0.15, 0.95, 0.12)
-  ctx.ground.spawn(RING_EXPAND, x, y, k.floor(x, y), 8, 50 + 50 * s, 0.25, 6, P.body[0] * s, P.body[1] * s, P.body[2] * s)
+  kring(ctx, RING_EXPAND, x, y, k.floor(x, y), 8, 50 + 50 * s, 0.25, 6, P.body[0] * s, P.body[1] * s, P.body[2] * s)
   ctx.shakeNear(x, y, 0.06 * s)
 }
 
@@ -172,6 +202,7 @@ const mod: SpellVfx = {
         const dy = e.y - info.y
         const l = Math.hypot(dx, dy) || 1
         k.muzzle(o.x, o.y, o.h, dx / l, dy / l, P, 1)
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         return
       }
       case 'damage': {
@@ -179,7 +210,7 @@ const mod: SpellVfx = {
         if (!a || a.spell !== 'bouncer') return
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P, 1, a.tier)
         return true
       }
       case 'projectileBounce': {
@@ -228,9 +259,9 @@ const mod: SpellVfx = {
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
           const sp = 150 + Math.random() * 300
-          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.2) * 200, 0.2 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.1)
+          pspawn(ps, e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.2) * 200, 0.2 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.1)
         }
-        ctx.flash(e.x, e.y, PH, 0.14, 130, 70, P.body[0], P.body[1], P.body[2])
+        kflash(ctx, e.x, e.y, PH, 0.14, 130, 70, P.body[0], P.body[1], P.body[2])
         k.pulse(G_SHOCK, false, e.x, e.y, k.floor(e.x, e.y) + 1.5, 60, 60, 0.28, 0, 0, P.body, 0.8, 0.12, 0.95, 0.1)
         const ns = ctx.smoke.budget(3)
         for (let i = 0; i < ns; i++) ctx.smoke.spawn(e.x, e.y, PH, (Math.random() - 0.5) * 70, (Math.random() - 0.5) * 70, 40, 0.9, 26, 90, 0.05, 0.05, 0.03, 20, 1, 6)
@@ -238,7 +269,7 @@ const mod: SpellVfx = {
       }
       case 'projectileExpire':
         if (e.spell !== 'bouncer') return
-        ctx.flash(e.x, e.y, PH, 0.1, 90, 50, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+        kflash(ctx, e.x, e.y, PH, 0.1, 90, 50, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
         ctx.smoke.spawn(e.x, e.y, PH, 0, 0, 40, 0.8, 26, 80, 0.05, 0.05, 0.03, 20, 1, 6)
         return
       case 'death':
@@ -305,34 +336,60 @@ const mod: SpellVfx = {
     const sp = Math.hypot(p.vx, p.vy)
     const dx = sp > 1 ? p.vx / sp : 1
     const dy = sp > 1 ? p.vy / sp : 0
-    // hot core exactly on the collision radius, heat drops with the damage left
-    k.cores.add(x, y, PH, r, dx, dy, 0.25, p.id, P.edge, P.body, P.hot, 0.6 + 0.5 * s)
-    // flickering energy shell + dense halo
-    k.air.add(G_SHOCK, x, y, PH, r * 1.25, now * 7 + p.id, P.body[0], P.body[1], P.body[2], 0.9 * s + 0.3, 0.8, 0.12)
-    k.glowAt(x, y, PH, r * (2.4 + 1.2 * s), P.body[0] * 0.55 * s, P.body[1] * 0.55 * s, P.body[2] * 0.55 * s, 1.6, 0.5)
-    k.glowAt(x, y, PH, r * 1.3, P.hot[0] * 0.5, P.hot[1] * 0.5, P.hot[2] * 0.5, 2.6)
-    ctx.glow.add(x, y, 160 + 90 * s, 0.5 + 0.6 * s, P.light[0], P.light[1], P.light[2])
-    ctx.projectileShadow(x, y, PH, r)
-    // long ricochet trail: kinks stay where the bounces happened
-    k.trailPoint(p.id * 8, x, y, PH, TRAIL, p.owner, 0.4 + 0.6 * s)
-    // three sparks orbiting the ball
-    k.orbit(x, y, PH, 3, r * 1.45, now * 11 + p.id, 5 + 3 * s, P, 0.7 + 0.6 * s, p.id * 8 + 1, ORB, 18)
-    // arcs crawling over the surface (more when strong)
-    const n = 2 + Math.round(3 * s)
-    for (let i = 0; i < n; i++) {
-      const seed = p.id * 31 + i * 7 + Math.floor(now * 26)
-      const a = hash01(seed, 3) * Math.PI * 2
-      const a2 = a + 0.5 + hash01(seed, 4) * 1.4
-      const r2 = r * (1.15 + hash01(seed, 5) * 0.6)
-      k.bolt(x + Math.cos(a) * r * 0.7, y + Math.sin(a) * r * 0.7, PH + (hash01(seed, 6) - 0.5) * 40, x + Math.cos(a2) * r2, y + Math.sin(a2) * r2, PH + (hash01(seed, 8) - 0.5) * 50, seed, 7, 2.5, P.body, P.hot, 1.0 * s + 0.3, 0, 8, 12, 0.3)
+    // spark-comet: teardrop head (nose = collision radius 38) along the velocity, a tapered
+    // comet tail, jagged electric filaments streaming back, sparks shedding; everything weakens
+    // with the damage left (x0.7 per enemy hit). No round halo: it reads as a disc without bloom.
+    // small white-gold nose spark; the collision size (r) is drawn by a crackling teardrop
+    // shell of electric arcs instead of a smooth sphere
+    k.cores.add(x, y, PH, r * 0.55, dx, dy, 2.4, p.id, P.edge, P.body, CORE, 0.7 + 0.45 * s)
+    {
+      const pxs = -dy
+      const pys = dx
+      const seedS = p.id * 97 + Math.floor(now * 30)
+      for (let i = 0; i < SHELL_N; i++) {
+        // skip one random segment per frame: the shell crackles instead of glowing solid
+        if (Math.floor(hash01(seedS, 99) * SHELL_N) === i) continue
+        const a0 = SHELL[i]
+        const a1 = SHELL[(i + 1) % SHELL_N]
+        k.bolt(
+          x + dx * a0[0] * r + pxs * a0[1] * r, y + dy * a0[0] * r + pys * a0[1] * r, PH + a0[2] * r,
+          x + dx * a1[0] * r + pxs * a1[1] * r, y + dy * a1[0] * r + pys * a1[1] * r, PH + a1[2] * r,
+          seedS + i * 13, 5, 2.4, P.body, CORE, 1.1 * s + 0.35, 0, 7, 10, 0.3,
+        )
+      }
     }
-    // spitting sparks
+    k.trailPoint(p.id * 16 + 1, x - dx * r * 0.4, y - dy * r * 0.4, PH, TAIL, -1, 0.45 + 0.55 * s)
+    k.streakAt(x - dx * r * 0.6, y - dy * r * 0.6, PH, r * 1.3, 2.6, dx, dy, P.body[0] * 0.45 * s, P.body[1] * 0.45 * s, P.body[2] * 0.45 * s, 1.8, 0.4)
+    ctx.glow.add(x, y, 130, 0.35 + 0.35 * s, P.light[0], P.light[1], P.light[2])
+    ctx.projectileShadow(x, y, PH, r)
+    // long ricochet trail
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner, 0.4 + 0.6 * s)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
+    // jagged filaments streaming back from the head (re-rolled ~24x per second)
+    const px = -dy
+    const py = dx
+    const nf = 2 + Math.round(2 * s)
+    for (let i = 0; i < nf; i++) {
+      const seed = p.id * 31 + i * 7 + Math.floor(now * 24)
+      const side = (hash01(seed, 1) - 0.5) * 2
+      const len = r * (2.4 + hash01(seed, 2) * 1.8) * (0.6 + 0.4 * s)
+      const sx = x + dx * r * 0.5 + px * side * r * 0.5
+      const sy = y + dy * r * 0.5 + py * side * r * 0.5
+      const ex = x - dx * len + px * side * r * 0.9
+      const ey = y - dy * len + py * side * r * 0.9
+      k.bolt(sx, sy, PH + (hash01(seed, 6) - 0.5) * 24, ex, ey, PH + (hash01(seed, 8) - 0.5) * 40, seed, 11, 3.5, P.body, CORE, 1.8 * s + 0.4, 0, 12, 16, 0.35)
+    }
+    // crackle on the nose
+    const seedN = p.id * 13 + Math.floor(now * 30)
+    const an = Math.atan2(dy, dx) + (hash01(seedN, 1) - 0.5) * 2.2
+    k.bolt(x + dx * r * 0.6, y + dy * r * 0.6, PH, x + Math.cos(an) * r * 1.5, y + Math.sin(an) * r * 1.5, PH + (hash01(seedN, 3) - 0.5) * 30, seedN, 6, 2, P.body, P.hot, 0.9 * s + 0.2, 0, 8, 10, 0.3)
+    // sparks shed backward
     const ps = ctx.particles
-    const ns = ps.budget(ctx.dt * 50 * (0.4 + s))
+    const ns = ps.budget(ctx.dt * 60 * (0.4 + s))
     for (let i = 0; i < ns; i++) {
-      const a = Math.random() * Math.PI * 2
+      const a = Math.atan2(-dy, -dx) + (Math.random() - 0.5) * 1.6
       const v = 200 + Math.random() * 300
-      ps.spawn(x + Math.cos(a) * r, y + Math.sin(a) * r, PH, Math.cos(a) * v - dx * 100, Math.sin(a) * v - dy * 100, (Math.random() - 0.3) * 200, 0.12 + Math.random() * 0.12, 5, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.12)
+      pspawn(ps, x - dx * r * 0.5, y - dy * r * 0.5, PH + (Math.random() - 0.5) * 20, Math.cos(a) * v, Math.sin(a) * v, (Math.random() - 0.3) * 160, 0.14 + Math.random() * 0.14, 5, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.12)
     }
   },
 }

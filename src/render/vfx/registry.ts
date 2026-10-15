@@ -13,6 +13,10 @@
  *   position; the built-in projectile look is not drawn for it.
  * - drawModifier: called every frame for each pawn modifier whose id is in
  *   module.modifiers (alive pawns only), with the pawn's interpolated position.
+ * - beginFrame: called once per RENDERED frame before any onEvent / draw call,
+ *   even when the clock is frozen (hit-stop, offline pause, dev time scale 0:
+ *   ctx.dt = 0 and ctx.now unchanged). Reset per-frame batches here; never
+ *   detect a new frame by watching ctx.now change.
  * - frame: called once per frame after events, before projectiles.
  * - init / dispose: a world calls init(ctx) before first use and dispose()
  *   when it is torn down (tier change, leaving the match). Modules must drop
@@ -144,9 +148,21 @@ export interface VfxCtx {
    * Per-frame visibility override for a pawn (call every frame you need it,
    * e.g. from drawModifier for Windwalk, or while a custom death plays):
    * body = 0..1 (warlock hidden below 0.05; the built-in body fades), plate =
-   * overhead name/HP bars, decal = team ring + contact shadow.
+   * overhead name/HP bars, decal = team ring + contact shadow, ambient = false
+   * suppresses built-in ambient particles on the pawn (death embers, lava flames;
+   * set it from beginFrame / frame / onEvent, which run before the built-in pawn
+   * pass; from drawModifier it takes effect one frame later).
    */
-  pawnVisibility(pawnId: EntityId, v: { body?: number; plate?: boolean; decal?: boolean }): void
+  pawnVisibility(pawnId: EntityId, v: { body?: number; plate?: boolean; decal?: boolean; ambient?: boolean }): void
+  /**
+   * Play a death look on the pawn's body (character WarlockHandle.deathFx):
+   * kind 'ash' | 'lava' | 'fireball' | 'meteor' | 'lightning' | 'freeze' |
+   * 'gravity' | 'drain' | 'shadow' | 'fade' (unknown -> 'ash'); (dx, dy) = push
+   * direction; edgeRGB = linear dissolve-edge colour (killer spell tint), null =
+   * the look's default. Callable right after the death event, also on a death
+   * that is already running. Turns off the built-in death embers for that pawn.
+   */
+  pawnDeathFx(pawnId: EntityId, kind: string, dx: number, dy: number, edgeRGB: [number, number, number] | null): void
   /** events of the tick currently being dispatched (inside onEvent), else [] */
   readonly tickEvents: readonly SimEvent[]
   /**
@@ -155,6 +171,14 @@ export interface VfxCtx {
    * ticks, null if unknown.
    */
   damageCause(e: SimEvent & { type: 'damage' }): string | null
+  /**
+   * Spell level carried by a projectile or event (`level` field from the sim;
+   * 1 when absent), and its visual power tier: 0 = levels 1-2, 1 = 3-5, 2 = 6-7.
+   * Use the tier for hotter cores / extra layers / bigger impacts, never for
+   * hitbox size.
+   */
+  level(x: { level?: number } | null | undefined): number
+  powerTier(level: number): 0 | 1 | 2
   /** floating combat text (overlay): 'dmg' | 'heal' | 'burn' | 'absorb' */
   combatText(pawnId: EntityId, amount: number, kind: 'dmg' | 'heal' | 'burn' | 'absorb', kb?: number): void
 }
@@ -169,6 +193,8 @@ export interface SpellVfx {
   /** pawn modifier ids it draws */
   modifiers?: string[]
   init?(ctx: VfxCtx): void
+  /** once per rendered frame, before events and draws, regardless of the clock */
+  beginFrame?(ctx: VfxCtx): void
   /** return true to suppress built-in handling for this event */
   onEvent?(e: SimEvent, ctx: VfxCtx): boolean | void
   drawProjectile?(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void
@@ -190,8 +216,8 @@ export interface WindupStyle {
   ringCount?: number
   /** palm orb scale, default 1 */
   orbScale?: number
-  /** parts of the base windup to suppress */
-  hide?: ('rings' | 'spiral' | 'orb' | 'ground')[]
+  /** parts of the base windup to suppress ('arrow' = the aim telegraph line) */
+  hide?: ('rings' | 'spiral' | 'orb' | 'ground' | 'arrow')[]
 }
 
 const modules: SpellVfx[] = []

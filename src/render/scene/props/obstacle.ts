@@ -213,7 +213,7 @@ export function createObstacleVisual(opts: ObstacleVisualOpts): ObstacleVisual {
     body.add(cr)
     meshes.push(cr)
   }
-  for (const m of meshes) m.userData = { propDmg: 0, propHit: 0, propLost: 0 }
+  for (const m of meshes) m.userData = { propDmg: 0, propHit: 0, propLost: 0, propHitX: 0, propHitZ: 0 }
 
   if (!decalGeo) decalGeo = new THREE.CircleGeometry(1, 40)
   const decal = new THREE.Mesh(decalGeo, contactDecalMaterial())
@@ -283,6 +283,10 @@ export function createObstacleVisual(opts: ObstacleVisualOpts): ObstacleVisual {
       vx += dx * k * 1.6
       vz += dz * k * 1.6
       hit = Math.min(1, hit + 0.55 + k * 0.25)
+      for (const m of meshes) {
+        m.userData.propHitX = -dx
+        m.userData.propHitZ = -dz
+      }
       // chips fly back toward the attacker from the struck face
       const hy = 25 + Math.random() * 60
       burst(-dx * r * 0.95, hy, -dz * r * 0.95, -dx, -dz, Math.round(3 + k * 4), 2.5, 6 + dmg * 4, 320)

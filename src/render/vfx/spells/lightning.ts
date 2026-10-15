@@ -16,7 +16,7 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
-import { G_SHOCK, PH, acquireKit, hash01, palFor, pawnById, releaseKit, windupProgress, type KitA, type RGB } from './kitA'
+import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pawnById, pspawn, releaseKit, windupProgress, type KitA, type RGB } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('lightning')
@@ -43,13 +43,15 @@ interface Bolt {
   life: number
   /** 0 = main beam, 1 = small arc (victim crawl / detonation spoke) */
   kind: number
+  /** spell power tier 0..2: wider core, more branches */
+  tier: number
 }
 
 const bolts: Bolt[] = []
 let nBolts = 0
-for (let i = 0; i < 24; i++) bolts.push({ born: -10, x0: 0, y0: 0, h0: 0, x1: 0, y1: 0, h1: 0, seed: 0, blocked: false, hit: false, life: 0, kind: 0 })
+for (let i = 0; i < 24; i++) bolts.push({ born: -10, x0: 0, y0: 0, h0: 0, x1: 0, y1: 0, h1: 0, seed: 0, blocked: false, hit: false, life: 0, kind: 0, tier: 0 })
 
-function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1: number, h1: number, life: number, kind: number, blocked = false, hit = false): void {
+function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1: number, h1: number, life: number, kind: number, blocked = false, hit = false, tier = 0): void {
   let b: Bolt
   if (nBolts < bolts.length) b = bolts[nBolts++]
   else {
@@ -68,9 +70,17 @@ function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1
   b.kind = kind
   b.blocked = blocked
   b.hit = hit
+  b.tier = tier
 }
 
 const STRIKE = 0.13
+/** flashes left this frame (several bolts in one tick must not stack into a white-out) */
+let flashBudget = 4
+function lflash(ctx: VfxCtx, x: number, y: number, h: number, life: number, radius: number, size: number, c: readonly number[], k: number): void {
+  if (flashBudget <= 0) return
+  flashBudget--
+  kflash(ctx, x, y, h, life, radius, size, c[0] * k, c[1] * k, c[2] * k)
+}
 
 function drawBolts(k: KitA, ctx: VfxCtx): void {
   const now = ctx.now
@@ -87,7 +97,7 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         const seed = b.seed + Math.floor(age * 45)
         const f = 1 - age / STRIKE
         // thin white-blue core, blue halo hugging it (sim half-width 25 -> ~50 wide)
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 6, P.body, P.hot, 1.3 + f * 0.7, 4, 28, 48, 0.22)
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 6 + b.tier * 1.5, P.body, P.hot, 1.3 + f * 0.7 + b.tier * 0.2, 4 + b.tier * 2, 28, 48 + b.tier * 8, 0.22)
         // light the floor along the bolt (tight, brief)
         const mx = (b.x0 + b.x1) * 0.5
         const my = (b.y0 + b.y1) * 0.5
@@ -99,7 +109,7 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         // afterimage: last strike shape frozen, cooling to violet and thinning
         const f = 1 - (age - STRIKE) / (b.life - STRIKE)
         const seed = b.seed + Math.floor(STRIKE * 45) - 1
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 5 * f + 1.2, AFTER, P.body, 0.8 * f * f, 4, 28, 30, 0.2)
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 5 * f + 1.2, AFTER, P.body, 0.8 * f * f, 4 + b.tier * 2, 28, 30, 0.2)
       }
       // scorched ember line on the floor
       const fade = Math.max(0, 1 - age / b.life)
@@ -141,7 +151,7 @@ function crackleSparks(ctx: VfxCtx, x: number, y: number, h: number, n0: number,
   for (let i = 0; i < n; i++) {
     const a = (dx === 0 && dy === 0 ? Math.random() * Math.PI * 2 : base) + (Math.random() - 0.5) * 2 * cone
     const sp = speed * (0.4 + Math.random() * 0.8)
-    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * sp * 0.5, 0.1 + Math.random() * 0.16, 7, 1, P.spark[0], P.spark[1], P.spark[2], -600, 5, -0.2)
+    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * sp * 0.5, 0.1 + Math.random() * 0.16, 7, 1, P.spark[0], P.spark[1], P.spark[2], -600, 5, -0.2)
   }
 }
 
@@ -167,7 +177,12 @@ const mod: SpellVfx = {
         if (e.spell !== 'lightning') return
         const caster = pawnById(ctx.state, e.pawn)
         // the hit lands in this same tick, before the 'beam' event: expect it
-        if (caster) k.expect('lightning', caster.owner, -1, caster.x, caster.y, 900)
+        if (caster) k.expect('lightning', caster.owner, -1, caster.x, caster.y, 900, 0, ctx.level ? ctx.level(e) : 1)
+        const info = ctx.pawn(e.pawn)
+        if (info) {
+          k.origin(info, o)
+          k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
+        }
         return
       }
       case 'damage': {
@@ -176,7 +191,7 @@ const mod: SpellVfx = {
         const v = ctx.pawn(e.target)
         const h = (v?.h ?? 30) + 55
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 1, a.tier)
         crackleSparks(ctx, e.x, e.y, h, 16, 900, dir.x, dir.y, 0.7)
         crawl(ctx.now, e.x, e.y, (v?.h ?? 30) + 10, 4, 0.32)
         return true
@@ -202,43 +217,57 @@ const mod: SpellVfx = {
         const len = Math.hypot(dx, dy) || 1
         const ux = dx / len
         const uy = dy / len
-        const tp = e.target !== null ? pawnById(ctx.state, e.target) : undefined
-        if (e.blocked && tp) {
-          // stop on the bubble surface, not its centre
+        const tp = e.target !== null ? (pawnById(ctx.state, e.target) ?? pawnById(ctx.prev, e.target)) : undefined
+        if (e.blocked) {
+          // stop on the bubble SURFACE from the first frame: ray / circle entry point around the
+          // bubble owner (the sim's toX/toY is the owner's centre projected on the beam)
           let br = 0
-          for (const m of tp.modifiers) if ((m.id === 'shield' || m.id === 'alteration') && m.data.radius) br = Math.max(br, m.data.radius)
-          const back = Math.min(len - 40, br)
-          x1 -= ux * back
-          y1 -= uy * back
+          const scan = (p: typeof tp) => {
+            if (!p) return
+            for (const m of p.modifiers) if ((m.id === 'shield' || m.id === 'alteration') && m.data.radius) br = Math.max(br, m.data.radius)
+          }
+          scan(tp)
+          if (br === 0 && e.target !== null) scan(pawnById(ctx.prev, e.target))
+          if (br === 0) br = 200
+          const cx = tp ? tp.x : e.toX
+          const cy = tp ? tp.y : e.toY
+          const rx = cx - e.fromX
+          const ry = cy - e.fromY
+          const sAlong = rx * ux + ry * uy
+          const perp = rx * uy - ry * ux
+          const entry = sAlong - Math.sqrt(Math.max(0, br * br - perp * perp))
+          const t = Math.max(40, Math.min(len, entry))
+          x1 = e.fromX + ux * t
+          y1 = e.fromY + uy * t
         } else if (tp) {
           const tv = ctx.pawn(tp.id)
           if (tv) h1 = tv.h + 70
         }
-        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, 0.55, 0, e.blocked, e.target !== null)
-        ctx.flash(x0, y0, h0, 0.1, 120, 70, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, 0.55, 0, e.blocked, e.target !== null, k.tierOf(e))
+        lflash(ctx, x0, y0, h0, 0.1, 120, 70, P.body, 0.8)
         crackleSparks(ctx, x0, y0, h0, 8, 500, ux, uy, 0.9)
         ctx.shakeNear(x0, y0, 0.12)
         const fl = k.floor(x1, y1)
         if (e.blocked) {
           // tink on the bubble surface: small, short, electric blue (never a white-out);
           // glancing sparks back toward the caster
-          ctx.flash(x1, y1, h1, 0.07, 90, 55, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+          lflash(ctx, x1, y1, h1, 0.07, 90, 55, P.body, 0.7)
           crackleSparks(ctx, x1, y1, h1, 18, 800, -ux, -uy, 0.9)
           k.pulse(G_SHOCK, true, x1, y1, h1, 34, 48, 0.16, 0, 0, P.body, 1.0, 0.2, 0.9, 0.12)
         } else if (e.target === null) {
           // full range: the bolt frays into a crackle
           crackleSparks(ctx, x1, y1, h1, 14, 500)
-          ctx.flash(x1, y1, h1, 0.12, 160, 90, P.body[0], P.body[1], P.body[2])
+          lflash(ctx, x1, y1, h1, 0.12, 160, 90, P.body, 1)
           for (let i = 0; i < 3; i++) {
             const a = Math.atan2(uy, ux) + (Math.random() - 0.5) * 2.2
             const l = 50 + Math.random() * 60
             addBolt(ctx.now, x1, y1, h1, x1 + Math.cos(a) * l, y1 + Math.sin(a) * l, h1 - 20 - Math.random() * 30, 0.2, 1)
           }
         } else {
-          ctx.flash(x1, y1, h1, 0.12, 150, 90, P.body[0], P.body[1], P.body[2])
+          lflash(ctx, x1, y1, h1, 0.12, 150, 90, P.body, 1)
           if (!ctx.isLava(x1, y1)) ctx.scorches.spawn(x1, y1, fl - 0.4, 40, 3)
         }
-        ctx.ground.spawn(RING_EXPAND, x1, y1, fl, 8, 90, 0.3, 8, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+        kring(ctx, RING_EXPAND, x1, y1, fl, 8, 90, 0.3, 8, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
         return
       }
       case 'explosion': {
@@ -246,17 +275,21 @@ const mod: SpellVfx = {
         const R = e.radius
         k.expect('lightning', -1, -1, e.x, e.y, R)
         const fl = k.floor(e.x, e.y)
+        // crisp boundary exactly at the damage radius + a blue shock riding out to it
         ctx.aoeRing(e.x, e.y, R, P.body[0], P.body[1], P.body[2], 0.5)
-        k.pulse(G_SHOCK, false, e.x, e.y, fl + 2, R, R, 0.38, Math.random() * 6, 0, P.hot, 1.0, 0.1, 0.93, 0.08)
-        // fireball fuel + storm: orange fire core inside, electric spokes to the edge
+        k.pulse(G_SHOCK, false, e.x, e.y, fl + 2, R, R, 0.38, Math.random() * 6, 0, P.body, 0.9, 0.1, 0.93, 0.07)
+        // the fireball's fuel: a tight orange fire burst inside the ring (structured, not a ball:
+        // few mid-size puffs flung outward, fewer still without bloom so nothing stacks to white)
         const ps = ctx.particles
-        const n = ps.budget(50)
+        const flat = !ctx.tier.bloom
+        const n = ps.budget(flat ? 14 : 24)
         for (let i = 0; i < n; i++) {
-          const a = Math.random() * Math.PI * 2
-          const sp = R * (1.2 + Math.random() * 1.6)
-          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 200, 0.32 + Math.random() * 0.2, 34 + Math.random() * 20, -10, FB.body[0] * 1.3, FB.body[1] * 1.3, FB.body[2] * 1.3, -200, 3.4, 0)
+          const a = (i / Math.max(1, n)) * Math.PI * 2 + Math.random() * 0.4
+          // drag 3.4: travel <= sp / 3.4 ~ 0.85 R
+          const sp = R * (1.6 + Math.random() * 1.3)
+          pspawn(ps, e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 160, 0.26 + Math.random() * 0.16, 22 + Math.random() * 10, -8, FB.body[0], FB.body[1], FB.body[2], -200, 3.4, 0)
         }
-        crackleSparks(ctx, e.x, e.y, PH, 30, R * 3.2)
+        crackleSparks(ctx, e.x, e.y, PH, 26, R * 2.6)
         for (let i = 0; i < 7; i++) {
           const a = (i / 7) * Math.PI * 2 + Math.random() * 0.5
           const l = R * (0.75 + Math.random() * 0.22)
@@ -268,7 +301,7 @@ const mod: SpellVfx = {
           ctx.smoke.spawn(e.x, e.y, PH, Math.cos(a) * 80, Math.sin(a) * 80, 60 + Math.random() * 40, 1.2 + Math.random() * 0.6, 50, 160, 0.05, 0.05, 0.06, 20, 1, 14)
         }
         if (!ctx.isLava(e.x, e.y)) ctx.scorches.spawn(e.x, e.y, fl - 0.4, R * 0.45, 5)
-        ctx.flash(e.x, e.y, PH + 20, 0.24, R, 160, P.body[0] * 1.4, P.body[1] * 1.4, P.body[2] * 1.4)
+        lflash(ctx, e.x, e.y, PH + 20, 0.16, R * 0.8, 110, P.body, 0.9)
         ctx.shakeNear(e.x, e.y, 0.35)
         return
       }
@@ -281,6 +314,7 @@ const mod: SpellVfx = {
   },
 
   frame(ctx) {
+    flashBudget = 4
     const k = K
     const s = ctx.state
     if (!k || !s) return

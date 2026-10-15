@@ -22,6 +22,7 @@ export const bouncerSpell: SpellBehavior = {
     const a = aim(ctx)
     const speed = attr(def, 'speed', level)
     spawnProjectile(state, caster.owner, 'bouncer', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'ttl', level),
       data: {
         damage: castAttr(ctx, 'damage'),

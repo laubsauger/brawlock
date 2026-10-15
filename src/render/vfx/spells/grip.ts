@@ -16,7 +16,7 @@ import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, hexRgb, implode, kitAdopt, kitBegin,
-  kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle,
+  kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, levelOf, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'grip'
@@ -25,7 +25,7 @@ const H = PROJECTILE_H
 const TOXIC = pal('grip', 'accent', 1.1)
 const TOXIC_HOT = pal('grip', 'core', 2.0)
 const TOXIC_DIM = palMix('grip', 0.0, 0.25)
-const N_CLAW = 5
+const N_CLAW = 6
 
 interface Hold {
   seen: number
@@ -93,7 +93,7 @@ function clawMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const m = new THREE.MeshBasicNodeMaterial()
   m.transparent = true
   m.depthWrite = true
-  m.colorNode = col
+  m.colorNode = tierCap(ctx, col, 2.2, 0.9, 0.85)
   // fade into the ectoplasm at the base: no hard cut against the floor
   m.opacityNode = smoothstep(0.0, 0.16, p.y).mul(0.92)
   m.name = 'VfxB-GripClaw'
@@ -238,7 +238,7 @@ registerSpellVfx({
     const rise = Math.min(1, age / 0.22)
     const grow = 1 - Math.pow(1 - rise, 3)
     const clench = Math.max(0, 1 - (ctx.now - hold.clenchAt) / 0.35)
-    drawClaws(x, y, fh, grow, clench, pawn.id, ctx.now)
+    drawClaws(x, y, fh, grow, clench, pawn.id, ctx.now, 4 + tierOfLevel(ctx, levelOf(ctx, _mod.source, SPELL)))
     // bubbling ectoplasm pool and rising wisps
     drawShadow(x, y, fh + 0.9, 90 * grow, 0.75, 0.35, 0.45, pawn.id)
     drawCircle(x, y, fh + 1.3, 90 * grow, STYLE_RIPPLES, TOXIC[0] * 0.8, TOXIC[1] * 0.8, TOXIC[2] * 0.8, 1.1 * grow, 0, 5, pawn.id, 0.12, 1, 0, hold.since)
@@ -257,10 +257,10 @@ registerSpellVfx({
 })
 
 /** Five talons around (x, y): grow 0..1 rise, clench 0..1 extra curl + flash. */
-function drawClaws(x: number, y: number, fh: number, grow: number, clench: number, seed: number, now: number): void {
+function drawClaws(x: number, y: number, fh: number, grow: number, clench: number, seed: number, now: number, count = N_CLAW): void {
   if (!claws || grow <= 0.01) return
-  for (let i = 0; i < N_CLAW; i++) {
-    const a = (i / N_CLAW) * TAU + seed * 1.3
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * TAU + seed * 1.3
     const rr = 44 + (i % 2) * 8
     const L = (120 + ((i * 37) % 3) * 18) * grow
     const sway = Math.sin(now * 3 + i * 1.7) * 0.06

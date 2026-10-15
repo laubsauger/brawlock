@@ -4,6 +4,7 @@ import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
 import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, resolveBinds, type BindAction } from './lib/keys'
 import { sfx } from './lib/sound'
 import { assignKey, clearSecondary, resetSlotLayout } from './lib/remap'
+import { toggleFullscreen, useFullscreen } from './lib/fullscreen'
 import { slotDragProps } from './lib/slotDnd'
 import { audio } from '../audio'
 import { chooseName } from './lib/name'
@@ -236,6 +237,7 @@ export function SettingsModal() {
   const toggle = useGame((st) => st.toggle)
   const [name, setName] = useState(s.playerName)
   const [capturing, setCapturing] = useState(false)
+  const fullscreen = useFullscreen()
   const close = useCallback(() => {
     if (name.trim() && name.trim() !== s.playerName) chooseName(name)
     toggle('settingsOpen', false)
@@ -246,6 +248,9 @@ export function SettingsModal() {
       <Section title="Graphics">
         <Row label="Quality" hint={QUALITY_HINT[s.quality]}>
           <Segmented label="Quality" value={s.quality} options={QUALITY} onChange={(quality) => setSettings({ quality })} />
+        </Row>
+        <Row label="Fullscreen" hint="Also Alt+Enter at any time">
+          <Switch label="Fullscreen" checked={fullscreen} onChange={() => void toggleFullscreen()} />
         </Row>
         <Row label="Effects intensity" hint="Screen shake, flashes and post effects">
           <div className="w-56">
@@ -304,6 +309,17 @@ export function SettingsModal() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => setName(name.trim() ? chooseName(name) : s.playerName)}
+          />
+        </Row>
+        <Row label="HUD layout" hint={s.hudLayout === 'right' ? 'Bars and spells sit in the bottom-right corner; the center stays clear' : 'Bars and spells centered at the bottom, as in Dota'}>
+          <Segmented
+            label="HUD layout"
+            value={s.hudLayout ?? 'center'}
+            options={[
+              { value: 'center', label: 'Bottom center' },
+              { value: 'right', label: 'Bottom right' },
+            ]}
+            onChange={(hudLayout) => setSettings({ hudLayout })}
           />
         </Row>
         <Row label="HUD scale" hint="On top of the automatic scale for your screen size">

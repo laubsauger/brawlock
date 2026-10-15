@@ -23,6 +23,7 @@ export const meteorSpell: SpellBehavior = {
     const t = clampTarget(ctx, attr(def, 'range', level))
     const back = attr(def, 'spawn_back', level)
     spawnProjectile(state, caster.owner, 'meteor', t.x - a.dx * back, t.y - a.dy * back, 0, 0, 0, {
+      level,
       lifetime: null,
       data: {
         tx: t.x,
@@ -68,7 +69,7 @@ export const meteorProjectile: ProjectileBehavior = {
       p.vx = 0
       p.vy = 0
       d.z = GAME_Z
-      state.events.push({ type: 'explosion', x: d.tx, y: d.ty, radius: d.radius, spell: 'meteor' })
+      state.events.push({ type: 'explosion', x: d.tx, y: d.ty, radius: d.radius, spell: 'meteor', level: p.level })
       damageArea(state, p.owner, d.tx, d.ty, d.radius, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb, cause: 'meteor' })
       killProjectile(state, p)
     }

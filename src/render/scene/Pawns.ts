@@ -1,15 +1,16 @@
 import * as THREE from 'three/webgpu'
-import { abs, cos, exp, float, length, max, mix, positionGeometry, saturate, sin, smoothstep, step, uniform, vec2, vec3 } from 'three/tsl'
+import { abs, atan, cos, dot, exp, float, fract, length, max, mix, normalView, positionGeometry, positionView, pow, saturate, sin, smoothstep, step, uniform, varying, vec2, vec3 } from 'three/tsl'
 import type { PawnState, PlayerSlot, SimEvent } from '../../sim/types'
 import { isLocationSafe } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
-import { createWarlock, type CastArm, type WarlockHandle } from '../character'
+import { createWarlock, type CastArm, type DeathKind, type WarlockHandle } from '../character'
 import { tweaks } from '../tweaks'
 import { COLLISION_RING_R } from '../scale'
 
 const DEATH_DUR = 0.9
+const DEATH_KINDS: ReadonlySet<string> = new Set(['ash', 'lava', 'fireball', 'meteor', 'lightning', 'freeze', 'gravity', 'drain', 'shadow', 'fade'])
 const FLASH_DUR = 0.3
 const DECAL_R = 84
 const CHARGE_R = 250
@@ -111,6 +112,13 @@ export class PawnView {
   private aimMat: THREE.MeshBasicNodeMaterial
   private aimShadow!: THREE.Mesh
   private aimShadowMat!: THREE.MeshBasicNodeMaterial
+  private ward!: THREE.Mesh
+  private wardDome!: THREE.Mesh
+  private wardMat!: THREE.MeshBasicNodeMaterial
+  private wardDomeMat!: THREE.MeshBasicNodeMaterial
+  private wAlpha = makeF()
+  /** 0..1 target set by the world: protective ward during the shop phase */
+  wardTarget = 0
   private castRing!: THREE.Mesh
   private castRingMat!: THREE.MeshBasicNodeMaterial
   private crProgress = makeF()
@@ -297,7 +305,53 @@ export class PawnView {
       this.castRing.frustumCulled = false
       this.castRing.visible = false
     }
-    this.root.add(this.decal, this.charge, this.aim, this.aimShadow, this.castRing)
+    // shop-phase ward: calm rune circle at the feet + faint team-colour dome
+    {
+      const q = positionGeometry.xy
+      const rr = length(q).mul(64)
+      const ring = (r0: number, w: number) => {
+        const x = rr.sub(r0).div(w)
+        return exp(x.mul(x).negate())
+      }
+      const tF = varying(ctx.uTime)
+      const ang = atan(q.y, q.x).add(tF.mul(0.35))
+      const ticks = step(0.82, fract(ang.div(Math.PI * 2).mul(16))).mul(step(46, rr)).mul(step(rr, 54))
+      const glyph = ring(56, 1.6).add(ring(44, 1.2).mul(0.7)).add(ticks.mul(0.8))
+      const m = new THREE.MeshBasicNodeMaterial()
+      m.transparent = true
+      m.depthWrite = false
+      m.blending = THREE.AdditiveBlending
+      m.colorNode = this.dTeam.mul(0.6).add(vec3(0.15, 0.15, 0.2)).mul(glyph).mul(this.wAlpha).mul(1.2)
+      m.opacityNode = float(1)
+      m.positionNode = groundQuadPosition(64)
+      m.name = 'ShopWard'
+      this.wardMat = m
+      this.ward = new THREE.Mesh(groundQuad(), m)
+      this.ward.renderOrder = 3
+      this.ward.frustumCulled = false
+      this.ward.visible = false
+
+      const dm = new THREE.MeshBasicNodeMaterial()
+      dm.transparent = true
+      dm.depthWrite = false
+      dm.blending = THREE.AdditiveBlending
+      dm.side = THREE.FrontSide
+      const viewDir = positionView.negate().normalize()
+      const fres = pow(float(1).sub(saturate(dot(normalView, viewDir))), 2.5)
+      const band = sin(positionGeometry.y.mul(18).sub(tF.mul(1.6))).mul(0.5).add(0.5)
+      const shimmer = band.mul(0.35).add(0.65)
+      dm.colorNode = this.dTeam.mul(0.55).add(vec3(0.12, 0.13, 0.18)).mul(fres.mul(shimmer)).mul(this.wAlpha).mul(0.8)
+      dm.opacityNode = float(1)
+      dm.name = 'ShopWardDome'
+      this.wardDomeMat = dm
+      const dg = new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2)
+      dg.scale(62 * S, 150 * S, 62 * S)
+      this.wardDome = new THREE.Mesh(dg, dm)
+      this.wardDome.renderOrder = 8
+      this.wardDome.frustumCulled = false
+      this.wardDome.visible = false
+    }
+    this.root.add(this.decal, this.charge, this.aim, this.aimShadow, this.castRing, this.ward, this.wardDome)
   }
 
   setShadows(on: boolean): void {
@@ -340,6 +394,27 @@ export class PawnView {
   deathCause(cause: string): void {
     this.cause = cause
   }
+
+  get deathCauseId(): string {
+    return this.cause
+  }
+
+  /** a VFX module took over this pawn's death: no built-in death embers */
+  customDeath = false
+
+  /**
+   * Route a death look to the character (dissolve edge tinted by the killer
+   * spell); the built-in body dissolves with the same edge colour.
+   */
+  deathFx(kind: string, dx: number, dy: number, edge: [number, number, number] | null): void {
+    this.customDeath = true
+    if (edge) this.u.dissolveColor.value.setRGB(edge[0], edge[1], edge[2])
+    this.edgeOverride = !!edge
+    // character API: edge = linear RGB triple (or 0xRRGGBB); unknown kinds fall back to 'ash'
+    this.warlock?.deathFx(DEATH_KINDS.has(kind) ? (kind as DeathKind) : 'ash', dx, dy, edge ?? undefined)
+  }
+
+  private edgeOverride = false
 
   /** Teleport arrival: rematerialize (reverse dissolve, cyan edge) + rim flash. */
   materialize(now: number): void {
@@ -416,11 +491,14 @@ export class PawnView {
   }
 
   /** Per-frame update of the character warlock (no-op for the built-in body). */
-  driveWarlock(p: PawnState, prev: PawnState | undefined, alpha: number, dt: number, events: readonly SimEvent[], castColor: number | null): void {
+  driveWarlock(p: PawnState, prev: PawnState | undefined, alpha: number, dt: number, events: readonly SimEvent[], castColor: number | null, suppressHitFlash = false): void {
     const w = this.warlock
     if (!w) return
     w.setCastColor(castColor)
+    // a VFX module claimed this frame's hit on us: no material flash on top of its own
+    if (suppressHitFlash) w.hitFlash(false)
     w.update(p, prev ?? null, alpha, dt, events)
+    if (suppressHitFlash) w.hitFlash(true)
   }
 
   /** Windup ground ring under the caster: progress 0..1, linear colour, alpha. */
@@ -430,6 +508,21 @@ export class PawnView {
     this.crAlpha.value = alpha
     this.castRing.visible = alpha > 0.01
     this.castRing.position.y = ((this.onLava ? LAVA_H : TILE_TOP_H) - this.h + 1.4) * S
+  }
+
+  /**
+   * Set by the world: true when a VFX module claims this spell. Claimed spells
+   * get no built-in spell-specific windup (the Scourge AoE charge decal); the
+   * shared base windup stays unless the module's windupStyle hides parts.
+   */
+  spellClaimed: (spell: string) => boolean = () => false
+  /** Set by the world from the claiming module's windupStyle: hide the base aim arrow. */
+  hideArrow: (spell: string) => boolean = () => false
+
+  /** Purchase / upgrade: the character's level-up burst (when it provides one). */
+  levelUp(hueHex: number): void {
+    const w = this.warlock as (WarlockHandle & { levelUp?: (hue: number) => void }) | null
+    if (w && typeof w.levelUp === 'function') w.levelUp(hueHex)
   }
 
   /** Per-frame visibility (VFX overrides: Windwalk, custom deaths). */
@@ -487,6 +580,8 @@ export class PawnView {
       this.deathAt = -1
       this.spin = 0
       this.cause = ''
+      this.customDeath = false
+      this.edgeOverride = false
     }
 
     // lava deaths: the corpse thrashes and sinks out of sight
@@ -587,9 +682,12 @@ export class PawnView {
     this.bob.rotation.x += rel * 0.12 - this.castProgress * 0.05
     this.u.cast.value = Math.min(1.5, this.castProgress + rel * 1.2)
 
-    // scourge windup decal (fades fast on cancel instead of popping)
-    const scourge = running && p.cast!.spell.startsWith('scourge')
-    if (scourge) {
+    // scourge windup decal (built-in only: a module that claims scourge draws
+    // its own; fades fast on cancel instead of popping)
+    const castSpell = running ? p.cast!.spell : ''
+    const claimed = running && this.spellClaimed(castSpell)
+    const scourge = running && castSpell.startsWith('scourge')
+    if (scourge && !claimed) {
       this.cProgress.value = this.castProgress
       this.cAlpha.value = 1
     } else {
@@ -613,7 +711,7 @@ export class PawnView {
       this.aColor.value.setRGB(0.55, 0.9, 0.6)
       this.aR.value = Math.max(ap.range, d + ap.radius) + 40
       this.aim.visible = true
-    } else if (running && !scourge && p.alive) {
+    } else if (running && !scourge && p.alive && !this.hideArrow(castSpell)) {
       const dx = this.castTarget.x - s.x
       const dy = this.castTarget.y - s.y
       this.aDir.value = Math.atan2(dy, dx)
@@ -658,12 +756,23 @@ export class PawnView {
     if (!dying && at >= 0 && at < 1) {
       dis = 1 - at
       this.u.dissolveColor.value.setRGB(0.8, 2.2, 4.0)
-    } else if (dying) {
+    } else if (dying && !this.edgeOverride) {
       this.u.dissolveColor.value.setRGB(4.5, 1.4, 0.25)
     }
     this.u.arrive.value = Math.max(0, 1 - (now - this.arriveAt) / 0.35)
     this.u.dissolve.value = dis
     this.body.visible = this.staff.visible = dis < 1
+
+    // shop ward: eases in, fades out on the 3-2-1 -> FIGHT transition
+    const wt = p.alive ? this.wardTarget : 0
+    this.wAlpha.value += (wt - this.wAlpha.value) * (1 - Math.exp(-dt * (wt > this.wAlpha.value ? 4 : 5)))
+    const wardOn = this.wAlpha.value > 0.01
+    this.ward.visible = wardOn
+    this.wardDome.visible = wardOn
+    if (wardOn) {
+      this.ward.position.y = ((safe ? TILE_TOP_H : LAVA_H) - this.h + 1.6) * S
+      this.wardDome.position.y = ((safe ? TILE_TOP_H : LAVA_H) - this.h) * S
+    }
 
     this.dKb.value = Math.min(1, p.kbPoints / 1500)
     this.dAlpha.value = dying ? 1 - dis : 1
@@ -685,6 +794,10 @@ export class PawnView {
     this.aimShadowMat.dispose()
     this.castRingMat.dispose()
     this.castRing.geometry.dispose()
+    this.wardMat.dispose()
+    this.wardDomeMat.dispose()
+    this.ward.geometry.dispose()
+    this.wardDome.geometry.dispose()
     this.decal.geometry.dispose()
     this.charge.geometry.dispose()
     this.aim.geometry.dispose()

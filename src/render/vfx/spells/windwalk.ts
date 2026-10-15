@@ -16,7 +16,7 @@ import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { isEnemy } from '../../../sim/teams'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { TAU, burst, floorH, glowG, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB, pal } from './kitB'
+import { TAU, burst, floorH, glowG, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB, pal, flashT, levelOfThing, levelOf, tierOfLevel } from './kitB'
 
 const SPELL = 'windwalk'
 // identity: pale grey-white, no hue (vfx/palette.ts)
@@ -59,7 +59,7 @@ function smokeBurst(ctx: VfxCtx, x: number, y: number, h: number, big: number): 
   }
   burst(ctx, x, y, h, 18 * big, 80, 300, 0.35, 0.7, 30, 6, WRAITH, 0.8, 0, 2.5, 30, 20, 160, 20)
   ctx.ground.spawn(RING_IMPLODE, x, y, fh, 20, 110, 0.3, 10, WRAITH[0], WRAITH[1], WRAITH[2])
-  ctx.flash(x, y, h, 0.18, 160, 160, WRAITH[0], WRAITH[1], WRAITH[2])
+  flashT(ctx, x, y, h, 0.18, 160, 160, WRAITH[0], WRAITH[1], WRAITH[2])
 }
 
 function viewerIsEnemy(ctx: VfxCtx, owner: number): boolean {
@@ -108,9 +108,9 @@ registerSpellVfx({
         const fh = floorH(ctx, e.x, e.y)
         // violet shockwave cracking along the charge direction
         ctx.ground.spawn(RING_EXPAND, e.x, e.y, fh, 10, 150, 0.32, 14, WRAITH[0], WRAITH[1], WRAITH[2])
-        ctx.flash(e.x, e.y, h, 0.16, 200, 200, 2.2, 1.5, 3.0)
+        flashT(ctx, e.x, e.y, h, 0.16, 200, 200, 2.2, 1.5, 3.0)
         const ps = ctx.particles
-        const n = ps.budget(36)
+        const n = ps.budget(36 * (1 + 0.3 * tierOfLevel(ctx, levelOfThing(e))))
         const base = Math.atan2(dy, dx)
         for (let i = 0; i < n; i++) {
           const a = base + rand(-0.6, 0.6)
@@ -148,7 +148,8 @@ registerSpellVfx({
     // --- wraith look for the owner / allies: a half-faded ghost body
     ctx.pawnVisibility(pawn.id, { body: 1 - 0.55 * fadeIn })
     const t = ctx.now
-    // after-images along the path
+    // after-images along the path (brighter at higher power tiers)
+    const wt = tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL))
     if (t - w.lastSample > TRAIL_DT) {
       w.lastSample = t
       w.head = (w.head + 1) % TRAIL_N
@@ -160,7 +161,7 @@ registerSpellVfx({
       const age = t - w.tt[k]
       if (age > TRAIL_N * TRAIL_DT || age <= 0.0) continue
       const f = 1 - age / (TRAIL_N * TRAIL_DT)
-      glowG(w.tx[k], w.ty[k], fh + 75, 130, WRAITH, 0.55 * f * f * fadeIn, 1.4, 3, 0.7, 0, 0.3)
+      glowG(w.tx[k], w.ty[k], fh + 75, 130, WRAITH, (0.45 + 0.1 * wt) * f * f * fadeIn, 1.4, 3, 0.7, 0, 0.3)
     }
     // smoke shroud and cold rim around the body
     glowG(x, y, fh + 80, 180, WRAITH_DEEP, 1.7 * fadeIn, 1, 3, 0.75, 0, 0.6)

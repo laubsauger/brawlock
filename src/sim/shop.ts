@@ -18,7 +18,7 @@ import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHO
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
 import { recomputeStats } from './stats'
 import { pawnOf, scoreOf } from './teams'
-import type { PlayerId, PlayerScore, SimState, SpellId } from './types'
+import type { PawnState, PlayerId, PlayerScore, SimState, SpellId } from './types'
 
 /**
  * Whether the shop is open for everyone right now (shop phase; any phase under 'anyPhase').
@@ -35,6 +35,12 @@ export function canBuy(state: SimState, player: PlayerId): boolean {
   if (shopOpen(state)) return true
   const pawn = pawnOf(state, player)
   return !!pawn && !pawn.alive
+}
+
+/** 'purchase' event for a successful buy / upgrade (upgrade burst VFX, purchase sound). */
+function purchased(state: SimState, player: PlayerId, pawn: PawnState, kind: 'spell' | 'item' | 'mastery', id: string, level: number): true {
+  state.events.push({ type: 'purchase', player, pawn: pawn.id, kind, id, level })
+  return true
 }
 
 function pay(sc: PlayerScore, cost: number): boolean {
@@ -56,14 +62,14 @@ export function buySpell(state: SimState, player: PlayerId, spell: SpellId): boo
     pawn.slots[slot] = spell
     pawn.levels[slot] = 1
     pawn.cooldowns[slot] = 0
-    return true
+    return purchased(state, player, pawn, 'spell', spell, 1)
   }
   if (current !== spell) return false
   const level = pawn.levels[slot]
   if (level >= Math.min(def.maxLevel, SPELL_MAX_LEVEL)) return false
   if (!pay(sc, def.upgradeCosts[level - 1])) return false
   pawn.levels[slot] = level + 1
-  return true
+  return purchased(state, player, pawn, 'spell', spell, level + 1)
 }
 
 export function buyItem(state: SimState, player: PlayerId, item: SpellId): boolean {
@@ -83,7 +89,7 @@ export function buyItem(state: SimState, player: PlayerId, item: SpellId): boole
       // the original swaps in a fresh item entity, so an upgrade also resets its cooldown
       pawn.cooldowns[i] = 0
       recomputeStats(pawn)
-      return true
+      return purchased(state, player, pawn, 'item', item, pawn.levels[i])
     }
     if (free < 0 && pawn.slots[i] === null) free = i
   }
@@ -93,13 +99,14 @@ export function buyItem(state: SimState, player: PlayerId, item: SpellId): boole
   pawn.levels[free] = 1
   pawn.cooldowns[free] = 0
   recomputeStats(pawn)
-  return true
+  return purchased(state, player, pawn, 'item', item, 1)
 }
 
 export function buyMastery(state: SimState, player: PlayerId, kind: 'duration' | 'range' | 'lifesteal' | 'all'): boolean {
   if (!canBuy(state, player)) return false
   const sc = scoreOf(state, player)
-  if (!sc || !pawnOf(state, player)) return false
+  const pawn = pawnOf(state, player)
+  if (!sc || !pawn) return false
   const m = sc.masteries
   if (kind === 'all') {
     if (m.duration >= MASTERY_MAX_LEVEL || m.range >= MASTERY_MAX_LEVEL || m.lifesteal >= MASTERY_MAX_LEVEL) return false
@@ -107,11 +114,13 @@ export function buyMastery(state: SimState, player: PlayerId, kind: 'duration' |
     m.duration += 1
     m.range += 1
     m.lifesteal += 1
-    return true
+    purchased(state, player, pawn, 'mastery', 'duration', m.duration)
+    purchased(state, player, pawn, 'mastery', 'range', m.range)
+    return purchased(state, player, pawn, 'mastery', 'lifesteal', m.lifesteal)
   }
   if (kind !== 'duration' && kind !== 'range' && kind !== 'lifesteal') return false
   if (m[kind] >= MASTERY_MAX_LEVEL) return false
   if (!pay(sc, MASTERY_COST)) return false
   m[kind] += 1
-  return true
+  return purchased(state, player, pawn, 'mastery', kind, m[kind])
 }

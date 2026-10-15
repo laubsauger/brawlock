@@ -12,7 +12,7 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('cluster')
@@ -31,21 +31,21 @@ function splash(k: KitA, ctx: VfxCtx, x: number, y: number, hit: boolean): void 
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 150 + Math.random() * 300
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.2) * 220, 0.22 + Math.random() * 0.2, 24 + Math.random() * 12, -8, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3, -300, 5, 0)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.2) * 220, 0.22 + Math.random() * 0.2, 24 + Math.random() * 12, -8, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3, -300, 5, 0)
   }
   const nd = ps.budget(hit ? 6 : 3)
   for (let i = 0; i < nd; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 120 + Math.random() * 220
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 200, 0.5 + Math.random() * 0.3, 7, 3, P.spark[0], P.spark[1], P.spark[2], -1400, 1.2, -0.04)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 200, 0.5 + Math.random() * 0.3, 7, 3, P.spark[0], P.spark[1], P.spark[2], -1400, 1.2, -0.04)
   }
   const fl = k.floor(x, y)
   k.pulse(G_SHOCK, false, x, y, fl + 1.5, 55, 55, 0.24, Math.random() * 6, 0, P.body, 0.9, 0.12, 0.95, 0.1)
   if (hit) {
-    ctx.ground.spawn(RING_EXPAND, x, y, fl, 8, 70, 0.26, 7, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+    kring(ctx, RING_EXPAND, x, y, fl, 8, 70, 0.26, 7, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
     if (!ctx.isLava(x, y)) ctx.scorches.spawn(x, y, fl - 0.4, 30, 3)
   }
-  ctx.flash(x, y, PH, 0.12, hit ? 150 : 100, hit ? 80 : 55, P.body[0] * 1.2, P.body[1] * 1.2, P.body[2] * 1.2)
+  kflash(ctx, x, y, PH, 0.12, hit ? 150 : 100, hit ? 80 : 55, P.body[0] * 1.2, P.body[1] * 1.2, P.body[2] * 1.2)
   const ns = ctx.smoke.budget(hit ? 3 : 4)
   for (let i = 0; i < ns; i++) ctx.smoke.spawn(x, y, PH, (Math.random() - 0.5) * 90, (Math.random() - 0.5) * 90, 50 + Math.random() * 30, 0.8 + Math.random() * 0.4, 24, 80, 0.05, 0.035, 0.02, 25, 1.2, 8)
 }
@@ -81,8 +81,9 @@ const mod: SpellVfx = {
         const info = ctx.pawn(e.pawn)
         if (!info) return
         k.origin(info, o)
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         const base = Math.atan2(e.y - info.y, e.x - info.x)
-        ctx.flash(o.x, o.y, o.h, 0.14, 150, 90, P.hot[0] * 0.7, P.hot[1] * 0.7, P.hot[2] * 0.7)
+        kflash(ctx, o.x, o.y, o.h, 0.14, 150, 90, P.hot[0] * 0.7, P.hot[1] * 0.7, P.hot[2] * 0.7)
         const ps = ctx.particles
         for (const off of FAN) {
           const a0 = base + off
@@ -90,7 +91,7 @@ const mod: SpellVfx = {
           for (let i = 0; i < n; i++) {
             const a = a0 + (Math.random() - 0.5) * 0.12
             const sp = 200 + Math.random() * 350
-            ps.spawn(o.x, o.y, o.h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 60, 0.16 + Math.random() * 0.1, 22, -6, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3, 40, 5, 0)
+            pspawn(ps, o.x, o.y, o.h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 60, 0.16 + Math.random() * 0.1, 22, -6, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3, 40, 5, 0)
           }
         }
         return
@@ -100,7 +101,7 @@ const mod: SpellVfx = {
         if (!a || a.spell !== 'cluster') return
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P, 0.9)
+        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P, 0.9, a.tier)
         return true
       }
       case 'projectileHit':
@@ -143,15 +144,16 @@ const mod: SpellVfx = {
     const dx = sp > 1 ? p.vx / sp : 1
     const dy = sp > 1 ? p.vy / sp : 0
     k.cores.add(x, y, PH, r, dx, dy, 0.8, p.id, P.edge, P.body, CORE)
-    k.glowAt(x, y, PH, r * 3.6, P.body[0] * 0.6, P.body[1] * 0.6, P.body[2] * 0.6, 1.8, 0.5)
+    k.halo(x, y, PH, r * 3.6, P.body[0] * 0.6, P.body[1] * 0.6, P.body[2] * 0.6, 1.8, 0.5)
     // ground light: one per pair of bolts (shared GLOW budget)
-    if (p.id % 2 === 0) ctx.glow.add(x, y, 170, 0.6, P.light[0], P.light[1], P.light[2])
+    if (p.id % 2 === 0) ctx.glow.add(x, y, 140, 0.45, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 22)
     for (let i = 0; i < n; i++) {
-      ps.spawn(x - dx * r, y - dy * r, PH + (Math.random() - 0.5) * 10, -dx * 80 + (Math.random() - 0.5) * 70, -dy * 80 + (Math.random() - 0.5) * 70, 20 + Math.random() * 60, 0.3 + Math.random() * 0.2, 6, -2, P.spark[0], P.spark[1], P.spark[2], -120, 2, 3)
+      pspawn(ps, x - dx * r, y - dy * r, PH + (Math.random() - 0.5) * 10, -dx * 80 + (Math.random() - 0.5) * 70, -dy * 80 + (Math.random() - 0.5) * 70, 20 + Math.random() * 60, 0.3 + Math.random() * 0.2, 6, -2, P.spark[0], P.spark[1], P.spark[2], -120, 2, 3)
     }
   },
 }

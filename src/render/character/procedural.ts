@@ -95,7 +95,11 @@ export class ProceduralWarlock implements WarlockHandle {
   setStaff(_variant: StaffVariant | null): void {}
   setCastFrom(_from: CastFrom): void {}
   tumble(): void {}
-  deathFx(_kind: DeathKind): void {
+  hitFlash(): void {}
+  levelUp(): void {
+    this.flashAt = this.t
+  }
+  deathFx(_kind: DeathKind, _dx?: number, _dy?: number, _edge?: number | readonly number[]): void {
     if (this.deathAt < 0) this.deathAt = this.t
   }
   private footprint: THREE.Object3D | null = null

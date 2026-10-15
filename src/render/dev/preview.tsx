@@ -9,18 +9,20 @@ import { createRoot } from 'react-dom/client'
 import '../../index.css'
 import { useGame, type Quality } from '../../game/store'
 import { input } from '../../game/input'
-import { MatchView, MenuBackdrop, recenterCamera, renderStats } from '../index'
+import { MatchView, MenuBackdrop, recenterCamera, renderStats, warlockParams } from '../index'
 import { devTime, perfProbe } from '../stats'
 import { startSimDriver } from './simDriver'
 import { tweakParams } from '../tweaks'
 import { cameraParams, cameraZoomParam, devCamera } from '../cameraRig'
 
 // dev handles for look-dev from the console
-;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe, input }
+;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe, input, store: useGame, warlock: warlockParams }
 
 const params = new URLSearchParams(location.search)
 const q = params.get('q') as Quality | null
 if (q) useGame.getState().setSettings({ quality: q })
+const style = params.get('style')
+if (style === 'procedural' || style === 'cc0') warlockParams.style = style
 if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
 if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(params.get('fx')) })
 

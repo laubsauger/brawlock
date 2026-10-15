@@ -33,6 +33,8 @@ const SLOT: Record<string, number> = {
   pact: 9,
   teleport: 10,
   shield: 11,
+  // dummies only (never cast thrust)
+  alteration: 4,
 }
 
 export const LAB_SPELLS = ['boomerang', 'lightning', 'homing', 'twin', 'thrust', 'swap', 'cluster', 'drain', 'bouncer', 'recharge', 'redirector', 'pact'] as const
@@ -63,12 +65,15 @@ function pawn(s: SimState, player: number): PawnState | undefined {
   return s.pawns.find((p) => p.owner === player)
 }
 
-function grant(s: SimState, player: number, spell: string, level = 3): number {
+/** spell level granted in the lab (&lvl=1..7; default 3) */
+let LAB_LEVEL = 3
+
+function grant(s: SimState, player: number, spell: string, level = LAB_LEVEL): number {
   const p = pawn(s, player)
   const slot = SLOT[spell]
   if (!p || slot === undefined) return -1
   p.slots[slot] = spell
-  p.levels[slot] = Math.max(p.levels[slot], level)
+  p.levels[slot] = level
   p.cooldowns[slot] = 0
   return slot
 }
@@ -76,6 +81,13 @@ function grant(s: SimState, player: number, spell: string, level = 3): number {
 function cast(lab: Lab, player: number, spell: string, x: number, y: number): void {
   const slot = grant(lab.state, player, spell)
   if (slot >= 0) lab.queue.push({ at: lab.state.tick, player, cmd: { kind: 'cast', slot, x: x + OFF.x, y: y + OFF.y } })
+}
+
+/** cast already facing the target (no turn: several casters fire on the same tick) */
+function castFacing(lab: Lab, player: number, spell: string, x: number, y: number): void {
+  const p = pawn(lab.state, player)
+  if (p) p.facing = Math.atan2(y + OFF.y - p.y, x + OFF.x - p.x)
+  cast(lab, player, spell, x, y)
 }
 
 const at = (i: number) => HOME[i]
@@ -119,6 +131,26 @@ const SCRIPTS: Record<string, Step[]> = {
     [2, (l) => cast(l, 0, 'fireball', at(2).x, at(2).y)],
     // after the fireball has left the hand (a new order would cancel its cast point)
     [22, (l) => cast(l, 0, 'lightning', at(2).x, at(2).y)],
+    [80, () => {}],
+  ],
+  /** Lightning verification: open ground, warlock, Shield, Alteration, three bolts in one tick */
+  lightningx: [
+    [10, (l) => put(l, 0, -180, -20), 'lightningx: open ground (full range)'],
+    [4, (l) => castFacing(l, 0, 'lightning', -40, 380)],
+    [60, (l) => castFacing(l, 0, 'lightning', at(1).x, at(1).y), 'lightningx: on a warlock'],
+    [60, (l) => cast(l, 3, 'shield', at(3).x, at(3).y), 'lightningx: on Shield'],
+    [4, (l) => castFacing(l, 0, 'lightning', at(3).x, at(3).y)],
+    [60, (l) => cast(l, 2, 'alteration', at(2).x, at(2).y), 'lightningx: on Alteration'],
+    [4, (l) => castFacing(l, 0, 'lightning', at(2).x, at(2).y)],
+    [70, (l) => {
+      // three casters, same tick: P0 and the ally at A, dummy C at P0
+      castFacing(l, 0, 'lightning', at(1).x, at(1).y)
+      castFacing(l, 4, 'lightning', at(1).x, at(1).y)
+      castFacing(l, 3, 'lightning', -180, -20)
+    }, 'lightningx: three bolts in one tick'],
+    [70, (l) => put(l, 0, -180, -20), 'lightningx: fireball detonation (r225)'],
+    [2, (l) => castFacing(l, 0, 'fireball', at(1).x, at(1).y)],
+    [24, (l) => castFacing(l, 0, 'lightning', at(1).x, at(1).y)],
     [80, () => {}],
   ],
   homing: [
@@ -189,6 +221,8 @@ export interface LabOptions {
   pillars?: boolean
   /** dummies start at 5 HP and are not healed: the first hit kills (death VFX) */
   lethal?: boolean
+  /** level of every granted spell (1..7) */
+  level?: number
   /** freeze (devTime.scale = 0) `ticks` after script step `step` runs in the first loop */
   freeze?: { step: number; ticks: number } | null
   /** capture schedule: freeze at these ticks after step 0 of the first loop (one after another) */
@@ -222,6 +256,7 @@ export const labControl = {
 
 export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void): () => void {
   const chaos = opts.spell === 'chaos'
+  LAB_LEVEL = Math.max(1, Math.min(7, opts.level ?? 3))
   const n = chaos ? Math.max(2, Math.min(10, opts.chaos ?? 10)) : HOME.length
   const slots: PlayerSlot[] = []
   for (let i = 0; i < n; i++) {

@@ -33,9 +33,13 @@ export interface DeathLabOptions {
   victimColor?: number
   /** victims dying together, 1..4 */
   n?: number
+  /** cancel the killer's windup (stop order) this many seconds after it started (Scourge fake) */
+  cancelAfter?: number
+  /** killer's Scourge level 1..3 (visual tiers) */
+  level?: number
 }
 
-export const labState = { label: '', deathTick: -1, hitTick: -1, tick: 0 }
+export const labState = { label: '', deathTick: -1, hitTick: -1, castTick: -1, tick: 0 }
 
 export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void): () => void {
   const n = Math.max(1, Math.min(4, o.n ?? 1))
@@ -78,6 +82,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       p.lavaTicks = 0
       p.cooldowns = p.cooldowns.map(() => 0)
     }
+    if (o.level) k.levels[SCOURGE_SLOT] = Math.max(1, Math.min(3, o.level))
     victims().forEach((v, i) => {
       if (cause === 'scourge') {
         // ring around the killer, inside the Scourge radius (250)
@@ -120,7 +125,6 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
   }
 
   const direct = (k: PawnState) => {
-    const kill = !o.hit
     if (cause === 'obstacle') {
       const v = pawnOf(1)
       const ob = { id: state.nextEntityId++, x: v.x - 140, y: v.y + 30, radius: 45, hp: 1, variant: 0 }
@@ -139,7 +143,8 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       // context event so render can attribute the hit like a real projectile / beam
       if (cause === 'lightning') state.events.push({ type: 'beam', spell: 'lightning', owner: 0, fromX: k.x, fromY: k.y, toX: v.x, toY: v.y, target: v.id, blocked: false })
       else state.events.push({ type: 'projectileHit', id: -1, spell: cause, x: v.x - (dx / d) * 30, y: v.y - (dy / d) * 30, target: v.id })
-      receiveDamage(state, v, { amount: kill ? 999 : 35, cause, source: 0, normal: { x: dx / d, y: dy / d } })
+      // same 35 damage in both modes: victims sit at 1.5 HP to die, so kb stays realistic
+      receiveDamage(state, v, { amount: 35, cause, source: 0, normal: { x: dx / d, y: dy / d } })
     }
   }
 
@@ -156,6 +161,9 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
     while (acc >= DT && guard++ < 8) {
       acc -= DT
       const inputs: PlayerInput[] = []
+      if (o.cancelAfter !== undefined && labState.castTick >= 0 && state.tick - labState.castTick === Math.round(o.cancelAfter * TICK_HZ)) {
+        inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'stop' }] })
+      }
       if (state.phase === 'fight') {
         if (fightStart < 0) fightStart = state.tick
         const T = (state.tick - fightStart) / TICK_HZ
@@ -175,6 +183,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       }
       for (const e of state.events) {
         if (e.type === 'death' && isVictim(e.owner)) labState.deathTick = state.tick
+        if (e.type === 'castStart' && e.pawn === pawnOf(0).id) labState.castTick = state.tick
         if (e.type === 'damage' && isVictim(state.pawns.find((p) => p.id === e.target)?.owner ?? -1)) labState.hitTick = state.tick
       }
       labState.tick = state.tick

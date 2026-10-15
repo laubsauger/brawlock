@@ -143,3 +143,31 @@ export function Gold() {
     </div>
   )
 }
+
+/**
+ * "Protected" chip above the HUD plate (outside its clip-path): no damage
+ * lands in the shop phase (combat off) or during the spawn shield.
+ */
+export function ProtectChip() {
+  const root = useRef<HTMLDivElement>(null)
+  const text = useRef<HTMLSpanElement>(null)
+  const last = useRef('')
+  useTick(() => {
+    const view = localView()
+    const pawn = view?.pawn
+    const phase = view?.state.phase
+    const p = !pawn?.alive ? '' : phase === 'shop' || phase === 'warmup' ? 'Protected: shop phase' : pawn.invulnerable ? 'Protected: spawn shield' : ''
+    if (p === last.current || !root.current || !text.current) return
+    last.current = p
+    text.current.textContent = p
+    root.current.dataset.on = String(!!p)
+  })
+  return (
+    <div ref={root} className="protect-chip" data-on="false" role="status">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
+        <path d="M8 1.5 13.5 3.6v4.1c0 3.3-2.3 5.9-5.5 6.8-3.2-.9-5.5-3.5-5.5-6.8V3.6Z" fill="rgba(140,200,255,.25)" stroke="#bfe3ff" strokeWidth="1.2" />
+      </svg>
+      <span ref={text} />
+    </div>
+  )
+}

@@ -263,15 +263,17 @@ export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
  * Faceted rubble chunk / boulder: displaced icosahedron, flattened base.
  * Center (x, y, z), size (radius), squash y.
  */
-export function rock(part: Part, x: number, y: number, z: number, size: number, seed: number, opts: { detail?: number; squash?: number; flat?: number; rotY?: number; ao?: number; rough?: number } = {}): void {
+export function rock(part: Part, x: number, y: number, z: number, size: number, seed: number, opts: { detail?: number; squash?: number; flat?: number; rotY?: number; ao?: number; rough?: number; stretch?: number } = {}): void {
   const ico = new THREE.IcosahedronGeometry(1, opts.detail ?? 0)
   const pos = ico.getAttribute('position') as THREE.BufferAttribute
   // weld the non-indexed icosahedron
   const map = new Map<string, number>()
   const local: number[] = []
   const R = rng(seed)
-  const sx = 0.8 + R() * 0.45
-  const sz = 0.8 + R() * 0.45
+  // random horizontal stretch, capped for rocks that define a footprint
+  const st = opts.stretch
+  const sx = st ? st * (0.94 + R() * 0.06) : 0.8 + R() * 0.45
+  const sz = st ? st * (0.94 + R() * 0.06) : 0.8 + R() * 0.45
   const sq = opts.squash ?? 0.7
   const rough = opts.rough ?? 0.28
   const ry = opts.rotY ?? R() * Math.PI * 2
@@ -309,7 +311,7 @@ export function rock(part: Part, x: number, y: number, z: number, size: number, 
 /** Tapered tube along a polyline (roots, vines). radius(t) with t 0..1 along the path. */
 export function sweep(part: Part, pts: THREE.Vector3[], radius: (t: number) => number, sides = 5, ao = 1): void {
   const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal')
-  const segs = Math.max(4, pts.length * 4)
+  const segs = Math.max(4, pts.length * 3)
   const frames = curve.computeFrenetFrames(segs, false)
   const rows: number[][] = []
   const p = new THREE.Vector3()

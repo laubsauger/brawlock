@@ -22,6 +22,7 @@ export const gravitySpell: SpellBehavior = {
     const a = aim(ctx)
     const speed = attr(def, 'speed', level)
     spawnProjectile(state, caster.owner, 'gravity', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'range', level) / speed,
       data: {
         strength: attr(def, 'strength', level),

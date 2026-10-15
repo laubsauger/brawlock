@@ -13,6 +13,7 @@ import { joinRoom } from './flow'
 import { loadRender } from './renderBridge'
 import { chooseName, hasChosenName, NAME_MAX } from './lib/name'
 import { isTypingTarget } from './lib/keys'
+import { forcedMute } from './lib/sound'
 
 /** Matches the fade in index.html. */
 const FADE_MS = 700
@@ -104,7 +105,7 @@ export function SplashScreen() {
     try {
       audio.unlock()
       const s = useGame.getState().settings
-      audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted })
+      audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted || forcedMute })
       audio.ui('ready')
     } catch {
       /* audio is optional */

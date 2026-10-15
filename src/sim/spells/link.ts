@@ -30,6 +30,7 @@ export const linkSpell: SpellBehavior = {
     const a = aim(ctx)
     const speed = attr(def, 'speed', level)
     spawnProjectile(state, caster.owner, 'link', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: null,
       data: {
         speed,

@@ -14,9 +14,8 @@ import { Arena } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
-import { Environment } from './Environment'
 import { Lava } from './Lava'
-import { Obstacles } from './props'
+import { Environment, Obstacles } from './props'
 import { Particles } from './Particles'
 import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
@@ -27,7 +26,7 @@ import { spellVfxModules, vfxForModifier, vfxForSpell, type AfterHitKind, type P
 import '../vfx/spells'
 import { toWorld } from '../coords'
 import { AOE_RING_INSET, AOE_RING_THICK } from '../scale'
-import type { Quality } from '../../game/store'
+import { useGame, type Quality } from '../../game/store'
 
 /** Shared with the post pipeline: hurt flash, heat haze data. */
 export const postState = {
@@ -47,6 +46,23 @@ export interface MatchWorldOptions {
   mode: 'match' | 'menu'
   /** effective quality tier name (for VFX modules) */
   quality?: Quality
+}
+
+/** offline single-player pause (the session stops stepping; render freezes too) */
+function isOfflinePaused(): boolean {
+  const g = useGame.getState()
+  return g.paused && g.lobby.role === 'offline'
+}
+
+/** spell level carried by a projectile / event (sim adds `level`; 1 when absent) */
+export function levelOf(x: { level?: number } | null | undefined): number {
+  const lv = x && typeof x.level === 'number' ? x.level : 1
+  return lv > 0 ? lv : 1
+}
+
+/** visual power tier: 0 = levels 1-2, 1 = 3-5, 2 = 6-7 (visuals only, never hitboxes) */
+export function powerTier(level: number): 0 | 1 | 2 {
+  return level >= 6 ? 2 : level >= 3 ? 1 : 0
 }
 
 /** spell id carried by an event, for VFX module claiming */
@@ -83,6 +99,8 @@ interface Flash {
 }
 
 const SCOURGE_COLOR = [1.5, 0.55, 2.4] as const
+/** max summed flash energy per frame (sum of (size/300)^2 x brightness) */
+const FLASH_BUDGET = 6
 /** half-extent of the key-light shadow frustum, three units */
 const SHADOW_EXT = 14
 const TELEPORT_COLOR = [0.55, 0.9, 2.6] as const
@@ -310,10 +328,15 @@ export class MatchWorld {
         if (cur) Object.assign(cur, v)
         else self.visOverrides.set(pawnId, { ...v })
       },
+      pawnDeathFx: (pawnId, kind, dx, dy, edge) => {
+        self.views.get(pawnId)?.deathFx(kind, dx, dy, edge)
+      },
       get tickEvents() {
         return self.currentTickEvents
       },
       damageCause: (e) => self.damageCause(e, self.currentTickEvents),
+      level: (x) => levelOf(x),
+      powerTier: (lv) => powerTier(lv),
       combatText: (pawnId, amount, kind, kb) => {
         const v = self.views.get(pawnId)
         if (v) self.overlay?.number(pawnId, v.x, v.y, v.h + 120, amount, kind, self.ctx.uTime.value, kb ?? 0)
@@ -322,7 +345,7 @@ export class MatchWorld {
   }
 
   /** per-frame pawn visibility overrides from VFX modules (cleared every frame) */
-  private visOverrides = new Map<number, { body?: number; plate?: boolean; decal?: boolean }>()
+  private visOverrides = new Map<number, { body?: number; plate?: boolean; decal?: boolean; ambient?: boolean }>()
   private currentTickEvents: readonly SimEvent[] = []
 
   /** spell id behind a damage event (same-tick projectile/beam/explosion/melee), 'lava', or null */
@@ -422,6 +445,8 @@ export class MatchWorld {
   }
 
   private lastCamera: THREE.PerspectiveCamera | null = null
+  /** snapshot held while the world is frozen (hit-stop / pause) */
+  private held: { curr: SimState | null; prev: SimState | null; alpha: number } = { curr: null, prev: null, alpha: 1 }
 
   setFx(fx: number): void {
     this.ctx.uFx.value = fx
@@ -429,13 +454,21 @@ export class MatchWorld {
   }
 
   update(dtReal: number, camera: THREE.PerspectiveCamera, aspect: number): void {
-    // hit-stop: freeze the world (sim reads, particles, anims) for a few frames
+    // Frozen frames (hit-stop, offline pause, dev time scale 0) still run the
+    // whole update so every per-frame batch is rebuilt from scratch (nothing
+    // can accumulate), but with dt = 0, the world clock held, the last
+    // snapshot/interpolation held and sim events deferred until unfreeze.
+    let frozen = false
     if (this.hitStop > 0) {
       this.hitStop -= dtReal
-      cameraRig.update(camera, cameraRig.fx, cameraRig.fy, dtReal, aspect, this.opts.fx)
-      return
+      frozen = true
     }
-    const dt = dtReal
+    if (this.opts.mode === 'match' && isOfflinePaused()) frozen = true
+    const dt = frozen ? 0 : dtReal
+    // per-frame event lists start empty: frozen frames defer events, so the
+    // warlocks must not see the previous frame's events again
+    this.frameEvents.length = 0
+    this.claimedHits.clear()
     this.clock += dt
     const t = this.clock
     this.ctx.uTime.value = t
@@ -446,7 +479,7 @@ export class MatchWorld {
     this.visOverrides.clear()
     const src = this.opts.source
     const buf = src.buf
-    const curr = buf.curr
+    let curr = buf.curr
 
     if (curr) {
       // a new match restarts tick numbering: drop everything tied to the old one
@@ -454,8 +487,17 @@ export class MatchWorld {
       const first = this.lastStateTick < 0
       this.lastStateTick = curr.tick
       const span = buf.currAt - buf.prevAt
-      const alpha = !buf.prev || span <= 0 ? 1 : Math.max(0, Math.min(1, (performance.now() - buf.currAt) / span))
-      const prev = buf.prev && buf.prev.tick <= curr.tick ? buf.prev : null
+      let alpha = !buf.prev || span <= 0 ? 1 : Math.max(0, Math.min(1, (performance.now() - buf.currAt) / span))
+      let prev = buf.prev && buf.prev.tick <= curr.tick ? buf.prev : null
+      if (frozen && this.held.curr) {
+        curr = this.held.curr
+        prev = this.held.prev
+        alpha = this.held.alpha
+      } else {
+        this.held.curr = curr
+        this.held.prev = prev
+        this.held.alpha = alpha
+      }
 
       this.lastCamera = camera
       const fr = this.vfxFrame
@@ -470,16 +512,20 @@ export class MatchWorld {
           this.inited.add(m)
           m.init?.(this.vfx)
         }
+        // once per rendered frame, even when the clock is frozen: modules reset
+        // their per-frame batches here (never key that on ctx.now changing)
+        for (const m of spellVfxModules()) m.beginFrame?.(this.vfx)
       }
       this.updateArena(curr, t, first, alpha)
-      this.consumeEvents(curr, t, first)
+      if (!frozen) this.consumeEvents(curr, t, first)
       if (this.modulesOn) for (const m of spellVfxModules()) m.frame?.(this.vfx)
       this.updatePawns(prev, curr, alpha, t, dt)
       this.obstacles.setTheme(curr.arena.theme)
       this.obstacles.update(curr.obstacles, t, !first)
       // pillars from ./props carry their own contact ring
       this.updateLocalHelpers(curr)
-      this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
+      const cs = curr
+      this.projectiles.update(prev ? prev.projectiles : null, cs.projectiles, alpha, t, (owner) => this.colorOf(cs, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
       if (this.modulesOn) this.drawModules(prev, curr, alpha)
       for (const [id, v] of this.views) {
         const o = this.visOverrides.get(id)
@@ -493,7 +539,7 @@ export class MatchWorld {
     this.tickLingers(dt, t)
     this.drawFlashes(t)
     this.drawBeams(t, camera)
-    this.updateCamera(camera, curr, dt, aspect, t)
+    this.updateCamera(camera, curr, frozen ? dtReal : dt, aspect, t)
     // key light + its shadow frustum follow the camera focus, snapped to whole
     // shadow-map texels in light space (no shimmering edges while panning)
     {
@@ -547,6 +593,8 @@ export class MatchWorld {
   }
 
   private resetMatch(): void {
+    this.held.curr = null
+    this.held.prev = null
     for (const v of this.views.values()) {
       this.root.remove(v.root)
       v.dispose()
@@ -665,10 +713,14 @@ export class MatchWorld {
     switch (e.type) {
       case 'projectileHit':
       case 'projectileExpire':
-        if (!claimed) this.explodeProjectile(e.x, e.y, e.spell, e.type === 'projectileHit')
+        if (!claimed) this.explodeProjectile(e.x, e.y, e.spell, e.type === 'projectileHit', levelOf(e as { level?: number }))
         if (e.type === 'projectileHit' && e.target !== null) {
           const ob = this.obstacles.get(e.target)
-          if (ob) this.obstacleChips(e.x, e.y, 40, ob.hp / 400, spellLook(e.spell).trail)
+          if (ob) {
+            this.windCol.setHex(spellPalette(e.spell).accent)
+            this.obstacleChips(e.x, e.y, 40, ob.hp / 400, [this.windCol.r * 1.2, this.windCol.g * 1.2, this.windCol.b * 1.2])
+            this.obstacles.hitFrom(e.target, e.x, e.y, 1)
+          }
         }
         break
       case 'obstacleDestroyed':
@@ -676,7 +728,9 @@ export class MatchWorld {
         break
       case 'damage': {
         const v = this.viewOfPawn(e.target)
-        v?.hit(t, e.amount, e.kb)
+        // a module that claims the hit draws its own victim flash
+        if (!claimed) v?.hit(t, e.amount, e.kb)
+        else this.claimedHits.add(e.target)
         // knockback direction: the victim's physics velocity right after the hit,
         // else away from the attacker's pawn
         let dx = 0
@@ -724,12 +778,16 @@ export class MatchWorld {
         if (burn) this.afterHit(e.target, 'lava', 1)
         if (e.absorbed && e.absorbed > 0) this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 150, e.absorbed, 'absorb', t)
         this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 120, e.amount, burn ? 'burn' : 'dmg', t, e.kb)
-        if (match && this.isLocalPawn(curr, e.target)) {
-          cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * fx)
-          if (e.kb > 0) cameraRig.kick(dx, dy, Math.min(900, 250 + e.kb * 0.5) * fx)
-          postState.hurt = Math.min(1, postState.hurt + (e.kb > 0 ? 0.35 + Math.min(0.5, e.kb / 2000) : 0.12))
-          // 2-4 frames of hit-stop on big hits
-          if (e.kb >= 700 && fx > 0.05) this.hitStop = Math.min(4, 2 + Math.floor((e.kb - 700) / 500)) / 60
+        // screen-wide feedback only for REAL damage to the local pawn: blocked,
+        // reflected or fully absorbed hits (amount 0) never shake, kick, flash
+        // the screen or hit-stop
+        if (match && e.amount >= 1 && this.isLocalPawn(curr, e.target)) {
+          const real = e.amount / (e.amount + (e.absorbed ?? 0))
+          cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * fx * real)
+          if (e.kb > 0) cameraRig.kick(dx, dy, Math.min(900, 250 + e.kb * 0.5) * fx * real)
+          postState.hurt = Math.min(1, postState.hurt + (e.kb > 0 ? 0.35 + Math.min(0.5, e.kb / 2000) : 0.12) * real)
+          // 2-4 frames of hit-stop on big, mostly unabsorbed hits
+          if (e.kb >= 700 && real > 0.5 && fx > 0.05) this.hitStop = Math.min(4, 2 + Math.floor((e.kb - 700) / 500)) / 60
         }
         if (e.kb >= 1300 && t - this.lastCallout > 2.5 && e.source !== null) {
           this.lastCallout = t
@@ -749,7 +807,9 @@ export class MatchWorld {
       }
       case 'teleport': {
         const pv = this.viewOfPawn(e.pawn)
-        if (!claimed) this.teleportFx(e.fromX, e.fromY, e.toX, e.toY, pv)
+        let tlv = levelOf(e as { level?: number })
+        for (const x of tickEvents) if (x.type === 'cast' && x.pawn === e.pawn) tlv = Math.max(tlv, levelOf(x as { level?: number }))
+        if (!claimed) this.teleportFx(e.fromX, e.fromY, e.toX, e.toY, pv, tlv)
         else pv?.materialize(t)
         break
       }
@@ -839,13 +899,38 @@ export class MatchWorld {
       case 'respawn': {
         if (claimed) break
         const floor = isLocationSafe(e.x, e.y, this.arena.currentLayer) ? TILE_TOP_H + 1 : LAVA_H + 2
-        this.ground.spawn(RING_IMPLODE, e.x, e.y, floor, 10, 160, 0.4, 12, 1.4, 1.2, 1.0)
-        this.flash(e.x, e.y, 80, 0.35, 220, 200, 1.6, 1.4, 1.2)
+        this.windCol.setHex(this.colorOf(curr, e.owner))
+        const c = this.windCol
+        this.ground.spawn(RING_IMPLODE, e.x, e.y, floor, 10, 140, 0.35, 10, c.r * 1.2 + 0.2, c.g * 1.2 + 0.25, c.b * 1.2 + 0.4)
+        this.flash(e.x, e.y, 80, 0.22, 180, 110, c.r * 0.8 + 0.2, c.g * 0.8 + 0.25, c.b * 0.8 + 0.45)
         break
       }
+      case 'purchase':
+        this.purchaseFx(e, t)
+        break
       default:
         break
     }
+  }
+
+  /** Upgrade bought: character level-up burst in the spell column's hue + a rising ring. */
+  private purchaseFx(e: SimEvent & { type: 'purchase' }, t: number): void {
+    const v = this.views.get(e.pawn)
+    if (!v || !v.alive) return
+    // masteries have no spell hue: a neutral arcane gold
+    const hue = e.kind === 'mastery' ? 0xffd27a : spellPalette(e.id).accent
+    v.levelUp(hue)
+    this.windCol.setHex(hue)
+    const c = this.windCol
+    const floor = v.onLava ? LAVA_H + 2 : TILE_TOP_H + 1.2
+    this.ground.spawn(RING_IMPLODE, v.x, v.y, floor, 20, 90, 0.4, 6, c.r * 1.6, c.g * 1.6, c.b * 1.6)
+    const n = this.particles.budget(22)
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2
+      const rr = 28 + Math.random() * 14
+      this.particles.spawn(v.x + Math.cos(a) * rr, v.y + Math.sin(a) * rr, v.h + 10, 0, 0, 260 + Math.random() * 160, 0.6, 8, 2, c.r * 2, c.g * 2, c.b * 2, -200, 1.2, -0.05)
+    }
+    void t
   }
 
   private builtinProjectileShadows(prev: SimState | null, curr: SimState, alpha: number): void {
@@ -930,22 +1015,42 @@ export class MatchWorld {
   }
 
   private flash(x: number, y: number, h: number, life: number, radius: number, size: number, r: number, g: number, b: number): void {
+    // per-flash cap: no single flash brighter than ~4 or wider than ~600 units
+    const m = Math.max(r, g, b)
+    if (m > 4) {
+      r *= 4 / m
+      g *= 4 / m
+      b *= 4 / m
+    }
+    size = Math.min(size, 600)
     if (this.flashes.length > 24) this.flashes.shift()
     this.flashes.push({ x, y, h, born: this.ctx.uTime.value, life, radius, size, r, g, b })
   }
 
   private drawFlashes(t: number): void {
+    // flash budget: the summed "screen energy" (area x brightness) of all live
+    // flashes this frame is capped; when many stack (multi-death, respawn of
+    // everyone in one tick) they are scaled down together, never to a whiteout
     let w = 0
+    let energy = 0
     for (let i = 0; i < this.flashes.length; i++) {
       const f = this.flashes[i]
       const k = 1 - (t - f.born) / f.life
       if (k <= 0) continue
       this.flashes[w++] = f
       const e = k * k
+      const sz = f.size / 300
+      energy += sz * sz * Math.max(f.r, f.g, f.b) * e
+    }
+    this.flashes.length = w
+    const scale = energy > FLASH_BUDGET ? FLASH_BUDGET / energy : 1
+    for (let i = 0; i < w; i++) {
+      const f = this.flashes[i]
+      const k = 1 - (t - f.born) / f.life
+      const e = k * k * scale
       this.ctx.glow.add(f.x, f.y, f.radius, 0.9 * e, f.r * 0.33, f.g * 0.33, f.b * 0.33)
       this.billboards.add(f.x * S, f.h * S, -f.y * S, f.size * S * (1.4 - k * 0.4), f.r * e, f.g * e, f.b * e, 1.8)
     }
-    this.flashes.length = w
     // afterimages (soft upright silhouettes) and arrival light pillars
     let gw = 0
     for (let i = 0; i < this.ghosts.length; i++) {
@@ -996,11 +1101,32 @@ export class MatchWorld {
     this.beams.length = w
   }
 
-  private explodeProjectile(x: number, y: number, spell: string, hit: boolean): void {
+  /** recent impact positions (x, y, time) for the per-location brightness budget */
+  private recentImpacts: { x: number; y: number; t: number }[] = []
+
+  /** 1 for a lone impact, shrinking as more land on the same spot within 0.3 s */
+  private impactScale(x: number, y: number): number {
+    const t = this.ctx.uTime.value
+    let n = 0
+    let w = 0
+    for (let i = 0; i < this.recentImpacts.length; i++) {
+      const r = this.recentImpacts[i]
+      if (t - r.t > 0.3) continue
+      this.recentImpacts[w++] = r
+      if ((r.x - x) * (r.x - x) + (r.y - y) * (r.y - y) < 160 * 160) n++
+    }
+    this.recentImpacts.length = w
+    if (w < 16) this.recentImpacts.push({ x, y, t })
+    return 1 / (1 + n * 0.8)
+  }
+
+  private explodeProjectile(x: number, y: number, spell: string, hit: boolean, level = 1): void {
     const look = spellLook(spell)
+    const stack = this.impactScale(x, y)
+    const tier = powerTier(level)
     const ps = this.particles
     const h = PROJECTILE_H
-    const nFire = ps.budget(hit ? 30 : 20)
+    const nFire = ps.budget((hit ? 30 : 20) * stack)
     for (let i = 0; i < nFire; i++) {
       const a = Math.random() * Math.PI * 2
       const el = (Math.random() - 0.3) * 1.2
@@ -1019,11 +1145,30 @@ export class MatchWorld {
       const sp = 40 + Math.random() * 90
       this.smoke.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 50 + Math.random() * 60, 0.9 + Math.random() * 0.7, 40, 150, 0.05, 0.03, 0.025, 25, 1.2, 10)
     }
+    // power tiers: bigger, longer-lived embers (tier 1) and a white-hot inner
+    // burst with a second shock ring (tier 2); never larger hitboxes
+    if (tier >= 1) {
+      const ne = ps.budget((10 + tier * 10) * stack)
+      for (let i = 0; i < ne; i++) {
+        const a = Math.random() * Math.PI * 2
+        const sp = 260 + Math.random() * 420
+        ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 250 + Math.random() * 350, 0.8 + Math.random() * 0.6, 12 + tier * 3, 4, 3.4, 1.4, 0.3, -1100, 1.4, -0.06)
+      }
+    }
+    if (tier >= 2) {
+      const nw = ps.budget(14 * stack)
+      for (let i = 0; i < nw; i++) {
+        const a = Math.random() * Math.PI * 2
+        const sp = 120 + Math.random() * 260
+        ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() * 120, 0.22, 34, -6, 3.6, 3.1, 2.2, 0, 6, 0)
+      }
+    }
     const onTile = isLocationSafe(x, y, this.arena.currentLayer)
     const floor = onTile ? TILE_TOP_H + 1 : LAVA_H + 2
     this.ground.spawn(RING_EXPAND, x, y, floor, 15, 170, 0.42, 16, look.trail[0], look.trail[1], look.trail[2])
-    if (onTile) this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 60 + Math.random() * 25)
-    this.flash(x, y, h, 0.24, 340, 170, look.light[0] * 1.7, look.light[1] * 1.7, look.light[2] * 1.7)
+    if (tier >= 2) this.ground.spawn(RING_EXPAND, x, y, floor, 30, 210, 0.5, 8, look.edge[0] * 1.6, look.edge[1] * 1.6, look.edge[2] * 1.6)
+    if (onTile) this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 60 + tier * 12 + Math.random() * 25)
+    this.flash(x, y, h, 0.24, 340, 170, look.light[0] * 1.7 * stack, look.light[1] * 1.7 * stack, look.light[2] * 1.7 * stack)
     if (this.opts.mode === 'match') this.shakeNear(x, y, 0.12 * this.opts.fx)
   }
 
@@ -1033,7 +1178,8 @@ export class MatchWorld {
    */
   private hitImpact(x: number, y: number, kb: number, dx: number, dy: number, v: PawnView | undefined): void {
     const ps = this.particles
-    const k = Math.min(2.2, kb / 900)
+    // capped: even a 999-damage lab kill (kb ~3000) stays a hit, not a blob
+    const k = Math.min(1.5, kb / 1000)
     const h = (v?.h ?? TILE_TOP_H) + 55
     const baseA = Math.atan2(dy, dx)
     const hasDir = dx !== 0 || dy !== 0
@@ -1041,7 +1187,7 @@ export class MatchWorld {
     const n = ps.budget(10 + k * 34)
     for (let i = 0; i < n; i++) {
       const a = baseA + (Math.random() - 0.5) * 2 * cone
-      const sp = (420 + Math.random() * 900) * (0.6 + k * 0.5)
+      const sp = Math.min(1500, (420 + Math.random() * 900) * (0.6 + k * 0.5))
       ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 380, 0.22 + Math.random() * 0.3, 6 + k * 3, 1.5, 5, 3.6, 1.8, -1400, 3, -0.11)
     }
     // a few heavy embers that fall and bounce on the floor
@@ -1052,7 +1198,7 @@ export class MatchWorld {
       ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 250 + Math.random() * 250, 0.6 + Math.random() * 0.5, 9, 4, 3.4, 1.2, 0.3, -1500, 1.2, -0.04)
     }
     // contact flash, pushed slightly along the hit direction
-    this.flash(x - dx * 20, y - dy * 20, h, 0.09 + k * 0.04, 160 + k * 80, 70 + k * 50, 2.0, 1.7, 1.4)
+    this.flash(x - dx * 20, y - dy * 20, h, 0.09 + k * 0.04, 160 + k * 60, Math.min(140, 70 + k * 45), 1.8, 1.4, 1.0)
     const floor = v && v.onLava ? LAVA_H + 2 : TILE_TOP_H + 1
     this.ground.spawn(RING_EXPAND, x, y, floor, 18, 70 + k * 70, 0.28 + k * 0.06, 8 + k * 4, 1.6, 0.75, 0.3)
     if (k > 0.6) {
@@ -1069,8 +1215,9 @@ export class MatchWorld {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
       const sp = 150 + Math.random() * 350
-      const g = 0.05 + Math.random() * 0.06
-      this.debris.spawn(x + Math.cos(a) * radius * 0.6, y + Math.sin(a) * radius * 0.6, TILE_TOP_H + 40 + Math.random() * 90, Math.cos(a) * sp, Math.sin(a) * sp, 120 + Math.random() * 300, 0.6 + Math.random() * 0.5, 7 + Math.random() * 7, 5, g, g * 0.9, g * 0.85, -1700, 0.6, 0)
+      const k = 0.6 + Math.random() * 0.8
+      const [dr, dg, db] = this.themeDust()
+      this.debris.spawn(x + Math.cos(a) * radius * 0.6, y + Math.sin(a) * radius * 0.6, TILE_TOP_H + 40 + Math.random() * 90, Math.cos(a) * sp, Math.sin(a) * sp, 120 + Math.random() * 300, 0.6 + Math.random() * 0.5, 7 + Math.random() * 7, 5, dr * k, dg * k, db * k, -1700, 0.6, 0)
     }
     const ns = this.smoke.budget(3)
     for (let i = 0; i < ns; i++) {
@@ -1080,28 +1227,36 @@ export class MatchWorld {
   }
 
   /** Pillar destroyed: blast, a shower of rock chunks, embers and dust. */
+  /** per-theme pillar dust (linear rgb): temple sandstone, volcanic ash, overgrown loam */
+  private themeDust(): [number, number, number] {
+    const th = this.vfxFrame.state?.arena.theme ?? 0
+    return th === 1 ? [0.05, 0.045, 0.045] : th === 2 ? [0.07, 0.085, 0.05] : [0.14, 0.12, 0.09]
+  }
+
+  /** Pillar destroyed: theme-coloured rock chunks and dust, a few embers, no white flash. */
   private obstacleBlast(x: number, y: number): void {
+    const [dr, dg, db] = this.themeDust()
     const nd = this.debris.budget(60)
     for (let i = 0; i < nd; i++) {
       const a = Math.random() * Math.PI * 2
       const sp = 120 + Math.random() * 520
-      const g = 0.04 + Math.random() * 0.08
-      this.debris.spawn(x + (Math.random() - 0.5) * 60, y + (Math.random() - 0.5) * 60, TILE_TOP_H + Math.random() * 180, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 500, 0.8 + Math.random() * 0.7, 10 + Math.random() * 16, 8, g, g * 0.9, g * 0.8, -1800, 0.4, 0)
+      const k = 0.6 + Math.random() * 0.8
+      this.debris.spawn(x + (Math.random() - 0.5) * 60, y + (Math.random() - 0.5) * 60, TILE_TOP_H + Math.random() * 180, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 500, 0.8 + Math.random() * 0.7, 10 + Math.random() * 16, 8, dr * k, dg * k, db * k, -1800, 0.4, 0)
     }
-    const ne = this.particles.budget(40)
+    const ne = this.particles.budget(18)
     for (let i = 0; i < ne; i++) {
       const a = Math.random() * Math.PI * 2
-      const sp = 200 + Math.random() * 600
-      this.particles.spawn(x, y, TILE_TOP_H + 80, Math.cos(a) * sp, Math.sin(a) * sp, 100 + Math.random() * 400, 0.5 + Math.random() * 0.5, 9, 2, 3.4, 1.1, 0.2, -1400, 1.5, -0.08)
+      const sp = 200 + Math.random() * 500
+      this.particles.spawn(x, y, TILE_TOP_H + 80, Math.cos(a) * sp, Math.sin(a) * sp, 100 + Math.random() * 400, 0.5 + Math.random() * 0.4, 7, 2, 2.6, 0.8, 0.15, -1400, 1.5, -0.08)
     }
-    const ns = this.smoke.budget(14)
+    const ns = this.smoke.budget(16)
     for (let i = 0; i < ns; i++) {
       const a = Math.random() * Math.PI * 2
-      this.smoke.spawn(x, y, TILE_TOP_H + 40, Math.cos(a) * 140, Math.sin(a) * 140, 60 + Math.random() * 60, 1.6 + Math.random(), 70, 220, 0.11, 0.09, 0.08, 15, 0.9, 20)
+      this.smoke.spawn(x, y, TILE_TOP_H + 40, Math.cos(a) * 140, Math.sin(a) * 140, 60 + Math.random() * 60, 1.6 + Math.random(), 70, 220, dr * 1.1, dg * 1.1, db * 1.1, 15, 0.9, 20)
     }
-    this.ground.spawn(RING_EXPAND, x, y, TILE_TOP_H + 1, 20, 260, 0.5, 20, 2.4, 1.3, 0.5)
-    this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 110, 6)
-    this.flash(x, y, TILE_TOP_H + 80, 0.3, 380, 260, 2.4, 1.2, 0.4)
+    this.ground.spawn(RING_EXPAND, x, y, TILE_TOP_H + 1, 20, 240, 0.45, 16, 1.2, 0.55, 0.2)
+    this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 110, 5)
+    this.flash(x, y, TILE_TOP_H + 80, 0.22, 300, 160, 1.4, 0.6, 0.2)
     if (this.opts.mode === 'match') this.shakeNear(x, y, 0.45 * this.opts.fx)
   }
 
@@ -1122,8 +1277,9 @@ export class MatchWorld {
    * along the jump, arrival pillar + rune ring + shockwave + falling sparks;
    * the warlock itself re-forms (PawnView.materialize, called by the caller).
    */
-  private teleportFx(fx: number, fy: number, tx: number, ty: number, pawn?: PawnView): void {
+  private teleportFx(fx: number, fy: number, tx: number, ty: number, pawn?: PawnView, level = 1): void {
     const [r, g, b] = TELEPORT_COLOR
+    const tier = powerTier(level)
     const c = pawn?.color
     const tr = c ? r * 0.7 + c.r * 0.6 : r
     const tg = c ? g * 0.7 + c.g * 0.6 : g
@@ -1174,6 +1330,21 @@ export class MatchWorld {
       const hh = h1 + Math.random() * 130
       const life = 0.2
       ps.spawn(tx + Math.cos(a) * rr, ty + Math.sin(a) * rr, hh, (-Math.cos(a) * (rr - 15)) / life, (-Math.sin(a) * (rr - 15)) / life, 0, life, 9, 3, 3, 3, 3.4, 0, 0, -0.08)
+    }
+    // power tiers: an extra outer rune ring and denser spark rain (tier 1), a
+    // taller pillar and a second shockwave (tier 2)
+    if (tier >= 1) {
+      this.ground.spawn(RING_CHEVRON, tx, ty, h1, 96, 118, 0.55, 4, r * 0.8, g * 0.8, b * 0.8)
+      const extra = ps.budget(20 * tier)
+      for (let i = 0; i < extra; i++) {
+        const a = Math.random() * Math.PI * 2
+        const rr = Math.random() * 120
+        ps.spawn(tx + Math.cos(a) * rr, ty + Math.sin(a) * rr, h1 + 220 + Math.random() * 120, Math.cos(a) * 50, Math.sin(a) * 50, -160 - Math.random() * 200, 0.5, 9, 2, tr * 1.2, tg * 1.2, tb * 1.2, -900, 0.6, -0.08)
+      }
+    }
+    if (tier >= 2) {
+      this.ghosts.push({ x: tx, y: ty, h: h1 + 180, born: t, life: 0.45, r: 2.4, g: 2.9, b: 3.6, pillar: true })
+      this.ground.spawn(RING_EXPAND, tx, ty, h1, 60, 420, 0.6, 6, r * 0.6, g * 0.6, b * 0.6)
     }
     this.flash(tx, ty, h1 + 60, 0.3, 320, 240, tr, tg, tb)
     pawn?.materialize(t)
@@ -1362,6 +1533,8 @@ export class MatchWorld {
   private warlockAsset = warlockReady()
   /** sim events consumed this frame (all pawns), for the warlock animators */
   private frameEvents: SimEvent[] = []
+  /** pawn ids whose damage this frame was claimed by a VFX module */
+  private claimedHits = new Set<number>()
 
   private updatePawns(prev: SimState | null, curr: SimState, alpha: number, t: number, dt: number): void {
     const ready = warlockReady()
@@ -1383,6 +1556,12 @@ export class MatchWorld {
         v = new PawnView(this.ctx)
         v.setSlot(this.slotOf(curr, p.owner), p.owner)
         v.onFizzle = (pv) => this.fizzleFx(pv)
+        v.spellClaimed = (spell) => this.modulesOn && !!vfxForSpell(spell)
+        v.hideArrow = (spell) => {
+          if (!this.modulesOn) return false
+          const st = vfxForSpell(spell)?.windupStyle?.(spell)
+          return !!st?.hide?.includes('arrow')
+        }
         v.setShadows(this.opts.tier.shadowMap > 0)
         this.views.set(p.id, v)
         this.root.add(v.root)
@@ -1397,6 +1576,11 @@ export class MatchWorld {
         }
       }
       samplePawn(pp, p, alpha, this.sample)
+      // shop-phase ward (combat off): full until the 3-2-1, easing down through it
+      if (curr.phase === 'shop' || curr.phase === 'warmup') {
+        const left = curr.phaseTicksLeft
+        v.wardTarget = left < 0 || left > 180 ? 1 : 0.35 + 0.65 * (left / 180)
+      } else v.wardTarget = 0
       v.update(p, this.sample, layer, t, dt)
       if (v.usesWarlock) {
         // cast glow colour = the spell's hue (sleeve runes, palm, crystal)
@@ -1407,7 +1591,7 @@ export class MatchWorld {
           this.spellCol.setRGB(sc[0] / m, sc[1] / m, sc[2] / m)
           castHex = this.spellCol.getHex()
         }
-        v.driveWarlock(p, pp, alpha, dt, this.frameEvents, castHex)
+        v.driveWarlock(p, pp, alpha, dt, this.frameEvents, castHex, this.claimedHits.has(p.id))
       }
       v.seen = seen
       v.kbPoints = p.kbPoints
@@ -1497,7 +1681,8 @@ export class MatchWorld {
 
   private pawnAmbient(v: PawnView, p: PawnState, dt: number): void {
     const ps = this.particles
-    if (v.onLava && p.alive) {
+    const amb = this.visOverrides.get(p.id)?.ambient !== false
+    if (v.onLava && p.alive && amb) {
       // burning: flames licking up the robe and dark smoke
       const n = ps.budget(dt * 70)
       for (let i = 0; i < n; i++) {
@@ -1509,7 +1694,7 @@ export class MatchWorld {
         this.smoke.spawn(v.x, v.y, v.h + 80, 0, 0, 90, 1.1, 30, 110, 0.04, 0.025, 0.02, 30, 0.8, 14)
       }
     }
-    if (v.dead && !v.deathDone) {
+    if (v.dead && !v.deathDone && amb && !v.customDeath && v.deathCauseId !== 'disconnect') {
       const n = ps.budget(dt * 90)
       for (let i = 0; i < n; i++) {
         ps.spawn(v.x + (Math.random() - 0.5) * 50, v.y + (Math.random() - 0.5) * 50, v.h + Math.random() * 100, 0, 0, 120 + Math.random() * 160, 0.8 + Math.random() * 0.6, 9, 2, 3.4, 1.1, 0.25, 40, 1, 18)

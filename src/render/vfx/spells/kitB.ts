@@ -13,7 +13,7 @@
  */
 import * as THREE from 'three/webgpu'
 import {
-  abs, atan, cos, dot, exp, float, floor, fract, hash, instancedBufferAttribute, length, max, mix, mrt, normalView,
+  abs, atan, cos, dot, exp, float, floor, fract, hash, instancedBufferAttribute, length, max, min, mix, mrt, normalView,
   positionGeometry, positionView, pow, saturate, sin, smoothstep, step, texture, uv, vec2, vec3, vec4,
 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
@@ -43,6 +43,16 @@ export function palMix(id: string, t: number, lum: number): RGB {
 }
 
 export const TAU = Math.PI * 2
+
+/**
+ * Tier-safe colour output. Without bloom (Low) nothing spreads light, so HDR values just clip to
+ * flat white discs: scale additive output down and clamp it well below 1 there. With bloom
+ * (Medium+) allow HDR up to `bloomCap` so cores still glow. Use on every material's colorNode.
+ */
+export function tierCap(ctx: VfxCtx, col: Node<'vec3'>, bloomCap = 2.4, flatCap = 0.85, flatGain = 0.7): Node<'vec3'> {
+  if (ctx.tier.bloom) return min(col, vec3(bloomCap))
+  return min(col.mul(flatGain), vec3(flatCap))
+}
 
 export function rand(a = 0, b = 1): number {
   return a + Math.random() * (b - a)
@@ -140,7 +150,7 @@ export class GlowSprites implements Resettable {
     m.positionNode = P.xyz
     m.scaleNode = vec2(P.w.mul(E.y), P.w)
     m.rotationNode = E.x
-    m.colorNode = C.xyz.mul(shape)
+    m.colorNode = tierCap(ctx, C.xyz.mul(shape), 3.0, 0.8, 0.65)
     m.opacityNode = float(1)
     if (ctx.tier.heatHaze) m.mrtNode = mrt({ heat: vec4(saturate(shape).mul(E.z), 0, 0, 1) })
     m.name = 'VfxB-Sprites'
@@ -292,7 +302,7 @@ function coreMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const dark = edge.mul(rim.mul(3.2)).add(core.mul(0.02))
   const mode = A1.w
   const m = new THREE.MeshBasicNodeMaterial()
-  m.colorNode = mix(hot, dark, mode)
+  m.colorNode = tierCap(ctx, mix(hot, dark, mode), 4.0, 1.4, 1.0)
   m.transparent = true
   m.depthWrite = true
   m.name = 'VfxB-Core'
@@ -396,7 +406,7 @@ function circleMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.transparent = true
   m.depthWrite = false
   m.blending = THREE.AdditiveBlending
-  m.colorNode = A0.xyz.mul(shape.add(fill)).mul(A0.w).mul(intro).mul(edgeCut)
+  m.colorNode = tierCap(ctx, A0.xyz.mul(shape.add(fill)).mul(A0.w).mul(intro).mul(edgeCut), 2.4, 0.75, 0.65)
   m.opacityNode = float(1)
   m.name = 'VfxB-Circles'
   return m
@@ -428,9 +438,10 @@ interface Kit {
   circles: InstPool
   shadows: InstPool
   pools: Resettable[]
-  lastNow: number
   /** fake floor lights used by workstream B this frame (the world shares GLOW_N = 12) */
   lights: number
+  /** frames left in which empty pools stay visible (pipeline warm-up) */
+  warm: number
 }
 
 let kit: Kit | null = null
@@ -448,7 +459,7 @@ export function kitInit(ctx: VfxCtx): Kit {
   const cores = new InstPool(new THREE.IcosahedronGeometry(1, 3), 2, 96, (A) => coreMaterial(ctx, A), 10, 'vfxB-cores')
   const circles = new InstPool(new THREE.PlaneGeometry(2, 2), 3, 128, (A) => circleMaterial(ctx, A), 4, 'vfxB-circles')
   const shadows = new InstPool(new THREE.PlaneGeometry(2, 2), 1, 24, (A) => shadowMaterial(ctx, A), 3, 'vfxB-shadows')
-  kit = { ctx, sprites, cores, circles, shadows, pools: [sprites, cores, circles, shadows], lastNow: -1, lights: 0 }
+  kit = { ctx, sprites, cores, circles, shadows, pools: [sprites, cores, circles, shadows], lights: 0, warm: 4 }
   for (const p of kit.pools) ctx.scene.add(p.object)
   return kit
 }
@@ -478,18 +489,95 @@ export function kitAdopt<T extends Resettable>(pool: T): T {
   const k = getKit()
   k.pools.push(pool)
   k.ctx.scene.add(pool.object)
+  k.warm = Math.max(k.warm, 4)
   return pool
 }
 
-/** Reset every per-frame pool once per rendered frame (first module frame() wins). */
-export function kitBegin(ctx: VfxCtx): Kit {
-  const k = getKit()
-  if (k.lastNow !== ctx.now) {
-    k.lastNow = ctx.now
-    k.lights = 0
-    for (const p of k.pools) p.begin()
+/**
+ * Reset every per-frame pool. Called ONCE per rendered frame by the frame driver module
+ * (frameB.ts) from render's SpellVfx.beginFrame hook, before any onEvent / frame / draw call.
+ * NOT keyed on ctx.now: the world clock freezes (hit-stop, paused / frozen labs, dt = 0) while
+ * frames keep rendering, and a clock-keyed reset then let instances pile up every frame (128
+ * stacked additive footprints = the "white disc" bug).
+ */
+export function kitFrameReset(): void {
+  const k = kit
+  if (!k) return
+  k.lights = 0
+  for (const p of k.pools) p.begin()
+  // shader warm-up: keep every (empty) pool in the render list for the first frames after init,
+  // so its pipeline compiles then and not as a hitch on the first cast of the match
+  if (k.warm > 0) {
+    k.warm--
+    for (const p of k.pools) p.object.visible = true
   }
-  return k
+}
+
+// ---------------------------------------------------------------- power tiers
+
+/** Level of `spell` for the pawn owned by `owner` (modifiers carry no level; 1 if unknown). */
+export function levelOf(ctx: VfxCtx, owner: number | null, spell: string): number {
+  const st = ctx.state
+  if (!st || owner === null) return 1
+  for (const p of st.pawns) {
+    if (p.owner !== owner) continue
+    for (let i = 0; i < p.slots.length; i++) if (p.slots[i] === spell) return p.levels[i] || 1
+  }
+  return 1
+}
+
+/** Visual power tier 0 / 1 / 2 (levels 1-2 / 3-5 / 6-7) through render's helper when present. */
+export function tierOfLevel(ctx: VfxCtx, level: number): 0 | 1 | 2 {
+  const f = (ctx as VfxCtx & { powerTier?: (l: number) => 0 | 1 | 2 }).powerTier
+  if (f) return f.call(ctx, level)
+  return level >= 6 ? 2 : level >= 3 ? 1 : 0
+}
+
+/** Level carried by a projectile / event (1 when absent). */
+export function levelOfThing(x: { level?: number } | null | undefined): number {
+  return x && x.level ? x.level : 1
+}
+
+interface Glyph {
+  pawn: number
+  born: number
+  tier: number
+  c: RGB
+}
+const glyphs: Glyph[] = []
+
+/** Brief level glyph above the caster on cast: a rune ring with one bright pip per power tier. */
+export function castGlyph(ctx: VfxCtx, pawnId: number, tier: number, c: RGB): void {
+  if (glyphs.length >= 16) glyphs.shift()
+  glyphs.push({ pawn: pawnId, born: ctx.now, tier, c })
+}
+
+export function drawGlyphs(ctx: VfxCtx): void {
+  for (let i = glyphs.length - 1; i >= 0; i--) {
+    const g = glyphs[i]
+    const u = (ctx.now - g.born) / 0.55
+    if (u >= 1 || u < 0) {
+      glyphs.splice(i, 1)
+      continue
+    }
+    const info = ctx.pawn(g.pawn)
+    if (!info) continue
+    const grow = 1 - (1 - Math.min(1, u * 4)) ** 3
+    const fade = 1 - Math.max(0, (u - 0.5) / 0.5)
+    const h = info.h + 205
+    const r = (34 + 8 * g.tier) * grow
+    drawCircle(info.x, info.y, h, r, STYLE_RUNES, g.c[0], g.c[1], g.c[2], 0.9 * fade, 0, 2.5, g.pawn, 0, 1.2, 6 + 4 * g.tier, g.born)
+    const n = g.tier + 1
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * TAU + ctx.now * 2.5
+      glowG(info.x + Math.cos(a) * r * 0.62, info.y + Math.sin(a) * r * 0.62, h, 16 + 4 * g.tier, g.c, 1.1 * fade, 2.4)
+    }
+  }
+}
+
+/** Kit accessor for module frame() calls (the reset itself happens in kitFrameReset). */
+export function kitBegin(_ctx: VfxCtx): Kit {
+  return getKit()
 }
 
 // ---------------------------------------------------------------- drawing helpers
@@ -585,6 +673,17 @@ export function glowW(v: THREE.Vector3, size: number, c: RGB, k = 1, falloff = 2
   getKit().sprites.add(v.x, v.y, v.z, size * S, c[0] * k, c[1] * k, c[2] * k, falloff, kind, stretch, rot, heat)
 }
 
+/** Brightness gain for transient HDR colours (flashes, bursts) on tiers without bloom. */
+export function flatGain(ctx: VfxCtx): number {
+  return ctx.tier.bloom ? 1 : 0.55
+}
+
+/** ctx.flash with the colour scaled down on tiers without bloom (no flat white discs). */
+export function flashT(ctx: VfxCtx, x: number, y: number, h: number, life: number, radius: number, size: number, r: number, g: number, b: number): void {
+  const k = flatGain(ctx)
+  ctx.flash(x, y, h, life, radius, size, r * k, g * k, b * k)
+}
+
 /** Radial particle burst (additive). */
 export function burst(
   ctx: VfxCtx, x: number, y: number, h: number, n: number, sp0: number, sp1: number, life0: number, life1: number,
@@ -592,6 +691,7 @@ export function burst(
 ): void {
   const ps = ctx.particles
   const cnt = ps.budget(n)
+  k *= flatGain(ctx)
   for (let i = 0; i < cnt; i++) {
     const a = Math.random() * TAU
     const sp = rand(sp0, sp1)
@@ -605,6 +705,7 @@ export function burst(
 export function implode(ctx: VfxCtx, x: number, y: number, h: number, n: number, r0: number, r1: number, life: number, size: number, c: RGB, k = 1, dh = 0): void {
   const ps = ctx.particles
   const cnt = ps.budget(n)
+  k *= flatGain(ctx)
   for (let i = 0; i < cnt; i++) {
     const a = Math.random() * TAU
     const rr = rand(r0, r1)
@@ -621,7 +722,7 @@ export function castFlash(ctx: VfxCtx, pawnId: number, c: RGB, size = 1): THREE.
   const gx = o.x / S
   const gy = -o.z / S
   const gh = o.y / S
-  ctx.flash(gx, gy, gh, 0.18, 180 * size, 110 * size, c[0], c[1], c[2])
+  flashT(ctx, gx, gy, gh, 0.18, 180 * size, 110 * size, c[0], c[1], c[2])
   burst(ctx, gx, gy, gh, 14 * size, 120, 420, 0.18, 0.4, 9, 2, c, 1.1, -500, 2.5, -0.06, 40, 220)
   return o
 }

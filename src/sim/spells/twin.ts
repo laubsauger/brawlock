@@ -28,6 +28,7 @@ export const twinSpell: SpellBehavior = {
     const eb = area / (PI * ea)
     for (const sign of [1, -1]) {
       spawnProjectile(state, caster.owner, 'twin', caster.x, caster.y, 0, 0, attr(def, 'radius', level), {
+        level,
         lifetime: null,
         data: {
           damage: castAttr(ctx, 'damage'),

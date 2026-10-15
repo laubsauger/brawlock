@@ -37,6 +37,7 @@ export const rechargeSpell: SpellBehavior = {
     const speed = attr(def, 'speed', level)
     const damage = castAttr(ctx, 'damage') + attr(def, 'damage_per_consecutive', level) * streakOf(caster)
     spawnProjectile(state, caster.owner, 'recharge', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'lifetime', level),
       data: {
         damage,
@@ -64,6 +65,7 @@ export const rechargeProjectile: ProjectileBehavior = {
       spawnProjectile(state, p.owner, 'recharge', hit.x, hit.y, 0, 0, 0, {
         lifetime: null,
         kind: 'rechargeRefresh',
+        level: p.level,
         data: { speed: p.data.refreshSpeed, dist: p.data.refreshDist },
       })
     }

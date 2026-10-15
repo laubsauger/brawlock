@@ -28,6 +28,7 @@ export const windwalkSpell: SpellBehavior = {
       kb: attr(def, 'knockback_factor', level),
       thrustKb: attr(def, 'thrust_knockback_factor', level),
       radius: attr(def, 'radius', level),
+      level,
     })
   },
 }
@@ -54,7 +55,7 @@ export const windwalkModifier: ModifierBehavior = {
       thrust.data.kb = thrust.data.kb * mod.data.thrustKb
       thrustHitPawn(state, pawn, thrust, enemy, hit.nx, hit.ny, 1)
     }
-    state.events.push({ type: 'spellHit', spell: 'windwalk', pawn: pawn.id, target: enemy.id, x: hit.x, y: hit.y })
+    state.events.push({ type: 'spellHit', spell: 'windwalk', pawn: pawn.id, target: enemy.id, x: hit.x, y: hit.y, level: mod.data.level })
     receiveDamage(state, enemy, { amount: mod.data.damage, source: pawn.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: kb, cause: 'windwalk' })
     removeModifier(state, pawn, mod)
   },

@@ -7,6 +7,9 @@
  * - setVolumes(): at startup with the persisted settings and whenever they change (ramps, no clicks).
  * - music(track): on screen / phase changes ('menu' in menus and lobby, 'shop' in the shop
  *   phase, 'fight' in a round, 'none' to stop). Crossfades; may be called before unlock.
+ *   The lava ambience follows it (a distant bed in menus, the full bed in shop and fight);
+ *   with `localPlayer` and `state.arena` on the listener, an edge sizzle swells and pans
+ *   toward the lava as the local pawn nears the edge.
  * - playEvents(events, listener): once per sim tick's events, deduped by tick (eventsSince).
  *   Pass `localPlayer` and `state` (the tick's SimState) so lava burn, id-only events and
  *   projectile travel loops can be placed; without them those degrade gracefully.
@@ -36,7 +39,7 @@ export interface Listener {
    * latest state (pass the whole SimState): places events that carry only entity ids
    * (cast, castStart, death) and gives projectile travel loops their flight
    */
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles'>>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena'>>
 }
 
 export interface AudioApi {

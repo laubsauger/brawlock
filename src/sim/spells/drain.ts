@@ -34,6 +34,7 @@ export const drainSpell: SpellBehavior = {
     const changeTime = turnDist / speed
     const lifetime = changeTime + attr(def, 'extra_time', level) * rm
     spawnProjectile(state, caster.owner, 'drain', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime,
       rangeMastery: false,
       data: {
@@ -97,6 +98,7 @@ export const drainProjectile: ProjectileBehavior = {
       spawnProjectile(state, p.owner, 'drain', hit.x, hit.y, 0, 0, 0, {
         lifetime: null,
         kind: 'drainHeal',
+        level: p.level,
         data: { amount: d.damage, speed: d.healSpeed, dist: d.healDist },
       })
     } else {

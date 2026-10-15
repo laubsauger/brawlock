@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { Fn, Loop, cameraWorldMatrix, cos, dot, float, max, mix, positionGeometry, positionWorld, sin, smoothstep, step, texture, uniform, uniformArray, varying, vec2, vec3, vec4 } from 'three/tsl'
+import { Fn, Loop, cameraWorldMatrix, cos, dot, float, max, mix, positionGeometry, positionWorld, sin, smoothstep, texture, uniform, uniformArray, varying, vec2, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { SDF_EXTENT, SDF_RANGE, SDF_RES, writeArenaSdf } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H } from '../coords'
@@ -31,6 +31,8 @@ export const gamePos = (): Node<'vec2'> => vec2(positionWorld.x, positionWorld.z
  * point lights in a forward renderer.
  */
 export const GLOW_N = 12
+/** max summed intensity x brightness of all fake lights per frame */
+const GLOW_BUDGET = 4
 
 export class GlowLights {
   readonly pos: THREE.Vector4[] = []
@@ -62,6 +64,13 @@ export class GlowLights {
 
   end(): void {
     for (let i = this.n; i < GLOW_N; i++) this.pos[i].w = 0
+    // budget: stacked lights (many simultaneous blasts) are scaled down together
+    let sum = 0
+    for (let i = 0; i < this.n; i++) sum += this.pos[i].w * Math.max(this.col[i].x, this.col[i].y, this.col[i].z)
+    if (sum > GLOW_BUDGET) {
+      const k = GLOW_BUDGET / sum
+      for (let i = 0; i < this.n; i++) this.pos[i].w *= k
+    }
   }
 
   /** TSL: summed glow colour at a game-space position. */
@@ -165,6 +174,7 @@ export function spriteGroundFade(
   const worldOff = cameraWorldMatrix.mul(vec4(rot, 0, 0)).xyz
   const wp = varying(center.add(worldOff))
   const sd = field.sample(vec2(wp.x, wp.z.negate()).div(S))
-  const floorY = mix(float(TILE_TOP_H * S), float(LAVA_H * S), step(0, sd))
+  // blend the floor height across the shore (no hard vertical cut on big sprites)
+  const floorY = mix(float(TILE_TOP_H * S), float(LAVA_H * S), smoothstep(-25, 25, sd))
   return smoothstep(floorY, floorY.add(soft * S), wp.y)
 }

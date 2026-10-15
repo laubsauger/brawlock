@@ -7,6 +7,7 @@ import { interceptTime, leadPoint } from './aim'
 import { isSafe } from './arena'
 import { dangerAt } from './danger'
 import { escapeRange } from './spells'
+import { firstBlocking, routeAround } from './pillars'
 import { RELEASED_SPELLS } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
@@ -473,5 +474,254 @@ describe('bots: M1 spells', () => {
     expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 5), 1, 300)).toBeNull()
     // easy keeps the original behaviour: Thrust only to leave lava
     expect(firstCast(createBot(BOT, 'easy', 4), setup(300, 15), 1, 300)).toBeNull()
+  })
+})
+
+describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
+  const SCOURGE_HIT = 250 + 30 // hit radius plus our body
+
+  /**
+   * Enemy at the origin charging Scourge (0.9 s); the bot walks (210 u/s) or blinks per its
+   * orders. Returns the bot's distance from the caster when the Scourge fires.
+   */
+  function scourgeEscape(difficulty: BotDifficulty, seed: number, startDist: number, teleport = false, layer = 15) {
+    const me = makePawn(BOT, startDist, 0)
+    if (teleport) {
+      me.slots[TELEPORT_SLOT] = 'teleport'
+      me.levels[TELEPORT_SLOT] = 1
+    }
+    me.slots[FIREBALL_SLOT] = null // keep the test about moving
+    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: 54, x: 0, y: 0, started: true } })
+    const state = makeState([me, enemy], { arena: { layer, nextShrinkTick: -1, theme: 0 } })
+    const bot = createBot(BOT, difficulty, seed)
+    let goal: Vec2 | null = null
+    let lava = false
+    for (let t = 0; t < 54; t++) {
+      state.tick = t
+      for (const c of bot.think(state)) {
+        if (c.kind === 'move') goal = { x: c.x, y: c.y }
+        else if (c.kind === 'stop') goal = null
+        else if (c.kind === 'cast' && c.slot === TELEPORT_SLOT && me.cooldowns[TELEPORT_SLOT] <= 0) {
+          const d = Math.hypot(c.x - me.x, c.y - me.y)
+          const k = Math.min(1, 770 / Math.max(1, d))
+          me.x += (c.x - me.x) * k
+          me.y += (c.y - me.y) * k
+          me.cooldowns[TELEPORT_SLOT] = 600
+          goal = null
+        } else if (c.kind === 'cast') goal = null
+      }
+      me.vx = 0
+      me.vy = 0
+      if (goal) {
+        const dx = goal.x - me.x
+        const dy = goal.y - me.y
+        const d = Math.hypot(dx, dy)
+        if (d > 1e-6) {
+          const step = Math.min(d, me.moveSpeed * DT)
+          me.vx = (dx / d) * me.moveSpeed
+          me.vy = (dy / d) * me.moveSpeed
+          me.x += (dx / d) * step
+          me.y += (dy / d) * step
+        }
+      }
+      if (!isSafe(layer, me.x, me.y)) lava = true
+      enemy.cast!.ticksLeft -= 1
+    }
+    return { dist: Math.hypot(me.x, me.y), lava }
+  }
+
+  for (const d of ['hard', 'brutal'] as const) {
+    it(`${d} walks out of a charging Scourge before it fires (every seed)`, () => {
+      for (let seed = 1; seed <= 20; seed++) {
+        const r = scourgeEscape(d, seed, 200)
+        expect(r.dist, `${d} seed ${seed}`).toBeGreaterThanOrEqual(SCOURGE_HIT)
+      }
+    })
+
+    it(`${d} blinks out with Teleport when it stands too deep to walk out in time`, () => {
+      for (let seed = 1; seed <= 10; seed++) {
+        const walking = scourgeEscape(d, seed, 60)
+        expect(walking.dist, 'walking from 60 cannot make it: the test needs the blink').toBeLessThan(SCOURGE_HIT)
+        expect(scourgeEscape(d, seed, 60, true).dist, `${d} seed ${seed}`).toBeGreaterThanOrEqual(SCOURGE_HIT)
+      }
+    })
+  }
+
+  it('never flees into lava, even when that is the only way out of the blast', () => {
+    // layer 4 (radius 300, solid ground to |x| < 288): clearing 280 + margin straight away from
+    // a caster at the origin means stepping into lava; a Scourge hit is the lesser evil
+    expect(isSafe(4, 330, 0)).toBe(false)
+    for (const d of ['medium', 'hard', 'brutal'] as const) {
+      for (let seed = 1; seed <= 10; seed++) {
+        expect(scourgeEscape(d, seed, 150, false, 4).lava, `${d} seed ${seed}`).toBe(false)
+      }
+    }
+  })
+
+  it('routes around a pillar instead of fleeing into it', () => {
+    const me = makePawn(BOT, 150, 0)
+    me.slots[FIREBALL_SLOT] = null
+    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: 54, x: 0, y: 0, started: true } })
+    const state = makeState([me, enemy])
+    // a pillar right on the straight way out
+    state.obstacles.push({ id: 90, x: 260, y: 0, radius: 60, hp: 400, variant: 0 })
+    const bot = createBot(BOT, 'hard', 1)
+    let move: Extract<InputCommand, { kind: 'move' }> | null = null
+    for (let t = 0; t < 30 && !move; t++) {
+      state.tick = t
+      const c = bot.think(state).find((x) => x.kind === 'move')
+      if (c && c.kind === 'move') move = c
+    }
+    expect(move).not.toBeNull()
+    // the straight line from the bot to its target passes the pillar with room for our body
+    const dx = move!.x - me.x
+    const dy = move!.y - me.y
+    const len = Math.hypot(dx, dy)
+    const along = ((260 - me.x) * dx + (0 - me.y) * dy) / len
+    const closest = along <= 0 ? Math.hypot(260 - me.x, me.y) : along >= len ? Math.hypot(260 - move!.x, move!.y) : Math.abs((260 - me.x) * dy - (0 - me.y) * dx) / len
+    expect(closest).toBeGreaterThanOrEqual(60 + 30)
+  })
+
+  it('easy sometimes reacts too late; hard never does', () => {
+    let easyOut = 0
+    for (let seed = 1; seed <= 20; seed++) if (scourgeEscape('easy', seed, 200).dist >= SCOURGE_HIT) easyOut++
+    expect(easyOut).toBeLessThan(20)
+  })
+
+  it('walks out of a Meteor landing spot before it lands', () => {
+    for (const d of ['hard', 'brutal'] as const) {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[FIREBALL_SLOT] = null
+      const state = makeState([me, makePawn(ENEMY, -900, 0)])
+      state.projectiles.push({
+        id: 61,
+        owner: ENEMY,
+        spell: 'meteor',
+        x: 120,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        radius: 0,
+        ticksLeft: 0,
+        data: { tx: 120, ty: 0, radius: 225, hoverTicks: 33, fallTicks: 36, elapsed: 0, falling: 0, noTimer: 1 },
+      })
+      const bot = createBot(BOT, d, 3)
+      let goal: Vec2 | null = null
+      for (let t = 0; t < 69; t++) {
+        state.tick = t
+        for (const c of bot.think(state)) if (c.kind === 'move') goal = { x: c.x, y: c.y }
+        if (goal) {
+          const dx = goal.x - me.x
+          const dy = goal.y - me.y
+          const len = Math.hypot(dx, dy)
+          if (len > 1e-6) {
+            me.vx = (dx / len) * 210
+            me.vy = (dy / len) * 210
+            me.x += (dx / len) * Math.min(len, 210 * DT)
+            me.y += (dy / len) * Math.min(len, 210 * DT)
+          }
+        }
+        state.projectiles[0].data.elapsed += 1
+      }
+      expect(Math.hypot(me.x - 120, me.y), d).toBeGreaterThanOrEqual(225 + 30)
+    }
+  })
+
+  it('steps out of a Gravity orb damage zone', () => {
+    const me = makePawn(BOT, 0, 0)
+    me.slots[FIREBALL_SLOT] = null
+    const state = makeState([me, makePawn(ENEMY, -900, 0)])
+    state.projectiles.push({ id: 62, owner: ENEMY, spell: 'gravity', x: 100, y: 50, vx: 0, vy: 0, radius: 25, ticksLeft: 200, data: { dpsRadius: 250 } })
+    const bot = createBot(BOT, 'hard', 3) as BotController
+    let goal: Vec2 | null = null
+    for (let t = 0; t < 120; t++) {
+      state.tick = t
+      for (const c of bot.think(state)) if (c.kind === 'move') goal = { x: c.x, y: c.y }
+      if (goal) {
+        const dx = goal.x - me.x
+        const dy = goal.y - me.y
+        const len = Math.hypot(dx, dy)
+        if (len > 1e-6) {
+          me.x += (dx / len) * Math.min(len, 210 * DT)
+          me.y += (dy / len) * Math.min(len, 210 * DT)
+        }
+      }
+    }
+    expect(Math.hypot(me.x - 100, me.y - 50)).toBeGreaterThanOrEqual(250 + 30)
+  })
+})
+
+describe('bots: pillars', () => {
+  const pillar = (x: number, y: number, radius = 60) => ({ id: 900 + x, x, y, radius, hp: 400, variant: 0 })
+
+  it('never picks a wander or route target inside a pillar', () => {
+    for (const d of ['easy', 'medium', 'hard', 'brutal'] as const) {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[FIREBALL_SLOT] = null
+      const state = makeState([me, makePawn(ENEMY, 1200, 600)])
+      for (let i = 0; i < 12; i++) state.obstacles.push(pillar(-600 + i * 110, (i % 3) * 200 - 200, 50))
+      const bot = createBot(BOT, d, 7)
+      for (let t = 0; t < 60 * 30; t++) {
+        state.tick = t
+        for (const c of bot.think(state)) {
+          if (c.kind !== 'move') continue
+          for (const o of state.obstacles) expect(Math.hypot(c.x - o.x, c.y - o.y), d).toBeGreaterThanOrEqual(o.radius + 30)
+        }
+      }
+    }
+  })
+
+  it('walks around a pillar standing between it and its goal', () => {
+    const me = makePawn(BOT, 0, 0)
+    const state = makeState([me, makePawn(ENEMY, 1200, 600)])
+    state.obstacles.push(pillar(150, 0))
+    const via = routeAround(state, me, { x: 400, y: 0 }, 15)
+    // the leg to the waypoint passes the pillar with room for our body
+    expect(firstBlocking(state, me, via, 0)).toBeNull()
+    expect(Math.abs(via.y)).toBeGreaterThan(60)
+    // and an open path is left alone
+    expect(routeAround(state, me, { x: 0, y: 400 }, 15)).toEqual({ x: 0, y: 400 })
+  })
+
+  it('never dodges into a pillar', () => {
+    for (const d of ['easy', 'hard', 'brutal'] as const) {
+      // a fireball along x toward the bot; the natural dodge (+y) is walled by a pillar
+      const me = makePawn(BOT, 0, 5)
+      me.slots[FIREBALL_SLOT] = null
+      const state = makeState([me, makePawn(ENEMY, 1500, 600)])
+      state.obstacles.push(pillar(0, 110, 50))
+      state.projectiles.push(makeFireball(ENEMY, 700, 0, -1000, 0))
+      const bot = createBot(BOT, d, 2) as BotController
+      let dodge: Extract<InputCommand, { kind: 'move' }> | null = null
+      for (let t = 0; t < 80 && !dodge; t++) {
+        state.tick = t
+        const c = bot.think(state).find((x) => x.kind === 'move')
+        if (c && c.kind === 'move' && bot.lastAction === 'dodge') dodge = c
+      }
+      expect(dodge, d).not.toBeNull()
+      const len = Math.hypot(dodge!.x - me.x, dodge!.y - me.y)
+      const ahead = { x: me.x + ((dodge!.x - me.x) / len) * 150, y: me.y + ((dodge!.y - me.y) / len) * 150 }
+      expect(firstBlocking(state, me, ahead, 0), d).toBeNull()
+    }
+  })
+
+  it('a pillar between the bot and a bolt is cover: hard and brutal stay in it, easy steps out', () => {
+    const run = (d: BotDifficulty) => {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[FIREBALL_SLOT] = null
+      const state = makeState([me, makePawn(ENEMY, 1500, 600)])
+      state.obstacles.push(pillar(250, 0, 60)) // on the bolt's line, between it and us
+      state.projectiles.push(makeFireball(ENEMY, 800, 0, -1000, 0))
+      const bot = createBot(BOT, d, 4) as BotController
+      const actions = new Set<string>()
+      for (let t = 0; t < 30; t++) {
+        state.tick = t
+        bot.think(state)
+        actions.add(bot.lastAction)
+      }
+      return actions
+    }
+    for (const d of ['hard', 'brutal'] as const) expect(run(d).has('dodge'), d).toBe(false)
+    expect(run('easy').has('dodge')).toBe(true)
   })
 })

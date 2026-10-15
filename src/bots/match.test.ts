@@ -3,9 +3,10 @@
  * never finish a round. Skipped (with a reason) while the sim cannot run a match.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, SCOURGE_SLOT, createMatch, step } from '../sim'
 import type { BotDifficulty, MatchSettings, PlayerSlot, SimState } from '../sim'
 import { createBot } from './index'
+import { PillarStuckMeter } from './pillarStuck'
 
 const SETTINGS: MatchSettings = { ...DEFAULT_SETTINGS, winScore: 2, shopSeconds: 2 }
 
@@ -70,5 +71,86 @@ describe('bots: headless matches on the real sim', () => {
     const { state, spells } = play(['brutal', 'hard'], 11, 900, kit)
     expect(state.phase).toBe('gameOver')
     for (const s of ['lightning', 'drain', 'meteor', 'fireball']) expect(spells.has(s), `${s} was never cast`).toBe(true)
+  })
+
+  /**
+   * Real sim: a scripted enemy starts Scourge 200 units from the bot. Returns whether the bot
+   * took the Scourge damage and how far away it was when it fired.
+   */
+  function scourgeAtBot(difficulty: BotDifficulty, seed: number) {
+    const sl: PlayerSlot[] = [
+      { id: 0, name: 'bot', color: 0xff0000, team: 0, kind: 'bot', difficulty },
+      { id: 1, name: 'enemy', color: 0x0000ff, team: 1, kind: 'human' },
+    ]
+    const state = createMatch(SETTINGS, sl, seed)
+    const bot = createBot(0, difficulty, seed)
+    // reach the fight and let spawn invulnerability run out
+    for (let i = 0; i < 60 * 60 && state.phase !== 'fight'; i++) step(state, [])
+    for (let i = 0; i < 150; i++) step(state, [])
+    const me = state.pawns.find((p) => p.owner === 0)!
+    const foe = state.pawns.find((p) => p.owner === 1)!
+    // pillar routing is tested on its own (bots.test.ts); here: open ground
+    state.obstacles = []
+    for (const [p, x] of [
+      [foe, 0],
+      [me, 200],
+    ] as const) {
+      p.x = x
+      p.y = 0
+      p.vx = p.vy = p.walkVx = p.walkVy = 0
+      p.moveTarget = null
+      p.cast = null
+    }
+    step(state, [{ player: 1, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: foe.x, y: foe.y }] }])
+    for (let i = 0; i < 90; i++) {
+      step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
+      const blast = state.events.find((e) => e.type === 'explosion' && e.spell === 'scourge')
+      if (blast) {
+        const hit = state.events.some((e) => e.type === 'damage' && e.target === me.id && e.source === 1)
+        return { fired: true, hit, dist: Math.hypot(me.x - foe.x, me.y - foe.y) }
+      }
+    }
+    return { fired: false, hit: false, dist: Math.hypot(me.x - foe.x, me.y - foe.y) }
+  }
+
+  it.skipIf(simReason !== '')(`the scenario is real: a dummy 200 units from a charging Scourge is hit${simReason}`, () => {
+    const r = scourgeAtBot('dummy', 1)
+    expect(r.fired).toBe(true)
+    expect(r.hit).toBe(true)
+  })
+
+  it.skipIf(simReason !== '')(`hard and brutal leave a charging Scourge before it fires${simReason}`, () => {
+    for (const d of ['hard', 'brutal'] as const) {
+      for (let seed = 1; seed <= 8; seed++) {
+        const r = scourgeAtBot(d, seed)
+        expect(r.fired, `${d} seed ${seed}`).toBe(true)
+        expect(r.hit, `${d} seed ${seed} was hit at ${r.dist.toFixed(0)}`).toBe(false)
+        expect(r.dist).toBeGreaterThanOrEqual(250)
+      }
+    }
+  })
+
+  it.skipIf(simReason !== '')(`no bot pushes into a pillar for more than 1 s across seeded matches${simReason}`, () => {
+    const pairs: BotDifficulty[][] = [
+      ['hard', 'medium'],
+      ['brutal', 'easy'],
+      ['medium', 'easy'],
+    ]
+    for (const diffs of pairs) {
+      for (let seed = 1; seed <= 3; seed++) {
+        const sl = slots(diffs)
+        const state = createMatch({ ...SETTINGS, winScore: 3 }, sl, seed)
+        const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
+        const meter = new PillarStuckMeter()
+        let pillars = 0
+        for (let i = 0; i < 1500 * 60 && state.phase !== 'gameOver'; i++) {
+          step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
+          meter.observe(state)
+          pillars = Math.max(pillars, state.obstacles.length)
+        }
+        expect(pillars, 'the sim spawns pillars: otherwise this test proves nothing').toBeGreaterThan(0)
+        expect(meter.worstTicks, `${diffs.join(' vs ')} seed ${seed}`).toBeLessThanOrEqual(60)
+      }
+    }
   })
 })

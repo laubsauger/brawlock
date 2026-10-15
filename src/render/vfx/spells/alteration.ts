@@ -13,7 +13,7 @@ import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { InstPool, STYLE_ARROWS, TAU, burst, castFlash, drawCircle, floorH, glowG, kitAdopt, kitBegin, kitInit, kitRelease, light, rand, type RGB, pal } from './kitB'
+import { InstPool, STYLE_ARROWS, TAU, burst, castFlash, drawCircle, floorH, glowG, kitAdopt, kitBegin, kitInit, kitRelease, light, rand, type RGB, pal, tierCap, flashT, levelOf, tierOfLevel } from './kitB'
 
 // identity: silver glass (vfx/palette.ts)
 const GOLD = pal('alteration', 'accent', 1.2)
@@ -50,7 +50,7 @@ function wallMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const p = positionGeometry
   const ang = atan(p.z, p.x)
   const u = ang.div(TAU).add(0.5)
-  const facets = float(28)
+  const facets = A0.w.mul(8).add(22)
   const cell = floor(u.mul(facets))
   const cu = fract(u.mul(facets))
   const hsh = hash(cell.add(A0.y))
@@ -67,7 +67,7 @@ function wallMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.depthWrite = false
   m.side = THREE.DoubleSide
   m.blending = THREE.AdditiveBlending
-  m.colorNode = col.mul(vfade).mul(A0.x).mul(smoothstep(0.0, 1.0, A0.z.mul(1.6).sub(p.y.mul(0.6))))
+  m.colorNode = tierCap(ctx, col.mul(vfade).mul(A0.x).mul(smoothstep(0.0, 1.0, A0.z.mul(1.6).sub(p.y.mul(0.6)))), 2.0, 0.6, 0.6)
   m.opacityNode = float(1)
   m.name = 'VfxB-AlterationWall'
   return m
@@ -76,7 +76,7 @@ function wallMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
 function shatter(ctx: VfxCtx, x: number, y: number, R: number, big: boolean): void {
   const fh = floorH(ctx, x, y)
   ctx.ground.spawn(big ? RING_EXPAND : RING_IMPLODE, x, y, fh, 15, R, 0.3, 10, GOLD_WHITE[0] * 0.6, GOLD_WHITE[1] * 0.6, GOLD_WHITE[2] * 0.6)
-  ctx.flash(x, y, fh + 60, 0.08, R, R * 1.1, GOLD_WHITE[0] * 0.6, GOLD_WHITE[1] * 0.6, GOLD_WHITE[2] * 0.6)
+  flashT(ctx, x, y, fh + 60, 0.08, R, R * 1.1, GOLD_WHITE[0] * 0.6, GOLD_WHITE[1] * 0.6, GOLD_WHITE[2] * 0.6)
   // glass shards: opaque pale-gold slivers + additive glints, all inside the ring
   const nd = ctx.debris.budget(26)
   for (let i = 0; i < nd; i++) {
@@ -174,7 +174,7 @@ registerSpellVfx({
     if (pool) {
       pool.quat.identity()
       const i = pool.add(x * S, (fh + 1) * S, -y * S, R * S, WALL_H * S, R * S)
-      pool.set(i, 0, 0.9 * fade, pawn.id * 0.77, intro, 0)
+      pool.set(i, 0, 0.9 * fade, pawn.id * 0.77, intro, tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL)))
     }
     drawCircle(x, y, fh + 1.4, R, STYLE_ARROWS, GOLD[0], GOLD[1], GOLD[2], 0.85 * fade * intro, 0, 2.2, pawn.id, 0.05, 0.8, 0, r.since)
     glowG(x, y, fh + 60, 150, GOLD_WHITE, 0.12 * fade, 1.6)

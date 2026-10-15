@@ -12,6 +12,8 @@
  *   w.castCharge                                 // 0..1 over the windup, 0 when released / cancelled
  *   w.setCastColor(0xff7a1a)                     // spell colour for hands, sleeve runes, emblem (null = player colour)
  *   w.deathFx('lava') / w.tumble(dx, dy)         // optional overrides (both also happen automatically)
+ *   w.levelUp(spellColorHex)                     // purchase burst (render calls it on the sim's purchase event)
+ *   w.hitFlash(false)                            // skip the built-in damage flash while a VFX module draws its own
  *   w.dispose()
  *
  * Contract
@@ -35,7 +37,13 @@
  *   cuff, every trim pulses, palms / eyes / chest emblem flare, all in
  *   `castColor`; flare on release, flicker out on cancel. Render draws the
  *   charging orb at castOrigin() using castCharge (and rings along castArm()).
- * - Material fx are driven internally: hit flash (damage), lava burn
+ * - Visual progression (progression.ts, PLAN §5.7.1): read from pawn.slots /
+ *   levels each update. Owned shop columns light an accent band in the spell's
+ *   colour (1 sleeves, 2 hood stripe, 3 sash, 4 cape border, 5 mantle edge,
+ *   6 tabard column), secondary to the team trims; total levels raise rune
+ *   density / brightness and eye glow in 4 steps, with a hem ember aura near max.
+ * - Material fx are driven internally: hit flash (damage: white rim core, then
+ *   crimson, scaled by damage / kb; hitFlash(false) skips it), lava burn
  *   (pawn.lavaTicks > 0), invulnerability shimmer, death looks (DeathKind:
  *   charred / frozen / x-ray / withered / sinking / shrinking + dissolve edge).
  *   Shadow flags are set (castShadow / receiveShadow) on all parts.
@@ -74,6 +82,7 @@ export { HEM_RX_M } from './geometry'
 export { deathKindFor } from './warlock'
 export { CAST_CATEGORY, CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
 export { clothParams } from './materials'
+export { PROGRESSION_LOCATIONS, POWER_STEPS } from './progression'
 
 /** Loads and prepares the CC0 warlock (GLB, materials, cloth). Safe to call repeatedly. */
 export async function preloadWarlock(): Promise<void> {

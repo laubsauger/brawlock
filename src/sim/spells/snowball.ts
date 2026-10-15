@@ -25,6 +25,7 @@ export const snowballSpell: SpellBehavior = {
     const a = aim(ctx)
     const speed = attr(def, 'speed', level)
     spawnProjectile(state, caster.owner, 'snowball', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'coll_radius', level), {
+      level,
       lifetime: attr(def, 'range', level) / speed,
       data: {
         damage: castAttr(ctx, 'damage'),
@@ -69,7 +70,7 @@ export const snowballProjectile: ProjectileBehavior = {
   },
   onDestroy(state, p) {
     const d = p.data
-    state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: d.explosion, spell: 'snowball' })
+    state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: d.explosion, spell: 'snowball', level: p.level })
     damageArea(state, p.owner, p.x, p.y, d.explosion, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb, cause: 'snowball' })
   },
 }

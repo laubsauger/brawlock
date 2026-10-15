@@ -35,9 +35,9 @@ export function saveBinds(next: Binds): void {
   useGame.getState().setSettings({ keybinds: p, keybindsAlt: s })
 }
 
-/** Spell columns (0..5) and items (6..11) are separate groups; swaps stay inside one. */
-export function sameGroup(a: number, b: number): boolean {
-  return a !== b && a >= 0 && b >= 0 && a < 12 && b < 12 && a < 6 === b < 6
+/** Any two different hotbar slots (spell columns 0..5, items 6..11) can trade keys: Fireball on Q is fine. */
+export function canSwap(a: number, b: number): boolean {
+  return a !== b && a >= 0 && b >= 0 && a < 12 && b < 12
 }
 
 /** What a slot holds right now ("Fireball"), or where it is ("column 3") when empty or outside a match. */
@@ -47,9 +47,9 @@ export function slotName(slot: number): string {
   return id ? displayName(id) : slot < 6 ? `column ${slot + 1}` : `item slot ${slot - 5}`
 }
 
-/** Swap both keys of two slots. Returns false for slots in different groups. */
+/** Swap both keys (main and second) of two slots. */
 export function swapSlots(a: number, b: number): boolean {
-  if (!sameGroup(a, b)) return false
+  if (!canSwap(a, b)) return false
   const cur = current()
   const next = { primary: { ...cur.primary }, secondary: { ...cur.secondary } }
   const A = slotAction(a)

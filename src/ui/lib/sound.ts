@@ -1,6 +1,18 @@
 import { audio, type UiSound } from '../../audio'
 
 /**
+ * `?mute` in the URL (dev and prod): the whole session stays silent without
+ * changing saved settings, so automated tools and demos always load quietly.
+ */
+export const forcedMute = (() => {
+  try {
+    return new URLSearchParams(window.location.search).has('mute')
+  } catch {
+    return false
+  }
+})()
+
+/**
  * UI sound helper. Audio is another workstream: never let a failing or
  * missing implementation break a click handler.
  */

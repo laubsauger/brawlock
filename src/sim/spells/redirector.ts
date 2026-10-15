@@ -39,7 +39,7 @@ export const redirectorSpell: SpellBehavior = {
         best.vy = (dy / d) * speed
       }
       if (best.data.noTimer !== 1) best.ticksLeft += attr(def, 'lifetime_bonus', level) * rangeFactor(state, caster.owner) * TICK_HZ
-      state.events.push({ type: 'spellHit', spell: 'redirector', pawn: caster.id, target: best.id, x: best.x, y: best.y })
+      state.events.push({ type: 'spellHit', spell: 'redirector', pawn: caster.id, target: best.id, x: best.x, y: best.y, level })
     }
     const seconds = attr(def, 'kb_penalty_duration', level) * debuffFactor(caster)
     addModifier(state, caster, MOD_REDIRECTOR_PENALTY, ticks(seconds), caster.owner, { kbReduction: attr(def, 'kb_penalty', level) })

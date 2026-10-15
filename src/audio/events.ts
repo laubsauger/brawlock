@@ -11,7 +11,7 @@ export interface ListenerLike {
   y: number
   halfWidth: number
   localPlayer?: PlayerId
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles'>>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena'>>
 }
 
 /** One automation point of a moving sound, seconds after its start. */
@@ -366,6 +366,19 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   },
   // a personal combo counter: only the owner hears it
   streak: (e, c) => (e.pawn === c.localPawn && e.value > 0 ? [cue('streakTick', CENTRE, 0.8, { param: e.value })] : []),
+  // the local player's own shopping only (others' purchases stay private); louder than UI ticks
+  purchase: (e, c) => {
+    const mine =
+      c.listener.localPlayer !== undefined
+        ? e.player === c.listener.localPlayer
+        : (() => {
+            const p = c.pawnPos(e.pawn)
+            return p ? c.nearListener(p.x, p.y) : false
+          })()
+    if (!mine) return []
+    const id = e.kind === 'mastery' ? 'buyMastery' : e.level <= 1 ? 'buyNew' : 'buyUpgrade'
+    return [cue(id, CENTRE, 1.2, { param: e.level })]
+  },
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),

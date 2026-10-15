@@ -14,6 +14,7 @@ import {
   SPELL_MAX_LEVEL,
   SPELLS,
   hueFor,
+  isPassive,
   levelStats,
   masteryValue,
   type MasteryId,
@@ -91,6 +92,7 @@ interface Detail {
   stats: { label: string; from?: string; to: string }[]
   note?: string
   level?: { now: number; max: number }
+  passive?: boolean
 }
 
 function diffStats(before: Stat[] | null, after: Stat[]): Detail['stats'] {
@@ -233,6 +235,7 @@ function DetailView({ detail, empty }: { detail: Detail | null; empty: string })
                 {detail.name}
               </div>
               <div className="flex flex-wrap gap-x-2.5 text-[0.86rem] leading-snug text-ash">
+                {detail.passive && <span className="font-semibold text-[#bfe3ff]">Passive, always on</span>}
                 {detail.level && detail.level.now > 0 && (
                   <span className="whitespace-nowrap">
                     Level {detail.level.now} of {detail.level.max}
@@ -312,6 +315,7 @@ function IconTile({
   onBuy,
   onHover,
   slot,
+  passive = false,
 }: {
   id: string
   name: string
@@ -325,6 +329,8 @@ function IconTile({
   onHover: () => void
   /** hotbar slot of an owned spell / item: drag onto another to swap their keys */
   slot?: number
+  /** passive item: round frame, "Passive" label */
+  passive?: boolean
 }) {
   // clicks are gated by the offer state only; ownership is styling
   const disabled = offer.state === 'soon' || offer.state === 'locked' || offer.state === 'closed' || offer.state === 'max'
@@ -336,6 +342,7 @@ function IconTile({
       style={{ ['--hue' as string]: hue }}
       data-state={offer.state}
       data-owned={offer.owned}
+      data-passive={passive}
       data-nav={nav}
       aria-disabled={disabled}
       aria-label={label}
@@ -365,6 +372,7 @@ function IconTile({
         )}
       </span>
       <span className="tile-name">{name}</span>
+      {passive && <span className="tile-kind">Passive</span>}
       {max > 1 && offer.level > 0 && <LevelBars level={offer.level} max={max} />}
     </button>
   )
@@ -498,6 +506,7 @@ export function Shop() {
       stats: diffStats(o.level ? levelStats(def.id, o.level) : null, levelStats(def.id, next)),
       note: stateNote(o.state),
       level: def.maxLevel > 1 ? { now: o.level, max: def.maxLevel } : undefined,
+      passive: isPassive(def.id),
     }
   }
 
@@ -633,6 +642,7 @@ export function Shop() {
                         onHover={() => setHover({ kind: 'item', id: def.id })}
                         onBuy={(e) => purchase(e, o.state, { kind: 'buyItem', item: def.id })}
                         slot={v.itemSlots[def.id]}
+                        passive={isPassive(def.id)}
                       />
                     )
                   })}

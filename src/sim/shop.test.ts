@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import { FIREBALL_SLOT, SCOURGE_SLOT } from './config'
 import { canBuy, step } from './index'
-import { SPELLS } from './spells/data'
+import { IMPLEMENTED_SPELLS } from './spells'
+import { RELEASED_SPELLS, SPELLS } from './spells/data'
 import { cmd, newMatch, pawn, runUntil } from './testkit'
 import type { InputCommand } from './types'
 
@@ -43,11 +44,13 @@ describe('spells: one per column, buy then upgrade with the original costs', () 
     expect(1000 - s.scores[0].gold).toBe(63)
   })
 
-  test('spells without a behavior yet are rejected and cost nothing', () => {
-    const s = newMatch()
-    buy(s, { kind: 'buySpell', spell: 'boomerang' }, { kind: 'buySpell', spell: 'nonsense' })
-    expect(pawn(s, 0).slots[0]).toBeNull()
-    expect(s.scores[0].gold).toBe(30)
+  test('unreleased and unknown spells are rejected and cost nothing', () => {
+    // derived from the live gate, so releasing spells never invalidates this test
+    const unreleased = [...IMPLEMENTED_SPELLS].filter((id) => !RELEASED_SPELLS.has(id) && SPELLS[id]?.kind === 'spell')
+    const s = newMatch({ startGold: 1000 })
+    buy(s, ...unreleased.map((spell) => ({ kind: 'buySpell' as const, spell })), { kind: 'buySpell', spell: 'nonsense' })
+    expect(pawn(s, 0).slots.slice(0, 6)).toEqual([null, null, null, null, null, null])
+    expect(s.scores[0].gold).toBe(1000)
   })
 
   test('data table covers all 28 spells and items with 6 upgrade costs per column spell', () => {

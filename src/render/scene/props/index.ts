@@ -8,3 +8,4 @@
 export { createObstacleVisual, type ObstacleVisual, type ObstacleVisualOpts } from './obstacle'
 export { PropObstacles, PropObstacles as Obstacles, OBSTACLE_MAX_HP } from './obstacles'
 export { preloadLooks } from './materials'
+export { createArenaDressing, PropEnvironment, PropEnvironment as Environment, type ArenaDressing, type ArenaDressingOpts } from './dressing'

@@ -21,8 +21,10 @@ export class WarlockGpu {
   castFizzle = 0
   /** casting hand(s): +1 left, -1 right, 0 both */
   castSide = 1
-  /** white hit flash 0..1 */
+  /** hit flash 1 -> 0 (white rim core for the first ~12 %, then crimson over the body) */
   flash = 0
+  /** strength of the current hit flash (from damage / knockback) */
+  flashK = 1
   /** lava burn 0..1 */
   burn = 0
   /** invulnerability shimmer 0..1 */
@@ -39,8 +41,24 @@ export class WarlockGpu {
   xray = 0
   /** withered: drained grey 0..1 */
   wither = 0
+  /** shadow-eaten: darkened to a black-violet void 0..1 (Scourge death) */
+  shadow = 0
+  /** dissolve order: 0 feet -> hood, 1 silhouette edges inward, 2 uniform smoke noise */
+  dissolveMode = 0
   /** rune breathing / victory boost (1 = normal) */
   runeBoost = 1
+  /**
+   * build reading (visual progression): accent colour per shop column 1..6
+   * (black = column not owned), shown as a secondary rune band at a fixed
+   * garment location per column (progression.ts)
+   */
+  readonly accents = [new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0)]
+  /** 0..1 in steps from total spell levels: rune density / brightness, eye glow, hem aura */
+  power = 0
+  /** level-up burst: sweep height (model metres, feet -> hood) and strength */
+  levelSweep = -1
+  levelFlash = 0
+  readonly levelColor = new THREE.Color()
   /** cloth spring offsets (model space, metres): coat/tabard/sleeves and the slower cape */
   readonly swayCoat = new THREE.Vector3()
   readonly swayCape = new THREE.Vector3()
@@ -108,6 +126,7 @@ export const U = {
   castFizzle: uf((s) => s.castFizzle),
   castSide: uf((s) => s.castSide),
   flash: uf((s) => s.flash),
+  flashK: uf((s) => s.flashK),
   burn: uf((s) => s.burn),
   invuln: uf((s) => s.invuln),
   dissolve: uf((s) => s.dissolve),
@@ -116,7 +135,19 @@ export const U = {
   freeze: uf((s) => s.freeze),
   xray: uf((s) => s.xray),
   wither: uf((s) => s.wither),
+  shadow: uf((s) => s.shadow),
+  dissolveMode: uf((s) => s.dissolveMode),
   runeBoost: uf((s) => s.runeBoost),
+  accent1: uc((s) => s.accents[0]),
+  accent2: uc((s) => s.accents[1]),
+  accent3: uc((s) => s.accents[2]),
+  accent4: uc((s) => s.accents[3]),
+  accent5: uc((s) => s.accents[4]),
+  accent6: uc((s) => s.accents[5]),
+  power: uf((s) => s.power),
+  levelSweep: uf((s) => s.levelSweep),
+  levelFlash: uf((s) => s.levelFlash),
+  levelColor: uc((s) => s.levelColor),
   swayCoat: u3((s) => s.swayCoat),
   swayCape: u3((s) => s.swayCape),
   flutter: uf((s) => s.flutter),

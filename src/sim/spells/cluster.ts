@@ -19,6 +19,7 @@ export const clusterSpell: SpellBehavior = {
     for (const angle of [-outer, -inner, inner, outer]) {
       const [dx, dy] = rotate(a.dx, a.dy, angle)
       spawnProjectile(state, caster.owner, 'cluster', caster.x, caster.y, dx * speed, dy * speed, attr(def, 'radius', level), {
+        level,
         lifetime: attr(def, 'range', level) / speed,
         data: { damage, kb: attr(def, 'knockback_factor', level) },
       })

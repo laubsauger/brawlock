@@ -22,7 +22,7 @@ import {
   shadowBurn, soulRunes, xrayFlash, type DeathLook, type DeathTint,
 } from '../deathKit'
 import type { VfxCtx } from '../registry'
-import { G_CROSS, G_SHOCK, palFor, type KitA } from './kitA'
+import { G_CROSS, G_SHOCK, kflash, palFor, type KitA } from './kitA'
 
 type DeathEvent = Extract<SimEvent, { type: 'death' }>
 
@@ -78,14 +78,14 @@ export function spellDeath(k: KitA, ctx: VfxCtx, e: DeathEvent): boolean {
       k.pulse(G_CROSS, true, x, y, base + 70, 70, 90, 0.25, Math.atan2(py, px) + Math.PI / 4, 0, P.body, 1.4, 1, 1, 0)
       crumbleToDust(ctx, e.pawn, x, y, base, dx, dy, kbk, [0.22, 0.14, 0.1])
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look, strength: 0.9 })
-      ctx.flash(x, y, base + 70, 0.2, 200, 120, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.2, 200, 120, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       break
     }
     case 'lightning':
       xrayFlash(ctx, x, y, base, tint)
       if (!onLava) ashPile(ctx, x, y, { radius: 46, life: 2.8, embers: 6 })
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look })
-      ctx.flash(x, y, base + 80, 0.18, 220, 130, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 80, 0.18, 220, 130, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       ctx.shakeNear(x, y, 0.2)
       break
     case 'homing':
@@ -95,7 +95,7 @@ export function spellDeath(k: KitA, ctx: VfxCtx, e: DeathEvent): boolean {
       k.pulse(G_SHOCK, false, x, y, (onLava ? LAVA_H + 2 : TILE_TOP_H + 1.5), 110, 110, 0.4, 0, 0, P.body, 1.2, 0.1, 0.95, 0.08)
       if (!onLava) charHeap(ctx, x, y, dx, dy, kbk, tint, 2.8)
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look })
-      ctx.flash(x, y, base + 70, 0.3, 280, 200, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.3, 280, 200, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       ctx.shakeNear(x, y, 0.3)
       break
     case 'twin': {
@@ -106,14 +106,14 @@ export function spellDeath(k: KitA, ctx: VfxCtx, e: DeathEvent): boolean {
       emberBurst(ctx, x, y, base + 60, dx * c + dy * sn, -dx * sn + dy * c, kbk, tint)
       if (!onLava) charHeap(ctx, x, y, dx, dy, kbk, tint, 2.8)
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look })
-      ctx.flash(x, y, base + 70, 0.26, 240, 160, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.26, 240, 160, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       break
     }
     case 'thrust':
       crumbleToDust(ctx, e.pawn, x, y, base, dx, dy, Math.max(1.2, kbk), [0.18, 0.2, 0.22])
       if (!onLava) crater(ctx, x, y, 70, 0.3, [0.16, 0.18, 0.2])
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look, strength: 1.1 })
-      ctx.flash(x, y, base + 70, 0.2, 220, 130, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.2, 220, 130, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       ctx.shakeNear(x, y, 0.35)
       break
     case 'cluster':
@@ -125,7 +125,7 @@ export function spellDeath(k: KitA, ctx: VfxCtx, e: DeathEvent): boolean {
       }
       if (!onLava) charHeap(ctx, x, y, dx, dy, kbk, tint, 2.8)
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look })
-      ctx.flash(x, y, base + 70, 0.24, 220, 150, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.24, 220, 150, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       break
     }
     case 'drain':
@@ -138,7 +138,7 @@ export function spellDeath(k: KitA, ctx: VfxCtx, e: DeathEvent): boolean {
       emberBurst(ctx, x, y, base + 60, dx, dy, kbk * 0.8, tint)
       soulRunes(ctx, x, y, base + BODY_H * 0.6, P.body, 10)
       disintegrate(ctx, e.pawn, x, y, base, tint, { kind: look, runes: 10 })
-      ctx.flash(x, y, base + 70, 0.24, 220, 150, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
+      kflash(ctx, x, y, base + 70, 0.24, 220, 150, P.body[0] * fx, P.body[1] * fx, P.body[2] * fx)
       break
   }
   return true

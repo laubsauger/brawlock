@@ -16,10 +16,11 @@ import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { S } from '../../coords'
-import { G_BOW, G_SHOCK, acquireKit, palFor, pawnById, releaseKit, trailFrom, type KitA, type TrailStyle } from './kitA'
+import { G_BOW, G_SHOCK, acquireKit, kflash, kring, palFor, palSaturate, pawnById, pspawn, releaseKit, trailFrom, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
-const P = palFor('thrust')
+/** Thrust's accent is a very pale cyan-white: saturate it so the dash and slam read cyan, not white */
+const P = palSaturate(palFor('thrust'), 2.6)
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
@@ -39,6 +40,8 @@ for (let i = 0; i < 48; i++) ghosts.push({ x: 0, y: 0, h: 0, born: -10, r: 0, g:
 const lastGhost = new Map<number, number>()
 /** pawn id -> time of its last thrust slam (to tell a hit from an expiry) */
 const slamAt = new Map<number, number>()
+/** pawn id -> power tier of its running thrust (from the cast event's level) */
+const tierOf = new Map<number, number>()
 const GHOST_LIFE = 0.28
 
 const STREAK: TrailStyle = trailFrom(P, { life: 0.22, width: 14, widthTail: 0.2, intensity: 1.5, falloff: 1.8, noise: 0.3, spacing: 8, rim: 0.45 })
@@ -72,7 +75,7 @@ function drawGhosts(k: KitA, now: number): void {
     const f = 1 - age / GHOST_LIFE
     const a = f * f * 0.55
     // a body-shaped vertical glow (torso + head): reads as a fading silhouette
-    k.bb.addStreak(g.x * S, (g.h + 62) * S, -g.y * S, 60 * S, 2.1, Math.PI / 2, g.r * a, g.g * a, g.b * a, 1.4)
+    k.bbStreak(g.x * S, (g.h + 62) * S, -g.y * S, 60 * S, 2.1, Math.PI / 2, g.r * a, g.g * a, g.b * a, 1.4)
     k.glowAt(g.x, g.y, g.h + 128, 34, g.r * a * 1.2, g.g * a * 1.2, g.b * a * 1.2, 1.8)
   }
   nGhost = w
@@ -82,14 +85,14 @@ function slam(k: KitA, ctx: VfxCtx, x: number, y: number, dx: number, dy: number
   const fl = k.floor(x, y)
   k.pulse(G_SHOCK, false, x, y, fl + 1.5, 120, 120, 0.32, 0, 0, P.body, 1.0, 0.12, 0.95, 0.09)
   k.pulse(G_BOW, true, x - dx * 30, y - dy * 30, h, 80, 110, 0.2, Math.atan2(dy, dx), 0, P.body, 1.0, 0, 0, 0.6)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 20, 150, 0.35, 14, P.body[0], P.body[1], P.body[2])
+  kring(ctx, RING_EXPAND, x, y, fl, 20, 150, 0.35, 14, P.body[0], P.body[1], P.body[2])
   const ps = ctx.particles
   const base = Math.atan2(dy, dx)
   const n = ps.budget(34)
   for (let i = 0; i < n; i++) {
     const a = base + (Math.random() - 0.5) * 1.4
     const sp = 600 + Math.random() * 1100
-    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 50 + Math.random() * 300, 0.18 + Math.random() * 0.22, 7, 1, P.spark[0], P.spark[1], P.spark[2], -1200, 3, -0.12)
+    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 50 + Math.random() * 300, 0.18 + Math.random() * 0.22, 7, 1, P.spark[0], P.spark[1], P.spark[2], -1200, 3, -0.12)
   }
   const nd = ctx.debris.budget(8)  // stone chips knocked off the floor
   for (let i = 0; i < nd; i++) {
@@ -98,7 +101,7 @@ function slam(k: KitA, ctx: VfxCtx, x: number, y: number, dx: number, dy: number
     const g = 0.05 + Math.random() * 0.05
     ctx.debris.spawn(x, y, fl + 10, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 250, 0.6, 6 + Math.random() * 6, 3, g, g, g * 1.1, -1700, 0.6, 0)
   }
-  ctx.flash(x, y, h, 0.12, 180, 90, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+  kflash(ctx, x, y, h, 0.12, 180, 90, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
   ctx.shakeNear(x, y, 0.3)
 }
 
@@ -114,6 +117,7 @@ const mod: SpellVfx = {
     nGhost = 0
     lastGhost.clear()
     slamAt.clear()
+    tierOf.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -129,18 +133,21 @@ const mod: SpellVfx = {
         const l = Math.hypot(dx0, dy0) || 1
         const dx = dx0 / l
         const dy = dy0 / l
+        const tier = k.tierOf(e)
+        tierOf.set(e.pawn, tier)
         k.origin(info, o)
-        ctx.flash(o.x, o.y, o.h, 0.12, 140, 80, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
+        kflash(ctx, o.x, o.y, o.h, 0.12, 140, 80, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
+        k.levelFlash(o.x, o.y, o.h, tier, P, e.pawn)
         // launch kick: shock behind, dust and sparks thrown back
         const fl = k.floor(info.x, info.y)
         k.pulse(G_BOW, false, info.x - dx * 40, info.y - dy * 40, fl + 2, 70, 120, 0.3, Math.atan2(-dy, -dx), 0, P.body, 1.1, 0, 0, 0.8)
-        ctx.ground.spawn(RING_EXPAND, info.x, info.y, fl, 15, 110, 0.3, 10, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+        kring(ctx, RING_EXPAND, info.x, info.y, fl, 15, 110, 0.3, 10, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
         const ps = ctx.particles
         const n = ps.budget(20)
         for (let i = 0; i < n; i++) {
           const a = Math.atan2(-dy, -dx) + (Math.random() - 0.5) * 1.6
           const sp = 300 + Math.random() * 500
-          ps.spawn(info.x, info.y, fl + 10, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 160, 0.2 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], -1000, 3, -0.1)
+          pspawn(ps, info.x, info.y, fl + 10, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 160, 0.2 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], -1000, 3, -0.1)
         }
         const ns = ctx.smoke.budget(4)
         for (let i = 0; i < ns; i++) ctx.smoke.spawn(info.x, info.y, fl + 15, -dx * 160 + (Math.random() - 0.5) * 80, -dy * 160 + (Math.random() - 0.5) * 80, 30, 0.7, 26, 90, 0.08, 0.08, 0.09, 10, 1.4, 6)
@@ -152,7 +159,7 @@ const mod: SpellVfx = {
         slamAt.set(e.pawn, ctx.now)
         const t = pawnById(ctx.state, e.target)
         const caster = pawnById(ctx.state, e.pawn)
-        if (caster) k.expect('thrust', caster.owner, e.target, e.x, e.y, 200)
+        if (caster) k.expect('thrust', caster.owner, e.target, e.x, e.y, 200, 0, ctx.level ? ctx.level(e) : 1)
         const tx = t ? t.x : e.x + 1
         const ty = t ? t.y : e.y
         const dx0 = tx - e.x
@@ -167,7 +174,7 @@ const mod: SpellVfx = {
         if (!a || a.spell !== 'thrust') return
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, (v?.h ?? 30) + 60, e.kb, dir.x, dir.y, P, 1.1)
+        k.impact(e.x, e.y, (v?.h ?? 30) + 60, e.kb, dir.x, dir.y, P, 1.1, a.tier)
         return true
       }
       case 'modifier': {
@@ -188,7 +195,7 @@ const mod: SpellVfx = {
         for (let i = 0; i < n; i++) {
           const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.2
           const v = 250 + Math.random() * 400
-          ps.spawn(info.x, info.y, fl + 8, Math.cos(a) * v, Math.sin(a) * v, 40 + Math.random() * 120, 0.2 + Math.random() * 0.15, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1200, 3, -0.1)
+          pspawn(ps, info.x, info.y, fl + 8, Math.cos(a) * v, Math.sin(a) * v, 40 + Math.random() * 120, 0.2 + Math.random() * 0.15, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1200, 3, -0.1)
         }
         k.pulse(G_SHOCK, false, info.x, info.y, fl + 1.5, 60, 60, 0.25, 0, 0, P.body, 0.7, 0.2, 0.95, 0.12)
         return
@@ -230,19 +237,22 @@ const mod: SpellVfx = {
     k.trailPoint(-2002 - pawn.id * 8, x + px * 16, y + py * 16, h0 + 46, STREAK, pawn.owner)
     k.trailPoint(-2003 - pawn.id * 8, x - px * 16, y - py * 16, h0 + 40, STREAK, pawn.owner)
     k.trailPoint(-2004 - pawn.id * 8, x, y, k.floor(x, y) + 3, WAKE, pawn.owner)
+    // power tiers: a white-hot core streak through the body (1+), embers off the bow (2)
+    const tier = tierOf.get(pawn.id) ?? 0
+    k.powerLayers(-2005 - pawn.id * 8, x, y, h0 + 70, P, tier, dx, dy, 30)
     // afterimages every ~35 ms
     const lg = lastGhost.get(pawn.id) ?? -10
     if (now - lg > 0.035) {
       lastGhost.set(pawn.id, now)
       addGhost(k, x, y, h0, now, pawn.owner)
     }
-    k.glowAt(x + dx * 30, y + dy * 30, h0 + 60, 90, P.body[0] * 0.22 * k01, P.body[1] * 0.22 * k01, P.body[2] * 0.22 * k01, 1.8, 0.6)
-    ctx.glow.add(x, y, 200, 0.8, P.light[0], P.light[1], P.light[2])
+    k.halo(x + dx * 30, y + dy * 30, h0 + 60, 90, P.body[0] * 0.22 * k01, P.body[1] * 0.22 * k01, P.body[2] * 0.22 * k01, 1.8, 0.6)
+    ctx.glow.add(x, y, 150, 0.55, P.light[0], P.light[1], P.light[2])
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 70)
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
-      ps.spawn(x + Math.cos(a) * 20, y + Math.sin(a) * 20, h0 + 6, -dx * 300 + (Math.random() - 0.5) * 160, -dy * 300 + (Math.random() - 0.5) * 160, 40 + Math.random() * 100, 0.18 + Math.random() * 0.15, 6, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.08)
+      pspawn(ps, x + Math.cos(a) * 20, y + Math.sin(a) * 20, h0 + 6, -dx * 300 + (Math.random() - 0.5) * 160, -dy * 300 + (Math.random() - 0.5) * 160, 40 + Math.random() * 100, 0.18 + Math.random() * 0.15, 6, 1, P.spark[0], P.spark[1], P.spark[2], -900, 3, -0.08)
     }
   },
 }

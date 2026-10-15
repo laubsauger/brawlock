@@ -18,7 +18,7 @@ import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_CLOCK, TAU, burst, castFlash, drawCircle, drawShadow, floorH, glowG, kitAdopt, kitBegin, kitInit, kitRelease,
-  light, originOf, pal, rand, screenAngle,
+  light, originOf, pal, rand, screenAngle, tierCap, flashT, levelOfThing, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'warpzone'
@@ -55,7 +55,7 @@ function domeMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.transparent = true
   m.depthWrite = false
   m.blending = THREE.AdditiveBlending
-  m.colorNode = col.mul(A0.x).mul(base)
+  m.colorNode = tierCap(ctx, col.mul(A0.x).mul(base), 1.6, 0.5, 0.7)
   m.opacityNode = float(1)
   if (ctx.tier.heatHaze) m.mrtNode = mrt({ heat: vec4(rim.mul(0.5).add(0.12).mul(A0.x).mul(base), 0, 0, 1) })
   m.name = 'VfxB-WarpDome'
@@ -91,6 +91,8 @@ function drawZone(p: ProjectileState, ctx: VfxCtx): void {
   const k = intro * outro
   drawShadow(x, y, fh - 0.3, R * 0.98, 0.32 * k, 0.5, 0.15, p.id)
   drawCircle(x, y, fh + 0.3, R, STYLE_CLOCK, TEAL[0], TEAL[1], TEAL[2], 0.95 * k, 0, 0.35, z.seed, 0.05, 1, 0, z.born)
+  const tier = tierOfLevel(ctx, levelOfThing(p))
+  if (tier > 0) drawCircle(x, y, fh + 0.35, R * 0.55, STYLE_CLOCK, TEAL[0], TEAL[1], TEAL[2], 0.4 * tier * k, 0, -0.7, z.seed + 5, 0, 1, 0, z.born)
   if (domes) {
     domes.quat.identity()
     const i = domes.add(x * S, (fh + 0.5) * S, -y * S, R * k * S, R * DOME_H * k * S, R * k * S)
@@ -167,7 +169,7 @@ registerSpellVfx({
         const fh = floorH(ctx, p.x, p.y)
         ctx.ground.spawn(RING_IMPLODE, p.x, p.y, fh, p.radius * 0.3, p.radius - 2, 0.3, 10, TEAL[0], TEAL[1], TEAL[2])
         burst(ctx, p.x, p.y, fh + 60, 20, 30, 120, 0.5, 0.9, 10, 3, TEAL_HOT, 0.7, 0, 2, 6, 10, 60, p.radius * 0.8)
-        ctx.flash(p.x, p.y, fh + 60, 0.08, p.radius, p.radius, TEAL[0] * 0.5, TEAL[1] * 0.5, TEAL[2] * 0.5)
+        flashT(ctx, p.x, p.y, fh + 60, 0.08, p.radius, p.radius, TEAL[0] * 0.5, TEAL[1] * 0.5, TEAL[2] * 0.5)
         return true
       }
       case 'projectileExpire':

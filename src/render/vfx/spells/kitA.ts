@@ -59,6 +59,7 @@ import type { Node } from 'three/webgpu'
 import type { ProjectileState, SimEvent, SimState } from '../../../sim/types'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../../coords'
 import { Billboards } from '../../scene/Billboards'
+import type { Particles } from '../../scene/Particles'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
 import { getSpellColor, mixRGB, withLuminance, type RGB3 } from '../palette'
@@ -103,6 +104,15 @@ export function palFor(id: string): Pal {
   return p
 }
 
+/** push the identity hue away from white (pale accents like Thrust's): saturation x k, same luminance */
+export function palSaturate(base: Pal, k: number): Pal {
+  const sat = (c: RGB): RGB => {
+    const l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    return [Math.max(0, l + (c[0] - l) * k), Math.max(0, l + (c[1] - l) * k), Math.max(0, l + (c[2] - l) * k)]
+  }
+  return { hot: base.hot, body: sat(base.body), edge: sat(base.edge), tail: sat(base.tail), light: sat(base.light), spark: sat(base.spark) }
+}
+
 /** the same hues, darker and hotter-cored (Homing burnout, Pact slow ...) */
 export function palShade(base: Pal, k: number): Pal {
   const m = (c: RGB): RGB => [c[0] * k, c[1] * k, c[2] * k]
@@ -135,6 +145,67 @@ const OUR_SPELLS: ReadonlySet<string> = new Set(['boomerang', 'lightning', 'homi
 // ---------------------------------------------------------------------------
 // Strips
 // ---------------------------------------------------------------------------
+
+/**
+ * Hue-preserving HDR cap for additive colour: without bloom (low tier) anything over ~2 clips
+ * to flat white, with bloom over ~9 the glow floods the screen. Applied per layer.
+ */
+function capHue(c: Node<'vec3'>, cap: number): Node<'vec3'> {
+  const m = max(max(c.x, c.y), c.z)
+  return c.mul(min(float(1), float(cap).div(m.add(1e-4))))
+}
+
+/**
+ * HDR cap for this tier (see capHue). Without bloom (Low) every additive layer stays under 1
+ * so it never clips to flat white; with bloom a layer may reach 3 (a hot core, not a flood).
+ */
+export function tierCap(ctx: VfxCtx): number {
+  return ctx.tier.bloom ? 3 : 0.9
+}
+
+/** current tier cap / no-bloom gain for the CPU-side wrappers below (set by the kit) */
+let CAP = 3
+let FLAT = 1
+
+function capScale(r: number, g: number, b: number): number {
+  const m = Math.max(r, g, b)
+  return (m > CAP ? CAP / m : 1) * FLAT
+}
+
+/** Particles.spawn with the tier colour cap (use instead of ps.spawn in workstream A modules) */
+export function pspawn(
+  ps: Particles,
+  x: number,
+  y: number,
+  h: number,
+  vx: number,
+  vy: number,
+  vh: number,
+  life: number,
+  size0: number,
+  size1: number,
+  r: number,
+  g: number,
+  b: number,
+  gravity = 0,
+  drag = 0,
+  sway = 0,
+): void {
+  const k = capScale(r, g, b)
+  ps.spawn(x, y, h, vx, vy, vh, life, size0, size1, r * k, g * k, b * k, gravity, drag, sway)
+}
+
+/** ctx.flash with the tier colour cap (smaller without bloom) */
+export function kflash(ctx: VfxCtx, x: number, y: number, h: number, life: number, radius: number, size: number, r: number, g: number, b: number): void {
+  const k = capScale(r, g, b)
+  ctx.flash(x, y, h, life, radius, FLAT < 1 ? size * 0.7 : size, r * k, g * k, b * k)
+}
+
+/** ctx.ground.spawn with the tier colour cap */
+export function kring(ctx: VfxCtx, kind: number, x: number, y: number, h: number, r0: number, r1: number, life: number, thickness: number, r: number, g: number, b: number): void {
+  const k = capScale(r, g, b)
+  ctx.ground.spawn(kind, x, y, h, r0, r1, life, thickness, r * k, g * k, b * k)
+}
 
 /** set a single upload range, reusing the range object (no per-frame allocation) */
 function uploadRange(a: THREE.BufferAttribute, start: number, count: number): void {
@@ -214,7 +285,7 @@ class Strips {
     m.depthWrite = false
     m.blending = THREE.AdditiveBlending
     m.side = THREE.DoubleSide
-    m.colorNode = base.mul(body.add(core.mul(1.3))).mul(nm).mul(C.a)
+    m.colorNode = capHue(base.mul(body.add(core.mul(1.3))).mul(nm).mul(C.a), tierCap(ctx))
     m.opacityNode = float(1)
     m.name = 'KitA-Strips'
     this.material = m
@@ -384,6 +455,7 @@ class Glyphs {
     ctx: VfxCtx,
     private readonly cap: number,
     renderOrder: number,
+    private readonly depthTest = true,
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
@@ -551,8 +623,9 @@ class Glyphs {
     m.blending = THREE.AdditiveBlending
     m.side = THREE.DoubleSide
     m.positionNode = positionNode
-    m.colorNode = tint.mul(res.x).add(hotTint.mul(res.y)).mul(G1.w)
+    m.colorNode = capHue(tint.mul(res.x).add(hotTint.mul(res.y)).mul(G1.w), tierCap(ctx))
     m.opacityNode = float(1)
+    m.depthTest = this.depthTest
     m.name = 'KitA-Glyphs'
     this.material = m
     this.mesh = new THREE.Mesh(geo, m)
@@ -650,7 +723,7 @@ class Cores {
     // teardrops cool toward the pointed tail
     const cool = smoothstep(0.15, -0.95, vX).mul(min(tail, 1))
     col = mix(col, rim.mul(0.8), cool.mul(0.7))
-    m.colorNode = col.mul(flick).mul(C2.w)
+    m.colorNode = capHue(col.mul(flick).mul(C2.w), tierCap(ctx) * 0.9)
     m.transparent = true
     m.depthWrite = true
     m.name = 'KitA-Cores'
@@ -905,6 +978,7 @@ interface Pulse {
 
 interface Tracked {
   id: number
+  level: number
   owner: number
   spell: string
   kind: string
@@ -924,6 +998,7 @@ export interface Expect {
   radius: number
   until: number
   data: number
+  level: number
 }
 
 // ---------------------------------------------------------------------------
@@ -935,6 +1010,8 @@ export class KitA {
   readonly strips: Strips
   readonly ground: Glyphs
   readonly air: Glyphs
+  /** drawn over everything (no depth test): markers that must never hide under bodies */
+  readonly over: Glyphs
   readonly cores: Cores
   readonly bb: Billboards
   readonly labels: Labels
@@ -944,7 +1021,8 @@ export class KitA {
   private nPulse = 0
   private frameStamp = 1
   private live = false
-  private lastFlushNow = -1
+  /** this frame's batches were uploaded (set by flush, cleared by beginFrame) */
+  private committed = true
   private camPos = new THREE.Vector3()
   private tracked: Tracked[] = []
   private trackedPrev: Tracked[] = []
@@ -957,13 +1035,19 @@ export class KitA {
   readonly team: [number, number, number] = [1, 1, 1]
   /** windup lengths by pawn entity (castStart ticks) */
   readonly windupTotal = new Map<number, number>()
+  /** HDR cap of this tier (tierCap) */
+  readonly cap: number
 
   constructor(readonly ctx: VfxCtx) {
     this.scene = ctx.scene
+    this.cap = tierCap(ctx)
+    CAP = this.cap
+    FLAT = ctx.tier.bloom ? 1 : 0.8
     const pb = Math.max(0.5, ctx.tier.particles)
     this.strips = new Strips(ctx, Math.round(12288 * Math.min(1, pb)))
     this.ground = new Glyphs(ctx, 160, 3)
     this.air = new Glyphs(ctx, 160, 8)
+    this.over = new Glyphs(ctx, 32, 9, false)
     this.cores = new Cores(ctx, 96)
     this.bb = new Billboards(320, ctx.tier.heatHaze)
     this.labels = new Labels(6)
@@ -971,12 +1055,12 @@ export class KitA {
     for (let i = 0; i < 96; i++) {
       this.pulses.push({ type: 0, air: false, x: 0, y: 0, h: 0, r0: 0, r1: 0, born: 0, life: 1, rot: 0, spin: 0, r: 0, g: 0, b: 0, a: 0, p1a: 0, p1b: 0, p2: 0, hold: false })
     }
-    for (let i = 0; i < 8; i++) this.expects.push({ spell: '', owner: -1, target: -1, x: 0, y: 0, radius: 0, until: -1, data: 0 })
+    for (let i = 0; i < 8; i++) this.expects.push({ spell: '', owner: -1, target: -1, x: 0, y: 0, radius: 0, until: -1, data: 0, level: 1 })
     const flush = (renderer: unknown) => {
       if (import.meta.env.DEV) (globalThis as Record<string, unknown>).__kitARenderer = renderer
       this.flush()
     }
-    for (const o of [this.strips.mesh, this.ground.mesh, this.air.mesh, this.cores.mesh, this.bb.sprite]) {
+    for (const o of [this.strips.mesh, this.ground.mesh, this.air.mesh, this.over.mesh, this.cores.mesh, this.bb.sprite]) {
       o.onBeforeRender = flush
       ctx.scene.add(o)
     }
@@ -984,17 +1068,23 @@ export class KitA {
   }
 
   private newTracked(): Tracked {
-    return { id: -1, owner: -1, spell: '', kind: '', x: 0, y: 0, r: 0, sp: 0 }
+    return { id: -1, level: 1, owner: -1, spell: '', kind: '', x: 0, y: 0, r: 0, sp: 0 }
   }
 
   /** Start this frame's immediate draws (lazy, on the first draw after the last render). */
-  private use(): void {
-    if (this.live) return
+  /**
+   * Start a rendered frame: reset every per-frame batch. Called exactly once per rendered
+   * frame from the frameA driver's beginFrame (also when the clock is frozen: hit-stop,
+   * pause, lab freeze), never keyed on ctx.now.
+   */
+  beginFrame(): void {
     this.live = true
+    this.committed = false
     this.frameStamp++
     this.strips.reset()
     this.ground.reset()
     this.air.reset()
+    this.over.reset()
     this.cores.reset()
     this.bb.begin()
     const t = this.tracked
@@ -1004,16 +1094,22 @@ export class KitA {
     this.nTracked = 0
   }
 
+  /** fallback when no frame driver ran (should not happen): start the frame on the first draw */
+  private use(): void {
+    if (!this.live) this.beginFrame()
+  }
+
   /** Call at the top of every module draw entry point. */
   begin(): this {
     this.use()
     return this
   }
 
+  /** commit once per rendered frame (first onBeforeRender of any kit object) */
   private flush(): void {
+    if (this.committed) return
+    this.committed = true
     const now = this.ctx.now
-    // hit-stop (world clock frozen, no module ran): keep last frame's buffers
-    if (!this.live && now === this.lastFlushNow) return
     this.use()
     this.ctx.camera.getWorldPosition(this.camPos)
     this.drawPulses(now)
@@ -1021,11 +1117,11 @@ export class KitA {
     this.strips.commit()
     this.ground.commit()
     this.air.commit()
+    this.over.commit()
     this.cores.commit()
     this.bb.commit()
     this.labels.update(now)
     this.live = false
-    this.lastFlushNow = now
   }
 
   // ------------------------------------------------------------ strips helpers
@@ -1124,17 +1220,41 @@ export class KitA {
 
   // ------------------------------------------------------------ billboards
 
+  /** scale factor that keeps an additive colour under the tier cap (hue preserved) */
+  capK(r: number, g: number, b: number): number {
+    return capScale(r, g, b)
+  }
+
   /** glow sprite at a game position; size in game units */
   glowAt(x: number, y: number, h: number, size: number, r: number, g: number, b: number, falloff = 2, heat = 0): void {
     this.use()
-    this.bb.add(x * S, h * S, -y * S, size * S, r, g, b, falloff, heat)
+    const c = this.capK(r, g, b)
+    this.bb.add(x * S, h * S, -y * S, size * S, r * c, g * c, b * c, falloff, heat)
+  }
+
+  /**
+   * Broad projectile halo. With weak or no bloom (Low, Medium) a big soft sprite reads as a
+   * flat disc, so there it shrinks and tightens into a small hot glow around the core.
+   */
+  halo(x: number, y: number, h: number, size: number, r: number, g: number, b: number, falloff = 1.7, heat = 0): void {
+    const strong = this.ctx.tier.bloom && this.ctx.tier.bloomStrength >= 0.6
+    if (strong) this.glowAt(x, y, h, size, r, g, b, falloff, heat)
+    else this.glowAt(x, y, h, size * 0.5, r * 0.8, g * 0.8, b * 0.8, falloff + 1, heat)
+  }
+
+  /** raw billboard streak (three units) with the tier cap applied */
+  bbStreak(x: number, y: number, z: number, size: number, stretch: number, rot: number, r: number, g: number, b: number, falloff = 2, heat = 0): void {
+    this.use()
+    const c = this.capK(r, g, b)
+    this.bb.addStreak(x, y, z, size, stretch, rot, r * c, g * c, b * c, falloff, heat)
   }
 
   /** stretched glow along a game-space direction (projected to the screen) */
   streakAt(x: number, y: number, h: number, size: number, stretch: number, dx: number, dy: number, r: number, g: number, b: number, falloff = 2, heat = 0): void {
     this.use()
     const ang = this.screenAngle(x, y, h, dx, dy)
-    this.bb.addStreak(x * S, h * S, -y * S, size * S, stretch, ang, r, g, b, falloff, heat)
+    const c = this.capK(r, g, b)
+    this.bb.addStreak(x * S, h * S, -y * S, size * S, stretch, ang, r * c, g * c, b * c, falloff, heat)
   }
 
   private v0 = new THREE.Vector3()
@@ -1365,6 +1485,7 @@ export class KitA {
     if (this.nTracked >= this.tracked.length) this.tracked.push(this.newTracked())
     const t = this.tracked[this.nTracked++]
     t.id = p.id
+    t.level = p.level ?? 1
     t.owner = p.owner
     t.spell = p.spell
     t.kind = p.kind ?? p.spell
@@ -1375,7 +1496,7 @@ export class KitA {
   }
 
   /** Expect a hit from a non-projectile source (beam, slam, area): claimed by attributeDamage. */
-  expect(spell: string, owner: number, target: number, x: number, y: number, radius: number, data = 0): void {
+  expect(spell: string, owner: number, target: number, x: number, y: number, radius: number, data = 0, level = 1): void {
     let slot = this.expects[0]
     for (const e of this.expects) {
       if (e.until < this.ctx.now) {
@@ -1392,6 +1513,7 @@ export class KitA {
     slot.radius = radius
     slot.until = this.ctx.now + 0.25
     slot.data = data
+    slot.level = level
   }
 
   /** Clear expectations of a spell for an owner (e.g. the beam event closes the Lightning window). */
@@ -1403,7 +1525,7 @@ export class KitA {
    * Which of our spells caused this 'damage' event: an expectation (beam, slam, area) or a
    * tracked projectile of the same owner near the victim. Cached per event object.
    */
-  attributeDamage(e: Extract<SimEvent, { type: 'damage' }>): { spell: string; kind: string; data: number } | null {
+  attributeDamage(e: Extract<SimEvent, { type: 'damage' }>): { spell: string; kind: string; data: number; tier: number } | null {
     if (e === this.lastAttrEvt) return this.attrResult
     this.lastAttrEvt = e
     this.attrResult = null
@@ -1418,14 +1540,14 @@ export class KitA {
           break
         }
       }
-      this.attrResult = { spell: cause, kind: cause, data: id }
+      this.attrResult = { spell: cause, kind: cause, data: id, tier: this.tierOf({ level: this.trackedLevel(id) }) }
       return this.attrResult
     }
     const now = this.ctx.now
     for (const x of this.expects) {
       if (x.until < now || (x.owner >= 0 && x.owner !== e.source)) continue
       if (x.target >= 0 ? x.target === e.target : Math.hypot(e.x - x.x, e.y - x.y) <= x.radius + 60) {
-        this.attrResult = { spell: x.spell, kind: x.spell, data: x.data }
+        this.attrResult = { spell: x.spell, kind: x.spell, data: x.data, tier: this.tierOf({ level: x.level }) }
         return this.attrResult
       }
     }
@@ -1447,11 +1569,70 @@ export class KitA {
     scan(this.trackedPrev, this.nTrackedPrev)
     if (best) {
       const b = best as Tracked
-      this.attrResult = { spell: b.spell, kind: b.kind, data: b.id }
+      this.attrResult = { spell: b.spell, kind: b.kind, data: b.id, tier: this.tierOf({ level: b.level }) }
     }
     return this.attrResult
   }
-  private attrResult: { spell: string; kind: string; data: number } | null = null
+  private attrResult: { spell: string; kind: string; data: number; tier: number } | null = null
+
+  /** level of a projectile drawn this or last frame (1 if unknown) */
+  private trackedLevel(id: number): number {
+    for (let i = 0; i < this.nTracked; i++) if (this.tracked[i].id === id) return this.tracked[i].level
+    for (let i = 0; i < this.nTrackedPrev; i++) if (this.trackedPrev[i].id === id) return this.trackedPrev[i].level
+    return 1
+  }
+
+  // ------------------------------------------------------------ power tiers (spell level)
+
+  /** visual power tier 0 / 1 / 2 (levels 1-2 / 3-5 / 6-7) of a projectile or event */
+  tierOf(x: { level?: number } | null | undefined): number {
+    const c = this.ctx as VfxCtx & { level?: (x: { level?: number } | null | undefined) => number; powerTier?: (l: number) => number }
+    if (!c.level || !c.powerTier) return 0
+    return c.powerTier(c.level(x))
+  }
+
+  private hotLines = new Map<Pal, TrailStyle>()
+  /** thin white-hot inner trail added from tier 1 */
+  hotLine(P: Pal): TrailStyle {
+    let t = this.hotLines.get(P)
+    if (!t) {
+      t = { life: 0.18, width: 9, widthTail: 0.2, head: P.hot, mid: P.spark, tail: P.body, intensity: 1.4, falloff: 2.4, noise: 0, spacing: 6, rim: 0 }
+      this.hotLines.set(P, t)
+    }
+    return t
+  }
+
+  /**
+   * Extra projectile layers by power tier (the collision core never changes size):
+   * tier 1: a thin white-hot inner trail; tier 2: plus a hot glint on the core and
+   * embers shedding off it.
+   */
+  powerLayers(key: number, x: number, y: number, h: number, P: Pal, tier: number, dx: number, dy: number, r: number): void {
+    if (tier <= 0) return
+    this.trailPoint(key, x, y, h, this.hotLine(P))
+    if (tier < 2) return
+    this.glowAt(x + dx * r * 0.3, y + dy * r * 0.3, h, r * 1.1, P.hot[0] * 0.5, P.hot[1] * 0.5, P.hot[2] * 0.5, 3)
+    const ps = this.ctx.particles
+    const n = ps.budget(this.ctx.dt * 35)
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU
+      pspawn(ps, x - dx * r, y - dy * r, h, Math.cos(a) * 90 - dx * 140, Math.sin(a) * 90 - dy * 140, 30 + Math.random() * 90, 0.3 + Math.random() * 0.25, 6, 1, P.spark[0], P.spark[1], P.spark[2], -300, 2, -0.06)
+    }
+  }
+
+  /** brief level glyph flash at the cast hand (tier 1: one rune ring, tier 2: two + sparks) */
+  levelFlash(x: number, y: number, h: number, tier: number, P: Pal, seed: number): void {
+    if (tier <= 0) return
+    this.pulse(G_RUNE, true, x, y, h + 4, 26, 58, 0.28, seed, 6, P.body, 1.2, 1, 1, seed)
+    if (tier < 2) return
+    this.pulse(G_RUNE, true, x, y, h + 6, 40, 82, 0.34, -seed, -5, P.hot, 0.9, 1, 1, seed + 3)
+    const ps = this.ctx.particles
+    const n = ps.budget(12)
+    for (let i = 0; i < n; i++) {
+      const a = (i / Math.max(1, n)) * TAU
+      pspawn(ps, x, y, h, Math.cos(a) * 260, Math.sin(a) * 260, (Math.random() - 0.3) * 120, 0.22, 6, 1, P.spark[0], P.spark[1], P.spark[2], -200, 3, -0.08)
+    }
+  }
 
   /** knockback direction of a damaged pawn (victim's physics velocity), else from (fx, fy) */
   hitDir(state: SimState | null, target: number, fromX: number, fromY: number, x: number, y: number, out: { x: number; y: number }): { x: number; y: number } {
@@ -1491,10 +1672,21 @@ export class KitA {
    * hues, white-hot core sparks, falling embers, contact flash, ground shockwave
    * and dust. kb in game units/s (damage event).
    */
-  impact(x: number, y: number, h: number, kb: number, dx: number, dy: number, pal: Pal, scale = 1): void {
+  impact(x: number, y: number, h: number, kb: number, dx: number, dy: number, pal: Pal, scale = 1, tier = 0): void {
     const ctx = this.ctx
     const ps = ctx.particles
-    const k = Math.min(2.2, kb / 900) * scale
+    const k = Math.min(2.2, kb / 900) * scale * (1 + 0.15 * tier)
+    if (tier >= 2) {
+      // top tier: chunks of stone kicked off the floor + a hot inner shock
+      const nd = ctx.debris.budget(8)
+      for (let i = 0; i < nd; i++) {
+        const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 2
+        const sp = 150 + Math.random() * 300
+        const g = 0.05 + Math.random() * 0.05
+        ctx.debris.spawn(x, y, this.floor(x, y) + 8, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 250, 0.6, 6 + Math.random() * 6, 3, g, g, g * 1.1, -1700, 0.6, 0)
+      }
+      this.pulse(G_SHOCK, false, x, y, this.floor(x, y) + 1.6, 60 + k * 40, 60 + k * 40, 0.3, Math.random() * 6, 0, pal.hot, 0.8, 0.1, 0.95, 0.08)
+    }
     const hasDir = dx !== 0 || dy !== 0
     const baseA = Math.atan2(dy, dx)
     const cone = hasDir ? 0.55 : Math.PI
@@ -1502,23 +1694,23 @@ export class KitA {
     for (let i = 0; i < n; i++) {
       const a = baseA + (Math.random() - 0.5) * 2 * cone
       const sp = (420 + Math.random() * 900) * (0.6 + k * 0.5)
-      ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 380, 0.2 + Math.random() * 0.3, 6 + k * 3, 1.5, pal.spark[0], pal.spark[1], pal.spark[2], -1400, 3, -0.11)
+      pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 380, 0.2 + Math.random() * 0.3, 6 + k * 3, 1.5, pal.spark[0], pal.spark[1], pal.spark[2], -1400, 3, -0.11)
     }
     const nh = ps.budget(5 + k * 8)
     for (let i = 0; i < nh; i++) {
       const a = baseA + (Math.random() - 0.5) * 2 * cone * 0.6
       const sp = (900 + Math.random() * 900) * (0.6 + k * 0.4)
-      ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 200, 0.12 + Math.random() * 0.12, 5 + k * 2, 1, pal.hot[0] * 1.3, pal.hot[1] * 1.3, pal.hot[2] * 1.3, -900, 4, -0.14)
+      pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 200, 0.12 + Math.random() * 0.12, 5 + k * 2, 1, pal.hot[0] * 1.3, pal.hot[1] * 1.3, pal.hot[2] * 1.3, -900, 4, -0.14)
     }
     const nd = ps.budget(3 + k * 5)
     for (let i = 0; i < nd; i++) {
       const a = baseA + (Math.random() - 0.5) * 2 * cone * 1.4
       const sp = 150 + Math.random() * 350
-      ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 250 + Math.random() * 250, 0.6 + Math.random() * 0.5, 9, 4, pal.body[0], pal.body[1], pal.body[2], -1500, 1.2, -0.04)
+      pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 250 + Math.random() * 250, 0.6 + Math.random() * 0.5, 9, 4, pal.body[0], pal.body[1], pal.body[2], -1500, 1.2, -0.04)
     }
-    ctx.flash(x - dx * 20, y - dy * 20, h, 0.09 + k * 0.05, 170 + k * 90, 80 + k * 55, pal.hot[0] * 0.8, pal.hot[1] * 0.8, pal.hot[2] * 0.8)
+    kflash(ctx, x - dx * 20, y - dy * 20, h, 0.09 + k * 0.05, 170 + k * 90, 80 + k * 55, pal.hot[0] * 0.8, pal.hot[1] * 0.8, pal.hot[2] * 0.8)
     const fl = this.floor(x, y)
-    ctx.ground.spawn(RING_EXPAND, x, y, fl, 18, 70 + k * 75, 0.3 + k * 0.06, 8 + k * 4, pal.body[0] * 0.8, pal.body[1] * 0.8, pal.body[2] * 0.8)
+    kring(ctx, RING_EXPAND, x, y, fl, 18, 70 + k * 75, 0.3 + k * 0.06, 8 + k * 4, pal.body[0] * 0.8, pal.body[1] * 0.8, pal.body[2] * 0.8)
     // impact decal that fades (hard hits only, not on lava)
     if (k > 0.45 && !ctx.isLava(x, y)) ctx.scorches.spawn(x + dx * 25, y + dy * 25, fl - 0.4, 18 + k * 16, 2.5)
     if (k > 0.55) {
@@ -1533,19 +1725,19 @@ export class KitA {
   muzzle(x: number, y: number, h: number, dx: number, dy: number, pal: Pal, scale = 1): void {
     const ctx = this.ctx
     const ps = ctx.particles
-    ctx.flash(x, y, h, 0.14, 150 * scale, 80 * scale, pal.hot[0] * 0.75, pal.hot[1] * 0.75, pal.hot[2] * 0.75)
+    kflash(ctx, x, y, h, 0.14, 150 * scale, 80 * scale, pal.hot[0] * 0.75, pal.hot[1] * 0.75, pal.hot[2] * 0.75)
     const base = Math.atan2(dy, dx)
     const n = ps.budget(10 * scale)
     for (let i = 0; i < n; i++) {
       const a = base + (Math.random() - 0.5) * 1.1
       const sp = 300 + Math.random() * 600
-      ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 200, 0.14 + Math.random() * 0.14, 7, 1, pal.spark[0], pal.spark[1], pal.spark[2], -600, 4, -0.1)
+      pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 200, 0.14 + Math.random() * 0.14, 7, 1, pal.spark[0], pal.spark[1], pal.spark[2], -600, 4, -0.1)
     }
     const nf = ps.budget(6 * scale)
     for (let i = 0; i < nf; i++) {
       const a = base + (Math.random() - 0.5) * 0.7
       const sp = 120 + Math.random() * 260
-      ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 30 + Math.random() * 60, 0.2 + Math.random() * 0.15, 26 * scale, -8, pal.body[0], pal.body[1], pal.body[2], 40, 5, 0)
+      pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 30 + Math.random() * 60, 0.2 + Math.random() * 0.15, 26 * scale, -8, pal.body[0], pal.body[1], pal.body[2], 40, 5, 0)
     }
   }
 
@@ -1566,7 +1758,7 @@ export class KitA {
       const ox = Math.cos(a) * rr
       const oy = Math.sin(a) * rr
       const oh = (Math.random() - 0.5) * 60
-      ps.spawn(x + ox, y + oy, h + oh, (-ox + oy * 0.6) / life, (-oy - ox * 0.6) / life, -oh / life, life, 5 + k * 4, 2, pal.spark[0], pal.spark[1], pal.spark[2], 0, 0, -0.03)
+      pspawn(ps, x + ox, y + oy, h + oh, (-ox + oy * 0.6) / life, (-oy - ox * 0.6) / life, -oh / life, life, 5 + k * 4, 2, pal.spark[0], pal.spark[1], pal.spark[2], 0, 0, -0.03)
     }
     this.glowAt(x, y, h, 40 + k * 50, pal.body[0] * (0.3 + k * 0.7), pal.body[1] * (0.3 + k * 0.7), pal.body[2] * (0.3 + k * 0.7), 2.2)
   }
@@ -1588,11 +1780,12 @@ export class KitA {
   }
 
   dispose(): void {
-    for (const o of [this.strips.mesh, this.ground.mesh, this.air.mesh, this.cores.mesh, this.bb.sprite]) this.scene.remove(o)
+    for (const o of [this.strips.mesh, this.ground.mesh, this.air.mesh, this.over.mesh, this.cores.mesh, this.bb.sprite]) this.scene.remove(o)
     this.scene.remove(this.labels.group)
     this.strips.dispose()
     this.ground.dispose()
     this.air.dispose()
+    this.over.dispose()
     this.cores.dispose()
     this.bb.dispose()
     this.labels.dispose()

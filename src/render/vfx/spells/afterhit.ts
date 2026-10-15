@@ -315,8 +315,13 @@ registerSpellVfx({
     if (kind === K_FIRE && (spell === 'cluster' || spell === 'twin')) ctx.afterHit(e.target, 'fire', k)
     return false
   },
+  beginFrame(ctx) {
+    // frozen clock (hit-stop, pause): keep last frame's arcs (no adds while frozen,
+    // so the count stays constant) instead of re-rolling or dropping them
+    if (ctx.dt > 0) arcs?.begin()
+  },
   frame(ctx) {
-    arcs?.begin()
+    if (ctx.dt <= 0) return
     const now = ctx.now
     for (const l of pool) {
       if (l.kind === 0) continue

@@ -11,7 +11,7 @@
 import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { STYLE_RING, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB, pal, palMix } from './kitB'
+import { STYLE_RING, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB, pal, palMix, flashT, levelOf, tierOfLevel } from './kitB'
 
 // identity: flame orange-gold (vfx/palette.ts)
 const FLAME = pal('rush', 'accent', 1.1)
@@ -81,7 +81,7 @@ registerSpellVfx({
         burst(ctx, info.x, info.y, h, 22 * a.flare, 200, 520, 0.25, 0.45, 30, 6, FLAME, 1, 100, 3, 0, 60, 260)
         implode(ctx, info.x, info.y, h, 16, 110, 170, 0.28, 12, GOLD_WHITE, 1, 80)
         ctx.ground.spawn(RING_IMPLODE, info.x, info.y, floorH(ctx, info.x, info.y), 25, 120, 0.3, 10, GOLD[0], GOLD[1], GOLD[2])
-        ctx.flash(info.x, info.y, h, 0.12, 180, 160, FLAME[0], FLAME[1], FLAME[2])
+        flashT(ctx, info.x, info.y, h, 0.12, 180, 160, FLAME[0], FLAME[1], FLAME[2])
         return
       }
       case 'modifier': {
@@ -114,7 +114,8 @@ registerSpellVfx({
     const dt = ctx.dt
     const ps = ctx.particles
     // flame tongues: gold at the root, cooling to red-orange as they rise
-    const n = ps.budget(dt * 90 * k)
+    const tierK = 1 + 0.3 * tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL))
+    const n = ps.budget(dt * 90 * k * tierK)
     for (let i = 0; i < n; i++) {
       const ang = Math.random() * TAU
       const rr = rand(16, 36) * (1 + flare * 0.6)

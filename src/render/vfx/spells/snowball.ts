@@ -16,7 +16,7 @@ import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitAdopt, kitBegin,
   kitInit, kitRelease, light, originOf, projShadow, rand, type RGB,
-  pal,
+  pal, flashT, levelOfThing, tierOfLevel,
 } from './kitB'
 
 // identity: light ice blue (vfx/palette.ts)
@@ -63,7 +63,7 @@ const UP = new THREE.Vector3(0, 1, 0)
 const tv = new THREE.Vector3()
 /** ice crystals frozen into the ball (local directions, lengths) */
 const CRYSTALS: { d: THREE.Vector3; len: number; q: THREE.Quaternion }[] = []
-for (let i = 0; i < 7; i++) {
+for (let i = 0; i < 9; i++) {
   const d = new THREE.Vector3(Math.sin(i * 2.4) * Math.cos(i * 1.3), Math.cos(i * 2.4), Math.sin(i * 2.4) * Math.sin(i * 1.3)).normalize()
   CRYSTALS.push({ d, len: 0.42 + ((i * 37) % 5) * 0.06, q: new THREE.Quaternion().setFromUnitVectors(UP, d) })
 }
@@ -125,16 +125,17 @@ function addPatch(x: number, y: number, r: number, life: number, now: number): v
   patches.push({ x, y, r, born: now, life, seed: Math.random() * 10 })
 }
 
-function nova(ctx: VfxCtx, x: number, y: number, R: number): void {
+function nova(ctx: VfxCtx, x: number, y: number, R: number, tier = 0): void {
   const fh = floorH(ctx, x, y)
+  const pw = 1 + 0.35 * tier
   ctx.aoeRing(x, y, R, FROST[0], FROST[1], FROST[2], 0.55)
   ctx.ground.spawn(RING_EXPAND, x, y, fh, 30, R - 12, 0.32, 12, FROST[0] * 0.5, FROST[1] * 0.5, FROST[2] * 0.55)
   // brief icy flash (2-3 frames), coloured, never a white disc
-  ctx.flash(x, y, fh + 70, 0.06, R * 0.8, R * 0.8, FROST[0] * 0.45, FROST[1] * 0.5, FROST[2] * 0.6)
+  flashT(ctx, x, y, fh + 70, 0.06, R * 0.8, R * 0.8, FROST[0] * 0.45, FROST[1] * 0.5, FROST[2] * 0.6)
   // frozen ground that melts away
   addPatch(x, y, R * 0.97, 3.6, ctx.now)
   // ice shards and chunks (opaque), landing inside R
-  const nd = ctx.debris.budget(40)
+  const nd = ctx.debris.budget(32 * pw)
   for (let i = 0; i < nd; i++) {
     const a = Math.random() * TAU
     const sp = rand(0.4, 1.4) * R
@@ -184,7 +185,9 @@ function drawBall(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
   }
   if (shards) {
     // violet ice crystals jutting out of the packed snow, rolling with it
-    for (const c of CRYSTALS) {
+    const nc = 5 + 2 * tierOfLevel(ctx, levelOfThing(p))
+    for (let ci = 0; ci < nc; ci++) {
+      const c = CRYSTALS[ci]
       tv.copy(c.d).applyQuaternion(b.q)
       const L = r * c.len
       shards.quat.copy(b.q).multiply(c.q)
@@ -279,7 +282,7 @@ registerSpellVfx({
       }
       case 'explosion':
         if (e.spell !== SPELL) return
-        nova(ctx, e.x, e.y, e.radius)
+        nova(ctx, e.x, e.y, e.radius, tierOfLevel(ctx, levelOfThing(e)))
         return true
       case 'projectileHit':
       case 'projectileExpire':

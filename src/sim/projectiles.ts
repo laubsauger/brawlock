@@ -37,6 +37,8 @@ export interface SpawnProjectileOptions {
   /** default true: lifetime x owner's range mastery (Projectile:setLifetime) */
   rangeMastery?: boolean
   kind?: string
+  /** level of the creating spell; child projectiles pass their parent's (visual scaling) */
+  level?: number
   data?: Record<string, number>
 }
 
@@ -60,6 +62,7 @@ export function spawnProjectile(
   }
   const proj: ProjectileState = { id: state.nextEntityId++, owner, spell, x, y, vx, vy, radius, ticksLeft, data }
   if (opts.kind && opts.kind !== spell) proj.kind = opts.kind
+  if (opts.level !== undefined) proj.level = opts.level
   state.projectiles.push(proj)
   state.events.push({ type: 'projectileSpawn', id: proj.id, spell })
   return proj

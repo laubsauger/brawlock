@@ -6,6 +6,7 @@ import { hostGame, joinRoom, playOffline } from '../flow'
 import { sfx } from '../lib/sound'
 import { chooseName, NAME_MAX } from '../lib/name'
 import { staggerIn } from '../lib/motion'
+import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
 
 function MenuEntry({ title, sub, onClick, primary, expanded }: { title: string; sub: string; onClick: () => void; primary?: boolean; expanded?: boolean }) {
@@ -90,6 +91,7 @@ export function MainMenu() {
   const setScreen = useGame((s) => s.setScreen)
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
   // menu entries rise in one after another whenever the menu shows
   useEffect(() => staggerIn(navRef.current), [profileOpen])
@@ -164,16 +166,25 @@ export function MainMenu() {
           ) : null}
           <span>Pre-alpha build</span>
         </div>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded px-2 py-1 text-ash hover:text-bone focus-visible:outline-2 focus-visible:outline-gold"
-          onClick={() => {
-            setSettings({ muted: !muted })
-            if (muted) sfx('click')
-          }}
-        >
-          {muted ? 'Sound off' : 'Sound on'} <Kbd>M</Kbd>
-        </button>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded px-2 py-1 text-[#cdb8a4] hover:text-bone focus-visible:outline-2 focus-visible:outline-gold"
+            onClick={() => void toggleFullscreen()}
+          >
+            {fullscreen ? 'Exit fullscreen' : 'Fullscreen'} <Kbd>Alt+Enter</Kbd>
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded px-2 py-1 text-[#cdb8a4] hover:text-bone focus-visible:outline-2 focus-visible:outline-gold"
+            onClick={() => {
+              setSettings({ muted: !muted })
+              if (muted) sfx('click')
+            }}
+          >
+            {muted ? 'Sound off' : 'Sound on'} <Kbd>M</Kbd>
+          </button>
+        </span>
       </footer>
     </div>
   )

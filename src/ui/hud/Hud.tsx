@@ -9,10 +9,11 @@ import { slotColor, slotName, TEAM_NAMES } from '../lib/view'
 import { announce, Banner, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
 import { NetReadout, TopCenter, displayRound } from './TopBar'
-import { Gold, Vitals } from './Vitals'
+import { Gold, ProtectChip, Vitals } from './Vitals'
 import { KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
 import { resetSlotLayout } from '../lib/remap'
+import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
@@ -253,6 +254,7 @@ function WaitingVeil() {
 
 function Hints() {
   const binds = useBinds()
+  const fullscreen = useFullscreen()
   // any spell / item key moved from the preset (HUD drag, shop drag, Settings)
   const slotCustom = useGame((s) => [...Object.keys(s.settings.keybinds ?? {}), ...Object.keys(s.settings.keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k)))
   const hint = (key: string, label: string) => (
@@ -267,6 +269,17 @@ function Hints() {
       {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
       {hint(slotKeyLabel(binds, 6), 'Fireball')}
       {hint(bindLabel(binds, 'stop'), 'Stop')}
+      <button
+        type="button"
+        className="interactive flex items-center gap-1 rounded px-1.5 text-[0.82rem] text-ash hover:text-bone"
+        onClick={() => void toggleFullscreen()}
+        title="Fullscreen (Alt+Enter)"
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
+          <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        </svg>
+        {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+      </button>
       {slotCustom && (
         <button type="button" className="interactive rounded px-1.5 text-[0.82rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => resetSlotLayout()}>
           Reset key layout
@@ -278,6 +291,7 @@ function Hints() {
 
 export function Hud() {
   useDirector()
+  const hudLayout = useGame((s) => s.settings.hudLayout ?? 'center')
   return (
     <div className="hud select-none">
       <StatusLayer />
@@ -299,10 +313,11 @@ export function Hud() {
       <Banner />
       <AimHint />
 
-      {/* Dota-style bottom cluster, flush to the screen edge */}
-      <div className="absolute right-0 bottom-0 left-0 flex justify-center">
-        <div className="hud-scale">
-          <div className="hud-plate hud-bottom flex items-end gap-3 px-3 pt-2 pb-2">
+      {/* Dota-style bottom cluster flush to the screen edge, centered or in the bottom-right corner */}
+      <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
+        <div className="hud-scale relative">
+          <ProtectChip />
+          <div className="hud-plate hud-bottom flex items-end gap-3 px-3 pt-2 pb-2" data-layout={hudLayout}>
             <div className="flex w-[342px] flex-col gap-1.5">
               <Vitals />
               <SpellRow />

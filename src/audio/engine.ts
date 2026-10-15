@@ -11,6 +11,8 @@
  * (node tests, old browsers) or while the context is not running.
  */
 import { MusicLayer, type MusicTrack } from './music'
+import { AmbienceLayer, edgeProximity, type AmbienceKind } from './ambience'
+import { isLocationSafeAtLayer } from '../sim'
 import { flightPath, newCueMemory, planEvents, type ListenerLike, type SoundCue } from './events'
 import { createSynth, RECIPES, Voice, type SfxId, type Synth } from './synth'
 import type { SimEvent } from '../sim/types'
@@ -52,6 +54,10 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
   uiClick: { max: 2, level: 1, bus: 'ui', minGap: 0.02 },
   uiBack: { max: 2, level: 1, bus: 'ui', minGap: 0.05 },
   uiBuy: { max: 2, level: 1, bus: 'ui', minGap: 0.05 },
+  // levels from the uiBuy measurement (~0.045 rms): the confirmed chime a little fuller
+  buyNew: { max: 2, level: 1, bus: 'ui', minGap: 0.05 },
+  buyUpgrade: { max: 2, level: 1, bus: 'ui', minGap: 0.05 },
+  buyMastery: { max: 3, level: 1, bus: 'ui', minGap: 0.03 },
   uiError: { max: 1, level: 1, bus: 'ui', minGap: 0.1 },
   uiReady: { max: 1, level: 1, bus: 'ui', minGap: 0.1 },
   uiCountdown: { max: 1, level: 1, bus: 'ui', minGap: 0.2 },
@@ -135,6 +141,8 @@ const MAX_VOICES = 40
 export const SFX_LEVEL = 0.6
 export const UI_LEVEL = 0.8
 export const MUSIC_LEVEL = 2.9
+/** lava ambience on the SFX bus: well under the music (calibrated with offline renders) */
+export const AMB_LEVEL = 0.11
 const SFX_REVERB_SEND = 0.16
 const MUSIC_REVERB_SEND = 0.3
 /** gain ramp time constant: short enough to feel instant, long enough to never click */
@@ -251,6 +259,8 @@ export class AudioEngine {
   private desiredTrack: MusicTrack | 'none' = 'none'
   private current: MusicLayer | null = null
   private fading: MusicLayer[] = []
+  private amb: AmbienceLayer | null = null
+  private ambFading: AmbienceLayer[] = []
   private timer: ReturnType<typeof setInterval> | null = null
   private shrinks = 0
 
@@ -339,6 +349,21 @@ export class AudioEngine {
     if (!this.ready) return
     if (events.length > 0) for (const c of planEvents(events, listener, this.memory)) this.play(c)
     this.followLoops(listener)
+    this.followEdge(listener)
+  }
+
+  /** Swell the edge sizzle as the local pawn nears lava, panned toward it. */
+  private followEdge(listener: ListenerLike): void {
+    const amb = this.amb
+    const arena = listener.state?.arena
+    if (!amb || amb.kind !== 'match' || !arena || listener.localPlayer === undefined) return
+    const me = listener.state?.pawns.find((p) => p.owner === listener.localPlayer)
+    if (!me || !me.alive) {
+      amb.setEdge(0, 0)
+      return
+    }
+    const e = edgeProximity(me.x, me.y, (x, y) => isLocationSafeAtLayer(arena.layer, x, y))
+    amb.setEdge(e.proximity, e.pan)
   }
 
   /**
@@ -506,16 +531,36 @@ export class AudioEngine {
       layer.fadeTo(1, 2)
       this.current = layer
     }
+    this.applyAmbience(track === 'none' ? null : track === 'menu' ? 'menu' : 'match')
     if (!this.timer) this.timer = setInterval(() => this.pump(), 50)
+  }
+
+  /** The lava bed follows the music: menu bed in menus, match bed in shop and fight. */
+  private applyAmbience(kind: AmbienceKind | null): void {
+    const g = this.g
+    if (!g || (this.amb?.kind ?? null) === kind) return
+    if (this.amb) {
+      this.amb.release(2)
+      this.ambFading.push(this.amb)
+      this.amb = null
+    }
+    if (kind) {
+      this.amb = new AmbienceLayer(g.synth, g.sfx, kind)
+      this.amb.fadeTo(AMB_LEVEL, 3)
+    }
   }
 
   /** Lookahead scheduler for music steps. Stops itself when nothing plays. */
   private pump(): void {
     const g = this.g
     if (!g) return
-    if (g.ctx.state === 'running') this.current?.schedule(g.ctx.currentTime + 0.25)
+    if (g.ctx.state === 'running') {
+      this.current?.schedule(g.ctx.currentTime + 0.25)
+      this.amb?.schedule(g.ctx.currentTime + 0.25)
+    }
     this.fading = this.fading.filter((l) => !l.stopped)
-    if (!this.current && this.fading.length === 0 && this.timer) {
+    this.ambFading = this.ambFading.filter((l) => !l.stopped)
+    if (!this.current && !this.amb && this.fading.length === 0 && this.ambFading.length === 0 && this.timer) {
       clearInterval(this.timer)
       this.timer = null
     }

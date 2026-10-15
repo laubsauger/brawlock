@@ -27,6 +27,7 @@ export const boomerangSpell: SpellBehavior = {
     const py = a.dx
     const par = -(launch * launch) / (2 * D)
     spawnProjectile(state, caster.owner, 'boomerang', caster.x, caster.y, a.dx * launch + px * lateral, a.dy * launch + py * lateral, attr(def, 'radius', level), {
+      level,
       lifetime: null,
       data: {
         damage: castAttr(ctx, 'damage'),

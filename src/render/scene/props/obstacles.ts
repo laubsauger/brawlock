@@ -4,6 +4,7 @@ import { isLocationSafe } from '../../arenaGeom'
 import { S, TILE_TOP_H } from '../../coords'
 import type { WorldCtx } from '../world'
 import { createObstacleVisual, type ObstacleVisual } from './obstacle'
+import { preloadLooks, setPropAnisotropy } from './materials'
 
 /**
  * Drop-in replacement for scene/Obstacles (same public surface), built on
@@ -48,6 +49,9 @@ export class PropObstacles {
 
   constructor(private ctx: WorldCtx) {
     this.group.name = 'Obstacles'
+    // start every theme's texture load now so pillars are textured before the first fight
+    setPropAnisotropy(ctx.tier.anisotropy)
+    preloadLooks()
   }
 
   setTheme(theme: number): void {

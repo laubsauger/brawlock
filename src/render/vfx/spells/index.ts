@@ -20,6 +20,7 @@ import './pact'
 export {}
 
 // ---- workstream A (columns 1-3: Knockout, Transport, Damage; items Redirector, Pact) ----
+import './frameA'
 import './homing'
 import './boomerang'
 import './lightning'
@@ -35,6 +36,8 @@ import './pact'
 // ---- end workstream A ----
 
 // ---- workstream B (columns 4-6: Devastator, Defense, Knockbackless) ----
+// frameB: resets the shared per-frame pools (beginFrame) and draws cast level glyphs
+import './frameB'
 import './meteor'
 import './splitter'
 import './snowball'
@@ -54,4 +57,5 @@ import './deathsB'
 // ---- workstream C (deaths by cause, lingering after-hit) ----
 import './deaths'
 import './afterhit'
+import './scourge'
 // ---- end workstream C ----

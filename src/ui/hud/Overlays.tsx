@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
 import { Sigil } from '../icons'
-import { displayName, itemDef, levelStats, MASTERIES, MASTERY_MAX_LEVEL, masteryValue, SPELL_MAX_LEVEL, type MasteryId } from '../data/catalog'
+import { displayName, isPassive, itemDef, levelStats, MASTERIES, MASTERY_MAX_LEVEL, masteryValue, SPELL_MAX_LEVEL, type MasteryId } from '../data/catalog'
 import { PAWN_MAX_LIFE, PAWN_MOVE_SPEED } from '../../sim'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled } from '../lib/ticker'
@@ -157,7 +157,7 @@ export function CharacterBody() {
                     </span>
                   )}
                 </span>
-                <Kbd>{slotKeyLabel(binds, o.slot)}</Kbd>
+                {isPassive(o.id) ? <span className="chip text-[#bfe3ff]">Passive</span> : <Kbd>{slotKeyLabel(binds, o.slot)}</Kbd>}
               </div>
             )
           })}

@@ -3,7 +3,7 @@ import { pop } from '../lib/motion'
 import { slotDragProps, startSlotCapture } from '../lib/slotDnd'
 import { TICK_HZ, type SpellId } from '../../sim/types'
 import { Sigil } from '../icons'
-import { displayName, itemDef, knownCooldown, SPELL_MAX_LEVEL } from '../data/catalog'
+import { displayName, isPassive, itemDef, knownCooldown, SPELL_MAX_LEVEL, statsSummary } from '../data/catalog'
 import { slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled, useTick } from '../lib/ticker'
 import { localView } from '../lib/view'
@@ -44,9 +44,10 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
     prev.current = { spell: info.spell, level: info.level }
   }, [info.spell, info.level])
 
+  const passive = isPassive(info.spell)
   useTick(() => {
     const el = root.current
-    if (!el || !info.spell) return
+    if (!el || !info.spell || passive) return // passives have nothing to cast and no cooldown
     const pawn = localView()?.pawn
     const cd = pawn?.cooldowns[index] ?? 0
     const prev = last.current
@@ -90,9 +91,14 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       ref={root}
       className={`slot interactive ${isItem ? 'item' : ''}`}
       data-empty={!info.spell}
+      data-passive={passive}
       {...slotDragProps(index, !!info.spell)}
       onClick={(e) => startSlotCapture(index, e.currentTarget)}
-      title={`${info.spell ? `${name}${maxLevel > 1 ? `, level ${info.level}` : ''}` : isItem ? 'Empty item slot' : 'Empty spell slot'}. Drag onto another slot to swap keys, or click and press a key.`}
+      title={
+        passive
+          ? `${name} (passive), level ${info.level}: ${statsSummary(info.spell!, info.level)}. Always on; drag to move it.`
+          : `${info.spell ? `${name}${maxLevel > 1 ? `, level ${info.level}` : ''}` : isItem ? 'Empty item slot' : 'Empty spell slot'}. Drag onto another slot to swap keys, or click and press a key.`
+      }
     >
       {info.spell && (
         <div className="icon">
@@ -101,7 +107,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       )}
       <div className="cd" />
       <div ref={text} className="cd-text" />
-      {keyLabel && <span className="hotkey">{keyLabel}</span>}
+      {passive ? <span className="passive-tag">Passive</span> : keyLabel && <span className="hotkey">{keyLabel}</span>}
       {info.spell && maxLevel > 1 && (
         <div className="pips" aria-hidden>
           {Array.from({ length: maxLevel }, (_, i) => (

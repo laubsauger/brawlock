@@ -15,7 +15,7 @@
  */
 import type { SimEvent } from '../../../sim/types'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_RETICLE, G_RUNE, G_SHOCK, PH, acquireKit, palFor, palShade, pawnById, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_RETICLE, G_RUNE, G_SHOCK, PH, acquireKit, kflash, kring, palFor, palShade, pawnById, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 import { RING_EXPAND } from '../../scene/GroundFx'
 
@@ -40,20 +40,20 @@ function nova(k: KitA, ctx: VfxCtx, x: number, y: number, radius: number): void 
   ctx.aoeRing(x, y, radius, P.body[0], P.body[1], P.body[2], 0.5)
   k.pulse(G_SHOCK, false, x, y, fl + 1.5, radius, radius, 0.5, Math.random() * 6, 0, P.body, 0.8, 0.955, 0.955, 0.04, true)
   k.pulse(G_SHOCK, false, x, y, fl + 2, radius, radius, 0.32, Math.random() * 6, 0, P.hot, 0.9, 0.1, 0.94, 0.07)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 30, radius - 12, 0.42, 12, P.body[0], P.body[1], P.body[2])
+  kring(ctx, RING_EXPAND, x, y, fl, 30, radius - 12, 0.42, 12, P.body[0], P.body[1], P.body[2])
   const n = ps.budget(70)
   for (let i = 0; i < n; i++) {
     const a = (i / Math.max(1, n)) * Math.PI * 2 + Math.random() * 0.12
     // drag 3.2 -> travel <= sp / 3.2 < 0.9 radius
     const sp = radius * (1.5 + Math.random() * 1.35)
-    ps.spawn(x, y, PH - 10 + Math.random() * 30, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 160, 0.32 + Math.random() * 0.15, 30 + Math.random() * 20, -10, P.body[0], P.body[1], P.body[2], -200, 3.2, 0)
+    pspawn(ps, x, y, PH - 10 + Math.random() * 30, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 160, 0.32 + Math.random() * 0.15, 30 + Math.random() * 20, -10, P.body[0], P.body[1], P.body[2], -200, 3.2, 0)
   }
   const nh = ps.budget(30)
   for (let i = 0; i < nh; i++) {
     const a = Math.random() * Math.PI * 2
     // sparks die at the boundary: travel <= sp / drag
     const sp = radius * (1.4 + Math.random() * 1.9)
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 100 + Math.random() * 300, 0.3 + Math.random() * 0.25, 7, 1.5, P.spark[0], P.spark[1], P.spark[2], -1500, 3.6, -0.1)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 100 + Math.random() * 300, 0.3 + Math.random() * 0.25, 7, 1.5, P.spark[0], P.spark[1], P.spark[2], -1500, 3.6, -0.1)
   }
   const ns = ctx.smoke.budget(10)
   for (let i = 0; i < ns; i++) {
@@ -62,7 +62,7 @@ function nova(k: KitA, ctx: VfxCtx, x: number, y: number, radius: number): void 
     ctx.smoke.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, PH, Math.cos(a) * 90, Math.sin(a) * 90, 70 + Math.random() * 50, 1.3 + Math.random() * 0.8, 50, 170, 0.07, 0.035, 0.025, 20, 0.9, 16)
   }
   if (!ctx.isLava(x, y)) ctx.scorches.spawn(x, y, fl - 0.4, radius * 0.45, 5)
-  ctx.flash(x, y, PH + 20, 0.32, radius, 140, P.hot[0], P.hot[1], P.hot[2])
+  kflash(ctx, x, y, PH + 20, 0.32, radius, 140, P.hot[0], P.hot[1], P.hot[2])
   ctx.shakeNear(x, y, 0.35)
 }
 
@@ -74,7 +74,7 @@ function pop(k: KitA, ctx: VfxCtx, x: number, y: number, big: boolean): void {
     const a = Math.random() * Math.PI * 2
     const el = (Math.random() - 0.3) * 1.2
     const sp = 180 + Math.random() * 420
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, el * sp * 0.6, 0.26 + Math.random() * 0.3, 34 + Math.random() * 20, -10, P.body[0], P.body[1], P.body[2], -200, 5, 0)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, el * sp * 0.6, 0.26 + Math.random() * 0.3, 34 + Math.random() * 20, -10, P.body[0], P.body[1], P.body[2], -200, 5, 0)
   }
   const fl0 = k.floor(x, y)
   k.pulse(G_SHOCK, false, x, y, fl0 + 1.5, big ? 90 : 70, big ? 90 : 70, 0.3, Math.random() * 6, 0, P.body, 1.0, 0.1, 0.95, 0.1)
@@ -83,9 +83,9 @@ function pop(k: KitA, ctx: VfxCtx, x: number, y: number, big: boolean): void {
     const a = Math.random() * Math.PI * 2
     ctx.smoke.spawn(x, y, PH, Math.cos(a) * 70, Math.sin(a) * 70, 60 + Math.random() * 40, 0.9 + Math.random() * 0.5, 34, 120, 0.05, 0.03, 0.022, 25, 1.2, 10)
   }
-  ctx.flash(x, y, PH, 0.2, 260, 150, P.hot[0] * 0.9, P.hot[1] * 0.9, P.hot[2] * 0.9)
+  kflash(ctx, x, y, PH, 0.2, 260, 150, P.hot[0] * 0.9, P.hot[1] * 0.9, P.hot[2] * 0.9)
   const fl = k.floor(x, y)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 12, big ? 150 : 110, 0.36, 12, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+  kring(ctx, RING_EXPAND, x, y, fl, 12, big ? 150 : 110, 0.36, 12, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
   if (big && !ctx.isLava(x, y)) ctx.scorches.spawn(x, y, fl - 0.4, 55)
 }
 
@@ -127,6 +127,7 @@ const mod: SpellVfx = {
         const dy = e.y - info.y
         const l = Math.hypot(dx, dy) || 1
         k.muzzle(o.x, o.y, o.h, dx / l, dy / l, P, 1.1)
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         k.pulse(G_RUNE, true, o.x, o.y, o.h - 6, 30, 70, 0.3, Math.atan2(dy, dx), 4, P.body, 1.1, 1, 1, e.pawn)
         return
       }
@@ -135,7 +136,7 @@ const mod: SpellVfx = {
         if (!a || a.spell !== 'homing') return
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, novaAt.x, novaAt.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P, 1, a.tier)
         return true
       }
       case 'explosion':
@@ -192,19 +193,20 @@ const mod: SpellVfx = {
     // teardrop comet core: nose = collision radius, tail along -velocity
     k.cores.add(x, y, PH, r, dx, dy, 1.75, p.id, P.edge, P.body, P.hot)
     // halo kept under ~150 units so the camera-facing sprite never cuts the floor
-    k.glowAt(x, y, PH, r * 3.6, P.body[0] * 0.42, P.body[1] * 0.42, P.body[2] * 0.42, 1.7, 0.6)
+    k.halo(x, y, PH, r * 3.6, P.body[0] * 0.42, P.body[1] * 0.42, P.body[2] * 0.42, 1.7, 0.6)
     k.streakAt(x - dx * r * 1.1, y - dy * r * 1.1, PH, r * 1.5, 2.2, dx, dy, P.hot[0] * 0.5, P.hot[1] * 0.45, P.hot[2] * 0.4, 2.4)
-    ctx.glow.add(x, y, 230, 0.95, P.light[0], P.light[1], P.light[2])
+    ctx.glow.add(x, y, 160, 0.6, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
     // comet trail continues the teardrop; two flame wisps braid around the path
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
     const ph = now * 15 + p.id * 1.7
     const px = -dy
     const py = dx
     for (let j = 0; j < 2; j++) {
       const s = Math.sin(ph + j * Math.PI)
       const c = Math.cos(ph + j * Math.PI)
-      k.trailPoint(p.id * 4 + 1 + j, x - dx * r * 0.6 + px * s * 17, y - dy * r * 0.6 + py * s * 17, PH + c * 11, WISP)
+      k.trailPoint(p.id * 16 + 1 + j, x - dx * r * 0.6 + px * s * 17, y - dy * r * 0.6 + py * s * 17, PH + c * 11, WISP)
     }
     // shed embers off the tail
     const ps = ctx.particles
@@ -212,7 +214,7 @@ const mod: SpellVfx = {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
       const sv = 40 + Math.random() * 90
-      ps.spawn(x - dx * r * 1.4, y - dy * r * 1.4, PH + (Math.random() - 0.5) * 16, -dx * 120 + Math.cos(a) * sv, -dy * 120 + Math.sin(a) * sv, 20 + Math.random() * 80, 0.3 + Math.random() * 0.3, 7 + Math.random() * 5, -2, P.spark[0], P.spark[1], P.spark[2], -120, 2, 4)
+      pspawn(ps, x - dx * r * 1.4, y - dy * r * 1.4, PH + (Math.random() - 0.5) * 16, -dx * 120 + Math.cos(a) * sv, -dy * 120 + Math.sin(a) * sv, 20 + Math.random() * 80, 0.3 + Math.random() * 0.3, 7 + Math.random() * 5, -2, P.spark[0], P.spark[1], P.spark[2], -120, 2, 4)
     }
     // target lock: reticle under the target + faint tether hint
     const t = p.data.target
@@ -257,7 +259,7 @@ const mod: SpellVfx = {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
       const rr = 14 + Math.random() * 20
-      ps.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, fl + 6 + Math.random() * 30, -pawn.vx * 0.15, -pawn.vy * 0.15, 120 + Math.random() * 140, 0.28 + Math.random() * 0.2, burn ? 26 : 18, -4, pal.body[0], pal.body[1], pal.body[2], 120, 2, 4)
+      pspawn(ps, x + Math.cos(a) * rr, y + Math.sin(a) * rr, fl + 6 + Math.random() * 30, -pawn.vx * 0.15, -pawn.vy * 0.15, 120 + Math.random() * 140, 0.28 + Math.random() * 0.2, burn ? 26 : 18, -4, pal.body[0], pal.body[1], pal.body[2], 120, 2, 4)
     }
     if (burn && Math.random() < ctx.dt * 8) ctx.smoke.spawn(x, y, fl + 60, 0, 0, 90, 0.9, 30, 90, 0.05, 0.01, 0.01, 30, 0.8, 10)
     ctx.glow.add(x, y, 150, burn ? 0.6 : 0.4, pal.light[0], pal.light[1], pal.light[2])

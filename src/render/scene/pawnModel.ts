@@ -244,6 +244,9 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
     arrive: makeFloatUniform(),
   }
   u.dissolveColor.value.setRGB(4.5, 1.4, 0.25)
+  // owners that only drive `flash` (the character's procedural wrapper) get a
+  // sensible default strength
+  u.flashK.value = 0.8
   const t = ctx.uTime
   // fragment-stage clock via a vertex varying: a uniform read in both stages of
   // one material only updated its vertex copy (frozen flicker / pulses)
@@ -279,9 +282,11 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   // silhouette rim: team tint plus cool moonlight, keeps dark robes readable on dark tiles
   em = em.add(team.mul(0.28).add(vec3(0.05, 0.07, 0.14)).mul(rimF).mul(float(1).sub(pEyes)))
   // hit: a split-second hot-white core that cools into a red tint, scaled by the hit
-  const hot = smoothstep(0.72, 1.0, u.flash)
-  const hitCol = mix(vec3(2.4, 0.14, 0.07), vec3(3.4, 3.1, 2.8), hot)
-  em = em.add(hitCol.mul(u.flash).mul(u.flashK).mul(rimF.mul(0.6).add(0.55)))
+  // hit: crimson over the body, a hot-white core ONLY in the first frames and
+  // only on the rim (never washes the whole body white), scaled by the hit
+  const hot = smoothstep(0.88, 1.0, u.flash).mul(rimF)
+  const hitCol = mix(vec3(1.9, 0.08, 0.05), vec3(2.6, 2.3, 2.0), hot)
+  em = em.add(hitCol.mul(u.flash).mul(u.flashK).mul(rimF.mul(0.7).add(0.35)))
   // below 30 % HP: a faint persistent red pulse on the rim
   const lowPulse = sin(tF.mul(6.5)).mul(0.5).add(0.5)
   em = em.add(vec3(1.4, 0.06, 0.04).mul(u.lowHp).mul(rimF.mul(0.9).add(0.12)).mul(lowPulse.mul(0.7).add(0.3)))

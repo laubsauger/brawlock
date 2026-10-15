@@ -65,12 +65,15 @@ export class Projectiles {
     const A = asV4(attribute('aCol', 'vec4'))
     const viewDir = positionView.negate().normalize()
     const ndv = saturate(dot(normalView, viewDir))
-    const flick = sin(ctx.uTime.mul(37).add(A.w.mul(11))).mul(0.08).add(1)
+    const tierN = A.w.div(10).floor()
+    const seed = A.w.sub(tierN.mul(10))
+    const flick = sin(ctx.uTime.mul(37).add(seed.mul(11))).mul(0.08).add(1)
     // temperature bands: crimson rim, orange body, hot core (kept below white
     // so ACES + bloom don't wash the fireball out to yellow)
     const rim = A.xyz.mul(1.7)
     const mid = vec3(2.7, 0.85, 0.12)
-    const core = vec3(3.3, 2.2, 1.0)
+    // hotter core with power tier (yellow -> white-hot), hitbox size unchanged
+    const core = mix(vec3(3.3, 2.2, 1.0), vec3(3.7, 3.4, 2.7), tierN.mul(0.5))
     const col = mix(mix(rim, mid, smoothstep(0.05, 0.5, ndv)), core, smoothstep(0.6, 0.95, ndv)).mul(flick)
     void pow
     const m = new THREE.MeshBasicNodeMaterial()
@@ -136,7 +139,10 @@ export class Projectiles {
       ca[n * 4] = er
       ca[n * 4 + 1] = eg
       ca[n * 4 + 2] = eb
-      ca[n * 4 + 3] = p.id % 7
+      // w = flicker seed (0..6) + 10 x power tier (levels 1-2 / 3-5 / 6-7)
+      const lv = (p as { level?: number }).level ?? 1
+      const tier = lv >= 6 ? 2 : lv >= 3 ? 1 : 0
+      ca[n * 4 + 3] = (p.id % 7) + tier * 10
       n++
 
       // halo: broad spell glow (also bends the air: heat haze) plus a tighter
@@ -146,6 +152,18 @@ export class Projectiles {
       const wz = -y * S
       this.billboards.add(wx, wy, wz, r * 6.5 * S, look.halo[0] * 0.5, look.halo[1] * 0.5, look.halo[2] * 0.5, 1.6, 0.9)
       this.billboards.add(wx, wy, wz, r * 3.2 * S, er * 0.9, eg * 0.9, eb * 0.9, 2.5)
+      // power tiers (visual only): tier 1 a broad crimson outer flame, tier 2
+      // adds two white-hot motes orbiting the core
+      if (tier >= 1) this.billboards.add(wx, wy, wz, r * 9.5 * S, look.edge[0] * 0.42, look.edge[1] * 0.42, look.edge[2] * 0.42, 1.15)
+      if (tier >= 2) {
+        for (let k = 0; k < 2; k++) {
+          const a = now * 11 + p.id + k * Math.PI
+          const ox = Math.cos(a) * r * 1.7
+          const oz = Math.sin(a) * r * 1.7
+          const oh = Math.sin(a * 0.5) * r * 0.5
+          this.billboards.add(wx + ox * S, wy + oh * S, wz + oz * S, r * 1.1 * S, 3.4, 2.7, 1.4, 2.4)
+        }
+      }
       // comet streak: stretched along the screen-space velocity, trailing the core
       const sp = Math.hypot(p.vx, p.vy)
       if (sp > 50) {
@@ -154,7 +172,7 @@ export class Projectiles {
         this.v0.set(wx, wy, wz).project(camera)
         this.v1.set(wx + ux * 100 * S, wy, wz - uy * 100 * S).project(camera)
         const ang = Math.atan2(this.v1.y - this.v0.y, (this.v1.x - this.v0.x) * aspect)
-        const len = Math.min(3.2, 1.4 + sp / 700)
+        const len = Math.min(3.2, 1.4 + sp / 700) * (1 + tier * 0.18)
         const back = r * len * 0.9
         this.billboards.addStreak(
           wx - ux * back * S, wy, wz + uy * back * S,
@@ -192,7 +210,18 @@ export class Projectiles {
             look.trail[0], look.trail[1], look.trail[2],
             60, 2, 0,
           )
-          if (Math.random() < 0.18) {
+          if (tier >= 1 && Math.random() < 0.5) {
+            // power tier: a second, wider flame layer licking off the trail
+            this.particles.spawn(
+              px, py, ph,
+              (Math.random() - 0.5) * 120 - ux * 40, (Math.random() - 0.5) * 120 - uy * 40, 60 + Math.random() * 60,
+              0.3 + Math.random() * 0.15,
+              r * (1.9 + tier * 0.3), -r * 0.4,
+              look.edge[0] * 1.5, look.edge[1] * 1.5, look.edge[2] * 1.5,
+              120, 2.5, 0,
+            )
+          }
+          if (Math.random() < 0.18 + tier * 0.08) {
             // stray sparks
             this.particles.spawn(
               px, py, ph,

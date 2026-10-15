@@ -14,7 +14,7 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_DISC, G_SHOCK, G_SIGIL, acquireKit, palFor, pawnById, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_DISC, G_SHOCK, G_SIGIL, acquireKit, kflash, kring, palFor, pawnById, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 
 const P = palFor('pact')
 let K: KitA | null = null
@@ -28,20 +28,20 @@ function shatter(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   const fl = k.floor(x, y)
   k.pulse(G_SIGIL, false, x, y, fl + 2, 70, 95, 0.55, 0, 1.5, P.body, 1.6, 0.05, 1.0, x)
   k.pulse(G_SHOCK, false, x, y, fl + 1.5, 160, 160, 0.4, 0, 0, P.body, 1.2, 0.1, 0.95, 0.07)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 20, 160, 0.4, 12, P.body[0], P.body[1], P.body[2])
+  kring(ctx, RING_EXPAND, x, y, fl, 20, 160, 0.4, 12, P.body[0], P.body[1], P.body[2])
   const ps = ctx.particles
   const n = ps.budget(30)
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 250 + Math.random() * 450
-    ps.spawn(x + Math.cos(a) * 40, y + Math.sin(a) * 40, fl + 8, Math.cos(a) * sp, Math.sin(a) * sp, 120 + Math.random() * 300, 0.35 + Math.random() * 0.3, 10, 3, P.spark[0], P.spark[1], P.spark[2], -1400, 1.5, -0.06)
+    pspawn(ps, x + Math.cos(a) * 40, y + Math.sin(a) * 40, fl + 8, Math.cos(a) * sp, Math.sin(a) * sp, 120 + Math.random() * 300, 0.35 + Math.random() * 0.3, 10, 3, P.spark[0], P.spark[1], P.spark[2], -1400, 1.5, -0.06)
   }
   const ns = ctx.smoke.budget(6)
   for (let i = 0; i < ns; i++) {
     const a = Math.random() * Math.PI * 2
     ctx.smoke.spawn(x, y, fl + 30, Math.cos(a) * 110, Math.sin(a) * 110, 50, 1.1, 40, 120, P.edge[0] * 0.12, P.edge[1] * 0.12, P.edge[2] * 0.12, 15, 1, 10)
   }
-  ctx.flash(x, y, h + 60, 0.22, 220, 140, P.hot[0] * 0.8, P.hot[1] * 0.6, P.hot[2] * 0.6)
+  kflash(ctx, x, y, h + 60, 0.22, 220, 140, P.hot[0] * 0.8, P.hot[1] * 0.6, P.hot[2] * 0.6)
   ctx.shakeNear(x, y, 0.12)
 }
 
@@ -54,7 +54,7 @@ function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, id: number, _tx: 
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const rr = 50 + Math.random() * 20
-    ps.spawn(info.x + Math.cos(a) * rr, info.y + Math.sin(a) * rr, info.h + 4, -Math.cos(a) * 60, -Math.sin(a) * 60, 70 + Math.random() * 60, 0.6, 7, 2, P.spark[0], P.spark[1], P.spark[2], 0, 1, 3)
+    pspawn(ps, info.x + Math.cos(a) * rr, info.y + Math.sin(a) * rr, info.h + 4, -Math.cos(a) * 60, -Math.sin(a) * 60, 70 + Math.random() * 60, 0.6, 7, 2, P.spark[0], P.spark[1], P.spark[2], 0, 1, 3)
   }
 }
 
@@ -83,15 +83,15 @@ const mod: SpellVfx = {
         if (!info) return
         const fl = k.floor(info.x, info.y)
         k.pulse(G_SIGIL, false, info.x, info.y, fl + 2, 120, 70, 0.35, 0, 2, P.body, 1.6, 0, 0, e.pawn)
-        ctx.ground.spawn(RING_EXPAND, info.x, info.y, fl, 30, 120, 0.3, 10, P.body[0], P.body[1], P.body[2])
+        kring(ctx, RING_EXPAND, info.x, info.y, fl, 30, 120, 0.3, 10, P.body[0], P.body[1], P.body[2])
         k.origin(info, o)
-        ctx.flash(o.x, o.y, o.h, 0.16, 150, 90, P.body[0] * 1.4, P.body[1] * 1.4, P.body[2] * 1.4)
+        kflash(ctx, o.x, o.y, o.h, 0.16, 150, 90, P.body[0] * 1.4, P.body[1] * 1.4, P.body[2] * 1.4)
         const ps = ctx.particles
         const n = ps.budget(20)
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
           const sp = 100 + Math.random() * 200
-          ps.spawn(info.x, info.y, fl + 10, Math.cos(a) * sp, Math.sin(a) * sp, 150 + Math.random() * 200, 0.5, 9, 2, P.spark[0], P.spark[1], P.spark[2], -300, 2, 4)
+          pspawn(ps, info.x, info.y, fl + 10, Math.cos(a) * sp, Math.sin(a) * sp, 150 + Math.random() * 200, 0.5, 9, 2, P.spark[0], P.spark[1], P.spark[2], -300, 2, 4)
         }
         return
       }
@@ -155,12 +155,12 @@ const mod: SpellVfx = {
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2
         const rr = 20 + Math.random() * 45
-        ps.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, h0 + 5, 0, 0, 90 + Math.random() * 90, 0.8 + Math.random() * 0.4, 8, 2, P.spark[0], P.spark[1], P.spark[2], 20, 1, 6)
+        pspawn(ps, x + Math.cos(a) * rr, y + Math.sin(a) * rr, h0 + 5, 0, 0, 90 + Math.random() * 90, 0.8 + Math.random() * 0.4, 8, 2, P.spark[0], P.spark[1], P.spark[2], 20, 1, 6)
       }
       if (info) {
         k.origin(info, o)
         k.glowAt(o.x, o.y, o.h, 46 * beat, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8, 2.2)
-        if (Math.random() < ctx.dt * 10) ps.spawn(o.x, o.y, o.h, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, 40, 0.5, 6, 2, P.spark[0], P.spark[1], P.spark[2], 40, 1, 4)
+        if (Math.random() < ctx.dt * 10) pspawn(ps, o.x, o.y, o.h, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, 40, 0.5, 6, 2, P.spark[0], P.spark[1], P.spark[2], 40, 1, 4)
       }
       ctx.glow.add(x, y, 120, 0.5 * fade, P.light[0], P.light[1], P.light[2])
     } else {
@@ -171,7 +171,7 @@ const mod: SpellVfx = {
       const n = ps.budget(ctx.dt * 10)
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2
-        ps.spawn(x + Math.cos(a) * 24, y + Math.sin(a) * 24, h0 + 90 + Math.random() * 50, 0, 0, -20, 0.9, 7, 4, P.edge[0] * 0.8, P.edge[1] * 0.8, P.edge[2] * 0.8, -220, 0, 0)
+        pspawn(ps, x + Math.cos(a) * 24, y + Math.sin(a) * 24, h0 + 90 + Math.random() * 50, 0, 0, -20, 0.9, 7, 4, P.edge[0] * 0.8, P.edge[1] * 0.8, P.edge[2] * 0.8, -220, 0, 0)
       }
       if (Math.random() < ctx.dt * 4) ctx.smoke.spawn(x, y, h0 + 30, 0, 0, 20, 1.0, 30, 80, 0.03, 0.01, 0.012, 20, 1, 6)
     }

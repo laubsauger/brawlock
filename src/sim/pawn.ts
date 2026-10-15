@@ -14,7 +14,7 @@
  */
 import { DT } from './types'
 import type { InputCommand, PawnState, PlayerId, SimState } from './types'
-import { FACING_TOLERANCE, PAWN_WALK_SPEED_CAP, SLOT_COUNT, TURN_PER_TICK, ARRIVE_EPSILON, ticks } from './config'
+import { ARRIVE_EPSILON, CAST_TURN_LIMIT_TICKS, FACING_TOLERANCE, PAWN_WALK_SPEED_CAP, SLOT_COUNT, TURN_PER_TICK, ticks } from './config'
 import { angleDiff, atan2, wrapAngle } from './math'
 import { modifiersOnSpellCast, modifiersPreTick } from './modifiers'
 import { cancelCast, stopPawn } from './orders'
@@ -24,6 +24,12 @@ import type { CastContext } from './spells/types'
 
 /** Turn toward `desired` by at most TURN_PER_TICK. Returns the remaining |difference|. */
 function turnToward(pawn: PawnState, desired: number): number {
+  if (!Number.isFinite(desired)) return 0
+  if (!Number.isFinite(pawn.facing)) {
+    // never stall on a corrupted facing (e.g. a dev tool wrote NaN): snap to the target
+    pawn.facing = wrapAngle(desired)
+    return 0
+  }
   const diff = angleDiff(pawn.facing, desired)
   const step = diff > TURN_PER_TICK ? TURN_PER_TICK : diff < -TURN_PER_TICK ? -TURN_PER_TICK : diff
   pawn.facing = wrapAngle(pawn.facing + step)
@@ -48,7 +54,7 @@ export function fireSpell(state: SimState, pawn: PawnState, slot: number, x: num
   if (!def || !behavior) return
   const level = pawn.levels[slot]
   pawn.cooldowns[slot] = ticks(cooldownSeconds(def, level))
-  state.events.push({ type: 'cast', pawn: pawn.id, spell, x, y })
+  state.events.push({ type: 'cast', pawn: pawn.id, spell, x, y, level })
   const ctx: CastContext = { state, caster: pawn, def, slot, level, x, y, overrides: {} }
   modifiersOnSpellCast(state, pawn, ctx)
   if (!pawn.alive) return
@@ -113,11 +119,19 @@ function castPreTick(state: SimState, pawn: PawnState): void {
     if (def.target === 'point' && !def.ignoreTurn) {
       const dx = cast.x - pawn.x
       const dy = cast.y - pawn.y
-      if (dx !== 0 || dy !== 0) ready = turnToward(pawn, atan2(dy, dx)) <= FACING_TOLERANCE
+      if (dx !== 0 || dy !== 0) {
+        const desired = atan2(dy, dx)
+        ready = turnToward(pawn, desired) <= FACING_TOLERANCE
+        cast.turnTicks = (cast.turnTicks ?? 0) + 1
+        if (!ready && cast.turnTicks >= CAST_TURN_LIMIT_TICKS) {
+          pawn.facing = wrapAngle(desired)
+          ready = true
+        }
+      }
     }
     if (!ready) return
     cast.started = true
-    state.events.push({ type: 'castStart', pawn: pawn.id, spell: cast.spell, ticks: cast.ticksLeft })
+    state.events.push({ type: 'castStart', pawn: pawn.id, spell: cast.spell, ticks: cast.ticksLeft, level: pawn.levels[cast.slot] })
   } else {
     cast.ticksLeft -= 1
   }

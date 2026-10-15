@@ -17,7 +17,7 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_REFRESH, G_RUNE, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_REFRESH, G_RUNE, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('recharge')
@@ -42,16 +42,16 @@ function sparkle(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   const fl = k.floor(x, y)
   k.pulse(G_REFRESH, false, x, y, fl + 2, 40, 110, 0.5, 0, 7, P.body, 1.5, 3, 3, 1.2)
   k.pulse(G_REFRESH, true, x, y, h + 60, 30, 70, 0.4, 0, -9, P.hot, 0.9, 2, 2, 0.8)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 20, 120, 0.4, 10, P.body[0], P.body[1], P.body[2])
+  kring(ctx, RING_EXPAND, x, y, fl, 20, 120, 0.4, 10, P.body[0], P.body[1], P.body[2])
   const ps = ctx.particles
   const n = ps.budget(28)
   for (let i = 0; i < n; i++) {
     const a = (i / Math.max(1, n)) * Math.PI * 2
     const sp = 220 + Math.random() * 200
-    ps.spawn(x, y, h + 60, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 150, 0.3 + Math.random() * 0.15, 9, 1, P.spark[0], P.spark[1], P.spark[2], -200, 3, -0.08)
-    ps.spawn(x + Math.cos(a) * 25, y + Math.sin(a) * 25, fl + 10, 0, 0, 200 + Math.random() * 250, 0.6, 7, 2, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8, 0, 1.4, 6)
+    pspawn(ps, x, y, h + 60, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 150, 0.3 + Math.random() * 0.15, 9, 1, P.spark[0], P.spark[1], P.spark[2], -200, 3, -0.08)
+    pspawn(ps, x + Math.cos(a) * 25, y + Math.sin(a) * 25, fl + 10, 0, 0, 200 + Math.random() * 250, 0.6, 7, 2, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8, 0, 1.4, 6)
   }
-  ctx.flash(x, y, h + 60, 0.25, 220, 140, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3)
+  kflash(ctx, x, y, h + 60, 0.25, 220, 140, P.body[0] * 1.3, P.body[1] * 1.3, P.body[2] * 1.3)
 }
 
 /** signature charge-up: a purple charge-meter ring filling around the hand */
@@ -92,6 +92,7 @@ const mod: SpellVfx = {
         const l = Math.hypot(dx, dy) || 1
         const st = streakOf(ctx, info.owner)
         k.muzzle(o.x, o.y, o.h, dx / l, dy / l, P, 1 + Math.min(1, st * 0.2))
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         return
       }
       case 'damage': {
@@ -100,7 +101,7 @@ const mod: SpellVfx = {
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
         const h = (v?.h ?? 30) + 55
-        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 1, a.tier)
         k.pulse(G_REFRESH, true, e.x, e.y, h, 50, 120, 0.35, 0, 12, P.body, 1.1, 3, 3, 1)
         return true
       }
@@ -109,7 +110,7 @@ const mod: SpellVfx = {
         if (e.spell !== 'recharge') return
         const fl = k.floor(e.x, e.y)
         k.pulse(G_SHOCK, false, e.x, e.y, fl + 1.5, 70, 70, 0.3, 0, 0, P.body, 0.9, 0.12, 0.95, 0.1)
-        ctx.flash(e.x, e.y, PH, 0.12, 120, 70, P.body[0], P.body[1], P.body[2])
+        kflash(ctx, e.x, e.y, PH, 0.12, 120, 70, P.body[0], P.body[1], P.body[2])
         return
       }
       case 'cooldownReset': {
@@ -170,7 +171,7 @@ const mod: SpellVfx = {
       k.glowAt(x, y, PH + 15, 70, P.body[0] * 0.4, P.body[1] * 0.4, P.body[2] * 0.4, 1.8)
       ctx.glow.add(x, y, 130, 0.5, P.light[0], P.light[1], P.light[2])
       ctx.projectileShadow(x, y, PH + 15, 14)
-      k.trailPoint(p.id * 4, x, y, PH + 15, ORB, p.owner)
+      k.trailPoint(p.id * 16, x, y, PH + 15, ORB, p.owner)
       return
     }
     const r = p.radius
@@ -179,15 +180,16 @@ const mod: SpellVfx = {
     k.cores.add(x, y, PH, r, dx, dy, 0.7, p.id, P.edge, P.body, P.hot, 1 + boost * 0.3)
     // refresh arrows circling the bolt: 2 arrows, 3 from streak 3 up
     k.air.add(G_REFRESH, x, y, PH - 2, r * (1.35 + boost * 0.35), -now * 8, P.body[0], P.body[1], P.body[2], 1.1 + boost * 0.6, st >= 3 ? 3 : 2, 1.1)
-    k.glowAt(x, y, PH, r * (3 + boost), P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)
-    ctx.glow.add(x, y, 200, 0.8 + boost * 0.4, P.light[0], P.light[1], P.light[2])
+    k.halo(x, y, PH, r * (3 + boost), P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)
+    ctx.glow.add(x, y, 150, 0.55 + boost * 0.25, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * (30 + st * 10))
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
-      ps.spawn(x + Math.cos(a) * r * 1.4, y + Math.sin(a) * r * 1.4, PH, -Math.sin(a) * 160 - dx * 120, Math.cos(a) * 160 - dy * 120, (Math.random() - 0.5) * 60, 0.25 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], 0, 2, -0.05)
+      pspawn(ps, x + Math.cos(a) * r * 1.4, y + Math.sin(a) * r * 1.4, PH, -Math.sin(a) * 160 - dx * 120, Math.cos(a) * 160 - dy * 120, (Math.random() - 0.5) * 60, 0.25 + Math.random() * 0.2, 7, 1, P.spark[0], P.spark[1], P.spark[2], 0, 2, -0.05)
     }
   },
 

@@ -27,11 +27,22 @@
  * | buys spells      |   no  | yes   | yes    | yes   | yes    | yes      |
  * | comboChance      |   -   | 0     | 0      | 0.5   | 0.9    | -        |
  * | thrustAttack     |   -   | no    | no     | yes   | yes    | no       |
+ * | threatChance     |   -   | 0.35  | 0.8    | 1     | 1      | -        |
+ * | threatEscape     |   -   | no    | no     | yes   | yes    | -        |
+ * | useCover         |   -   | no    | no     | yes   | yes    | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
  * thrustAttack: Thrust into a nearby enemy when the ground past them is safe (the original
  * only used Thrust to leave lava).
+ *
+ * threatChance: chance per think to walk out of an area about to strike (an enemy charging
+ * Scourge, a Meteor's landing spot, a Gravity orb's damage zone). threatEscape: when walking
+ * cannot clear it in time, use the escape spell instead.
+ *
+ * useCover: a bolt whose flight hits a pillar before reaching us is no threat, so the bot
+ * stays in a pillar's cover instead of stepping out of it, and dodges toward cover. Every
+ * preset keeps wander points out of pillars, walks around them and never dodges into one.
  *
  * Dummy issues no commands at all: a practice target that stands where it spawned.
  */
@@ -83,6 +94,12 @@ export interface BotParams {
   comboChance: number
   /** use Thrust as an attack on a close enemy, not only to leave lava */
   thrustAttack: boolean
+  /** chance per think to leave an area threat (charging Scourge, Meteor spot, Gravity zone) */
+  threatChance: number
+  /** escape spell out of an area threat when walking is too slow */
+  threatEscape: boolean
+  /** count pillars as cover from projectiles */
+  useCover: boolean
 }
 
 const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
@@ -107,6 +124,9 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   buys: true,
   comboChance: 0,
   thrustAttack: false,
+  threatChance: 0.35,
+  threatEscape: false,
+  useCover: false,
 }
 
 export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
@@ -132,6 +152,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     leadChance: 0.5,
     edgeMargin: 60,
     walkOffLava: true,
+    threatChance: 0.8,
   },
   hard: {
     ...ORIGINAL,
@@ -148,6 +169,9 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     dodgeAvoidsLava: true,
     comboChance: 0.5,
     thrustAttack: true,
+    threatChance: 1,
+    threatEscape: true,
+    useCover: true,
   },
   brutal: {
     ...ORIGINAL,
@@ -168,5 +192,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     dodgeAvoidsLava: true,
     comboChance: 0.9,
     thrustAttack: true,
+    threatChance: 1,
+    threatEscape: true,
+    useCover: true,
   },
 }

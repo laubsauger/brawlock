@@ -13,7 +13,7 @@ import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   TAU, burst, castFlash, drawCore, drawShard, floorH, glowG, hexRgb, kitBegin, kitInit, kitRelease,
   light, mixRgb, projShadow, rand, screenAngle,
-  pal, palMix,
+  pal, palMix, flashT, levelOfThing, tierOfLevel,
 } from './kitB'
 
 // identity: bright magenta (vfx/palette.ts)
@@ -110,10 +110,12 @@ function drawMain(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Trac
   const px = -uy
   const py = ux
   const now = ctx.now
+  const tier = tierOfLevel(ctx, levelOfThing(p))
   for (let k = -1; k <= 1; k += 2) {
     const flick = 0.6 + 0.4 * Math.sin(now * 53 + k * 7 + p.id)
-    for (let j = 1; j <= 3; j++) {
-      const f = j / 3
+    const nj = 2 + tier
+    for (let j = 1; j <= nj; j++) {
+      const f = j / nj
       const ox = ux * r * (0.5 + f * 1.1) + px * k * r * (0.15 + f * 0.75) + rand(-4, 4)
       const oy = uy * r * (0.5 + f * 1.1) + py * k * r * (0.15 + f * 0.75) + rand(-4, 4)
       glowG(x + ox, y + oy, H + rand(-5, 5), r * (0.45 - f * 0.15), PINK_HOT, 0.7 * flick, 3, 4)
@@ -186,7 +188,7 @@ function splitBurst(ctx: VfxCtx, x: number, y: number, vx: number, vy: number): 
   const sp = Math.hypot(vx, vy) || 1
   const ux = vx / sp
   const uy = vy / sp
-  ctx.flash(x, y, H, 0.16, 160, 200, PINK_HOT[0], PINK_HOT[1], PINK_HOT[2])
+  flashT(ctx, x, y, H, 0.16, 160, 200, PINK_HOT[0], PINK_HOT[1], PINK_HOT[2])
   ctx.ground.spawn(RING_EXPAND, x, y, fh, 12, 120, 0.3, 10, MAGENTA[0], MAGENTA[1], MAGENTA[2])
   // forward fan of sparks: the shape of the coming spread
   const ps = ctx.particles
@@ -202,7 +204,7 @@ function splitBurst(ctx: VfxCtx, x: number, y: number, vx: number, vy: number): 
 
 function popBurst(ctx: VfxCtx, x: number, y: number, hit: boolean): void {
   const fh = floorH(ctx, x, y)
-  ctx.flash(x, y, H, 0.12, 120, 90, MAGENTA[0], MAGENTA[1], MAGENTA[2])
+  flashT(ctx, x, y, H, 0.12, 120, 90, MAGENTA[0], MAGENTA[1], MAGENTA[2])
   ctx.ground.spawn(RING_EXPAND, x, y, fh, 8, 60, 0.22, 6, MAGENTA[0], MAGENTA[1], MAGENTA[2])
   burst(ctx, x, y, H, hit ? 16 : 9, 200, 600, 0.15, 0.3, 8, 2, PINK_HOT, 1, -800, 3, -0.08, 0, 200)
   burst(ctx, x, y, H, hit ? 8 : 4, 60, 200, 0.2, 0.35, 26, 4, MAGENTA, 0.8, 0, 3, 0, 0, 60)
@@ -232,7 +234,7 @@ registerSpellVfx({
       else {
         // spawner spent: the orb gutters out
         burst(ctx, e.x, e.y, H, 12, 40, 160, 0.3, 0.5, 20, 3, VIOLET, 0.9, 0, 2, 4, 0, 80)
-        ctx.flash(e.x, e.y, H, 0.12, 100, 90, VIOLET[0], VIOLET[1], VIOLET[2])
+        flashT(ctx, e.x, e.y, H, 0.12, 100, 90, VIOLET[0], VIOLET[1], VIOLET[2])
       }
       return true
     }

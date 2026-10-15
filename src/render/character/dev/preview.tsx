@@ -15,6 +15,7 @@ import type { PawnState, SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
 import { clothParams, createWarlock, preloadWarlock, warlockParams, type DeathKind, type StaffVariant, type WarlockHandle, type WarlockStyle } from '../index'
 import { getWarlockAsset } from '../asset'
+import { getSpellColor } from '../../vfx/palette'
 
 const params = new URLSearchParams(location.search)
 const DT = 1 / 60
@@ -34,6 +35,7 @@ interface Actor {
   pending: SimEvent[]
   frameEvents: SimEvent[]
   burning: boolean
+  dieNext?: boolean
 }
 
 function newPawn(id: number): PawnState {
@@ -192,6 +194,11 @@ async function main() {
   const stepPawn = (a: Actor) => {
     const p = a.pawn
     a.prev = structuredClone(p)
+    if (a.dieNext) {
+      p.alive = false
+      p.cast = null
+      a.dieNext = false
+    }
     // walk intent
     let wx = 0
     let wy = 0
@@ -297,15 +304,15 @@ async function main() {
       const a = hero()
       const p = a.pawn
       if (!p.alive) ctl.respawn()
-      const causes: Record<DeathKind, string> = { ash: 'obstacle', lava: 'lava', fireball: 'fireball', meteor: 'meteor', lightning: 'lightning', freeze: 'snowball', gravity: 'gravity', drain: 'drain' }
+      const causes: Record<DeathKind, string> = { ash: 'obstacle', lava: 'lava', fireball: 'fireball', meteor: 'meteor', lightning: 'lightning', freeze: 'snowball', gravity: 'gravity', drain: 'drain', shadow: 'scourge', fade: 'disconnect' }
       const kb = kind === 'fireball' || kind === 'meteor' || kind === 'gravity' ? 900 : 0
       if (kb) {
         p.vx += kb
         p.vy += 0
       }
-      p.alive = false
-      p.cast = null
-      setTimeout(() => emit(a, { type: 'death', pawn: p.id, owner: p.owner, killer: null, cause: causes[kind], kb }), 0)
+      // like the sim: the pawn dies on the tick that carries the death event
+      a.dieNext = true
+      emit(a, { type: 'death', pawn: p.id, owner: p.owner, killer: null, cause: causes[kind], kb })
     },
     respawn() {
       const a = hero()
@@ -372,6 +379,20 @@ async function main() {
     },
     splash(on?: boolean) {
       splashImg.style.display = (on ?? splashImg.style.display === 'none') ? 'block' : 'none'
+    },
+    /** visual progression: own the first n shop columns at `level` each (+ Fireball item) */
+    build(n: number, level = 1) {
+      const p = hero().pawn
+      const cols = ['homing', 'swap', 'bouncer', 'snowball', 'rush', 'grip']
+      p.slots = [...cols.map((id, i) => (i < n ? id : null)), 'fireball', 'scourge']
+      p.levels = [...cols.map((_, i) => (i < n ? level : 0)), Math.min(7, level), 1]
+    },
+    /** level-up burst in the colour of the hero's last owned column spell */
+    levelUp() {
+      const p = hero().pawn
+      const owned = p.slots.filter((x, i) => x && i < 6)
+      const id = owned[owned.length - 1] ?? 'fireball'
+      hero().w.levelUp(new THREE.Color().copy(getSpellColor(id).accent).getHex())
     },
     /** clipping debug colours (red = must be covered, green = legit through the split) */
     debugClip(on?: boolean) {
@@ -451,11 +472,14 @@ async function main() {
   btn('view', () => ctl.view(view === 'close' ? 'game' : view === 'game' ? 'side' : 'close'))
   btn('turntable', () => ctl.turntable())
   btn('freeze', () => ctl.pause())
+  for (const n of [0, 2, 4, 6]) btn(`build ${n}`, () => ctl.build(n, 3))
+  btn('levels max', () => ctl.build(6, 7))
+  btn('level up', () => ctl.levelUp())
   btn('x10', () => ctl.count(actors.length === 1 ? 10 : 1))
   btn('studio light', () => ctl.studio())
   btn('splash', () => ctl.splash())
   btn('footprint', () => (warlockParams.debugFootprint = !warlockParams.debugFootprint))
-  for (const k of ['ash', 'lava', 'fireball', 'lightning', 'freeze', 'gravity', 'drain'] as DeathKind[]) btn(`die:${k}`, () => ctl.die(k))
+  for (const k of ['ash', 'lava', 'fireball', 'lightning', 'freeze', 'gravity', 'drain', 'shadow', 'fade'] as DeathKind[]) btn(`die:${k}`, () => ctl.die(k))
   document.body.appendChild(ui)
   if (params.get('ui') === '0') ui.style.display = 'none'
   const hud = document.createElement('div')

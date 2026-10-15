@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SPELLS as SIM_SPELLS } from '../../sim'
+import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS as SIM_SPELLS } from '../../sim'
 import { ITEMS, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SPELL_MAX_LEVEL, SPELLS } from '../data/catalog'
 import { canPurchase, itemOffer, masteryAllOffer, masteryOffer, spellOffer } from './shopOffers'
 
@@ -66,6 +66,20 @@ describe('item offers', () => {
   it('stops at max level (Scourge 3, Fireball 7)', () => {
     expect(itemOffer(item('scourge'), 3, 999, true, 4)).toMatchObject({ state: 'max', price: null })
     expect(itemOffer(item('fireball'), item('fireball').maxLevel, 999, true, 4)).toMatchObject({ state: 'max', price: null })
+  })
+
+  it('sells every released passive item (Ring of Health, Boots, ...) like the sim does', () => {
+    // the shop must offer exactly what the sim accepts: RELEASED_SPELLS is that list
+    for (const id of Object.keys(PASSIVE_ITEMS)) {
+      const def = item(id)
+      expect(def.implemented).toBe(RELEASED_SPELLS.has(id))
+      if (!RELEASED_SPELLS.has(id)) continue
+      const o = itemOffer(def, 0, def.cost, true, 4)
+      expect(o.state).toBe('ok')
+      expect(o.tag).toBeUndefined()
+      expect(canPurchase(o)).toBe(true)
+    }
+    expect(RELEASED_SPELLS.has('ring_of_health') && RELEASED_SPELLS.has('boots')).toBe(true)
   })
 
   it('needs a free slot only for a new item, not for an upgrade', () => {

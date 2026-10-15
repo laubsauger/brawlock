@@ -16,7 +16,7 @@ import { PROJECTILE_H, S, TILE_TOP_H } from '../../coords'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, TAU, burst, castFlash, drawCircle, drawCore, floorH, glowG, screenAngle, hexRgb, kitAdopt, kitBegin, kitInit, kitRelease, light, mixRgb, originOf, pal,
-  palMix, projShadow, rand,
+  palMix, projShadow, rand, tierCap, flashT, levelOf, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'link'
@@ -81,14 +81,14 @@ function chainMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.transparent = true
   m.depthWrite = false
   m.side = THREE.DoubleSide
-  m.colorNode = col
+  m.colorNode = tierCap(ctx, col, 2.4, 0.9, 0.8)
   m.opacityNode = max(links, core.mul(0.5)).mul(A0.y).mul(smoothstep(0.0, 0.02, uv().x)).mul(smoothstep(1.0, 0.98, uv().x))
   m.name = 'VfxB-LinkChain'
   return m
 }
 
 /** Camera-facing chain ribbon from A to B (three world units). */
-function drawChain(ctx: VfxCtx, a: THREE.Vector3, b: THREE.Vector3, alpha: number, pulseDir: number, tension: number): void {
+function drawChain(ctx: VfxCtx, a: THREE.Vector3, b: THREE.Vector3, alpha: number, pulseDir: number, tension: number, width = 1): void {
   if (!chains) return
   xA.subVectors(b, a)
   const len = xA.length()
@@ -99,7 +99,7 @@ function drawChain(ctx: VfxCtx, a: THREE.Vector3, b: THREE.Vector3, alpha: numbe
   yA.crossVectors(zA, xA).normalize()
   mtx.makeBasis(xA, yA, zA)
   chains.quat.setFromRotationMatrix(mtx)
-  const i = chains.add((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, len, WIDTH * S, 1)
+  const i = chains.add((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, len, WIDTH * width * S, 1)
   chains.set(i, 0, len / S, alpha, pulseDir, tension)
 }
 
@@ -134,8 +134,8 @@ function snap(ctx: VfxCtx, t: Tether): void {
     }
     if (k % 2 === 0) ctx.debris.spawn(x, y, h, rand(-150, 150), rand(-150, 150), rand(100, 300), 0.7, 9, 6, 0.05, 0.09, 0.06, -1800, 1, 0)
   }
-  ctx.flash(t.ax, t.ay, t.ah, 0.1, 120, 120, CHAIN[0], CHAIN[1], CHAIN[2])
-  ctx.flash(t.bx, t.by, t.bh, 0.12, 140, 140, CHAIN[0], CHAIN[1], CHAIN[2])
+  flashT(ctx, t.ax, t.ay, t.ah, 0.1, 120, 120, CHAIN[0], CHAIN[1], CHAIN[2])
+  flashT(ctx, t.bx, t.by, t.bh, 0.12, 140, 140, CHAIN[0], CHAIN[1], CHAIN[2])
 }
 
 /** End point of the link on its target: pawn chest or pillar mid-height (game units). */
@@ -184,7 +184,7 @@ registerSpellVfx({
       case 'projectileExpire':
         if (e.spell !== SPELL) return
         burst(ctx, e.x, e.y, H, e.type === 'projectileHit' && e.target !== null ? 20 : 6, 120, 380, 0.2, 0.4, 8, 2, CHAIN_HOT, 0.9, -600, 3, -0.08, 0, 160)
-        if (e.type === 'projectileHit' && e.target !== null) ctx.flash(e.x, e.y, H, 0.1, 140, 120, CHAIN[0], CHAIN[1], CHAIN[2])
+        if (e.type === 'projectileHit' && e.target !== null) flashT(ctx, e.x, e.y, H, 0.1, 140, 120, CHAIN[0], CHAIN[1], CHAIN[2])
         return true
       case 'modifier': {
         if (e.id !== SPELL || e.on) return
@@ -260,7 +260,7 @@ registerSpellVfx({
     t.dpsTimer = mod.data.dpsTimer ?? 0
     vA.copy(o)
     vB.set(tp.x * S, tp.h * S, -tp.y * S)
-    drawChain(ctx, vA, vB, 1, -toVictim, 1)
+    drawChain(ctx, vA, vB, 1, -toVictim, 1, 1 + 0.12 * tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL)))
     beam(ctx, t.ax, t.ay, t.ah, t.bx, t.by, t.bh, 1)
     // shackle around the victim / pillar: a bright cuff ring, a second spinning ring, a floor ring
     const big = mod.data.obstacle ? 1.8 : 1

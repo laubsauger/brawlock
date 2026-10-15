@@ -18,7 +18,7 @@ import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, floorH, glowG, hexRgb, kitAdopt, kitBegin,
-  kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle,
+  kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, flashT, levelOf, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'magnetize'
@@ -27,7 +27,7 @@ const H = PROJECTILE_H
 const STEEL = pal('magnetize', 'accent', 0.9)
 const STEEL_HOT = pal('magnetize', 'core', 2.0)
 const STEEL_PALE = palMix('magnetize', 0.7, 1.5)
-const N_LINES = 8
+const N_LINES = 10
 
 interface Field {
   seen: number
@@ -66,7 +66,7 @@ function lineMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   m.transparent = true
   m.depthWrite = false
   m.blending = THREE.AdditiveBlending
-  m.colorNode = col.mul(A0.x)
+  m.colorNode = tierCap(ctx, col.mul(A0.x), 2.4, 0.85, 0.7)
   m.opacityNode = float(1)
   m.name = 'VfxB-MagnetLines'
   return m
@@ -122,7 +122,7 @@ registerSpellVfx({
         if (e.spell !== SPELL) return
         burst(ctx, e.x, e.y, H, e.type === 'projectileHit' ? 22 : 10, 150, 450, 0.2, 0.4, 9, 2, STEEL_PALE, 1, -500, 3, -0.08, 0, 160)
         ctx.ground.spawn(RING_EXPAND, e.x, e.y, floorH(ctx, e.x, e.y), 10, 80, 0.25, 6, STEEL[0], STEEL[1], STEEL[2])
-        ctx.flash(e.x, e.y, H, 0.08, 120, 100, STEEL[0], STEEL[1], STEEL[2])
+        flashT(ctx, e.x, e.y, H, 0.08, 120, 100, STEEL[0], STEEL[1], STEEL[2])
         return true
       }
       case 'projectileBounce':
@@ -176,8 +176,9 @@ registerSpellVfx({
     const k = intro * fade
     const col = sign > 0 ? STEEL : STEEL_PALE
     if (lines) {
-      for (let i = 0; i < N_LINES; i++) {
-        lines.quat.setFromAxisAngle(Y, (i / N_LINES) * TAU + ctx.now * 0.4 * sign)
+      const nl = 6 + 2 * tierOfLevel(ctx, levelOf(ctx, mod.source, SPELL))
+      for (let i = 0; i < nl; i++) {
+        lines.quat.setFromAxisAngle(Y, (i / nl) * TAU + ctx.now * 0.4 * sign)
         const L = (95 + (i % 3) * 22) * k
         const idx = lines.add(x * S, (fh + 80) * S, -y * S, L * S, L * S, L * S)
         // dashes run bottom -> top -> into the body for attract (flow -1 along uv), outward for repel

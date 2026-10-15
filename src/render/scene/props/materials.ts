@@ -63,7 +63,7 @@ interface LookDef {
 const LOOKS: Record<Look, LookDef> = {
   temple: { set: ['temple', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 150, tint: [1.02, 0.97, 0.9], fallback: [0.26, 0.24, 0.22], moss: 0.4, glow: [3.2, 1.05, 0.22], rune: [2.6, 0.95, 0.25], veins: 0 },
   volcanic: { set: ['volcanic', 'tile_side'], detail: ['shared', 'lava_crust'], texScale: 120, tint: [1.25, 1.18, 1.2], fallback: [0.06, 0.055, 0.058], moss: 0.0, glow: [3.4, 0.9, 0.12], rune: [0, 0, 0], veins: 1 },
-  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [1.05, 1.07, 1.0], fallback: [0.15, 0.15, 0.13], moss: 1.0, glow: [0.2, 2.2, 0.7], rune: [0.15, 1.6, 0.5], veins: 0 },
+  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [1.3, 1.3, 1.22], fallback: [0.15, 0.15, 0.13], moss: 0.8, glow: [0.2, 2.2, 0.7], rune: [0.15, 1.6, 0.5], veins: 0 },
 }
 
 const MOSS_TINT = vec3(0.8, 0.95, 0.62)
@@ -127,6 +127,9 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   const uDmg = uniform(0).onObjectUpdate(objNum('propDmg', 0))
   const uHit = uniform(0).onObjectUpdate(objNum('propHit', 0))
   const uLost = uniform(0).onObjectUpdate(objNum('propLost', 0))
+  // world-space direction the hit came FROM (x, z), fragment only
+  const uHitX = uniform(0).onObjectUpdate(objNum('propHitX', 0))
+  const uHitZ = uniform(0).onObjectUpdate(objNum('propHitZ', 0))
   const info = attribute('aInfo', 'vec3') as unknown as Node<'vec3'>
   const band = attribute('aBand', 'vec2') as unknown as Node<'vec2'>
   const uvA = attribute('aUV', 'vec3') as unknown as Node<'vec3'>
@@ -187,7 +190,7 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
     const onTop = smoothstep(0.45, 0.85, up.add(nz.b.mul(0.35)).sub(float(1).sub(amt).mul(0.5))).mul(patch)
     const inCrev = smoothstep(0.85, 0.55, cav).mul(nz.r.add(0.3)).mul(amt)
     // drips down the sides from the cap on overgrown stones
-    const drip = look === 'overgrown' ? smoothstep(0.1, 0.5, nzF.g.add(up.mul(0.6)).sub(0.25)).mul(smoothstep(40, 160, p.y)).mul(0.8) : float(0)
+    const drip = look === 'overgrown' ? smoothstep(0.3, 0.6, nzF.g.add(up.mul(0.6)).sub(0.25)).mul(smoothstep(70, 170, p.y)).mul(0.7) : float(0)
     const mm = saturate(max(onTop, max(inCrev, drip))).mul(float(1).sub(isGlass)).mul(float(1).sub(isWood).mul(0.7).add(0.3))
     const mossCol = detail && look !== 'volcanic' ? tri(detail.albedo, p, n, 1 / 70).rgb.mul(MOSS_TINT) : vec3(0.05, 0.09, 0.03).mul(nzF.g.add(0.5))
     alb = mix(alb, mossCol, mm)
@@ -240,7 +243,6 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   let em: Node<'vec3'> = glow.mul(crack.mul(dmg.mul(1.6).add(0.35)).mul(pulse)).add(alb.mul(fill))
   // crack faces glow faintly around the line (heat bleeding into the stone)
   em = em.add(glow.mul(0.12).mul(float(1).sub(smoothstep(0, crackW.mul(3), crackField)).mul(spread).mul(dmg)))
-  let dbgVein: Node<'float'> | null = null
   if (L.veins > 0) {
     // thin ember veins in crevices and near the floor (heat from below), never slits
     const vf = tri(noise, p.add(vec3(13, 71, 29)), n, 1 / 230).b
@@ -251,7 +253,6 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
     alb = alb.mul(float(1).sub(vk.mul(0.6)))
     // ember warmth seeping into the lowest crust (clamped: buried vertices must not blow up)
     em = em.add(glow.mul(0.018).mul(exp(max(p.y, 0).div(-9))))
-    if ((globalThis as { __propDebug?: string }).__propDebug === 'vein') dbgVein = vk
   }
   if (L.rune[0] + L.rune[1] > 0) {
     const bv = band.y
@@ -268,28 +269,18 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   // above, lava glow below, weighted by fresnel; facets flash as they turn
   {
     const vdir = positionView.negate().normalize()
-    const fr = pow(float(1).sub(saturate(dot(normalView, vdir))), 3).mul(0.85).add(0.15)
+    const fr = pow(float(1).sub(saturate(dot(normalView, vdir))), 3).mul(0.9).add(0.06)
     const ny = normalWorld.y
-    const env = mix(vec3(0.5, 0.16, 0.05), vec3(0.09, 0.11, 0.2), smoothstep(-0.4, 0.5, ny))
+    const env = mix(vec3(0.22, 0.06, 0.018), vec3(0.08, 0.1, 0.19), smoothstep(-0.4, 0.5, ny))
     em = em.add(env.mul(fr).mul(isGlass))
   }
-  // hit flash: hot white-orange wash
-  em = em.add(vec3(1.3, 0.9, 0.6).mul(uHit.mul(0.55)))
+  // hit flash: a quick warm glow on the struck face only (never a full-body wash)
+  const facing = saturate(dot(normalWorld.xz, vec2(uHitX, uHitZ)).mul(0.8).add(0.2))
+  em = em.add(vec3(1.0, 0.55, 0.25).mul(uHit.mul(facing).mul(facing).mul(0.22)))
 
   const m = new THREE.MeshStandardNodeMaterial()
   m.name = `Prop_${look}`
   m.colorNode = alb
-  // dev look-dev switch (props dev page ?dbg=noem|alb|em)
-  const dbg = (globalThis as { __propDebug?: string }).__propDebug
-  if (dbg === 'noem') em = vec3(0)
-  else if (dbg === 'alb') {
-    em = alb
-    m.colorNode = vec3(0)
-  } else if (dbg === 'em') m.colorNode = vec3(0)
-  else if (dbg === 'vein' && dbgVein) {
-    em = vec3(dbgVein)
-    m.colorNode = vec3(0)
-  }
   // stone never gets glossy grazing highlights (those read as hollow edges); glass may
   m.roughnessNode = saturate(max(rough, mix(float(look === 'volcanic' ? 0.5 : 0.62), float(0.1), isGlass)).add(crack.mul(0.15)))
   m.metalnessNode = float(0)

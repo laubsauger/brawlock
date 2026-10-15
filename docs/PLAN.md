@@ -282,7 +282,11 @@ Settings: quality tier and individual toggles, resolution scale, fps cap, fx int
 
 ### 5.7.1 Visual progression
 
-Upgrades should show on the warlock, not only in the shop. Later (M2): the staff or casting hand, rune patterns and trim evolve with owned spells, spell levels and items (for example column colors appearing on the robe, brighter runes at higher levels), so opponents can read your build at a glance.
+Upgrades show on the warlock and in the spells, not only in the shop (approved 2026-10-15; not in the original, where levels only changed numbers):
+
+- **Spell power tiers**: three visual tiers per spell (levels 1–2, 3–5, 6–7) add layers (hotter core, extra trail and arc layers, bigger impact debris) while hitboxes stay identical; the sim reports the level on projectiles and cast events.
+- **Warlock build reading**: each owned spell column adds an accent rune band in that column's hue at a fixed garment location; total spell levels raise rune density, brightness and eye glow; team color stays the primary identity.
+- **Upgrade moment**: a level-up burst on the warlock on every purchase (sim 'purchase' event).
 
 ### 5.8 Online experience (esports bar)
 

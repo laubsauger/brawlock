@@ -14,7 +14,7 @@
 import type { ProjectileState, SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_CROSS, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_CROSS, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('twin')
@@ -52,12 +52,12 @@ function burst(k: KitA, ctx: VfxCtx, x: number, y: number, big: number): void {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 200 + Math.random() * 420 * big
-    ps.spawn(x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 260, 0.25 + Math.random() * 0.25, 30 + Math.random() * 16 * big, -8, P.body[0], P.body[1], P.body[2], -200, 4.5, 0)
+    pspawn(ps, x, y, PH, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 260, 0.25 + Math.random() * 0.25, 30 + Math.random() * 16 * big, -8, P.body[0], P.body[1], P.body[2], -200, 4.5, 0)
   }
   const fl = k.floor(x, y)
   k.pulse(G_SHOCK, false, x, y, fl + 1.5, 60 * big, 60 * big, 0.3, Math.random() * 6, 0, P.body, 1.0, 0.15, 0.95, 0.1)
-  ctx.ground.spawn(RING_EXPAND, x, y, fl, 10, 70 * big, 0.3, 8, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
-  ctx.flash(x, y, PH, 0.16, 160 * big, 90 * big, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
+  kring(ctx, RING_EXPAND, x, y, fl, 10, 70 * big, 0.3, 8, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+  kflash(ctx, x, y, PH, 0.16, 160 * big, 90 * big, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
   const ns = ctx.smoke.budget(3 * big)
   for (let i = 0; i < ns; i++) ctx.smoke.spawn(x, y, PH, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, 60, 0.9, 30, 100, 0.05, 0.035, 0.02, 25, 1.2, 8)
 }
@@ -105,6 +105,7 @@ const mod: SpellVfx = {
           const sn = Math.sin(0.8 * s)
           k.muzzle(o.x, o.y, o.h, ux * c - uy * sn, ux * sn + uy * c, P, 0.7)
         }
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         return
       }
       case 'damage': {
@@ -112,7 +113,7 @@ const mod: SpellVfx = {
         if (!a || a.spell !== 'twin') return
         const v = ctx.pawn(e.target)
         k.hitDir(ctx.state, e.target, e.x - 1, e.y, e.x, e.y, dir)
-        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, (v?.h ?? 30) + 55, e.kb, dir.x, dir.y, P, 1, a.tier)
         return true
       }
       case 'projectileHit': {
@@ -178,16 +179,17 @@ const mod: SpellVfx = {
     const dx = sp > 1 ? p.vx / sp : 1
     const dy = sp > 1 ? p.vy / sp : 0
     k.cores.add(x, y, PH, r, dx, dy, 0.9, p.id, P.edge, P.body, P.hot)
-    k.glowAt(x, y, PH, r * 3.2, P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)
-    ctx.glow.add(x, y, 200, 0.8, P.light[0], P.light[1], P.light[2])
+    k.halo(x, y, PH, r * 3.2, P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)
+    ctx.glow.add(x, y, 150, 0.55, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
+    k.trailPoint(p.id * 16, x, y, PH, TRAIL, p.owner)
+    k.powerLayers(p.id * 16 + 15, x, y, PH, P, k.tierOf(p), dx, dy, r)
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 45)
     for (let i = 0; i < n; i++) {
       const ang = Math.random() * Math.PI * 2
       const sv = 30 + Math.random() * 80
-      ps.spawn(x - dx * r, y - dy * r, PH, -dx * 90 + Math.cos(ang) * sv, -dy * 90 + Math.sin(ang) * sv, 30 + Math.random() * 60, 0.3 + Math.random() * 0.25, 6 + Math.random() * 4, -2, P.spark[0], P.spark[1], P.spark[2], -150, 2, 3)
+      pspawn(ps, x - dx * r, y - dy * r, PH, -dx * 90 + Math.cos(ang) * sv, -dy * 90 + Math.sin(ang) * sv, 30 + Math.random() * 60, 0.3 + Math.random() * 0.25, 6 + Math.random() * 4, -2, P.spark[0], P.spark[1], P.spark[2], -150, 2, 3)
     }
     // remaining path as a faint dashed guide on the floor (fades as it is used up)
     const tLeft = Math.PI - d.t
@@ -208,7 +210,7 @@ const mod: SpellVfx = {
       if (d.sign > 0) {
         arcPoint(p, a, Math.PI, tmp)
         const pulse = 0.5 + 0.5 * Math.sin(now * 10)
-        k.ground.add(G_CROSS, tmp.x, tmp.y, k.floor(tmp.x, tmp.y) + 2, 44, now * 0.8, P.body[0], P.body[1], P.body[2], 0.6 + 0.4 * pulse, pulse)
+        k.over.add(G_CROSS, tmp.x, tmp.y, k.floor(tmp.x, tmp.y) + 2, 44, now * 0.8, P.body[0], P.body[1], P.body[2], 0.6 + 0.4 * pulse, pulse)
       }
     }
     // the pair thread: drawn by the second bolt (its partner was drawn earlier this frame)

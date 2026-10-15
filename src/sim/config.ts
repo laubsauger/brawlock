@@ -4,7 +4,7 @@
  */
 import { DT, ORIGINAL_TICK, TICK_HZ } from './types'
 import type { MatchSettings } from './types'
-import { exp, log } from './math'
+import { PI, exp, log } from './math'
 
 // --- pawn ------------------------------------------------------------------
 export const PAWN_MAX_LIFE = 1000
@@ -29,6 +29,13 @@ export const TURN_PER_TICK = (PAWN_TURN_RATE * DT) / DOTA_TURN_INTERVAL
  * it from the engine, so we use the same.
  */
 export const FACING_TOLERANCE = 0.2
+/**
+ * A cast's turn phase never lasts longer than this: one tick more than a full 180 degree turn
+ * needs (pi / TURN_PER_TICK, 5 ticks). Only reachable when the pawn keeps being pushed around the
+ * target point; the pawn then snaps to face it and the cast point starts, so a cast can never
+ * stall in its windup.
+ */
+export const CAST_TURN_LIMIT_TICKS = Math.ceil(PI / TURN_PER_TICK) + 1
 /** distance under which a move order counts as arrived */
 export const ARRIVE_EPSILON = 1
 

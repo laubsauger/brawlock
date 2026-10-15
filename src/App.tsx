@@ -13,8 +13,9 @@ import { PerfHud } from './ui/PerfHud'
 import { InkFilters } from './ui/InkFilters'
 import { Toasts } from './ui/Toasts'
 import { undoRemap } from './ui/lib/remap'
+import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
-import { music } from './ui/lib/sound'
+import { forcedMute, music } from './ui/lib/sound'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -25,7 +26,7 @@ function useAudioSettings() {
     const apply = () => {
       const s = useGame.getState().settings
       try {
-        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted })
+        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted || forcedMute })
       } catch {
         /* audio not ready */
       }
@@ -95,6 +96,12 @@ function useGlobalKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return
+      // Alt+Enter: fullscreen, the classic game toggle (F11 belongs to the browser)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'Enter' || e.code === 'NumpadEnter') && !e.repeat) {
+        e.preventDefault()
+        void toggleFullscreen()
+        return
+      }
       // Ctrl/Cmd+Z: undo the last key swap (HUD drag, shop drag, Settings)
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyZ' && !e.repeat) {
         if (undoRemap()) e.preventDefault()

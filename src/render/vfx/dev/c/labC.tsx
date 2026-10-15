@@ -3,7 +3,9 @@
  *   npx vite --port 5196 -> http://localhost:5196/src/render/vfx/dev/c/labC.html?cause=fireball
  * Params: &cause=<fireball|lava|scourge|obstacle|disconnect|<spell id>|all>  &every=5 (s per cycle)
  *         &hit (after-hit mode: damage instead of kill)  &q=low|medium|high|ultra  &fx=0..1
- *         &slow=0.3  &zoom=500..1500  &vc=<victim colour hex, e.g. ff6fb5>
+ *         &slow=0.3  &zoom=500..1500  &vc=<victim colour hex, e.g. ff6fb5>  &n=1..4 (victims dying together)  &cancel=0.5 (stop the killer's windup after 0.5 s)
+ *         &off=<module spell ids> (unregister modules, e.g. off=scourge to see the built-in)
+ *         &hidecharge (hide PawnView's built-in Scourge charge decal)  &lvl=1..3 (killer's Scourge level)
  * Console: __labC.since() = sim seconds since the victim's last death (screenshot timing),
  *          __labC.devTime.scale = 0 freezes everything (render clock too).
  */
@@ -15,8 +17,42 @@ import { MatchView, renderStats } from '../../../index'
 import { cameraZoomParam } from '../../../cameraRig'
 import { devTime } from '../../../stats'
 import { ALL_CAUSES, labState, startDeathLab } from './deathLab'
+import { registerSpellVfx, spellVfxModules, type SpellVfx } from '../../registry'
 
 const params = new URLSearchParams(location.search)
+// &hidecharge  hide PawnView's built-in Scourge charge decal (until render gates it when a
+// module claims 'scourge'): moved to layer 1, which the camera does not render
+if (params.has('hidecharge')) {
+  registerSpellVfx({
+    spell: '__lab_hidecharge',
+    frame(ctx) {
+      ctx.scene.traverse((o) => {
+        const m = (o as { material?: { name?: string } }).material
+        if (m && m.name === 'ScourgeCharge') o.layers.set(1)
+      })
+    },
+  })
+}
+// &probe  per-frame instance counts of workstream C's batches (frozen-clock accumulation check)
+const probe: Record<string, number> = {}
+if (params.has('probe')) {
+  const names = new Set(['scourge-glow', 'scourge-windup', 'death-glow', 'afterhit-arcs', 'death-runes', 'death-decals-glow'])
+  registerSpellVfx({
+    spell: '__lab_probe',
+    frame(ctx) {
+      // read last frame's committed counts (this runs before the batches refill)
+      ctx.scene.traverse((o) => {
+        if (names.has(o.name)) probe[o.name] = (o as unknown as { count: number }).count
+      })
+    },
+  })
+}
+// &off=scourge,__deaths  unregister VFX modules (A/B comparisons against the built-ins)
+if (params.has('off')) {
+  const off = new Set((params.get('off') ?? '').split(','))
+  const mods = spellVfxModules() as SpellVfx[]
+  for (let i = mods.length - 1; i >= 0; i--) if (off.has(mods[i].spell)) mods.splice(i, 1)
+}
 const q = params.get('q') as Quality | null
 if (q) useGame.getState().setSettings({ quality: q })
 if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
@@ -28,6 +64,8 @@ if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(param
   state: labState,
   since: () => (labState.deathTick < 0 ? -1 : (labState.tick - labState.deathTick) / 60),
   sinceHit: () => (labState.hitTick < 0 ? -1 : (labState.tick - labState.hitTick) / 60),
+  probe,
+  sinceCast: () => (labState.castTick < 0 ? -1 : (labState.tick - labState.castTick) / 60),
 }
 
 function Lab() {
@@ -37,7 +75,7 @@ function Lab() {
     const c = params.get('cause') ?? 'all'
     const causes = c === 'all' ? [...ALL_CAUSES] : c.split(',')
     const vc = params.get('vc')
-    const stop = startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined }, setLabel)
+    const stop = startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined }, setLabel)
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0
     const id = setInterval(() => {
       const s = renderStats

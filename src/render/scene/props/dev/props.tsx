@@ -30,10 +30,10 @@ import { createPrivateSource } from '../../../source'
 import { startSimDriver } from '../../../dev/simDriver'
 import { S, TILE_TOP_H } from '../../../coords'
 import { MatchWorld } from '../../MatchWorld'
-import { PropObstacles, createObstacleVisual, type ObstacleVisual } from '..'
+import { PropEnvironment, PropObstacles, createObstacleVisual, type ObstacleVisual } from '..'
+import { startMockDriver } from '../../../dev/mockDriver'
 
 const params = new URLSearchParams(location.search)
-if (params.get('dbg')) (globalThis as { __propDebug?: string }).__propDebug = params.get('dbg') ?? undefined
 const q = (params.get('q') as Quality | null) ?? 'high'
 useGame.getState().setSettings({ quality: q })
 const mode = params.get('mode') ?? 'sheet'
@@ -42,6 +42,8 @@ const rows = (params.get('rows') ?? '1,0.5,0.15').split(',').map(Number)
 const spin = params.has('spin')
 const zoom = Number(params.get('zoom') ?? 1100)
 const focus = (params.get('fx') ?? '0,0').split(',').map(Number)
+const dress = params.has('dress')
+const layer = Number(params.get('layer') ?? 16)
 
 type Win = Record<string, unknown>
 
@@ -66,7 +68,7 @@ function sheetState(): SimState {
   ], 7)
   s.obstacles = []
   s.arena.theme = theme
-  s.arena.layer = 16
+  s.arena.layer = layer
   s.pawns.forEach((p, i) => {
     p.x = -640 + i * 1280
     p.y = -560
@@ -84,6 +86,7 @@ function SheetScene() {
   const src = useRef(createPrivateSource())
   const state = useRef(sheetState())
   const forcedRef = useRef<Record<string, number>>({})
+  const envRef = useRef<PropEnvironment | null>(null)
 
   useEffect(() => {
     const tier = tierConfig(eff)
@@ -95,8 +98,15 @@ function SheetScene() {
     scene.background = new THREE.Color(0x0b0604)
     scene.fogNode = world.fogNode
     worldRef.current = world
-    const w = world as unknown as { obstacles: { group: THREE.Group } }
+    const w = world as unknown as { obstacles: { group: THREE.Group }; env: { group: THREE.Group } }
     w.obstacles.group.visible = false
+    let env: PropEnvironment | null = null
+    if (dress) {
+      w.env.group.visible = false
+      env = new PropEnvironment(world.ctx)
+      world.root.add(env.group)
+      envRef.current = env
+    }
     devCamera.focus = { x: focus[0], y: focus[1] }
     cameraRig.dist = cameraRig.targetDist = zoom
     // lineup
@@ -138,6 +148,8 @@ function SheetScene() {
     return () => {
       window.removeEventListener('keydown', onKey)
       for (const p of list) p.vis.dispose()
+      env?.dispose()
+      envRef.current = null
       scene.remove(world.root)
       scene.fogNode = null
       world.dispose()
@@ -151,6 +163,7 @@ function SheetScene() {
     if (!world) return
     src.current.push(state.current, performance.now())
     world.update(Math.min(dt, 0.1), st.camera as THREE.PerspectiveCamera, st.size.width / Math.max(1, st.size.height))
+    envRef.current?.setTheme(theme)
     const now = performance.now() / 1000
     for (const p of props.current) {
       if (p.t0 > 0) p.vis.riseFromGround((now - p.t0) / 0.55)
@@ -175,29 +188,90 @@ function Sheet() {
   )
 }
 
+// ------------------------------------------------------------------ menu
+
+function MenuScene() {
+  const scene = useThree((s) => s.scene)
+  const gl = useThree((s) => s.gl)
+  const eff = useEffectiveQuality(q)
+  const worldRef = useRef<MatchWorld | null>(null)
+  const envRef = useRef<PropEnvironment | null>(null)
+  useEffect(() => {
+    const source = createPrivateSource()
+    const stop = startMockDriver(source, { calm: true })
+    const tier = tierConfig(eff)
+    const r = gl as unknown as THREE.WebGPURenderer
+    r.shadowMap.enabled = tier.shadowMap > 0
+    r.shadowMap.type = THREE.PCFShadowMap
+    const world = new MatchWorld({ source, tier, fx: 1, overlayParent: null, mode: 'menu' })
+    scene.add(world.root)
+    scene.background = new THREE.Color(0x0b0604)
+    scene.fogNode = world.fogNode
+    worldRef.current = world
+    if (dress) {
+      const w = world as unknown as { env: { group: THREE.Group } }
+      w.env.group.visible = false
+      envRef.current = new PropEnvironment(world.ctx)
+      world.root.add(envRef.current.group)
+    }
+    return () => {
+      stop()
+      envRef.current?.dispose()
+      scene.remove(world.root)
+      scene.fogNode = null
+      world.dispose()
+    }
+  }, [scene, eff, gl])
+  useFrame((st, dt) => {
+    worldRef.current?.update(Math.min(dt, 0.1), st.camera as THREE.PerspectiveCamera, st.size.width / Math.max(1, st.size.height))
+    envRef.current?.setTheme(theme)
+  })
+  return null
+}
+
+function Menu() {
+  return (
+    <div style={{ position: 'fixed', inset: 0 }}>
+      <GpuCanvas quality={q} style={{ position: 'absolute', inset: 0 }}>
+        <MenuScene />
+        <RenderLoop quality={q} fx={1} inspect={false} />
+      </GpuCanvas>
+      <Perf />
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------ game
 
 function useSwapIntoWorld() {
   useEffect(() => {
     let raf = 0
     let props: PropObstacles | null = null
-    let world: { root: THREE.Group; ctx: ConstructorParameters<typeof PropObstacles>[0]; obstacles: { group: THREE.Group } } | null = null
+    let env: PropEnvironment | null = null
+    let world: { root: THREE.Group; ctx: ConstructorParameters<typeof PropObstacles>[0]; obstacles: { group: THREE.Group }; env: { group: THREE.Group } } | null = null
     let first = true
     const loop = () => {
       raf = requestAnimationFrame(loop)
       const w = (window as unknown as Win).__brawlockWorld as typeof world
       if (w && w !== world) {
         props?.dispose()
+        env?.dispose()
         world = w
         props = new PropObstacles(w.ctx)
         w.root.add(props.group)
+        if (dress) {
+          env = new PropEnvironment(w.ctx)
+          w.root.add(env.group)
+        }
         first = true
       }
       if (!world || !props) return
       world.obstacles.group.visible = false
+      if (env) world.env.group.visible = false
       const curr = frame.curr
       if (!curr) return
       props.setTheme(curr.arena.theme)
+      env?.setTheme(curr.arena.theme)
       props.update(curr.obstacles, world.ctx.uTime.value, !first)
       first = false
     }
@@ -205,6 +279,7 @@ function useSwapIntoWorld() {
     return () => {
       cancelAnimationFrame(raf)
       props?.dispose()
+      env?.dispose()
     }
   }, [])
 }
@@ -225,4 +300,4 @@ function Game() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{mode === 'game' ? <Game /> : <Sheet />}</StrictMode>)
+createRoot(document.getElementById('root')!).render(<StrictMode>{mode === 'game' ? <Game /> : mode === 'menu' ? <Menu /> : <Sheet />}</StrictMode>)

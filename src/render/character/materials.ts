@@ -164,29 +164,47 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
   const fr = fresnel(2)
   const burnMask = float(1).sub(smoothstep(0.05, 0.6, h01.sub(flick.mul(0.25))))
   // death looks: charred with ember cracks, frozen, withered
-  const c1 = sin(positionGeometry.x.mul(91).add(heightNode.mul(57)))
-  const c2 = sin(positionGeometry.z.mul(83).sub(heightNode.mul(71)).add(positionGeometry.x.mul(23)))
-  const cracks = smoothstep(0.9, 0.99, abs(c1.mul(c2)).oneMinus())
+  // ember cracks: thin wavy lines from three warped, differently oriented waves (no grid)
+  const pg3 = positionGeometry
+  const w1 = sin(pg3.x.mul(61).add(heightNode.mul(23)).add(sin(pg3.z.mul(37)).mul(1.8)))
+  const w2 = sin(pg3.z.mul(53).sub(heightNode.mul(41)).add(sin(heightNode.mul(29).add(pg3.x.mul(17))).mul(1.6)))
+  const w3 = sin(pg3.x.add(pg3.z).mul(43).add(heightNode.mul(67)))
+  const cracks = smoothstep(0.93, 0.995, float(1).sub(abs(w1.add(w2.mul(0.7)).add(w3.mul(0.5)).mul(0.45))))
   let col = v3(mix(base, base.mul(0.2), U.burn.mul(0.6)))
   col = v3(mix(col, vec3(0.012, 0.009, 0.008), U.char.mul(0.9)))
   const luma = dot(col, LUMA)
   col = v3(mix(col, vec3(luma, luma, luma).mul(vec3(0.75, 0.8, 0.7)), U.wither))
   col = v3(mix(col, vec3(0.32, 0.5, 0.68).mul(luma.mul(4).add(0.35)), U.freeze.mul(0.85)))
-  let em = emissive.mul(float(1).sub(U.char.mul(0.7)).sub(U.wither.mul(0.6)).max(0))
+  col = v3(mix(col, vec3(0.008, 0.002, 0.01), U.shadow))
+  let em = emissive.mul(float(1).sub(U.char.mul(0.7)).sub(U.wither.mul(0.6)).sub(U.shadow.mul(0.8)).max(0))
   em = em.add(vec3(3.2, 0.9, 0.15).mul(U.burn.mul(flick.mul(1.4).add(0.2)).mul(burnMask)))
   em = em.add(vec3(3.5, 0.9, 0.12).mul(cracks.mul(U.char).mul(flick.mul(0.8).add(0.4))))
   em = em.add(vec3(0.6, 0.9, 1.4).mul(U.freeze.mul(fr.mul(1.2).add(0.05))))
   em = em.add(vec3(1.6, 2.2, 4.0).mul(U.xray.mul(fr.mul(2.5).add(0.25))))
-  em = em.add(vec3(1.4, 1.4, 1.5).mul(U.flash))
+  // hit flash: hot-white core on the rim for the first ~12 % only, then crimson
+  // over the body, scaled by the hit's strength
+  const whiteCore = smoothstep(0.88, 1.0, U.flash).mul(fr)
+  em = em.add(vec3(1.6, 1.6, 1.7).mul(whiteCore.mul(U.flashK)))
+  em = em.add(vec3(1.9, 0.08, 0.05).mul(U.flash.mul(U.flashK).mul(fr.mul(0.6).add(0.4))))
   // invulnerable: subtle golden rim (falloff squared) with a slow breathing pulse;
   // no fill, so robe and player colours stay readable
   const breathe = sin(t.mul(2.4)).mul(0.25).add(0.75)
   em = em.add(vec3(1.5, 1.05, 0.35).mul(U.invuln.mul(fr.mul(fr)).mul(breathe)))
   // death: burn up from the feet with a hot edge in the dissolve colour
   const dis = U.dissolve.mul(1.3)
-  const v = h01.mul(0.7).add(flick.mul(0.3))
+  // dissolve order: feet -> hood (0), silhouette edges inward (1: shadow), smoke noise (2: fade)
+  const vHeight = h01.mul(0.7).add(flick.mul(0.3))
+  const vEdges = float(1).sub(fr).mul(0.75).add(flick.mul(0.25))
+  const vSmoke = flick.mul(0.8).add(h01.mul(0.2))
+  const isEdges = step(0.5, U.dissolveMode).mul(step(U.dissolveMode, 1.5))
+  const isSmoke = step(1.5, U.dissolveMode)
+  const v = mix(mix(vHeight, vEdges, isEdges), vSmoke, isSmoke)
   const edge = float(1).sub(smoothstep(0, 0.07, v.sub(dis))).mul(step(0.001, U.dissolve))
   em = em.add(U.dissolveColor.mul(edge))
+  // level-up burst: a band of light sweeping feet -> hood, plus a soft rim
+  const sw = heightNode.sub(U.levelSweep).div(0.13)
+  const sweep = exp(sw.mul(sw).negate()).mul(U.levelFlash)
+  em = em.add(U.levelColor.mul(sweep.mul(2.4).add(U.levelFlash.mul(fr).mul(0.3))))
   // clipping check: covered body parts pure red, the rest black (depth still written)
   const dbg = clothParams.debugClip
   const red = cover ? step(0.5, cover.x) : float(0)
@@ -255,7 +273,10 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   const sLine = float(1).sub(smoothstep(float(0.0016).sub(aaH), float(0.0016).add(aaH), abs(ax.sub(0.012))))
   const hCell = floor(pg.y.div(0.03))
   const hGlyph = f(glyph(hCell.add(900), vec2(pg.x.div(0.02).add(0.5), fract(pg.y.div(0.03))))).mul(step(ax, 0.0095))
-  const hoodRunes = f(max(sLine, hGlyph.mul(0.8)).mul(hoodBack))
+  const hoodRunes = f(hGlyph.mul(0.8).mul(hoodBack))
+  // column 2 owned: the stripe's side lines turn its accent colour (team glyphs stay)
+  const own2 = step(0.001, dot(v3(U.accent2), vec3(1, 1, 1)))
+  const stripeCol = mix(v3(U.team), v3(U.accent2.mul(2.2)), own2)
   const hPulse = sin(pg.y.mul(9).sub(tF.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
   // metal studs catch a little player colour; eye glow lights the hood rim
   const em = v3(
@@ -263,7 +284,8 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
       .mul(float(1).sub(voidK))
       .add(U.team.mul(0.06).mul(metal))
       .add(eyeSpill(0.35).mul(float(1).sub(voidK)))
-      .add(U.team.mul(hoodRunes.mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost))),
+      .add(U.team.mul(hoodRunes.mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost)))
+      .add(stripeCol.mul(sLine.mul(hoodBack).mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost))),
   )
   applyFx(m, base, em, f(positionLocal.y), v2(attribute('aCover', 'vec2')))
   return m
@@ -301,7 +323,7 @@ export function createVoidMaterial(): THREE.MeshBasicNodeMaterial {
   const eye = step(0.5, part)
   const pulse = sin(tF.mul(2.1).add(U.phase)).mul(0.08).add(0.92)
   const hot = mix(U.team, vec3(1, 1, 1), 0.45)
-  const glow = hot.mul(float(8).add(U.castCharge.mul(8)).add(U.castFlare.mul(14)).mul(pulse).mul(U.runeBoost))
+  const glow = hot.mul(float(8).add(U.castCharge.mul(8)).add(U.castFlare.mul(14)).add(U.levelFlash.mul(10)).mul(pulse).mul(U.runeBoost).mul(U.power.mul(0.8).add(0.8)))
   // the void is pure black: only the eyes glow
   m.colorNode = mix(glow.mul(eye), vec3(0, 0, 0), clothParams.debugClip)
   m.opacityNode = step(U.dissolve.mul(1.3), float(0.92))
@@ -452,12 +474,20 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const CELL = 0.03
   const cellId = floor(along.div(CELL))
   const gp = vec2(fract(along.div(CELL)).mul(1.25).sub(0.125), across.sub(0.0095).div(BAND - 0.0185))
-  const inGlyph = step(0, gp.y).mul(step(gp.y, 1)).mul(float(1).sub(isSash))
+  // rune density grows with spell investment: sparse at first, every cell filled when maxed
+  const filled = step(hash(cellId.add(kind.mul(31)).add(7.7)), U.power.mul(0.45).add(0.55))
+  const inGlyph = step(0, gp.y).mul(step(gp.y, 1)).mul(float(1).sub(isSash)).mul(filled)
   const g = f(glyph(cellId.add(kind.mul(97)), vec2(gp.x, gp.y)))
   // central rune column on the tabard and the chest panel
   const colX = abs(uvn.x.sub(0.5)).mul(rowW)
   const colGp = vec2(colX.div(0.034).add(0.5), fract(fromTop.div(0.036)))
-  const colG = f(glyph(floor(fromTop.div(0.036)).add(300), colGp).mul(step(colX, 0.017)).mul(isTabard.add(isPanel)).mul(step(0.04, fromTop)))
+  const colGAll = f(glyph(floor(fromTop.div(0.036)).add(300), colGp).mul(step(colX, 0.017)).mul(isTabard.add(isPanel)).mul(step(0.04, fromTop)))
+  // build reading: owned shop columns light an accent band at a fixed place
+  // (1 sleeves, 3 sash, 4 cape border, 5 mantle edge, 6 tabard column; 2 = hood, outfit material)
+  const accentC = v3(U.accent1.mul(isSleeve).add(U.accent3.mul(isSash)).add(U.accent4.mul(isCape)).add(U.accent5.mul(isMantle)).add(U.accent6.mul(isTabard)))
+  const owned = step(0.001, dot(accentC, vec3(1, 1, 1)))
+  const colG = f(colGAll.mul(float(1).sub(isTabard.mul(owned))))
+  const colAccent = f(colGAll.mul(isTabard).mul(owned))
   // cape back sigil: two rings with runes between them and one at the centre
   const capeC = vec2(um.sub(rowW.mul(0.5)), fromTop.sub(0.4))
   const cr = length(capeC)
@@ -535,7 +565,26 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   }
 
   // trims glow on both faces (cape and coat tails show their inside when they swing)
-  let em = v3(runeCol.mul(runeMask.mul(runeInt)).mul(float(1).sub(back.mul(0.25))))
+  let em = v3(runeCol.mul(runeMask.mul(runeInt).mul(U.power.mul(0.55).add(0.75))).mul(float(1).sub(back.mul(0.25))))
+  {
+    // accent line just inside the team trim (sleeves, cape, mantle), a centre line on the sash
+    const accentLine = line(BAND + 0.009, 0.0032).mul(isSleeve.add(isCape).add(isMantle))
+    const sashMid = float(1).sub(smoothstep(float(0.0035).sub(aaL), float(0.0035).add(aaL), abs(fromTop.sub(len.mul(0.5))))).mul(isSash)
+    const accentMask = accentLine.add(sashMid).mul(isFabric).mul(owned).mul(float(1).sub(back.mul(0.4)))
+    const accentInt = float(1.7).add(U.power.mul(1.1)).mul(pulse.mul(0.3).add(0.7))
+    em = v3(em.add(accentC.mul(accentMask.mul(accentInt).add(colAccent.mul(2.4)))))
+    // near max investment: a faint ember aura licks the hem
+    const auraK = smoothstep(0.6, 1.0, U.power)
+    const hemZone = smoothstep(0.32, 0.0, fromHem).mul(isCoat.add(isCape).add(isTabard))
+    // embers: small round sparks drifting up from the hem
+    const ey = fromHem.sub(tF.mul(0.12))
+    const ec = vec2(um.mul(70), ey.mul(70))
+    const eCell = floor(ec)
+    const eHash = hash(eCell.x.add(eCell.y.mul(57)))
+    const eDist = length(fract(ec).sub(0.5))
+    const ember = step(0.965, eHash).mul(float(1).sub(smoothstep(0.12, 0.3, eDist))).mul(smoothstep(0.35, 0.0, fromHem))
+    em = v3(em.add(mix(U.team, vec3(1, 0.85, 0.6), 0.35).mul(hemZone.mul(0.1).add(ember.mul(2.2))).mul(auraK).mul(isFabric)))
+  }
   em = v3(em.add(mix(U.team, U.castColor, U.castCharge).mul(gem.mul(isMedal).mul(float(5).add(U.castCharge.mul(7)).add(U.castFlare.mul(8))).mul(pulse.mul(0.3).add(0.7)))))
   // casting arm fabric warms up under the runes
   em = v3(em.add(U.castColor.mul(castArm.mul(0.045)).mul(isFabric)))

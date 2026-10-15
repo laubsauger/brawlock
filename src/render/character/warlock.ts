@@ -7,6 +7,7 @@ import type { WarlockAsset } from './asset'
 import { CC0_SCALE, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
+import { applyBuild, startLevelUp, tickLevelUp } from './progression'
 import { clothParams } from './materials'
 import type { CastArm, DeathKind, WarlockHandle } from './types'
 import { CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
@@ -55,6 +56,10 @@ export function deathKindFor(cause: string | undefined, kb: number): DeathKind {
       return 'gravity'
     case 'drain':
       return 'drain'
+    case 'scourge':
+      return 'shadow'
+    case 'disconnect':
+      return 'fade'
     default:
       return kb > 500 ? 'fireball' : 'ash'
   }
@@ -131,6 +136,8 @@ export class CC0Warlock implements WarlockHandle {
   private castFrom: CastFrom = 'palm'
   private castColorOverride: number | null = null
   private footprint: THREE.Object3D | null = null
+  private buildSig = ''
+  private hitFlashOn = true
 
   // motion state
   private t = 0
@@ -309,6 +316,16 @@ export class CC0Warlock implements WarlockHandle {
     this.flutterKick = Math.min(1.5, this.flutterKick + strength / 900)
   }
 
+  /** false: damage events skip the hit flash (a VFX module draws its own); cloth kick and hit reaction stay */
+  hitFlash(enabled: boolean): void {
+    this.hitFlashOn = enabled
+    if (!enabled) this.gpu.flash = 0
+  }
+
+  levelUp(color?: number | null): void {
+    startLevelUp(this.gpu, color ?? null)
+  }
+
   tumble(dx: number, dy: number): void {
     if (this.dead) return
     const l = Math.hypot(dx, dy) || 1
@@ -320,9 +337,18 @@ export class CC0Warlock implements WarlockHandle {
     this.anim.full('knockback', { fade: 0.08, loop: false, restart: true, timeScale: 1.1 })
   }
 
-  deathFx(kind: DeathKind, dx = 0, dy = 0): void {
+  deathFx(kind: DeathKind, dx = 0, dy = 0, edge?: number | readonly number[]): void {
     if (!this.dead) this.die(kind, dx, dy)
     else this.startDeath(kind, dx, dy)
+    if (edge !== undefined) {
+      const c = this.gpu.dissolveColor
+      if (typeof edge === 'number') {
+        c.setHex(edge, THREE.SRGBColorSpace)
+        // a glowing edge: lift to a bright HDR luminance whatever the hue
+        const l = Math.max(1e-3, 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
+        c.multiplyScalar(2.2 / l)
+      } else c.setRGB(edge[0], edge[1], edge[2])
+    }
   }
 
   // ------------------------------------------------------------------ events
@@ -340,7 +366,10 @@ export class CC0Warlock implements WarlockHandle {
         break
       case 'damage':
         if (e.target === p.id) {
-          this.gpu.flash = 1
+          if (this.hitFlashOn) {
+            this.gpu.flash = 1
+            this.gpu.flashK = Math.min(1.5, Math.max(0.35, 0.35 + e.amount / 20 + e.kb / 1500))
+          }
           const w = Math.min(1, 0.35 + e.amount / 14)
           this.anim.hit(this.hitToggle ? 'hitHead' : 'hit', w)
           this.hitToggle = !this.hitToggle
@@ -498,9 +527,17 @@ export class CC0Warlock implements WarlockHandle {
       this.tumbleDirY = dy / l
     }
     const blown = (kind === 'fireball' || kind === 'meteor' || kind === 'gravity') && l > 1
-    this.anim.full(blown ? 'knockback' : 'death', { fade: 0.1, loop: false, restart: true, timeScale: blown ? 1.1 : 1 })
+    // a disconnect just fades where it stands
+    if (kind !== 'fade') this.anim.full(blown ? 'knockback' : 'death', { fade: 0.1, loop: false, restart: true, timeScale: blown ? 1.1 : 1 })
     const g = this.gpu
+    g.dissolveMode = kind === 'shadow' ? 1 : kind === 'fade' ? 2 : 0
     switch (kind) {
+      case 'shadow':
+        g.dissolveColor.setRGB(3.2, 0.25, 0.35)
+        break
+      case 'fade':
+        g.dissolveColor.setRGB(0.18, 0.18, 0.2)
+        break
       case 'lightning':
         g.dissolveColor.setRGB(2.2, 3.2, 6)
         break
@@ -522,7 +559,8 @@ export class CC0Warlock implements WarlockHandle {
     this.dead = false
     this.deathT = 0
     const g = this.gpu
-    g.dissolve = g.char = g.freeze = g.xray = g.wither = 0
+    g.dissolve = g.char = g.freeze = g.xray = g.wither = g.shadow = 0
+    g.dissolveMode = 0
     this.yawG.position.y = 0
     this.yawG.scale.setScalar(1)
     this.tumbling = false
@@ -575,6 +613,13 @@ export class CC0Warlock implements WarlockHandle {
         scale = 1 - 0.1 * ramp(t, 0, 0.8)
         g.dissolve = ramp(t, 1.0, 1.8)
         break
+      case 'shadow':
+        g.shadow = ramp(t, 0, 0.5)
+        g.dissolve = ramp(t, 0.35, 1.5)
+        break
+      case 'fade':
+        g.dissolve = ramp(t, 0.1, 1.3)
+        break
       default:
         g.char = 0.6 * ramp(t, 0, 1.0)
         g.dissolve = ramp(t, 1.0, 1.9)
@@ -591,6 +636,8 @@ export class CC0Warlock implements WarlockHandle {
     this.t += dt
     const g = this.gpu
     this.footprint = syncFootprint(this.object3d, this.footprint)
+    this.buildSig = applyBuild(p, g, this.buildSig)
+    tickLevelUp(g, dt)
     for (let i = 0; i < events.length; i++) this.onEvent(events[i], p)
     if (!p.alive && !this.dead) this.die(p.lavaTicks > 0 ? 'lava' : 'ash', p.vx - p.walkVx, p.vy - p.walkVy)
     if (p.alive && this.dead) this.revive()
@@ -903,7 +950,7 @@ export class CC0Warlock implements WarlockHandle {
     if (this.staffMesh) this.placeStaff()
 
     // ---- fx
-    g.flash = Math.max(0, g.flash - dt / 0.14)
+    g.flash = Math.max(0, g.flash - dt / 0.2)
     if (!this.dead) {
       g.burn += ((p.alive && p.lavaTicks > 0 ? 1 : 0) - g.burn) * damp(8, dt)
       g.invuln += ((p.invulnerable ? 1 : 0) - g.invuln) * damp(10, dt)

@@ -46,13 +46,14 @@ export const thrustSpell: SpellBehavior = {
       damage: castAttr(ctx, 'damage'),
       kb: attr(def, 'knockback_factor', level),
       fullSpeed: speed,
+      level,
     })
   },
 }
 
 /** ThrustModifier:hitPawn: damage x factor with the thrust knockback, then the thrust ends. */
 export function thrustHitPawn(state: SimState, pawn: PawnState, mod: ModifierState, target: PawnState, nx: number, ny: number, factor: number): void {
-  state.events.push({ type: 'spellHit', spell: 'thrust', pawn: pawn.id, target: target.id, x: pawn.x, y: pawn.y })
+  state.events.push({ type: 'spellHit', spell: 'thrust', pawn: pawn.id, target: target.id, x: pawn.x, y: pawn.y, level: mod.data.level })
   receiveDamage(state, target, { amount: mod.data.damage * factor, source: pawn.owner, normal: { x: nx, y: ny }, knockbackFactor: mod.data.kb, cause: 'thrust' })
   removeModifier(state, pawn, mod)
 }

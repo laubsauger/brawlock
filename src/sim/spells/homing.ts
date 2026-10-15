@@ -50,6 +50,7 @@ export const homingSpell: SpellBehavior = {
     const speed = attr(def, 'launch_speed', level) + (caster.vx * a.dx + caster.vy * a.dy)
     const target = nearestEnemy(state, caster.owner, ctx.x, ctx.y)
     spawnProjectile(state, caster.owner, 'homing', caster.x + a.dx * offset, caster.y + a.dy * offset, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'range', level) / attr(def, 'speed', level),
       data: {
         damage: castAttr(ctx, 'damage'),
@@ -89,7 +90,7 @@ export const homingProjectile: ProjectileBehavior = {
     if (o.kind === 'pawn') {
       if (o.pawn.owner === p.owner) {
         // self-detonation
-        state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: p.data.selfRadius, spell: 'homing' })
+        state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: p.data.selfRadius, spell: 'homing', level: p.level })
         damageArea(state, p.owner, p.x, p.y, p.data.selfRadius, { amountMin: 0, amountMax: p.data.damage, knockbackFactor: p.data.selfKb, cause: 'homing' })
         const caster = ownerPawn(state, p)
         if (caster && caster.alive) {

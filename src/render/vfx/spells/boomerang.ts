@@ -22,7 +22,7 @@ import type { SimEvent, SimState } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_BLADE, G_SHOCK, PH, acquireKit, palFor, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_BLADE, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('boomerang')
@@ -144,14 +144,24 @@ function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: numbe
       k.stripPoint(x + Math.cos(a) * r * 0.93, y + Math.sin(a) * r * 0.93, h + 1, 4 + 9 * f, P.hot[0] * 0.5 + P.body[0] * 0.8, P.hot[1] * 0.5 + P.body[1] * 0.8, P.hot[2] * 0.5 + P.body[2] * 0.8, 1.5 * f * f)
     }
     k.stripEnd()
-    // glint when a tip faces the key light (moon from the camera's left-back)
-    const g = Math.cos(tip - 2.4)
-    if (g > 0.9) {
-      const gx = x + Math.cos(tip) * r
-      const gy = y + Math.sin(tip) * r
-      const a = (g - 0.9) / 0.1
-      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 34 * S, 3.4, 0.3, 3.2 * a, 3.1 * a, 3.2 * a, 3)
-      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 34 * S, 3.4, 0.3 + Math.PI / 2, 3.2 * a, 3.1 * a, 3.2 * a, 3)
+    // specular: a thin highlight sliding along the edge while a tip passes the key light
+    // (moon from the camera's left-back), plus a tiny short star at the exact alignment
+    const d = Math.atan2(Math.sin(tip - 2.4), Math.cos(tip - 2.4))
+    if (Math.abs(d) < 0.5) {
+      const a = 1 - Math.abs(d) / 0.5
+      k.stripBegin(true, 2.6, 0, 0)
+      for (let i = 0; i <= 4; i++) {
+        const ang = tip - 0.05 - (i / 4) * 0.35
+        const f = Math.sin((i / 4) * Math.PI)
+        k.stripPoint(x + Math.cos(ang) * r * 0.97, y + Math.sin(ang) * r * 0.97, h + 2, 3, 2.2, 2.1, 2.0, 0.9 * a * f)
+      }
+      k.stripEnd()
+      if (Math.abs(d) < 0.08) {
+        const gx = x + Math.cos(tip) * r
+        const gy = y + Math.sin(tip) * r
+        const st = 1 - Math.abs(d) / 0.08
+        k.bbStreak(gx * S, (h + 3) * S, -gy * S, 12 * S, 2.2, 0.3, 1.2 * st, 1.15 * st, 1.1 * st, 3)
+      }
     }
   }
 }
@@ -162,17 +172,17 @@ function clang(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 500 + Math.random() * 800
-    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 300, 0.12 + Math.random() * 0.16, 5, 1, 4.2, 3.9, 3.4, -1500, 3, -0.16)
+    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 300, 0.12 + Math.random() * 0.16, 5, 1, 4.2, 3.9, 3.4, -1500, 3, -0.16)
   }
   const nc = ps.budget(10)
   for (let i = 0; i < nc; i++) {
     const a = Math.random() * Math.PI * 2
     const sp = 200 + Math.random() * 400
-    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 150 + Math.random() * 200, 0.3 + Math.random() * 0.2, 7, 2, P.spark[0], P.spark[1], P.spark[2], -1500, 1.5, -0.06)
+    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 150 + Math.random() * 200, 0.3 + Math.random() * 0.2, 7, 2, P.spark[0], P.spark[1], P.spark[2], -1500, 1.5, -0.06)
   }
   // star glint
   k.pulse(G_SHOCK, true, x, y, h, 50, 70, 0.18, 0, 0, P.hot, 1.2, 0.3, 0.95, 0.08)
-  ctx.flash(x, y, h, 0.08, 130, 70, 2.2, 2.1, 2.0)
+  kflash(ctx, x, y, h, 0.08, 130, 70, 2.2, 2.1, 2.0)
   k.pulse(G_SHOCK, false, x, y, k.floor(x, y) + 1.5, 60, 60, 0.25, 0, 0, P.body, 0.8, 0.15, 0.95, 0.12)
   ctx.shakeNear(x, y, 0.08)
 }
@@ -219,10 +229,11 @@ const mod: SpellVfx = {
         for (let i = 0; i < n; i++) {
           const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.4
           const sp = 400 + Math.random() * 500
-          ps.spawn(o.x, o.y, o.h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 150, 0.12, 5, 1, P.spark[0], P.spark[1], P.spark[2], -900, 4, -0.14)
+          pspawn(ps, o.x, o.y, o.h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 150, 0.12, 5, 1, P.spark[0], P.spark[1], P.spark[2], -900, 4, -0.14)
         }
-        ctx.flash(o.x, o.y, o.h, 0.08, 110, 50, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+        kflash(ctx, o.x, o.y, o.h, 0.08, 110, 50, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
         void l
+        k.levelFlash(o.x, o.y, o.h, k.tierOf(e), P, e.pawn)
         return
       }
       case 'damage': {
@@ -232,14 +243,14 @@ const mod: SpellVfx = {
         const from = last.get(a.data)
         k.hitDir(ctx.state, e.target, from ? from.x : e.x - 1, from ? from.y : e.y, e.x, e.y, dir)
         const h = (v?.h ?? 30) + 55
-        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 0.85)
+        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 0.85, a.tier)
         // slash: bright streaks across the cut, perpendicular to the push
         const ps = ctx.particles
         const n = ps.budget(12)
         for (let i = 0; i < n; i++) {
           const s = (Math.random() - 0.5) * 2
           const sp = 700 + Math.random() * 700
-          ps.spawn(e.x + dir.x * 10, e.y + dir.y * 10, h + (Math.random() - 0.5) * 30, -dir.y * sp * s, dir.x * sp * s, (Math.random() - 0.5) * 120, 0.12 + Math.random() * 0.08, 8, 1, 4.0, 3.8, 3.5, 0, 6, -0.16)
+          pspawn(ps, e.x + dir.x * 10, e.y + dir.y * 10, h + (Math.random() - 0.5) * 30, -dir.y * sp * s, dir.x * sp * s, (Math.random() - 0.5) * 120, 0.12 + Math.random() * 0.08, 8, 1, 4.0, 3.8, 3.5, 0, 6, -0.16)
         }
         return true
       }
@@ -260,11 +271,11 @@ const mod: SpellVfx = {
             const a = Math.random() * Math.PI * 2
             const rr = 45 + Math.random() * 25
             const life = 0.12 + Math.random() * 0.05
-            ps.spawn(o.x + Math.cos(a) * rr, o.y + Math.sin(a) * rr, o.h, (-Math.cos(a) * rr) / life, (-Math.sin(a) * rr) / life, 0, life, 6, 2, P.spark[0], P.spark[1], P.spark[2], 0, 0, -0.05)
+            pspawn(ps, o.x + Math.cos(a) * rr, o.y + Math.sin(a) * rr, o.h, (-Math.cos(a) * rr) / life, (-Math.sin(a) * rr) / life, 0, life, 6, 2, P.spark[0], P.spark[1], P.spark[2], 0, 0, -0.05)
           }
-          ctx.flash(o.x, o.y, o.h, 0.1, 110, 60, P.body[0], P.body[1], P.body[2])
+          kflash(ctx, o.x, o.y, o.h, 0.1, 110, 60, P.body[0], P.body[1], P.body[2])
           k.teamRGB(info.owner)
-          ctx.ground.spawn(RING_IMPLODE, info.x, info.y, k.floor(info.x, info.y), 10, 70, 0.22, 6, k.team[0] * 1.6, k.team[1] * 1.6, k.team[2] * 1.6)
+          kring(ctx, RING_IMPLODE, info.x, info.y, k.floor(info.x, info.y), 10, 70, 0.22, 6, k.team[0] * 1.6, k.team[1] * 1.6, k.team[2] * 1.6)
         } else {
           clang(k, ctx, e.x, e.y, PH)
         }
@@ -329,9 +340,13 @@ const mod: SpellVfx = {
     // the steel glaive: tips on the collision radius, a slight bank so the top reads in 3D
     addGlaive(x, y, PH, r, spin, 0.12)
     spinFx(k, x, y, PH, r, spin, k.floor(x, y))
-    ctx.glow.add(x, y, 190, 0.85, P.light[0], P.light[1], P.light[2])
+    ctx.glow.add(x, y, 150, 0.6, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    k.trailPoint(p.id * 4, x, y, PH - 4, RIBBON)
+    k.trailPoint(p.id * 16, x, y, PH - 4, RIBBON)
+    {
+      const sp = Math.hypot(p.vx, p.vy) || 1
+      k.powerLayers(p.id * 16 + 15, x, y, PH - 4, P, k.tierOf(p), p.vx / sp, p.vy / sp, r)
+    }
     // a few sparks thrown off the cutting edges
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 30)
@@ -340,7 +355,7 @@ const mod: SpellVfx = {
       const tx = Math.cos(a)
       const ty = Math.sin(a)
       const tv = 300 + Math.random() * 250
-      ps.spawn(x + tx * r, y + ty * r, PH, -ty * tv + p.vx * 0.3, tx * tv + p.vy * 0.3, 40 + Math.random() * 120, 0.14 + Math.random() * 0.12, 4, 1, 3.6, 3.2, 2.8, -900, 2.5, -0.1)
+      pspawn(ps, x + tx * r, y + ty * r, PH, -ty * tv + p.vx * 0.3, tx * tv + p.vy * 0.3, 40 + Math.random() * 120, 0.14 + Math.random() * 0.12, 4, 1, 3.6, 3.2, 2.8, -900, 2.5, -0.1)
     }
     // return mode: dashed guide along the predicted homing path to the thrower
     if (returning) {

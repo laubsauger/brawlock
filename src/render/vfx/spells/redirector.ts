@@ -13,7 +13,7 @@
  */
 import type { SimEvent } from '../../../sim/types'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_RETICLE, G_RUNE, G_SHOCK, G_SIGIL, PH, acquireKit, palFor, releaseKit, windupProgress, type KitA } from './kitA'
+import { G_RETICLE, G_RUNE, G_SHOCK, G_SIGIL, PH, acquireKit, kflash, palFor, pspawn, releaseKit, windupProgress, type KitA } from './kitA'
 
 const P = palFor('redirector')
 let K: KitA | null = null
@@ -131,7 +131,7 @@ const mod: SpellVfx = {
         const info = ctx.pawn(e.pawn)
         if (!info) return
         k.origin(info, o)
-        ctx.flash(o.x, o.y, o.h, 0.14, 130, 70, P.body[0] * 1.2, P.body[1] * 1.2, P.body[2] * 1.2)
+        kflash(ctx, o.x, o.y, o.h, 0.14, 130, 70, P.body[0] * 1.2, P.body[1] * 1.2, P.body[2] * 1.2)
         k.pulse(G_RUNE, true, o.x, o.y, o.h - 6, 30, 60, 0.3, 0, 5, P.body, 1.1, 1, 1, e.pawn)
         return
       }
@@ -164,9 +164,9 @@ const mod: SpellVfx = {
         for (let i = 0; i < n; i++) {
           const a = Math.atan2(vOld.y, vOld.x) + (Math.random() - 0.5) * 0.9
           const sp = 300 + Math.random() * 600
-          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 200, 0.2 + Math.random() * 0.2, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1100, 3, -0.12)
+          pspawn(ps, e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 60 + Math.random() * 200, 0.2 + Math.random() * 0.2, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1100, 3, -0.12)
         }
-        ctx.flash(e.x, e.y, PH, 0.14, 160, 90, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
+        kflash(ctx, e.x, e.y, PH, 0.14, 160, 90, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
         k.pulse(G_SHOCK, false, e.x, e.y, k.floor(e.x, e.y) + 1.5, 70, 70, 0.3, 0, 0, P.body, 0.9, 0.12, 0.95, 0.1)
         return
       }
@@ -211,7 +211,7 @@ const mod: SpellVfx = {
     const n = ps.budget(ctx.dt * 12)
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
-      ps.spawn(x + Math.cos(a) * 30, y + Math.sin(a) * 30, h0 + 20 + Math.random() * 80, Math.cos(a) * 30, Math.sin(a) * 30, 60 + Math.random() * 60, 0.7 + Math.random() * 0.4, 7, 2, P.spark[0], P.spark[1], P.spark[2], 30, 1, 8)
+      pspawn(ps, x + Math.cos(a) * 30, y + Math.sin(a) * 30, h0 + 20 + Math.random() * 80, Math.cos(a) * 30, Math.sin(a) * 30, 60 + Math.random() * 60, 0.7 + Math.random() * 0.4, 7, 2, P.spark[0], P.spark[1], P.spark[2], 30, 1, 8)
     }
   },
 }

@@ -26,6 +26,7 @@ export const splitterSpell: SpellBehavior = {
     const speed = attr(def, 'speed', level)
     const lifetime = Math.min(attr(def, 'max_time', level) * rangeFactor(state, caster.owner), a.dist / speed)
     spawnProjectile(state, caster.owner, 'splitter', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: lifetime > 0 ? lifetime : 1e-9,
       rangeMastery: false,
       data: {
@@ -64,6 +65,7 @@ export const splitterProjectile: ProjectileBehavior = {
     spawnProjectile(state, p.owner, 'splitter', p.x + d.ox, p.y + d.oy, dx * d.spawnerSpeed, dy * d.spawnerSpeed, 1, {
       lifetime: d.spawnerTime,
       kind: 'splitterSpawner',
+      level: p.level,
       data: {
         damage: d.damage,
         kb: d.kb,
@@ -91,6 +93,7 @@ function spawnWave(state: SimState, s: ProjectileState, k: number): void {
     spawnProjectile(state, s.owner, 'splitter', s.x, s.y, cx * d.childSpeed, cy * d.childSpeed, d.childRadius, {
       lifetime: d.childTime,
       kind: 'splitterChild',
+      level: s.level,
       data: { damage: d.damage, kb: d.kb },
     })
   }

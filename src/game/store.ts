@@ -48,6 +48,8 @@ export interface Settings {
   castModeSlots: Partial<Record<number, CastMode>>
   /** HUD and in-match panel scale on top of the automatic resolution scale, 0.8..1.2 */
   uiScale: number
+  /** bottom HUD cluster: centered like Dota, or tucked into the bottom-right corner */
+  hudLayout: 'center' | 'right'
 }
 
 export type NetRole = 'offline' | 'host' | 'client'
@@ -123,6 +125,7 @@ const defaultSettings: Settings = {
   castMode: 'quick',
   castModeSlots: {},
   uiScale: 1,
+  hudLayout: 'center',
 }
 
 function loadSettings(): Settings {

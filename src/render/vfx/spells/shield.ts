@@ -17,7 +17,7 @@ import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle, floorH, glowG, hexRgb, kitAdopt, kitBegin, kitInit,
   kitRelease, light, rand,
-  pal,
+  pal, tierCap, flashT, levelOf, tierOfLevel,
 } from './kitB'
 
 // identity: pale gold-white (vfx/palette.ts)
@@ -50,7 +50,7 @@ const hv = new THREE.Vector3()
 
 /**
  * Dome instance attributes:
- *   A0 x alpha, y seed, z tint flash 0..1, w unused
+ *   A0 x alpha, y seed, z tint flash 0..1, w power tier 0..2
  *   A1 xyz hit direction 0 (local), w hit time
  *   A2 xyz hit direction 1, w hit time
  *   A3 rgb tint colour
@@ -63,7 +63,8 @@ function domeMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const viewDir = positionView.negate().normalize()
   const ndv = saturate(abs(dot(normalView, viewDir)))
   // fine hex lattice on a stereographic projection of the dome (even cells over the cap)
-  const q = p.xz.div(p.y.add(1.0)).mul(13)
+  // power tier (A0.w 0..2): finer, denser lattice
+  const q = p.xz.div(p.y.add(1.0)).mul(A0.w.mul(2.5).add(11))
   const R = vec2(1, 1.7320508)
   const Hh = R.mul(0.5)
   const a = mod(q, R).sub(Hh)
@@ -78,28 +79,28 @@ function domeMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const hit = (H: Node<'vec4'>) => {
     const age = t.sub(H.w)
     const d = float(1).sub(dot(n, H.xyz))
-    const x = d.sub(age.mul(2.4)).div(0.06)
-    const ring = exp(x.mul(x).negate()).mul(exp(age.mul(-3.2)))
-    const cells = exp(d.mul(-9)).mul(exp(age.mul(-4.5))).mul(cellFill.mul(0.6).add(lattice))
-    return ring.add(cells.mul(1.4)).mul(step01(age))
+    const x = d.sub(age.mul(2.4)).div(0.05)
+    const ring = exp(x.mul(x).negate()).mul(exp(age.mul(-4)))
+    const cells = exp(d.mul(-30)).mul(exp(age.mul(-6))).mul(lattice.add(cellFill.mul(0.25)))
+    return ring.mul(0.7).add(cells.mul(0.8)).mul(step01(age))
   }
   // capped: a burst of hits (reflects, blocked Lightning) can never flood the dome white
-  const rip = min(hit(A1).add(hit(A2)), float(1.1))
+  const rip = min(hit(A1).add(hit(A2)), float(0.8))
   const base = smoothstep(0.0, 0.1, p.y)
   const gold = vec3(...GOLD)
   const white = vec3(...GOLD_WHITE)
   const latticeCol = mix(gold, A3.xyz.mul(2.2), A0.z)
   // nearly clear in the middle (the warlock reads through it); rim and grazing lattice carry it
   const graze = pow(float(1).sub(ndv), 1.6)
-  const col = white.mul(pow(float(1).sub(ndv), 3.5).mul(1.1))
+  const col = white.mul(pow(float(1).sub(ndv), 3.5).mul(0.7))
     .add(latticeCol.mul(lattice.mul(graze).mul(0.55)))
     .add(gold.mul(sweep.mul(lattice).mul(graze.add(0.15)).mul(0.3)))
-    .add(white.mul(rip.mul(1.3)))
+    .add(gold.mul(rip))
   const m = new THREE.MeshBasicNodeMaterial()
   m.transparent = true
   m.depthWrite = false
   m.blending = THREE.AdditiveBlending
-  m.colorNode = col.mul(A0.x).mul(base)
+  m.colorNode = tierCap(ctx, col.mul(A0.x).mul(base), 1.8, 0.5, 0.5)
   m.opacityNode = float(1)
   // faint refraction at the rim on heat-haze tiers
   if (ctx.tier.heatHaze) m.mrtNode = mrt({ heat: vec4(graze.mul(0.35).mul(A0.x).mul(base), 0, 0, 1) })
@@ -212,17 +213,18 @@ registerSpellVfx({
         const vy = proj ? proj.vy : e.y - (info?.y ?? e.y)
         const base = Math.atan2(vy, vx)
         const ps = ctx.particles
-        const n = ps.budget(26)
+        const n = ps.budget(14)
         for (let i = 0; i < n; i++) {
-          const a = base + rand(-0.7, 0.7)
-          const sp = rand(300, 900)
-          ps.spawn(e.x, e.y, fh + 40, Math.cos(a) * sp, Math.sin(a) * sp, rand(0, 200), rand(0.18, 0.35), 8, 2, GOLD_WHITE[0], GOLD_WHITE[1], GOLD_WHITE[2], -800, 3, -0.1)
+          const a = base + rand(-0.6, 0.6)
+          const sp = rand(250, 700)
+          ps.spawn(e.x, e.y, fh + 40, Math.cos(a) * sp, Math.sin(a) * sp, rand(0, 160), rand(0.15, 0.3), 7, 1.5, GOLD[0] * 0.8, GOLD[1] * 0.8, GOLD[2] * 0.8, -800, 3, -0.1)
         }
         if (e.stolen && info) {
           hexRgb(ctx.colorOf(info.owner), team)
           burst(ctx, e.x, e.y, fh + 40, 12, 80, 220, 0.3, 0.5, 14, 3, team, 2.2, 0, 2.5)
         }
-        ctx.flash(e.x, e.y, fh + 40, 0.1, 140, 120, GOLD[0], GOLD[1], GOLD[2])
+        // calm and local: a small glint on the bubble surface, no screen-wide flash / shake
+        flashT(ctx, e.x, e.y, fh + 40, 0.08, 90, 60, GOLD[0] * 0.5, GOLD[1] * 0.5, GOLD[2] * 0.5)
         return
       }
       default:
@@ -250,13 +252,13 @@ registerSpellVfx({
     if (pool) {
       pool.quat.identity()
       const i = pool.add(x * S, (fh + 0.5) * S, -y * S, R * grow * S, R * DOME_H * grow * S, R * grow * S)
-      pool.set(i, 0, (0.75 + 0.6 * flashK) * fade, pawn.id * 1.7, flashK, 0)
+      pool.set(i, 0, (0.75 + 0.6 * flashK) * fade, pawn.id * 1.7, flashK, tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL)))
       pool.set(i, 1, b.h0.x, b.h0.y, b.h0.z, b.h0.w)
       pool.set(i, 2, b.h1.x, b.h1.y, b.h1.z, b.h1.w)
       pool.set(i, 3, b.tint[0], b.tint[1], b.tint[2], 0)
     }
     // cast: a crisp golden rune circle sweeps out and becomes the dome's footprint
-    if (age < 0.35) drawCircle(x, y, fh + 1.5, R * grow, STYLE_RUNES, GOLD[0], GOLD[1], GOLD[2], 1.2 * (1 - age / 0.35), 0, 3, pawn.id, 0, 0.8, 30, b.since)
+    if (age < 0.35) drawCircle(x, y, fh + 1.5, R * grow, STYLE_RUNES, GOLD[0], GOLD[1], GOLD[2], 1.2 * (1 - age / 0.35), 0, 3, pawn.id, 0, 0.8, 22 + 8 * tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL)), b.since)
     // crisp footprint at exactly the reflect radius
     drawCircle(x, y, fh + 1.4, R * grow, STYLE_RING, GOLD[0], GOLD[1], GOLD[2], 0.9 * fade, 0, 0, pawn.id, 0.06, 0.6, 0, b.since)
     glowG(x, y, fh + 70, 160, GOLD_WHITE, 0.18 * fade, 1.6)

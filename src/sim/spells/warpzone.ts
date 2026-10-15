@@ -24,6 +24,7 @@ export const warpzoneSpell: SpellBehavior = {
     const { state, caster, def, level } = ctx
     const t = clampTarget(ctx, attr(def, 'range', level))
     spawnProjectile(state, caster.owner, 'warpzone', t.x, t.y, 0, 0, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'duration', level) * durationFactor(state, caster.owner),
       rangeMastery: false,
       data: { static: 1, scale: attr(def, 'time_scale', level), check: ticks(CHECK_PERIOD) },

@@ -708,6 +708,18 @@ function emitN(ctx: VfxCtx, e: Emitter, rate: number, which: 'acc' | 'acc2' | 'a
 
 const lowQ = (ctx: VfxCtx) => ctx.quality === 'low'
 
+// ---------------------------------------------------------------- load
+
+/**
+ * 1 / sqrt(deaths drawn this frame): bursts, rings and decal glow shrink when
+ * several warlocks die at once so simultaneous deaths never stack into a
+ * white-out. deaths.ts sets it each frame; spell modules may too.
+ */
+let load = 1
+export function setDeathLoad(simultaneousDeaths: number): void {
+  load = 1 / Math.sqrt(Math.max(1, simultaneousDeaths))
+}
+
 // ---------------------------------------------------------------- helpers (public)
 
 /**
@@ -739,8 +751,9 @@ export function disintegrate(
   if (!o.quiet) {
     const f = decalFloor(ctx, x, y)
     const s = tint.spell
-    ctx.ground.spawn(RING_CHEVRON, x, y, f + 1, 34, 58, 0.55, 4, s[0] * 1.6, s[1] * 1.6, s[2] * 1.6)
-    ctx.ground.spawn(RING_IMPLODE, x, y, f + 1, 10, 95, 0.4, 7, s[0] * 1.2, s[1] * 1.2, s[2] * 1.2)
+    const g = 1.1 * load
+    ctx.ground.spawn(RING_CHEVRON, x, y, f + 1, 34, 58, 0.55, 4, s[0] * g, s[1] * g, s[2] * g)
+    ctx.ground.spawn(RING_IMPLODE, x, y, f + 1, 10, 95, 0.4, 6, s[0] * g * 0.8, s[1] * g * 0.8, s[2] * g * 0.8)
   }
 }
 
@@ -826,20 +839,25 @@ export function emberBurst(ctx: VfxCtx, x: number, y: number, h: number, dx: num
   const c = tint.core
   const s = tint.spell
   const v = tint.victim
-  const n = ps.budget(70 * k)
+  const n = ps.budget(56 * k * load)
   for (let i = 0; i < n; i++) {
     const a = omni ? rnd() * TAU : base + (rnd() - 0.5) * (rnd() < 0.7 ? 1.1 : 2.4)
     const sp = (220 + rnd() * 620) * (0.7 + k * 0.3)
-    const hot = rnd()
-    // cooling flag (size1 < 0): hot core -> crimson as it flies
-    ps.spawn(x, y, h + (rnd() - 0.3) * 60, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 380, 0.5 + rnd() * 0.8, 10 + rnd() * 16, -3, c[0] * (1.2 + hot), c[1] * (1.0 + hot * 0.6), c[2] * (0.8 + hot * 0.3), -950, 1.6, rnd() < 0.5 ? -0.05 : 6)
+    // mostly spell-hued embers, a few hot ones: hundreds of near-white
+    // additive sprites on one spot is exactly what blows a frame out
+    const hot = rnd() < 0.18 ? 0.55 : 0
+    const r = (s[0] * (1 - hot) + c[0] * 0.5 * hot) * 1.7
+    const g = (s[1] * (1 - hot) + c[1] * 0.5 * hot) * 1.7 + 0.12
+    const b = (s[2] * (1 - hot) + c[2] * 0.5 * hot) * 1.7
+    // cooling flag (size1 < 0): shifts to crimson as it flies
+    ps.spawn(x, y, h + (rnd() - 0.3) * 60, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 380, 0.5 + rnd() * 0.8, 8 + rnd() * 12, -3, r, g, b, -950, 1.6, rnd() < 0.5 ? -0.05 : 6)
   }
   // fast spark streaks in the spell accent
-  const ns = ps.budget(34 * k)
+  const ns = ps.budget(30 * k * load)
   for (let i = 0; i < ns; i++) {
     const a = omni ? rnd() * TAU : base + (rnd() - 0.5) * 0.9
     const sp = 700 + rnd() * 900
-    ps.spawn(x, y, h + (rnd() - 0.5) * 40, Math.cos(a) * sp, Math.sin(a) * sp, 50 + rnd() * 250, 0.16 + rnd() * 0.18, 6, 1, s[0] * 4, s[1] * 4, s[2] * 4, -600, 3.5, -0.16)
+    ps.spawn(x, y, h + (rnd() - 0.5) * 40, Math.cos(a) * sp, Math.sin(a) * sp, 50 + rnd() * 250, 0.16 + rnd() * 0.18, 5, 1, s[0] * 3, s[1] * 3 + 0.2, s[2] * 3, -600, 3.5, -0.16)
   }
   // charred robe scraps (debris) with a team-colour tinge, some trailing flame
   const nd = ctx.debris.budget(22 * k)
@@ -1009,7 +1027,7 @@ export function sinkInLava(ctx: VfxCtx, pawnId: EntityId, x: number, y: number, 
   // splash crown: molten droplets thrown from a ring, arcing up and falling
   // back (streaked, cooling to crimson); kept saturated so it never whites
   // out over the bright lava
-  const n = ps.budget(40 * k)
+  const n = ps.budget(40 * k * load)
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
     const r0 = 18 + rnd() * 16
@@ -1023,7 +1041,7 @@ export function sinkInLava(ctx: VfxCtx, pawnId: EntityId, x: number, y: number, 
     const sp = 70 + rnd() * 200
     ctx.debris.spawn(x, y, H + 10, Math.cos(a) * sp, Math.sin(a) * sp, 300 + rnd() * 380, 0.7 + rnd() * 0.4, 6 + rnd() * 6, 3, 0.06, 0.018, 0.01, -1600, 0.3, 0)
   }
-  ctx.ground.spawn(RING_EXPAND, x, y, H, 20, 170, 0.8, 12, 1.8, 0.5, 0.07)
+  ctx.ground.spawn(RING_EXPAND, x, y, H, 20, 170, 0.8, 12, 1.8 * load, 0.5 * load, 0.07 * load)
   // burning ring + slag raft on the lava surface
   K.decals.spawn(D_BURNRING, x, y, H, 118 * k, 2.9, [2.6, 0.5, 0.06], 0, 1, 0, 1, 1)
   const rf = K.emitter(E_RINGFIRE, x, y, H, 2.6)
@@ -1101,13 +1119,13 @@ export function shadowBurn(ctx: VfxCtx, pawnId: EntityId, x: number, y: number, 
   const K = kit(ctx)
   const f = decalFloor(ctx, x, y)
   const s = tint.spell
-  K.decals.spawn(D_SIGIL, x, y, f, 88, 2.9, [s[0] * 2.6, s[1] * 2.6, s[2] * 2.6], 0, 1, 0, 1, 1)
+  K.decals.spawn(D_SIGIL, x, y, f, 88, 2.9, [s[0] * 1.8, s[1] * 1.8, s[2] * 1.8], 0, 1, 0, 1, load)
   const e = K.emitter(E_SHADOW, x, y, h, 2.2)
   e.pawn = pawnId
   setTint(e, tint)
   // collapse inward first: dark implosion ring + inward-sucked streaks
-  ctx.ground.spawn(RING_IMPLODE, x, y, f + 1, 12, 150, 0.35, 12, s[0] * 1.8, s[1] * 1.8, s[2] * 1.8)
-  const n = ctx.particles.budget(36)
+  ctx.ground.spawn(RING_IMPLODE, x, y, f + 1, 12, 150, 0.35, 10, s[0] * 1.2 * load, s[1] * 1.2 * load, s[2] * 1.2 * load)
+  const n = ctx.particles.budget(36 * load)
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
     const rr = 70 + rnd() * 60
@@ -1165,11 +1183,11 @@ export function crumbleToDust(ctx: VfxCtx, pawnId: EntityId, x: number, y: numbe
     const g = dust[0] * (0.5 + rnd() * 0.6)
     ctx.debris.spawn(x, y, h + rnd() * BODY_H * 0.7, Math.cos(a) * sp, Math.sin(a) * sp, 150 + rnd() * 260, 0.7 + rnd() * 0.6, 6 + rnd() * 9, 3, g, g * 0.92, g * 0.82, -1600, 0.7, 0)
   }
-  const ns = ctx.smoke.budget(18)
+  const ns = ctx.smoke.budget(14 * load)
   for (let i = 0; i < ns; i++) {
     const a = omni ? rnd() * TAU : base + (rnd() - 0.5) * 2.4
     const sp = 120 + rnd() * 200
-    ctx.smoke.spawn(x, y, h + 20 + rnd() * 60, Math.cos(a) * sp, Math.sin(a) * sp, 30, 1.5 + rnd() * 0.8, 46, 170, dust[0], dust[1] * 0.95, dust[2] * 0.9, 0, 1.5, 16)
+    ctx.smoke.spawn(x, y, h + 20 + rnd() * 60, Math.cos(a) * sp, Math.sin(a) * sp, 30, 1.5 + rnd() * 0.8, 36, 130, dust[0] * 0.75, dust[1] * 0.72, dust[2] * 0.68, 0, 1.5, 16)
   }
 }
 
@@ -1233,12 +1251,16 @@ export function soulRunes(ctx: VfxCtx, x: number, y: number, h: number, rgb: rea
   }
 }
 
+/** Reset the kit's per-frame glow batch. deaths.ts calls it from beginFrame (every rendered frame). */
+export function beginDeathKitFrame(ctx: VfxCtx): void {
+  if (pools && pools.ctx === ctx) pools.bb.begin()
+}
+
 /** Advance every timed death emitter. deaths.ts calls this once per frame. */
 export function tickDeathKit(ctx: VfxCtx): void {
   if (!pools || pools.ctx !== ctx) return
   const K = pools
   const t = ctx.now
-  K.bb.begin()
   for (const e of K.em) {
     if (e.type === E_NONE) continue
     if (t > e.t1) {

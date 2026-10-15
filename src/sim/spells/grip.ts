@@ -24,6 +24,7 @@ export const gripSpell: SpellBehavior = {
     const a = aim(ctx)
     const speed = attr(def, 'speed', level)
     spawnProjectile(state, caster.owner, 'grip', caster.x, caster.y, a.dx * speed, a.dy * speed, attr(def, 'radius', level), {
+      level,
       lifetime: attr(def, 'lifetime', level),
       data: {
         duration: attr(def, 'duration', level),

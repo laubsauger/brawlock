@@ -38,7 +38,8 @@ function skirt(part: Part, R: () => number, r: number, n: number, dMin: number, 
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + (R() - 0.5) * (TAU / n) * 0.9
     const d = r * (dMin + R() * (dMax - dMin))
-    const s = (sMin + R() * (sMax - sMin)) * 1.35
+    // rubble scales down with small footprints so it stays ankle-high and close
+    const s = (sMin + R() * (sMax - sMin)) * 1.35 * Math.min(1, r / 55)
     rock(part, Math.cos(a) * d, s * 0.22, Math.sin(a) * d, s, seed + i * 31, { squash: 0.72 + R() * 0.25, rough: 0.3, ao: 0.85 })
   }
 }
@@ -160,7 +161,7 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   if (v === 0) {
     // broken stump on a two-step plinth, rune frieze, a fallen piece on top
     plinth(core, [
-      { w: r * 0.93, y0: SINK, y1: 26, frieze: true },
+      { w: r * 0.9, y0: SINK, y1: 26, frieze: true },
       { w: r * 0.84, y0: 24, y1: 40 },
     ], seed)
     moulding(core, rs, 40, seed)
@@ -175,7 +176,7 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else if (v === 1) {
     // tall column with a capital; capital falls first, then the upper drum
     plinth(core, [
-      { w: r * 0.92, y0: SINK, y1: 30, frieze: true },
+      { w: r * 0.9, y0: SINK, y1: 30, frieze: true },
     ], seed)
     moulding(core, rs * 0.95, 30, seed)
     const yTop = 200 * jitter
@@ -240,7 +241,7 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else if (v === 3) {
     // steep diagonal break, mossy
     plinth(core, [
-      { w: r * 0.93, y0: SINK, y1: 22 },
+      { w: r * 0.9, y0: SINK, y1: 22 },
       { w: r * 0.84, y0: 20, y1: 36, frieze: true },
     ], seed)
     moulding(core, rs, 36, seed)
@@ -255,7 +256,7 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else {
     // two stacked drums, the upper one slipped off-centre
     plinth(core, [
-      { w: r * 0.93, y0: SINK, y1: 24, frieze: true },
+      { w: r * 0.9, y0: SINK, y1: 24, frieze: true },
       { w: r * 0.84, y0: 22, y1: 38 },
     ], seed)
     moulding(core, rs, 38, seed)
@@ -425,7 +426,7 @@ function volcanic(variant: number, r: number, seed: number, rockpillar = false):
     skirt(rub, R, r, 10, 0.95, 1.18, 5, 12, seed)
   } else if (v === 2) {
     // obsidian shard cluster on a basalt mound
-    rock(core, 0, 6, 0, r * 0.8, seed, { detail: 1, squash: 0.45, rough: 0.3, ao: 0.8 })
+    rock(core, 0, 6, 0, r * 0.92, seed, { detail: 1, squash: 0.4, rough: 0.14, ao: 0.8, stretch: 1 })
     const up = new THREE.Vector3(0, 1, 0)
     shard(glass, new THREE.Vector3(0, SINK, 0), up.clone().add(new THREE.Vector3((R() - 0.5) * 0.08, 0, (R() - 0.5) * 0.08)), 285 * jitter, r * 0.42, 5, seed, { tipLen: 0.32 })
     const n = 6
@@ -596,20 +597,20 @@ function overgrown(variant: number, r: number, seed: number): PillarShape {
         const t = i / steps
         const a = a0 + t * turns * TAU
         const y = yTop * (1 - t) + 4 * t
-        const rr = rs * 1.08 + 4 + (t > 0.8 ? (t - 0.8) * 5 * r * 0.45 : 0)
+        const rr = rs * 1.08 + 4 + (t > 0.8 ? (t - 0.8) * 5 * r * 0.28 : 0)
         pts.push(new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr))
       }
       // flare onto the floor and dive in
       const aEnd = a0 + turns * TAU
-      pts.push(new THREE.Vector3(Math.cos(aEnd + 0.25) * r * 1.12, 1, Math.sin(aEnd + 0.25) * r * 1.12))
-      pts.push(new THREE.Vector3(Math.cos(aEnd + 0.4) * r * 1.2, -6, Math.sin(aEnd + 0.4) * r * 1.2))
+      pts.push(new THREE.Vector3(Math.cos(aEnd + 0.25) * r * 0.98, 1, Math.sin(aEnd + 0.25) * r * 0.98))
+      pts.push(new THREE.Vector3(Math.cos(aEnd + 0.4) * r * 1.02, -6, Math.sin(aEnd + 0.4) * r * 1.02))
       sweep(wood, pts, (t) => 2 + 5.5 * Math.sin(Math.PI * Math.min(1, t * 1.15 + 0.08)) * (1 - t * 0.45), 5, 0.85)
     }
     height = yb + 40
     skirt(rub, R, r, 7, 0.88, 1.12, 4, 9, seed)
   } else if (v === 3) {
     // squat boulder split by a crystal growth
-    rock(core, 0, 22, 0, r * 0.98, seed, { detail: 2, squash: 1.05, rough: 0.22, flat: -0.45 })
+    rock(core, 0, 22, 0, r * 0.94, seed, { detail: 2, squash: 1.1, rough: 0.16, flat: -0.45, stretch: 1 })
     rock(c1, r * 0.12, 82, -r * 0.05, r * 0.52, seed + 1, { detail: 1, squash: 0.8, rough: 0.25 })
     chunks.push({ x: r * 0.12, y: 82, z: -r * 0.05, size: r * 0.5 })
     chunks.push({ x: 0, y: 60, z: 0, size: r * 0.4 })

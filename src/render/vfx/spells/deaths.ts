@@ -30,7 +30,7 @@ import { LAVA_H, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import {
   BODY_H, ashPile, charHeap, crater, crumbleToDust, deathClaimed, deathTint, disintegrate, dissolvePawn, disposeDeathKit,
-  emberBurst, fadeToSmoke, freezeShatter, initDeathKit, shadowBurn, sinkInLava, tickDeathKit, xrayFlash,
+  beginDeathKitFrame, emberBurst, fadeToSmoke, freezeShatter, initDeathKit, setDeathLoad, shadowBurn, sinkInLava, tickDeathKit, xrayFlash,
   type DeathEvent, type DeathLook, type DeathTint,
 } from '../deathKit'
 import { registerSpellVfx, type VfxCtx } from '../registry'
@@ -100,6 +100,8 @@ function lookFor(e: DeathEvent): DeathLook {
  */
 const FLASH_BUDGET = 2
 let flashesThisFrame = 0
+/** 1 / sqrt(deaths drawn this frame), same as the kit's load */
+let load = 1
 function flash(ctx: VfxCtx, x: number, y: number, h: number, c: readonly number[], k: number, radius = 300, size = 210, life = 0.35): void {
   if (flashesThisFrame >= FLASH_BUDGET) return
   flashesThisFrame++
@@ -145,8 +147,9 @@ function fireballDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number, base: 
   const s = tint.spell
   emberBurst(ctx, x, y, base + 60, dir.x, dir.y, k, tint)
   // warm shock ring + a scorched, blown-out mark
-  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 24, 210 * Math.min(1.4, k), 0.5, 18, s[0] * 3, s[1] * 3, s[2] * 3)
-  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 10, 120, 0.35, 26, c[0] * 1.6, c[1] * 1.2, c[2] * 0.8)
+  const L = load
+  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 24, 210 * Math.min(1.4, k), 0.5, 14, s[0] * 1.8 * L, (s[1] * 1.8 + 0.15) * L, s[2] * 1.8 * L)
+  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 10, 120, 0.35, 18, c[0] * 0.7 * L, c[1] * 0.5 * L, c[2] * 0.3 * L)
   if (!onLava) {
     ctx.scorches.spawn(x + dir.x * 20, y + dir.y * 20, TILE_TOP_H + 0.6, 80 * Math.min(1.3, k), 3)
     // the body is thrown back along the hit: the heap lies where it lands
@@ -188,15 +191,15 @@ function genericDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number, base: n
   const s = tint.spell
   const c = tint.core
   // the killing spell's identity bursts out of the body
-  const n = ctx.particles.budget(40 * k)
+  const n = ctx.particles.budget(40 * k * load)
   const omni = dir.x === 0 && dir.y === 0
   const a0 = Math.atan2(dir.y, dir.x)
   for (let i = 0; i < n; i++) {
     const a = omni ? rnd() * Math.PI * 2 : a0 + (rnd() - 0.5) * 2.2
     const sp = 200 + rnd() * 500
-    ctx.particles.spawn(x, y, base + 30 + rnd() * 80, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 280, 0.3 + rnd() * 0.4, 7 + rnd() * 5, 1, s[0] * 3.4, s[1] * 3.4, s[2] * 3.4, -700, 2.6, -0.1)
+    ctx.particles.spawn(x, y, base + 30 + rnd() * 80, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 280, 0.3 + rnd() * 0.4, 7 + rnd() * 5, 1, s[0] * 2.6, s[1] * 2.6, s[2] * 2.6, -700, 2.6, -0.1)
   }
-  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 20, 200 * Math.min(1.3, k), 0.5, 16, s[0] * 2.4, s[1] * 2.4, s[2] * 2.4)
+  ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 20, 200 * Math.min(1.3, k), 0.5, 14, s[0] * 1.6 * load, s[1] * 1.6 * load, s[2] * 1.6 * load)
   flash(ctx, x, y, base + 70, [c[0] * 0.5 + s[0], c[1] * 0.5 + s[1], c[2] * 0.5 + s[2]], 1.2, 300, 210, 0.3)
   // looks the character already has get their kit piece
   if (look === 'lightning') xrayFlash(ctx, x, y, base, tint)
@@ -229,6 +232,9 @@ registerSpellVfx({
   init(ctx) {
     initDeathKit(ctx)
   },
+  beginFrame(ctx) {
+    beginDeathKitFrame(ctx)
+  },
   onEvent(e, ctx) {
     if (e.type !== 'death') return false
     if (nPending < MAX_PENDING) {
@@ -244,6 +250,10 @@ registerSpellVfx({
   },
   frame(ctx) {
     flashesThisFrame = 0
+    let m = 0
+    for (let i = 0; i < nPending; i++) if (pending[i].e && !deathClaimed(pending[i].e!)) m++
+    setDeathLoad(m)
+    load = 1 / Math.sqrt(Math.max(1, m))
     // drawn here, after every module saw the event (a spell module may claimDeath(e) it)
     for (let i = 0; i < nPending; i++) {
       const r = pending[i]

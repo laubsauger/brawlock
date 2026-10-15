@@ -16,8 +16,10 @@ import type { WorldCtx } from '../scene/world'
  *   freeze     ice tint + frost rim, pose freezes, shatters (fast icy dissolve)
  *   gravity    blown back while spinning and shrinking into a point, violet
  *   drain      withers grey, shrinks a little, collapses, sickly green burn-up
+ *   shadow     Scourge: darkens to a void while dark wisps eat the body from the silhouette edges inward, crimson edge
+ *   fade       disconnect: quiet fade to smoke, no embers, no collapse
  */
-export type DeathKind = 'ash' | 'lava' | 'fireball' | 'meteor' | 'lightning' | 'freeze' | 'gravity' | 'drain'
+export type DeathKind = 'ash' | 'lava' | 'fireball' | 'meteor' | 'lightning' | 'freeze' | 'gravity' | 'drain' | 'shadow' | 'fade'
 
 export interface WarlockOptions {
   /** player colour 0xRRGGBB */
@@ -66,9 +68,28 @@ export interface WarlockHandle {
   setCastFrom(from: CastFrom): void
   /** Extra cloth kick (game-space direction, strength ~ knockback speed). Damage events already do this. */
   impulse(dx: number, dy: number, strength: number): void
+  /**
+   * Level-up burst (call on the sim's purchase event): runes flare in a band
+   * sweeping feet -> hood (~0.7 s). `color` = the bought spell's colour (default
+   * player colour). The build itself (column accents, power steps) is read from
+   * pawn.slots / pawn.levels every update (progression.ts).
+   */
+  levelUp(color?: number | null): void
+  /**
+   * Hit flash on damage events (default on): hot-white rim core for the first
+   * ~12 %, then crimson over the body, scaled by damage / knockback. false =
+   * skip it (a VFX module claims the hit, e.g. Scourge's own rim flash); the
+   * cloth kick and the hit reaction still play.
+   */
+  hitFlash(enabled: boolean): void
   /** Thrown off the feet along game direction (dx, dy): falls backwards, recovers when the slide slows. Big knockbacks do this automatically. */
   tumble(dx: number, dy: number): void
-  /** Force / override the death look (also starts the death if the pawn is still alive here). (dx, dy) = push direction for blown-back kinds. */
-  deathFx(kind: DeathKind, dx?: number, dy?: number): void
+  /**
+   * Force / override the death look (also starts the death if the pawn is still
+   * alive here). (dx, dy) = push direction for blown-back kinds. `edge` sets the
+   * dissolve edge colour: 0xRRGGBB (scaled to a glowing edge) or a linear RGB
+   * triple used as is (HDR ok), e.g. the killer spell's accent.
+   */
+  deathFx(kind: DeathKind, dx?: number, dy?: number, edge?: number | readonly number[]): void
   dispose(): void
 }

@@ -1295,11 +1295,41 @@ const uiBack: Recipe = (v) => {
   }
 }
 
+/** Shop click: a short coin tick. The confirmed `purchase` event plays the full chime after it. */
 const uiBuy: Recipe = (v) => {
   click(v, 0, 0.3, 5000)
+  ring(v, 0, 1975.5, [1, 2.76, 5.4], [0.2, 0.12, 0.08], 0.12)
+}
+
+/** A new spell or item bought: coins, a rising arpeggio and a shimmer of power. */
+const buyNew: Recipe = (v) => {
+  click(v, 0, 0.3, 5000)
   ring(v, 0, 1318.5, [1, 2.76, 5.4, 8.93], [0.5, 0.3, 0.18, 0.1], 0.16)
-  ring(v, 0.075, 1975.5, [1, 2.76, 5.4, 8.93], [0.6, 0.35, 0.2, 0.1], 0.16)
-  burst(v, { type: 'highpass', freq: 7000, attack: 0.002, decay: 0.08, gain: 0.12 })
+  ring(v, 0.06, 1975.5, [1, 2.76, 5.4, 8.93], [0.6, 0.35, 0.2, 0.1], 0.16)
+  ;[880, 1108.73, 1318.5, 1760].forEach((f, i) => fmBell(v, 0.1 + i * 0.055, f, 2, 1.2, 0.5, 0.09))
+  whoosh(v, 0.05, 0.6, 2000, 9000, 1.5, 0.18)
+  thump(v, 0.1, 220, 110, 0.15, 0.15)
+}
+
+/** An upgrade: coins and a rising interval that climbs with the new level. p = level */
+const buyUpgrade: Recipe = (v, p) => {
+  const lv = clamp(Math.round(p || 2), 1, 8)
+  const f = 880 * Math.pow(2, ((lv - 2) * 2) / 12)
+  click(v, 0, 0.3, 5000)
+  ring(v, 0, 1975.5, [1, 2.76, 5.4], [0.35, 0.2, 0.12], 0.14)
+  fmBell(v, 0.05, f, 2, 1.2, 0.4, 0.1)
+  fmBell(v, 0.12, f * 1.5, 2, 1.2, 0.5, 0.1)
+  burst(v, { at: 0.05, type: 'highpass', freq: 7000, attack: 0.05, decay: 0.25, gain: 0.12 })
+}
+
+/** A mastery raised: a deeper bell and a soft swell. p = level */
+const buyMastery: Recipe = (v, p) => {
+  const lv = clamp(Math.round(p || 1), 1, 6)
+  const f = 440 * Math.pow(2, ((lv - 1) * 2) / 12)
+  click(v, 0, 0.25, 4000)
+  ring(v, 0.01, f, [1, 2.01, 2.76, 4.1], [0.9, 0.6, 0.4, 0.25], 0.12)
+  fmBell(v, 0.08, f * 2, 1.5, 1, 0.5, 0.07)
+  whoosh(v, 0, 0.5, 500, 2500, 1, 0.15, 'pink')
 }
 
 const uiError: Recipe = (v) => {
@@ -1419,6 +1449,9 @@ export const RECIPES = {
   uiClick,
   uiBack,
   uiBuy,
+  buyNew,
+  buyUpgrade,
+  buyMastery,
   uiError,
   uiReady,
   uiCountdown,

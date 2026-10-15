@@ -5,6 +5,8 @@ import {
   clamp,
   float,
   hash,
+  max,
+  min,
   length,
   mix,
   mrt,
@@ -12,6 +14,7 @@ import {
   pass,
   renderOutput,
   screenCoordinate,
+  select,
   smoothstep,
   texture,
   uniform,
@@ -34,6 +37,30 @@ import { postState } from './scene/MatchWorld'
 import { getNoiseTexture } from './scene/noiseTexture'
 import { perfMark, perfProbe, renderStats } from './stats'
 
+/** HDR ceilings (linear, max channel). Scene: before bloom/composite (bloom
+ * still gets bright cores). Final: before tone mapping. Low: no bloom, so
+ * keep values where ACES still shows hue instead of flat white. */
+const SCENE_MAX = 16
+const BLOOM_MAX = 1.5
+const FINAL_MAX = 6
+const LOW_TIER_MAX = 2.2
+
+/** NaN / +-Inf / negative -> 0 per channel (comparisons are false for NaN). */
+function finite(x: Node<'float'>): Node<'float'> {
+  return select(x.greaterThanEqual(0).and(x.lessThan(65000)), x, float(0))
+}
+
+/**
+ * Sanitize, then scale a colour down so its brightest channel is <= `limit`
+ * (hue preserved). One bad pixel (NaN / Inf from any shader) can no longer be
+ * smeared over the whole frame by bloom.
+ */
+function clampHdr(c: Node<'vec3'>, limit: number): Node<'vec3'> {
+  const sc = vec3(finite(c.r), finite(c.g), finite(c.b))
+  const m = max(max(sc.r, sc.g), max(sc.b, 1e-4))
+  return sc.mul(min(float(1), float(limit).div(m)))
+}
+
 /** Name of the MRT attachment materials write heat distortion strength into. */
 export const HEAT_MRT = 'heat'
 
@@ -47,8 +74,9 @@ type TsRenderer = THREE.WebGPURenderer & { resolveTimestampsAsync?: (type?: stri
  *
  * Post (medium+): scene pass (MSAA on high/ultra) -> heat haze (MRT 'heat'
  * written by lava and hot sprites, high+) -> bloom -> hurt chroma flash ->
- * vignette -> tone map (ACES) -> film grain. Low renders directly with tone
- * mapping only.
+ * vignette -> tone map (ACES) -> film grain. Low: scene pass -> hue-preserving
+ * HDR clamp -> tone map (no bloom). Every tier clamps HDR so no effect can
+ * white out the screen.
  */
 export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: number; inspect: boolean }) {
   const gl = useThree((s) => s.gl) as unknown as TsRenderer
@@ -74,7 +102,16 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
   u.fx.value = fx
 
   const pipeline = useMemo(() => {
-    if (!tier.post) return null
+    if (!tier.post) {
+      // Low: no bloom, so one overbright effect would clip to a flat white
+      // blob (the Shield-dome whiteout). A minimal pass clamps every pixel by
+      // its max channel (hue kept: orange stays orange) before tone mapping.
+      const lowPass = pass(scene, camera, { samples: 0 })
+      const c = lowPass.getTextureNode('output').rgb
+      const rp = new THREE.RenderPipeline(gl)
+      rp.outputNode = vec4(clampHdr(c, LOW_TIER_MAX), 1)
+      return rp
+    }
     // GTAO needs a single-sampled depth buffer: with AO the scene pass drops
     // MSAA (retina DPR supersamples anyway; FXAA covers low DPR on Ultra)
     const lowDpr = gl.getPixelRatio() < 1.5
@@ -89,6 +126,10 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       if (tier.heatHaze) scenePass.getTexture(HEAT_MRT).type = THREE.UnsignedByteType
     }
     const colorTex = scenePass.getTextureNode('output')
+    // global whiteout guard: scene HDR is clamped (max channel, hue kept)
+    // before bloom and compositing, the bloom add is capped, and the final
+    // pre-tone-map colour is clamped again
+    const clampedScene = clampHdr(colorTex.rgb, SCENE_MAX)
     const uvN = uv()
     let col: Node<'vec3'> = colorTex.rgb
 
@@ -102,9 +143,10 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     }
     // hurt flash: chromatic split + red edge when the local pawn is hit
     const dir = uvN.sub(0.5)
-    const ca = dir.mul(u.hurt.mul(0.016))
+    // subtle, edge-weighted split: at most ~0.4 % of the screen at the corners
+    const ca = dir.mul(min(u.hurt, 0.8).mul(0.006))
     const base = uvN.add(off)
-    col = vec3(colorTex.sample(base.sub(ca)).r, colorTex.sample(base).g, colorTex.sample(base.add(ca)).b)
+    col = clampHdr(vec3(colorTex.sample(base.sub(ca)).r, colorTex.sample(base).g, colorTex.sample(base.add(ca)).b), SCENE_MAX)
 
     if (useAo) {
       // GTAO at half resolution from the scene pass depth;
@@ -121,17 +163,17 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       col = col.mul(mix(float(1), aoVal, 0.75))
     }
     if (tier.bloom) {
-      const b = bloom(colorTex, 1, 0.4, 1.0)
+      const b = bloom(vec4(clampedScene, 1), 1, 0.4, 1.0)
       b.strength = u.bloomStrength
       b.smoothWidth.value = 0.6
-      col = col.add(b.rgb)
+      col = col.add(min(b.rgb, vec3(BLOOM_MAX, BLOOM_MAX, BLOOM_MAX)))
     }
     const r = length(dir.mul(vec2(u.aspect, 1)).mul(vec2(0.82, 1)))
     const vig = smoothstep(0.42, 1.05, r).mul(0.5)
     col = col.mul(float(1).sub(vig))
     col = mix(col, col.mul(vec3(1.25, 0.55, 0.5)), smoothstep(0.25, 0.9, r).mul(u.hurt).mul(0.8))
 
-    let toned: Node<'vec4'> = renderOutput(vec4(col, 1))
+    let toned: Node<'vec4'> = renderOutput(vec4(clampHdr(col, FINAL_MAX), 1))
     if (useFxaa) toned = fxaa(toned) as unknown as Node<'vec4'>
     // integer pixel seed (hash() truncates to uint, so fractional seeds band)
     const px = screenCoordinate.xy.floor()
@@ -144,7 +186,7 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     return rp
   }, [gl, scene, camera, tier, u, eff, dpr])
 
-  useEffect(() => () => pipeline?.dispose(), [pipeline])
+  useEffect(() => () => pipeline.dispose(), [pipeline])
 
   // real GPU cost: render N frames back to back, wait for the queue to drain
   useEffect(() => {
@@ -158,8 +200,7 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       const nodeFrame = (gl as unknown as { _nodes?: { nodeFrame?: { update(): void } } })._nodes?.nodeFrame
       for (let i = 0; i < frames; i++) {
         nodeFrame?.update()
-        if (pipeline) pipeline.render()
-        else gl.render(scene, camera)
+        pipeline.render()
       }
       await device.queue.onSubmittedWorkDone()
       return (performance.now() - t0) / frames
@@ -214,11 +255,10 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
     const t0 = performance.now()
     u.time.value += dt
     u.frame.value = (u.frame.value + 1) % 61
-    u.hurt.value = postState.hurt * Math.max(0.3, fx)
+    u.hurt.value = Math.min(0.8, postState.hurt) * Math.max(0.3, fx)
     const size = state.size
     u.aspect.value = size.width / Math.max(1, size.height)
-    if (pipeline) pipeline.render()
-    else gl.render(scene, camera)
+    pipeline.render()
 
     const p = perf.current
     const now = performance.now()
