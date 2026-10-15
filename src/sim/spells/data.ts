@@ -29,6 +29,17 @@ export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>([
   'splitter',
   'link',
   'grip',
+  // column 1-3 and active items that passed review
+  'homing',
+  'twin',
+  'thrust',
+  'swap',
+  'cluster',
+  'drain',
+  'bouncer',
+  'recharge',
+  'redirector',
+  'pact',
   // passive stat items (no VFX needed)
   'ring_of_health',
   'cursed_ring',

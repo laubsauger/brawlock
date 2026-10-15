@@ -159,7 +159,7 @@ function arc(ctx: VfxCtx, x: number, y: number, h: number, k: number, r: number,
     AH[i] = h1 + (h2 - h1) * f + (rnd() - 0.5) * 18 * j
   }
   const cam = ctx.camera
-  const w = 3.2 * S
+  const w = 8 * S
   for (let i = 0; i < 4; i++) {
     pa.set(AX[i] * S, AH[i] * S, -AY[i] * S)
     pb.set(AX[i + 1] * S, AH[i + 1] * S, -AY[i + 1] * S)
@@ -170,7 +170,7 @@ function arc(ctx: VfxCtx, x: number, y: number, h: number, k: number, r: number,
     pa.project(cam)
     pb.project(cam)
     const rot = Math.atan2(pb.y - pa.y, (pb.x - pa.x) * cam.aspect)
-    ctx.billboards.addStreak(mx, my, mz, w, Math.max(1, len / w), rot, r * k, g * k, b * k, 1.3, 0)
+    ctx.billboards.addStreak(mx, my, mz, w, Math.max(1, (len * 1.2) / w), rot, r * k, g * k, b * k, 2.4, 0)
   }
 }
 
@@ -203,9 +203,10 @@ function tick(ctx: VfxCtx, l: Linger): void {
     case K_ARCS: {
       if (ctx.quality === 'low') break
       // crackle: arcs flicker on and off at random, denser right after the hit
+      if ((window as unknown as { __arcDbg?: number }).__arcDbg !== undefined) (window as unknown as { __arcDbg: number }).__arcDbg++
       if (rnd() < 0.35 + 0.5 * left) {
         const na = left > 0.5 && rnd() < 0.5 ? 2 : 1
-        for (let i = 0; i < na; i++) arc(ctx, p.x, p.y, p.h, (1.6 + rnd() * 1.4) * Math.min(1.4, 0.6 + k * 0.5), c[0] * 0.8 + 0.7, c[1] * 0.8 + 0.8, c[2] * 0.8 + 1.0)
+        for (let i = 0; i < na; i++) arc(ctx, p.x, p.y, p.h, (2.2 + rnd() * 1.8) * Math.min(1.4, 0.6 + k * 0.5), c[0] * 0.8 + 0.7, c[1] * 0.8 + 0.8, c[2] * 0.8 + 1.0)
         ctx.glow.add(p.x, p.y, 110, 0.45 * k, c[0] * 0.6, c[1] * 0.6, c[2] * 0.6)
       }
       break
@@ -235,7 +236,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
     case K_DRAIN: {
       // life drawn out of the victim toward whoever drains it
       const src = l.src >= 0 ? ctx.pawnOf(l.src) : null
-      const n = rate(ctx, l, 26 * k)
+      const n = rate(ctx, l, 40 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
         const rr = BODY_R * (0.5 + rnd() * 0.5)
@@ -252,7 +253,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
           vx = (dx * 0.6) / life
           vy = (dy * 0.6) / life
         }
-        ps.spawn(sx, sy, sh, vx, vy, 40, life, 8 + rnd() * 4, 2, c[0] * 2.4, c[1] * 2.4, c[2] * 2.4, 0, 0.6, 10)
+        ps.spawn(sx, sy, sh, vx, vy, 40, life, 13 + rnd() * 6, 3, c[0] * 2.6, c[1] * 2.6, c[2] * 2.6, 0, 0.6, 10)
       }
       break
     }
@@ -287,6 +288,7 @@ registerSpellVfx({
   onEvent(e, ctx) {
     if (e.type !== 'damage' || e.amount <= 0) return false
     const cause = ctx.damageCause(e)
+    console.warn('AFTERHIT-DBG', cause, e.target, e.amount, e.kb)
     if (!cause || cause === 'lava') return false
     const spell = baseSpellId(cause)
     if (optOut.has(spell)) return false

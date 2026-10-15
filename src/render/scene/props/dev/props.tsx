@@ -82,6 +82,7 @@ function SheetScene() {
   const props = useRef<{ vis: ObstacleVisual; hp: number; t0: number; spin: number }[]>([])
   const src = useRef(createPrivateSource())
   const state = useRef(sheetState())
+  const forcedRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
     const tier = tierConfig(eff)
@@ -115,10 +116,16 @@ function SheetScene() {
       })
     })
     props.current = list
+    const forced: Record<string, number> = {}
+    forcedRef.current = forced
     const api = {
       hit: () => list.forEach((p) => p.vis.hitShudder(Math.random() - 0.5, Math.random() - 0.5, 1.2)),
       rise: () => list.forEach((p) => (p.t0 = performance.now() / 1000)),
       hp: (v: number) => list.forEach((p) => p.vis.setDamage(v)),
+      /** debug: force a userData key on every pillar mesh */
+      force: (key: string, v: number) => {
+        forced[key] = v
+      },
     }
     ;(window as unknown as Win).__props = api
     const onKey = (e: KeyboardEvent) => {
@@ -148,6 +155,8 @@ function SheetScene() {
       if (p.t0 > 0) p.vis.riseFromGround((now - p.t0) / 0.55)
       if (spin) p.vis.object3d.rotation.y += dt * 0.35
       p.vis.update(dt)
+      const f = forcedRef.current
+      if (Object.keys(f).length) p.vis.object3d.traverse((o) => Object.assign(o.userData, f))
     }
   })
   return null

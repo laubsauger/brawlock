@@ -223,7 +223,11 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   const side = float(1).sub(abs(normalWorld.y))
   const lowWarm = smoothstep(70, 0, p.y)
   alb = alb.mul(mix(vec3(1), mix(vec3(0.7, 0.95, 1.08), vec3(0.92, 0.97, 1.0), lowWarm), side))
-  const fill = vec3(0.06, 0.08, 0.14).mul(side.mul(0.6).add(0.4))
+  // soft side key from the moon's azimuth (wrapped): rounds columns instead of
+  // leaving a flat red front between two specular edges
+  const keyDir = vec3(-0.75, 0.0, 0.66)
+  const wrap = saturate(dot(normalWorld, keyDir).mul(0.55).add(0.45))
+  const fill = vec3(0.05, 0.065, 0.11).add(vec3(0.2, 0.24, 0.34).mul(wrap.mul(wrap)).mul(side))
 
   // ---- occlusion: baked cavities, darker toward the floor (sits IN the light)
   const floorAO = mix(float(0.5), float(1), smoothstep(-6, 55, p.y))
@@ -257,15 +261,12 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   }
   // hit flash: hot white-orange wash
   em = em.add(vec3(1.3, 0.9, 0.6).mul(uHit.mul(0.55)))
-  // subtle cool rim (moonlight wrap), reads the silhouette against the floor
-  const vdir = positionView.negate().normalize()
-  const fres = pow(float(1).sub(saturate(dot(normalView, vdir))), 4)
-  em = em.add(vec3(0.05, 0.07, 0.12).mul(fres).mul(ao))
 
   const m = new THREE.MeshStandardNodeMaterial()
   m.name = `Prop_${look}`
   m.colorNode = alb
-  m.roughnessNode = saturate(rough.add(crack.mul(0.15)))
+  // stone never gets glossy grazing highlights (those read as hollow edges); glass may
+  m.roughnessNode = saturate(max(rough, mix(float(0.62), float(0.1), isGlass)).add(crack.mul(0.15)))
   m.metalnessNode = float(0)
   m.normalNode = bumpMap(height.sub(crack.mul(0.8)), float(look === 'volcanic' ? 1.1 : 1.4))
   m.emissiveNode = em
