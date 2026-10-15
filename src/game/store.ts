@@ -12,6 +12,12 @@ export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'resu
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra'
 
+/** Hotkey preset (docs/PLAN.md §6). Modern = Q W E R D F, Classic = D R T E C Y. */
+export type KeyPreset = 'modern' | 'classic'
+
+/** Graphics backend found at boot. 'fallback' = no WebGPU, three runs on WebGL2. */
+export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
+
 export interface Settings {
   quality: Quality
   /** 0..1, scales screen shake and post fx */
@@ -22,6 +28,7 @@ export interface Settings {
   muted: boolean
   playerName: string
   showPerf: boolean
+  keyPreset: KeyPreset
 }
 
 export type NetRole = 'offline' | 'host' | 'client'
@@ -30,11 +37,18 @@ export interface LobbyView {
   role: NetRole
   /** shareable join link (host only) */
   joinUrl: string | null
+  /** 5-letter room code (host: its room, client: the room joined), null offline */
+  roomCode: string | null
   status: 'idle' | 'connecting' | 'open' | 'error'
   error: string | null
   slots: PlayerSlot[]
   settings: MatchSettings | null
   localPlayer: number
+  /**
+   * Transient, non-fatal session message for lobby / HUD toasts ("Bob disconnected,
+   * a bot took over", join retries). Written by the session, cleared after a few seconds.
+   */
+  notice?: string | null
 }
 
 export interface MatchResult {
@@ -55,12 +69,16 @@ interface GameStore {
   scoreboardOpen: boolean
   characterOpen: boolean
   paused: boolean
+  /** settings modal, reachable from menu and the in-match menu */
+  settingsOpen: boolean
+  gpu: GpuSupport
 
   setScreen: (s: Screen) => void
   setResult: (r: MatchResult | null) => void
   setSettings: (s: Partial<Settings>) => void
   setLobby: (l: Partial<LobbyView>) => void
-  toggle: (k: 'shopOpen' | 'scoreboardOpen' | 'characterOpen' | 'paused', v?: boolean) => void
+  toggle: (k: 'shopOpen' | 'scoreboardOpen' | 'characterOpen' | 'paused' | 'settingsOpen', v?: boolean) => void
+  setGpu: (g: GpuSupport) => void
 }
 
 const SETTINGS_KEY = 'brawlock.settings.v1'
@@ -74,6 +92,7 @@ const defaultSettings: Settings = {
   muted: false,
   playerName: 'Warlock',
   showPerf: false,
+  keyPreset: 'modern',
 }
 
 function loadSettings(): Settings {
@@ -93,6 +112,7 @@ export const useGame = create<GameStore>((set, get) => ({
   lobby: {
     role: 'offline',
     joinUrl: null,
+    roomCode: null,
     status: 'idle',
     error: null,
     slots: [],
@@ -103,6 +123,8 @@ export const useGame = create<GameStore>((set, get) => ({
   scoreboardOpen: false,
   characterOpen: false,
   paused: false,
+  settingsOpen: false,
+  gpu: 'unknown',
 
   setScreen: (screen) => set({ screen }),
   setResult: (result) => set({ result }),
@@ -117,6 +139,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
   setLobby: (l) => set({ lobby: { ...get().lobby, ...l } }),
   toggle: (k, v) => set({ [k]: v ?? !get()[k] } as Partial<GameStore>),
+  setGpu: (gpu) => set({ gpu }),
 }))
 
 export const BOT_DIFFICULTIES: BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal']

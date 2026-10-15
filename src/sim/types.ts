@@ -118,6 +118,11 @@ export interface CastState {
   ticksLeft: number
   x: number
   y: number
+  /**
+   * false while the pawn is still turning to face the target (cast point not running yet),
+   * true once the cast point countdown runs (a 'castStart' event was emitted).
+   */
+  started?: boolean
 }
 
 export interface ModifierState {
