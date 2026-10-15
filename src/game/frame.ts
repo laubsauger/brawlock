@@ -18,6 +18,8 @@ export interface FrameBuffer {
   localPlayer: number
   /** cursor projected onto the ground plane, game units. Written by render, read by input. */
   cursor: { x: number; y: number; valid: boolean }
+  /** network stats for HUD. Written by session. */
+  net: { rttMs: number; lossPct: number }
 }
 
 export const frame: FrameBuffer = {
@@ -27,6 +29,7 @@ export const frame: FrameBuffer = {
   currAt: 0,
   localPlayer: -1,
   cursor: { x: 0, y: 0, valid: false },
+  net: { rttMs: 0, lossPct: 0 },
 }
 
 /** Push a new authoritative state. Caller must not mutate `state` afterwards. */

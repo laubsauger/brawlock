@@ -8,6 +8,8 @@ import type { InputCommand } from '../sim/types'
 export interface InputApi {
   /** Attach listeners to the game viewport element. Returns a detach function. */
   attach(el: HTMLElement): () => void
+  /** Queue a command from UI (shop buttons etc.). */
+  issue(cmd: InputCommand): void
   /** Commands issued since the last drain, in order. */
   drain(): InputCommand[]
 }
@@ -17,6 +19,9 @@ const queue: InputCommand[] = []
 export const input: InputApi = {
   attach() {
     return () => {}
+  },
+  issue(cmd) {
+    queue.push(cmd)
   },
   drain() {
     return queue.splice(0, queue.length)
