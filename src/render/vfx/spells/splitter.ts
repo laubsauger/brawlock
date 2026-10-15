@@ -11,7 +11,7 @@ import { PROJECTILE_H, S } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  TAU, burst, castFlash, drawCore, floorH, glowG, hexRgb, kitBegin, kitInit, kitRelease,
+  TAU, burst, castFlash, drawCore, drawShard, floorH, glowG, hexRgb, kitBegin, kitInit, kitRelease,
   light, mixRgb, projShadow, rand, screenAngle,
   pal, palMix,
 } from './kitB'
@@ -20,6 +20,7 @@ import {
 const MAGENTA = pal('splitter', 'accent', 0.85)
 const PINK_HOT = pal('splitter', 'core', 1.8)
 const VIOLET = palMix('splitter', 0.0, 0.35)
+const DART_CORE = palMix('splitter', 0.6, 1.0)
 
 const SPELL = 'splitter'
 const H = PROJECTILE_H
@@ -79,10 +80,10 @@ function trail(ctx: VfxCtx, t: Track, x: number, y: number, spacing: number, siz
     const uy = dy / dist
     for (let k = 0; k < n; k++) {
       const f = (k + Math.random()) / n
-      const px = t.x + dx * f + rand(-6, 6)
-      const py = t.y + dy * f + rand(-6, 6)
+      const px = t.x + dx * f + rand(-3, 3)
+      const py = t.y + dy * f + rand(-3, 3)
       const c = Math.random() < 0.35 ? VIOLET : MAGENTA
-      ps.spawn(px, py, H + rand(-6, 6), -ux * 60 + rand(-40, 40), -uy * 60 + rand(-40, 40), rand(10, 40), rand(0.16, 0.3), size, size * 0.2, c[0] * hot, c[1] * hot, c[2] * hot, 0, 2.5, 0)
+      ps.spawn(px, py, H + rand(-4, 4), -ux * 40 + rand(-25, 25), -uy * 40 + rand(-25, 25), rand(5, 25), rand(0.12, 0.22), size, size * 0.2, c[0] * hot, c[1] * hot, c[2] * hot, 0, 2.5, 0)
       if (Math.random() < 0.15) {
         ps.spawn(px, py, H, rand(-200, 200), rand(-200, 200), rand(60, 200), rand(0.25, 0.4), 6, 1.5, PINK_HOT[0], PINK_HOT[1], PINK_HOT[2], -900, 2, -0.08)
       }
@@ -101,9 +102,10 @@ function drawMain(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Trac
   mixRgb(MAGENTA, team, 0.3, edge)
   drawCore(x, y, H, r * 0.92, edge, PINK_HOT, p.id % 7)
   const ang = screenAngle(ctx, x, y, H, ux, uy)
-  glowG(x, y, H, r * 4.2, VIOLET, 0.26, 1.6, 0, 1, 0, 0.6)
-  glowG(x - ux * r * 1.7, y - uy * r * 1.7, H, r * 2.3, MAGENTA, 0.6, 1.5, 0, 3.2, ang, 0.4)
-  glowG(x - ux * r * 0.8, y - uy * r * 0.8, H, r * 1.2, PINK_HOT, 0.5, 2.2, 0, 2.4, ang)
+  // tight glow only (no cloud): a crisp rim and a short hot tail
+  glowG(x, y, H, r * 2.2, MAGENTA, 0.45, 3.5)
+  glowG(x - ux * r * 1.5, y - uy * r * 1.5, H, r * 1.3, MAGENTA, 0.75, 2.4, 0, 3.4, ang, 0.3)
+  glowG(x - ux * r * 0.7, y - uy * r * 0.7, H, r * 0.8, PINK_HOT, 0.6, 3, 0, 2.6, ang)
   // forked tendrils crackling ahead of the bolt: the split it is about to become
   const px = -uy
   const py = ux
@@ -112,15 +114,15 @@ function drawMain(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Trac
     const flick = 0.6 + 0.4 * Math.sin(now * 53 + k * 7 + p.id)
     for (let j = 1; j <= 3; j++) {
       const f = j / 3
-      const ox = ux * r * (0.4 + f * 1.1) + px * k * r * (0.15 + f * 0.75) + rand(-5, 5)
-      const oy = uy * r * (0.4 + f * 1.1) + py * k * r * (0.15 + f * 0.75) + rand(-5, 5)
-      glowG(x + ox, y + oy, H + rand(-6, 6), r * (0.7 - f * 0.25), PINK_HOT, 0.55 * flick, 2.5, 4)
+      const ox = ux * r * (0.5 + f * 1.1) + px * k * r * (0.15 + f * 0.75) + rand(-4, 4)
+      const oy = uy * r * (0.5 + f * 1.1) + py * k * r * (0.15 + f * 0.75) + rand(-4, 4)
+      glowG(x + ox, y + oy, H + rand(-5, 5), r * (0.45 - f * 0.15), PINK_HOT, 0.7 * flick, 3, 4)
     }
-    glowG(x + ux * r * 1.6 + px * k * r * 0.95, y + uy * r * 1.6 + py * k * r * 0.95, H, r * 0.9, PINK_HOT, 0.7 * flick, 2, 2, 1, now * 4 + k)
+    glowG(x + ux * r * 1.6 + px * k * r * 0.95, y + uy * r * 1.6 + py * k * r * 0.95, H, r * 0.7, PINK_HOT, 0.8 * flick, 3, 2, 1, now * 4 + k)
   }
-  light(ctx, x, y, 190, 0.8, MAGENTA, 0.45)
+  light(ctx, x, y, 130, 0.6, MAGENTA, 0.45)
   projShadow(ctx, x, y, H, r * 0.7)
-  trail(ctx, t, x, y, 9, r * 0.9, 1.1)
+  trail(ctx, t, x, y, 10, 16, 1.1)
 }
 
 function drawSpawner(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Track): void {
@@ -139,26 +141,27 @@ function drawSpawner(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: T
         const cy = (uy + sign * a * ux) / (1 + a)
         const cl = Math.hypot(cx, cy)
         const ps = ctx.particles
-        const n = ps.budget(8)
+        const n = ps.budget(6)
         for (let i = 0; i < n; i++) {
           const s = rand(300, 700)
-          ps.spawn(x, y, H, (cx / cl) * s + rand(-60, 60), (cy / cl) * s + rand(-60, 60), rand(-30, 60), rand(0.12, 0.22), 9, 2, PINK_HOT[0], PINK_HOT[1], PINK_HOT[2], 0, 4, -0.1)
+          ps.spawn(x, y, H, (cx / cl) * s + rand(-40, 40), (cy / cl) * s + rand(-40, 40), rand(-30, 60), rand(0.1, 0.18), 7, 1.5, PINK_HOT[0], PINK_HOT[1], PINK_HOT[2], 0, 4, -0.1)
         }
       }
     }
-    ctx.flash(x, y, H, 0.1, 140, 120, MAGENTA[0], MAGENTA[1], MAGENTA[2])
     t.wave = wave
+    t.born = ctx.now
   }
   const left = 1 - wave / waves
-  const pulse = 0.8 + 0.2 * Math.sin(ctx.now * 40)
+  const kick = Math.max(0, 1 - (ctx.now - t.born) / 0.08)
+  const pulse = 0.85 + 0.15 * Math.sin(ctx.now * 40) + 0.35 * kick
   hexRgb(ctx.colorOf(p.owner), team)
-  mixRgb(VIOLET, team, 0.25, edge)
-  drawCore(x, y, H, (14 + 16 * left) * pulse, edge, PINK_HOT, p.id % 7)
-  glowG(x, y, H, 150 * (0.5 + 0.5 * left), VIOLET, 0.45, 1.4, 0, 1, 0, 0.5)
-  glowG(x, y, H, 110 * (0.6 + 0.4 * left), MAGENTA, 0.55 * pulse, 0.12, 1, 1, ctx.now * 2)
-  glowG(x, y, H, 90, PINK_HOT, 0.35, 2, 2, 1, ctx.now * 6)
-  light(ctx, x, y, 220, 0.8, MAGENTA, 0.45)
-  trail(ctx, t, x, y, 14, 18, 0.8)
+  mixRgb(MAGENTA, team, 0.25, edge)
+  // a clear, pulsing core that shrinks with every wave it spends
+  drawCore(x, y, H, (12 + 14 * left) * pulse, edge, PINK_HOT, p.id % 7)
+  glowG(x, y, H, (60 + 40 * left) * pulse, MAGENTA, 0.6, 3.2)
+  glowG(x, y, H, (70 + 30 * left) * pulse, PINK_HOT, 0.7 + 0.8 * kick, 0.06, 1, 1, ctx.now * 3)
+  light(ctx, x, y, 140, 0.6 + 0.6 * kick, MAGENTA, 0.45)
+  trail(ctx, t, x, y, 18, 10, 0.8)
 }
 
 function drawChild(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Track): void {
@@ -168,13 +171,14 @@ function drawChild(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Tra
   const uy = p.vy / sp
   hexRgb(ctx.colorOf(p.owner), team)
   mixRgb(MAGENTA, team, 0.3, edge)
-  drawCore(x, y, H, r * 0.9, edge, PINK_HOT, p.id % 7)
+  // a crisp shard pointing along its own heading (hitbox r21 across, slightly longer)
+  drawShard(x, y, H, r * 0.75, 2.0, ux, uy, edge, DART_CORE, p.id % 7)
   const ang = screenAngle(ctx, x, y, H, ux, uy)
-  glowG(x, y, H, r * 3, MAGENTA, 0.2, 1.8)
-  glowG(x - ux * r * 1.8, y - uy * r * 1.8, H, r * 1.5, MAGENTA, 0.7, 1.6, 0, 3.6, ang, 0.3)
-  glowG(x + ux * r * 0.5, y + uy * r * 0.5, H, r * 1.7, PINK_HOT, 0.4, 2, 2, 1, ang + 0.785)
+  // its own short, tight trail: separate darts, not one cloud
+  glowG(x - ux * r * 2.2, y - uy * r * 2.2, H, r * 0.7, MAGENTA, 0.55, 2.8, 0, 4.5, ang, 0.2)
+  glowG(x, y, H, r * 2.2, MAGENTA, 0.18, 3.5)
   projShadow(ctx, x, y, H, r * 0.8)
-  trail(ctx, t, x, y, 16, r * 0.9, 0.9)
+  trail(ctx, t, x, y, 26, 7, 0.6)
 }
 
 function splitBurst(ctx: VfxCtx, x: number, y: number, vx: number, vy: number): void {

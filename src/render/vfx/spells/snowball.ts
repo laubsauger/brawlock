@@ -25,7 +25,7 @@ const ICE_VIOLET = pal('snowball', 'accent', 0.7)
 
 const SPELL = 'snowball'
 const MOD = 'snowball'
-const SNOW: RGB = [0.8, 0.9, 1.0]
+const SNOW: RGB = [0.66, 0.84, 1.0]
 const MIST = [0.55, 0.68, 0.85] as const
 
 interface Ball {
@@ -100,7 +100,8 @@ function snowMaterial(ctx: VfxCtx): THREE.Material {
   m.roughnessNode = mix(float(0.92), float(0.2), ice)
   m.metalnessNode = float(0)
   // cold self-light so it reads at night: icy rim + glowing ice facets
-  m.emissiveNode = vec3(...FROST).mul(rim.mul(0.28)).add(vec3(...ICE_VIOLET).mul(ice.mul(0.3))).add(vec3(0.035, 0.04, 0.055))
+  // cold self-light (cancels the warm lava bounce from below): icy blue-white body + rim + ice
+  m.emissiveNode = vec3(...FROST).mul(rim.mul(0.35)).add(vec3(...ICE_VIOLET).mul(ice.mul(0.35))).add(vec3(0.07, 0.11, 0.17).mul(clump.mul(0.5).add(0.75)))
   m.name = 'VfxB-Snowball'
   return m
 }

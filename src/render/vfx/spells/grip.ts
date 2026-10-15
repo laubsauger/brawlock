@@ -8,14 +8,14 @@
  * claws sink back into the pool in a green splash. Miss: an ectoplasm splat.
  */
 import * as THREE from 'three/webgpu'
-import { dot, float, mix, normalView, positionGeometry, positionView, pow, saturate, smoothstep, texture, vec2, vec3 } from 'three/tsl'
+import { dot, float, mix, normalView, normalWorld, positionGeometry, positionView, pow, saturate, smoothstep, texture, vec2, vec3 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import type { ModifierState, PawnState, ProjectileState, SimEvent } from '../../../sim/types'
 import { PROJECTILE_H, S } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  InstPool, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, floorH, glowG, hexRgb, implode, kitAdopt, kitBegin,
+  InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, hexRgb, implode, kitAdopt, kitBegin,
   kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle,
 } from './kitB'
 
@@ -50,15 +50,15 @@ const q2 = new THREE.Quaternion()
 /** A tapered, hooked talon: base at the origin, rising to y = 1, curling toward -x. */
 function clawGeometry(): THREE.BufferGeometry {
   const curve = new THREE.CubicBezierCurve3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.12, 0.45, 0), new THREE.Vector3(0.05, 0.95, 0), new THREE.Vector3(-0.38, 1.05, 0))
-  const TS = 20
-  const RS = 7
+  const TS = 22
+  const RS = 9
   const g = new THREE.TubeGeometry(curve, TS, 1, RS, false)
   const pos = g.getAttribute('position') as THREE.BufferAttribute
   const c = new THREE.Vector3()
   for (let i = 0; i <= TS; i++) {
     const t = i / TS
     curve.getPoint(t, c)
-    const r = 0.11 * Math.pow(1 - t, 0.85) + 0.004
+    const r = 0.17 * Math.pow(1 - t, 0.75) + 0.006
     for (let j = 0; j <= RS; j++) {
       const k = i * (RS + 1) + j
       pos.setXYZ(k, c.x + (pos.getX(k) - c.x) * r, c.y + (pos.getY(k) - c.y) * r, c.z + (pos.getZ(k) - c.z) * r)
@@ -68,24 +68,34 @@ function clawGeometry(): THREE.BufferGeometry {
   return g
 }
 
-/** Spectral claw: dark translucent body, toxic fresnel rim, veins pulsing upward, soft base. A0.x clench flash. */
+/**
+ * Spectral claw: deep, dark toxic body (opaque-ish), razor-bright toxic edges, veins pulsing
+ * upward, soft base. A0.x clench flash.
+ */
 function clawMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const [A0] = A
   const t = ctx.world.uTime
   const p = positionGeometry
   const viewDir = positionView.negate().normalize()
   const ndv = saturate(dot(normalView, viewDir))
-  const rim = pow(float(1).sub(ndv), 2)
+  const rim = pow(float(1).sub(ndv), 5)
+  const L = vec3(-0.42, 0.86, 0.3).normalize()
+  const lam = saturate(dot(normalWorld, L))
   const veins = texture(ctx.world.noise, vec2(p.x.mul(2).add(p.z.mul(1.3)), p.y.mul(1.5).sub(t.mul(0.8)))).b
-  const vein = smoothstep(0.1, 0.0, veins)
-  const body = mix(vec3(0.01, 0.04, 0.015), vec3(...TOXIC).mul(0.25), p.y)
-  const col = body.add(vec3(...TOXIC).mul(rim.mul(1.2))).add(vec3(...TOXIC_HOT).mul(vein.mul(0.5).add(A0.x.mul(0.8)).mul(rim.add(0.3))))
+  const vein = smoothstep(0.08, 0.0, veins)
+  // dark body with a little form shading so the claw has volume
+  const body = mix(vec3(0.006, 0.03, 0.008), vec3(...TOXIC).mul(0.2), p.y).mul(lam.mul(1.1).add(0.25))
+  const col = body
+    .add(vec3(...TOXIC).mul(rim.mul(1.5)))
+    .add(vec3(...TOXIC_HOT).mul(pow(rim, 3).mul(0.8)))
+    .add(vec3(...TOXIC).mul(vein.mul(0.9).mul(float(1).sub(rim))))
+    .add(vec3(...TOXIC_HOT).mul(A0.x.mul(0.9).mul(rim.add(0.25))))
   const m = new THREE.MeshBasicNodeMaterial()
   m.transparent = true
-  m.depthWrite = false
+  m.depthWrite = true
   m.colorNode = col
   // fade into the ectoplasm at the base: no hard cut against the floor
-  m.opacityNode = smoothstep(0.0, 0.18, p.y).mul(rim.mul(0.4).add(0.6))
+  m.opacityNode = smoothstep(0.0, 0.16, p.y).mul(0.92)
   m.name = 'VfxB-GripClaw'
   return m
 }
@@ -230,9 +240,11 @@ registerSpellVfx({
     const clench = Math.max(0, 1 - (ctx.now - hold.clenchAt) / 0.35)
     drawClaws(x, y, fh, grow, clench, pawn.id, ctx.now)
     // bubbling ectoplasm pool and rising wisps
-    drawCircle(x, y, fh + 1.3, 85, STYLE_RIPPLES, TOXIC[0] * 0.6, TOXIC[1] * 0.6, TOXIC[2] * 0.6, 0.9 * grow, 0, 5, pawn.id, 0.35, 1, 0, hold.since)
-    glowG(x, y, fh + 20, 170, TOXIC_DIM, 1.0 * grow, 1, 3, 1, ctx.now * 0.5 + pawn.id)
-    glowG(x, y, fh + 70, 120, TOXIC, 0.15 + 0.4 * clench, 1.8)
+    drawShadow(x, y, fh + 0.9, 90 * grow, 0.75, 0.35, 0.45, pawn.id)
+    drawCircle(x, y, fh + 1.3, 90 * grow, STYLE_RIPPLES, TOXIC[0] * 0.8, TOXIC[1] * 0.8, TOXIC[2] * 0.8, 1.1 * grow, 0, 5, pawn.id, 0.12, 1, 0, hold.since)
+    drawCircle(x, y, fh + 1.4, 90 * grow, STYLE_RING, TOXIC[0], TOXIC[1], TOXIC[2], 0.8 * grow, 0, 0, pawn.id, 0, 0.8, 0, hold.since)
+    glowG(x, y, fh + 15, 150, TOXIC_DIM, 0.5 * grow, 1, 3, 1, ctx.now * 0.5 + pawn.id)
+    glowG(x, y, fh + 70, 120, TOXIC, 0.6 * clench, 1.8)
     light(ctx, x, y, 180, (0.6 + 0.8 * clench) * grow, TOXIC, 0.45)
     const ps = ctx.particles
     const n = ps.budget(ctx.dt * 50)

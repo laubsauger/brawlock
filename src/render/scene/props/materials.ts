@@ -61,12 +61,12 @@ interface LookDef {
 }
 
 const LOOKS: Record<Look, LookDef> = {
-  temple: { set: ['temple', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 150, tint: [0.78, 0.74, 0.7], fallback: [0.26, 0.24, 0.22], moss: 0.55, glow: [3.2, 1.05, 0.22], rune: [2.6, 0.95, 0.25], veins: 0 },
+  temple: { set: ['temple', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 150, tint: [1.02, 0.97, 0.9], fallback: [0.26, 0.24, 0.22], moss: 0.4, glow: [3.2, 1.05, 0.22], rune: [2.6, 0.95, 0.25], veins: 0 },
   volcanic: { set: ['volcanic', 'tile_side'], detail: ['shared', 'lava_crust'], texScale: 120, tint: [0.62, 0.58, 0.6], fallback: [0.06, 0.055, 0.058], moss: 0.0, glow: [3.4, 0.9, 0.12], rune: [0, 0, 0], veins: 1 },
-  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [0.8, 0.82, 0.76], fallback: [0.15, 0.15, 0.13], moss: 1.0, glow: [0.35, 2.6, 0.9], rune: [0.3, 2.2, 0.9], veins: 0 },
+  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [0.95, 0.97, 0.9], fallback: [0.15, 0.15, 0.13], moss: 1.0, glow: [0.35, 2.6, 0.9], rune: [0.3, 2.2, 0.9], veins: 0 },
 }
 
-const MOSS_TINT = vec3(0.55, 0.68, 0.42)
+const MOSS_TINT = vec3(0.8, 0.95, 0.62)
 
 // ------------------------------------------------------------------ per-object uniforms
 
@@ -129,6 +129,7 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   const uLost = uniform(0).onObjectUpdate(objNum('propLost', 0))
   const info = attribute('aInfo', 'vec3') as unknown as Node<'vec3'>
   const band = attribute('aBand', 'vec2') as unknown as Node<'vec2'>
+  const uvA = attribute('aUV', 'vec3') as unknown as Node<'vec3'>
   const p = positionGeometry
   const n = normalGeometry
   const cav = info.x
@@ -140,7 +141,9 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   // ---- noise (tileable texture, triplanar in local game units)
   const nz = tri(noise, p, n, 1 / 160)
   const nzF = tri(noise, p, n, 1 / 55)
-  const crackField = tri(noise, p.add(vec3(37, 11, 5)), n, 1 / 70).b
+  // two crack scales: long main fractures and finer branches
+  const crackMain = tri(noise, p.add(vec3(37, 11, 5)), n, 1 / 420).b
+  const crackFine = tri(noise, p.add(vec3(5, 53, 17)), n, 1 / 170).b
 
   // ---- albedo
   let alb: Node<'vec3'>
@@ -149,11 +152,15 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   let aoTex: Node<'float'> = float(1)
   const tint = vec3(...L.tint)
   if (maps) {
-    alb = tri(maps.albedo, p, n, 1 / L.texScale).rgb.mul(tint)
-    const orm = tri(maps.orm, p, n, 1 / L.texScale)
+    // lathe surfaces carry arc-length uv (continuous strata, one fetch); the rest is triplanar
+    const hasUV = uvA.z
+    const suv = uvA.xy.div(L.texScale)
+    const sample = (tex: THREE.Texture) => mix(tri(tex, p, n, 1 / L.texScale), texture(tex, suv) as unknown as Node<'vec4'>, hasUV)
+    alb = sample(maps.albedo).rgb.mul(tint)
+    const orm = sample(maps.orm)
     aoTex = mix(float(1), orm.r, 0.8)
     rough = orm.g
-    height = tri(maps.height ?? maps.albedo, p, n, 1 / L.texScale).r.mul(0.75).add(nzF.g.mul(0.25))
+    height = sample(maps.height ?? maps.albedo).r.mul(0.75).add(nzF.g.mul(0.25))
   } else {
     alb = vec3(...L.fallback).mul(nz.r.mul(0.6).add(0.7)).mul(nzF.g.mul(0.3).add(0.85))
     rough = float(0.82).add(nzF.r.sub(0.5).mul(0.2))
@@ -176,7 +183,8 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   if (L.moss > 0) {
     const up = saturate(normalWorld.y)
     const amt = float(L.moss)
-    const onTop = smoothstep(0.45, 0.85, up.add(nz.b.mul(0.35)).sub(float(1).sub(amt).mul(0.5)))
+    const patch = look === 'overgrown' ? float(1) : smoothstep(0.42, 0.62, nzF.g.add(nz.b.mul(0.3)))
+    const onTop = smoothstep(0.45, 0.85, up.add(nz.b.mul(0.35)).sub(float(1).sub(amt).mul(0.5))).mul(patch)
     const inCrev = smoothstep(0.85, 0.55, cav).mul(nz.r.add(0.3)).mul(amt)
     // drips down the sides from the cap on overgrown stones
     const drip = look === 'overgrown' ? smoothstep(0.1, 0.5, nzF.g.add(up.mul(0.6)).sub(0.25)).mul(smoothstep(40, 160, p.y)).mul(0.8) : float(0)
@@ -193,27 +201,44 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
     alb = mix(alb, crust, k.mul(float(1).sub(isGlass)))
   }
 
-  // ---- damage cracks: a worley crack network that spreads and widens with damage
+  // ---- damage cracks: sparse fractures that spread over the stone and widen with damage
   const dmg = uDmg
-  const spread = smoothstep(dmg.mul(1.25).sub(0.05), dmg.mul(1.25).sub(0.3), nz.r.add(nzF.b.mul(0.3)))
-  const crackW = dmg.mul(0.075).add(0.006)
-  const crack = float(1).sub(smoothstep(crackW.mul(0.4), crackW, crackField)).mul(spread).mul(step(0.02, dmg)).mul(float(1).sub(isWood))
+  const T = dmg.mul(0.42).add(0.24)
+  const spread = smoothstep(T.add(0.05), T.sub(0.05), nz.r)
+  // break the cell network into separate crack runs
+  const runs = smoothstep(0.42, 0.52, nzF.r)
+  const wMain = dmg.mul(0.045).add(0.008)
+  const wFine = dmg.mul(0.02).add(0.004)
+  const lineMain = float(1).sub(smoothstep(wMain.mul(0.35), wMain, crackMain))
+  const lineFine = float(1).sub(smoothstep(wFine.mul(0.35), wFine, crackFine)).mul(runs).mul(smoothstep(0.25, 0.6, dmg))
+  const crackField = min(crackMain, crackFine.add(float(1).sub(runs)))
+  const crackW = wMain
+  const crack = saturate(lineMain.add(lineFine)).mul(spread).mul(step(0.02, dmg)).mul(float(1).sub(isWood))
   alb = alb.mul(float(1).sub(crack.mul(0.85)))
 
+  // ---- local bounce correction: the scene's hemisphere light treats every
+  // vertical face as lit by lava; a pillar on the platform sees dark, moonlit
+  // floor instead. Pull the red response down on side faces and add a cool
+  // moon fill so stone reads as stone (warmth returns near the floor).
+  const side = float(1).sub(abs(normalWorld.y))
+  const lowWarm = smoothstep(70, 0, p.y)
+  alb = alb.mul(mix(vec3(1), mix(vec3(0.7, 0.95, 1.08), vec3(0.92, 0.97, 1.0), lowWarm), side))
+  const fill = vec3(0.06, 0.08, 0.14).mul(side.mul(0.6).add(0.4))
+
   // ---- occlusion: baked cavities, darker toward the floor (sits IN the light)
-  const floorAO = mix(float(0.32), float(1), smoothstep(-6, 70, p.y))
-  const ao = saturate(cav.mul(0.6).add(0.4)).mul(floorAO).mul(aoTex)
+  const floorAO = mix(float(0.5), float(1), smoothstep(-6, 55, p.y))
+  const ao = saturate(cav.mul(0.45).add(0.55)).mul(floorAO).mul(aoTex)
   alb = alb.mul(ao)
 
   // ---- emissive
   const glow = vec3(...L.glow)
   const pulse = sin(time.mul(2.3).add(p.y.mul(0.03))).mul(0.18).add(0.82)
-  let em: Node<'vec3'> = glow.mul(crack.mul(dmg.mul(1.6).add(0.35)).mul(pulse))
+  let em: Node<'vec3'> = glow.mul(crack.mul(dmg.mul(1.6).add(0.35)).mul(pulse)).add(alb.mul(fill))
   // crack faces glow faintly around the line (heat bleeding into the stone)
   em = em.add(glow.mul(0.12).mul(float(1).sub(smoothstep(0, crackW.mul(3), crackField)).mul(spread).mul(dmg)))
   if (L.veins > 0) {
     // thin ember veins in crevices and near the floor (heat from below), never slits
-    const vf = tri(noise, p.add(vec3(13, 71, 29)), n, 1 / 42).b
+    const vf = tri(noise, p.add(vec3(13, 71, 29)), n, 1 / 230).b
     const vein = float(1).sub(smoothstep(0.012, 0.03, vf))
     const where = saturate(smoothstep(0.8, 0.45, cav).add(smoothstep(95, 0, p.y).mul(0.85)).add(nz.b.sub(0.7).mul(2)))
     const vk = vein.mul(where).mul(float(1).sub(isWood))
@@ -226,7 +251,7 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
     const bv = band.y
     const inBand = step(0, bv).mul(step(bv, 1))
     const g = runeGlyph(band.x, bv, look === 'temple' ? 1 : 2).mul(inBand)
-    em = em.add(vec3(...L.rune).mul(g.mul(dmg.mul(0.9).add(0.28))).mul(pulse))
+    em = em.add(vec3(...L.rune).mul(g.mul(dmg.mul(1.1).add(0.05))).mul(pulse))
     alb = alb.mul(float(1).sub(g.mul(0.5)))
     height = height.sub(g.mul(0.5))
   }

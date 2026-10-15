@@ -22,7 +22,7 @@ import type { SimEvent, SimState } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_BLADE, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { G_BLADE, G_SHOCK, PH, acquireKit, palFor, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('boomerang')
@@ -31,8 +31,22 @@ const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
 const last = new Map<number, { x: number; y: number }>()
 
-/** crisp flat ribbon: even translucent copper band, bright copper edges */
-const RIBBON: TrailStyle = { ...trailFrom(P, { life: 0.6, width: 62, widthTail: 0.35, intensity: 0.5, falloff: 0.35, noise: 0, spacing: 8, rim: 0.85, flat: true }, 0.2), rimRGB: P.hot }
+/** crisp flat ribbon: thin translucent copper band with brighter copper edges (no flame) */
+const RIBBON: TrailStyle = {
+  life: 0.6,
+  width: 40,
+  widthTail: 0.3,
+  head: [P.body[0] * 0.9, P.body[1] * 0.9, P.body[2] * 0.9],
+  mid: [P.body[0] * 0.6, P.body[1] * 0.6, P.body[2] * 0.6],
+  tail: P.edge,
+  intensity: 0.3,
+  falloff: 0.35,
+  noise: 0,
+  spacing: 8,
+  rim: 0.9,
+  flat: true,
+  rimRGB: [P.body[0] * 2.2, P.body[1] * 2.2, P.body[2] * 2.2],
+}
 
 // ---------------------------------------------------------------- glaive mesh
 
@@ -79,9 +93,9 @@ function buildGlaive(ctx: VfxCtx): THREE.InstancedMesh {
   m.roughness = 0.22
   // copper-hot cutting edges from the palette, a faint hub ring
   const rg = varying(length(positionGeometry.xz))
-  const edge = smoothstep(0.7, 0.99, rg)
+  const edge = smoothstep(0.86, 0.995, rg)
   const hub = smoothstep(0.2, 0.12, rg)
-  m.emissiveNode = vec3(P.body[0], P.body[1], P.body[2]).mul(edge.mul(1.5)).add(vec3(P.hot[0], P.hot[1], P.hot[2]).mul(pow(edge, float(5)).mul(0.9))).add(vec3(P.edge[0], P.edge[1], P.edge[2]).mul(hub))
+  m.emissiveNode = vec3(P.body[0], P.body[1], P.body[2]).mul(edge.mul(1.2)).add(vec3(P.hot[0], P.hot[1], P.hot[2]).mul(pow(edge, float(5)).mul(0.9))).add(vec3(P.edge[0], P.edge[1], P.edge[2]).mul(hub))
   m.name = 'Boomerang-Glaive'
   const mesh = new THREE.InstancedMesh(glaiveGeometry(), m, CAP)
   mesh.count = 0
@@ -115,9 +129,8 @@ function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, _id: number, _tx
 
 /** cutting-arc streaks behind each tip + metallic glints */
 function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: number, now: number, id: number): void {
-  // blur disc: faint smear of the three prongs + a thin rim on the tip circle
-  k.air.add(G_BLADE, x, y, h - 1, r * 1.02, spin, P.edge[0], P.edge[1], P.edge[2], 0.35, 1, 3)
-  k.air.add(G_SHOCK, x, y, h - 1, r, 0, P.body[0], P.body[1], P.body[2], 0.35, 0.97, 0.025)
+  // spin-blur: only a thin rim on the tip circle (the steel stays dark and solid)
+  k.air.add(G_SHOCK, x, y, h - 1, r, 0, P.body[0], P.body[1], P.body[2], 0.22, 0.97, 0.025)
   for (let t = 0; t < 3; t++) {
     // tips sit at the prong peaks (ph 0.8 of each third); a +y rotation by `spin` turns the mesh CCW in game space
     const tip = (t / 3) * Math.PI * 2 + 0.8 * ((Math.PI * 2) / 3) + spin

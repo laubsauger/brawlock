@@ -15,7 +15,7 @@ import type { ModifierState, PawnState, ProjectileState, SimEvent } from '../../
 import { PROJECTILE_H, S, TILE_TOP_H } from '../../coords'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  InstPool, TAU, burst, castFlash, drawCore, glowG, hexRgb, kitAdopt, kitBegin, kitInit, kitRelease, light, mixRgb, originOf, pal,
+  InstPool, STYLE_RING, TAU, burst, castFlash, drawCircle, drawCore, floorH, glowG, screenAngle, hexRgb, kitAdopt, kitBegin, kitInit, kitRelease, light, mixRgb, originOf, pal,
   palMix, projShadow, rand,
 } from './kitB'
 
@@ -25,8 +25,8 @@ const H = PROJECTILE_H
 const CHAIN = pal('link', 'accent', 1.0)
 const CHAIN_HOT = pal('link', 'core', 2.0)
 const CHAIN_DIM = palMix('link', 0.0, 0.3)
-const LINK_LEN = 22
-const WIDTH = 28
+const LINK_LEN = 30
+const WIDTH = 46
 
 interface Tether {
   seen: number
@@ -66,15 +66,17 @@ function chainMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const lu = fract(u).sub(0.5).mul(2)
   const odd = fract(li.mul(0.5)).mul(2)
   // face-on links: oval rings; edge-on links: short bars through the middle
-  const oval = length(vec2(lu.mul(1.0), v.mul(1.25)))
-  const ring = smoothstep(0.22, 0.05, abs(oval.sub(0.7)))
-  const bar = smoothstep(0.32, 0.12, abs(v)).mul(smoothstep(1.05, 0.75, abs(lu)))
+  const oval = length(vec2(lu.mul(1.0), v.mul(1.2)))
+  const ring = smoothstep(0.3, 0.12, abs(oval.sub(0.66)))
+  const bar = smoothstep(0.4, 0.2, abs(v)).mul(smoothstep(1.1, 0.8, abs(lu)))
   const links = mix(ring, bar, odd)
   // energy core running through the chain + tension pulses
   const core = smoothstep(0.45, 0.0, abs(v))
   const pulse = pow(fract(u.mul(0.08).add(t.mul(2.2).mul(A0.z))), 10)
-  const metal = vec3(0.05, 0.08, 0.06).add(vec3(...CHAIN).mul(0.4))
-  const col = mix(metal, vec3(...CHAIN_HOT), pulse.mul(A0.w)).mul(links).add(vec3(...CHAIN).mul(core.mul(0.35).add(pulse.mul(core).mul(1.2).mul(A0.w))))
+  // dark iron links with glowing green edges, an energy core and travelling tension pulses
+  const edgeGlow = smoothstep(0.55, 1.0, links)
+  const metal = vec3(0.04, 0.06, 0.045).add(vec3(...CHAIN).mul(edgeGlow.mul(0.9)))
+  const col = mix(metal, vec3(...CHAIN_HOT), pulse.mul(A0.w)).mul(links).add(vec3(...CHAIN).mul(core.mul(0.6).add(pulse.mul(core).mul(1.6).mul(A0.w))))
   const m = new THREE.MeshBasicNodeMaterial()
   m.transparent = true
   m.depthWrite = false
@@ -99,6 +101,22 @@ function drawChain(ctx: VfxCtx, a: THREE.Vector3, b: THREE.Vector3, alpha: numbe
   chains.quat.setFromRotationMatrix(mtx)
   const i = chains.add((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, len, WIDTH * S, 1)
   chains.set(i, 0, len / S, alpha, pulseDir, tension)
+}
+
+/** Continuous energy beam along the chain: screen-stretched glow segments. */
+function beam(ctx: VfxCtx, ax: number, ay: number, ah: number, bx: number, by: number, bh: number, k: number): void {
+  const dx = bx - ax
+  const dy = by - ay
+  const dh = bh - ah
+  const len = Math.hypot(dx, dy, dh)
+  if (len < 1) return
+  const ang = screenAngle(ctx, ax, ay, ah, dx / len, dy / len, dh / len)
+  const n = Math.min(14, Math.max(2, Math.ceil(len / 90)))
+  const seg = len / n
+  for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n
+    glowG(ax + dx * u, ay + dy * u, ah + dh * u, 34, CHAIN, 0.4 * k, 2.2, 0, Math.max(1, (seg / 34) * 1.2), ang)
+  }
 }
 
 function snap(ctx: VfxCtx, t: Tether): void {
@@ -217,6 +235,7 @@ registerSpellVfx({
       vA.copy(o)
       vB.set(x * S, H * S, -y * S)
       drawChain(ctx, vA, vB, 1, p.data.retracting ? 1 : -1, 0.4)
+      beam(ctx, vA.x / S, -vA.z / S, vA.y / S, x, y, H, 0.6)
     }
   },
   drawModifier(pawn: PawnState, mod: ModifierState, _x: number, _y: number, ctx: VfxCtx) {
@@ -242,14 +261,13 @@ registerSpellVfx({
     vA.copy(o)
     vB.set(tp.x * S, tp.h * S, -tp.y * S)
     drawChain(ctx, vA, vB, 1, -toVictim, 1)
-    // energy glow along the taut chain
-    for (let k = 1; k < 6; k++) {
-      const u = k / 6
-      glowG(t.ax + (t.bx - t.ax) * u, t.ay + (t.by - t.ay) * u, t.ah + (t.bh - t.ah) * u, 60, CHAIN, 0.22, 1.8)
-    }
-    // shackle around the victim / pillar
-    glowG(tp.x, tp.y, tp.h, mod.data.obstacle ? 200 : 110, CHAIN, 0.8, 0.07, 1, 1, ctx.now * 2)
-    glowG(tp.x, tp.y, tp.h, 90, CHAIN_DIM, 1.2, 1.5)
+    beam(ctx, t.ax, t.ay, t.ah, t.bx, t.by, t.bh, 1)
+    // shackle around the victim / pillar: a bright cuff ring, a second spinning ring, a floor ring
+    const big = mod.data.obstacle ? 1.8 : 1
+    glowG(tp.x, tp.y, tp.h, 120 * big, CHAIN_HOT, 0.9, 0.09, 1, 1, ctx.now * 2)
+    glowG(tp.x, tp.y, tp.h - 25, 100 * big, CHAIN, 0.8, 0.07, 1, 1, -ctx.now * 3)
+    glowG(tp.x, tp.y, tp.h, 110 * big, CHAIN_DIM, 1.6, 1.5)
+    drawCircle(tp.x, tp.y, floorH(ctx, tp.x, tp.y) + 1.3, 58 * big, STYLE_RING, CHAIN[0], CHAIN[1], CHAIN[2], 1.1, 0, 0, pawn.id, 0.15, 1.6, 0, ctx.now - 1)
     const tick = Math.max(0, 1 - (ctx.now - t.tickAt) / 0.15)
     if (tick > 0.95 && mod.data.dps > 0) burst(ctx, tp.x, tp.y, tp.h, 8, 100, 260, 0.15, 0.3, 8, 2, CHAIN_HOT, 1, -500, 3, -0.08)
     glowG(tp.x, tp.y, tp.h, 70, CHAIN_HOT, 0.4 * tick, 2.2)

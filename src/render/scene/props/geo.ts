@@ -13,6 +13,9 @@ import { fbm3, rng } from './rng'
  *   z = detachable chunk id (0 = core; k > 0 breaks off at damage stage k)
  * Attribute `aBand` (vec2): carving coordinates (u along the surface,
  * v 0..1 across a carved band; v < 0 = no carving).
+ * Attribute `aUV` (vec3): xy = surface texture coordinates in game units
+ * (arc length around a lathe, height up it; caps planar), z = 1 when set,
+ * 0 = use triplanar (rocks, shards, roots).
  */
 
 export const MAT_STONE = 0
@@ -25,6 +28,7 @@ export class Part {
   readonly p: number[] = []
   readonly info: number[] = []
   readonly band: number[] = []
+  readonly uv: number[] = []
   readonly idx: number[] = []
   constructor(
     public crease = (40 * Math.PI) / 180,
@@ -36,10 +40,11 @@ export class Part {
     return this.p.length / 3
   }
 
-  v(x: number, y: number, z: number, ao = 1, bu = 0, bv = -1): number {
+  v(x: number, y: number, z: number, ao = 1, bu = 0, bv = -1, tu = 0, tv = 0, hasUV = 0): number {
     this.p.push(x, y, z)
     this.info.push(ao, this.mat, this.chunk)
     this.band.push(bu, bv)
+    this.uv.push(tu, tv, hasUV)
     return this.p.length / 3 - 1
   }
 
@@ -57,6 +62,7 @@ export class Part {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3))
     g.setAttribute('aInfo', new THREE.Float32BufferAttribute(this.info, 3))
     g.setAttribute('aBand', new THREE.Float32BufferAttribute(this.band, 2))
+    g.setAttribute('aUV', new THREE.Float32BufferAttribute(this.uv, 3))
     g.setIndex(this.idx)
     const out = toCreasedNormals(g, this.crease)
     g.dispose()
@@ -73,6 +79,7 @@ export function mergeParts(parts: Part[]): THREE.BufferGeometry {
   const nrm = new Float32Array(n * 3)
   const info = new Float32Array(n * 3)
   const band = new Float32Array(n * 2)
+  const uv = new Float32Array(n * 3)
   let o = 0
   for (const g of geos) {
     const c = g.getAttribute('position').count
@@ -80,6 +87,7 @@ export function mergeParts(parts: Part[]): THREE.BufferGeometry {
     nrm.set(g.getAttribute('normal').array as Float32Array, o * 3)
     info.set(g.getAttribute('aInfo').array as Float32Array, o * 3)
     band.set(g.getAttribute('aBand').array as Float32Array, o * 2)
+    uv.set(g.getAttribute('aUV').array as Float32Array, o * 3)
     o += c
     g.dispose()
   }
@@ -88,6 +96,7 @@ export function mergeParts(parts: Part[]): THREE.BufferGeometry {
   out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
   out.setAttribute('aInfo', new THREE.BufferAttribute(info, 3))
   out.setAttribute('aBand', new THREE.BufferAttribute(band, 2))
+  out.setAttribute('aUV', new THREE.BufferAttribute(uv, 3))
   out.computeBoundingSphere()
   out.computeBoundingBox()
   return out
@@ -164,7 +173,7 @@ export function superRadius(n: number, sx = 1, sz = 1): (a: number) => number {
 export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
   const A = o.angles
   const N = A.length
-  const seam = o.bandCell !== undefined
+  const banded = o.bandCell !== undefined
   const ids: number[][] = []
   const xs = new Float64Array(N + 1)
   const zs = new Float64Array(N + 1)
@@ -188,29 +197,39 @@ export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
       total += Math.hypot(xs[k] - xs[j], zs[k] - zs[j])
       cum[j + 1] = total
     }
-    const cells = seam ? Math.max(1, Math.round(total / (o.bandCell as number))) : 0
-    for (let j = 0; j < N; j++) row.push(part.v(xs[j], ysR[j], zs[j], R.ao ?? 1, seam ? (cum[j] / total) * cells : 0, R.bv ?? -1))
-    if (seam) row.push(part.v(xs[0], ysR[0], zs[0], R.ao ?? 1, cells, R.bv ?? -1))
+    const cells = banded ? Math.max(1, Math.round(total / (o.bandCell as number))) : 0
+    // texture u: arc length around a mean-radius circle so stacked rings line up
+    const uk = (Math.PI * 2 * R.r) / Math.max(1e-3, total)
+    for (let j = 0; j < N; j++) row.push(part.v(xs[j], ysR[j], zs[j], R.ao ?? 1, banded ? (cum[j] / total) * cells : 0, R.bv ?? -1, cum[j] * uk, ysR[j], 1))
+    // seam column (same position, u continues) so u never wraps inside a quad
+    row.push(part.v(xs[0], ysR[0], zs[0], R.ao ?? 1, cells, R.bv ?? -1, total * uk, ysR[0], 1))
     ids.push(row)
   }
   for (let i = 0; i + 1 < rings.length; i++) {
     for (let j = 0; j < N; j++) {
-      const j1 = seam ? j + 1 : (j + 1) % N
-      part.quad(ids[i][j], ids[i][j1], ids[i + 1][j1], ids[i + 1][j])
+      part.quad(ids[i][j], ids[i][j + 1], ids[i + 1][j + 1], ids[i + 1][j])
     }
   }
+  // caps re-emit their rim vertices with planar uv (side uv would smear across the cap)
+  const planarCopy = (row: number[]) =>
+    row.slice(0, N).map((id) => {
+      const x = part.p[id * 3]
+      const y = part.p[id * 3 + 1]
+      const z = part.p[id * 3 + 2]
+      return part.v(x, y, z, part.info[id * 3], 0, -1, x, z, 1)
+    })
   const top = ids[ids.length - 1]
   if (o.cap) {
     const K = Math.max(0, o.cap.rings)
     const R = rings[rings.length - 1]
     const cx = R.ox ?? 0
     const cz = R.oz ?? 0
-    let prev = top
+    let prev = planarCopy(top)
     for (let k = 1; k <= K + 1; k++) {
       const rho = 1 - k / (K + 1)
       if (rho <= 1e-4) {
         const ch = o.cap.h ? o.cap.h(0, 0) : 0
-        const c = part.v(cx, R.y + ch, cz, o.cap.ao ?? 1)
+        const c = part.v(cx, R.y + ch, cz, o.cap.ao ?? 1, 0, -1, cx, cz, 1)
         for (let j = 0; j < N; j++) part.tri(c, prev[(j + 1) % N], prev[j])
         break
       }
@@ -219,7 +238,7 @@ export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
         const px = part.p[top[j] * 3] - cx
         const pz = part.p[top[j] * 3 + 2] - cz
         const ch = o.cap.h ? o.cap.h(A[j], rho) : 0
-        row.push(part.v(cx + px * rho, R.y + ch, cz + pz * rho, o.cap.ao ?? 1))
+        row.push(part.v(cx + px * rho, R.y + ch, cz + pz * rho, o.cap.ao ?? 1, 0, -1, cx + px * rho, cz + pz * rho, 1))
       }
       for (let j = 0; j < N; j++) {
         const j1 = (j + 1) % N
@@ -230,9 +249,9 @@ export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
     }
   }
   if (o.bottom) {
-    const b = ids[0]
+    const b = planarCopy(ids[0])
     const R = rings[0]
-    const c = part.v(R.ox ?? 0, R.y, R.oz ?? 0, 0.5)
+    const c = part.v(R.ox ?? 0, R.y, R.oz ?? 0, 0.5, 0, -1, R.ox ?? 0, R.oz ?? 0, 1)
     for (let j = 0; j < N; j++) part.tri(c, b[j], b[(j + 1) % N])
   }
   return ids

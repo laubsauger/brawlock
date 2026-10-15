@@ -1519,6 +1519,8 @@ export class KitA {
     ctx.flash(x - dx * 20, y - dy * 20, h, 0.09 + k * 0.05, 170 + k * 90, 80 + k * 55, pal.hot[0] * 0.8, pal.hot[1] * 0.8, pal.hot[2] * 0.8)
     const fl = this.floor(x, y)
     ctx.ground.spawn(RING_EXPAND, x, y, fl, 18, 70 + k * 75, 0.3 + k * 0.06, 8 + k * 4, pal.body[0] * 0.8, pal.body[1] * 0.8, pal.body[2] * 0.8)
+    // impact decal that fades (hard hits only, not on lava)
+    if (k > 0.45 && !ctx.isLava(x, y)) ctx.scorches.spawn(x + dx * 25, y + dy * 25, fl - 0.4, 18 + k * 16, 2.5)
     if (k > 0.55) {
       const ns = ctx.smoke.budget(2 + k * 2)
       for (let i = 0; i < ns; i++) {

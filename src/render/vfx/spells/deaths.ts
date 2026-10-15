@@ -156,16 +156,17 @@ function scourgeDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number, base: n
   ctx.shakeNear(x, y, 0.2)
 }
 
-const DUST = [0.2, 0.175, 0.15] as const
+/** pale stone dust: lighter than the dark tiles so the pile reads */
+const DUST = [0.3, 0.27, 0.235] as const
 
 function obstacleDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number, base: number, k: number, onLava: boolean, look: DeathLook): void {
   crumbleToDust(ctx, pawn, x, y, base, dir.x, dir.y, k, DUST)
   if (!onLava) {
-    ashPile(ctx, x + dir.x * 20, y + dir.y * 20, { radius: 58, ash: [0.19, 0.17, 0.15], embers: 0, windX: dir.x || 0.8, windY: dir.y || 0.35 })
+    ashPile(ctx, x + dir.x * 20, y + dir.y * 20, { radius: 62, ash: DUST, embers: 0, windX: dir.x || 0.8, windY: dir.y || 0.35 })
     ctx.ground.spawn(RING_EXPAND, x, y, base + 1.2, 20, 150, 0.6, 14, 0.55, 0.48, 0.4)
   }
   disintegrate(ctx, pawn, x, y, base, tint, { kind: look, strength: 0.8, runes: 5 })
-  flash(ctx, x, y, base + 60, [1.4, 1.2, 0.95], 1, 240, 170, 0.25)
+  flash(ctx, x, y, base + 60, [1.0, 0.8, 0.55], 0.7, 220, 120, 0.22)
   ctx.shakeNear(x, y, 0.25 * k)
 }
 

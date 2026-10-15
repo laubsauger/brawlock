@@ -503,6 +503,22 @@ export function drawCore(x: number, y: number, h: number, radius: number, edge: 
   k.cores.set(i, 1, core[0], core[1], core[2], dark)
 }
 
+const yawQ = new THREE.Quaternion()
+const yAxis = new THREE.Vector3(0, 1, 0)
+/**
+ * Elongated hitbox core (shard / dart) pointing along the game direction (dx, dy): half-width =
+ * radius, half-length = radius * stretch.
+ */
+export function drawShard(x: number, y: number, h: number, radius: number, stretch: number, dx: number, dy: number, edge: RGB, core: RGB, seed: number): void {
+  const k = getKit()
+  // three: game +x -> +x, game +y -> -z; yaw so local +x follows (dx, dy)
+  yawQ.setFromAxisAngle(yAxis, Math.atan2(dy, dx))
+  k.cores.quat.copy(yawQ)
+  const i = k.cores.add(x * S, h * S, -y * S, radius * stretch * S, radius * S, radius * S)
+  k.cores.set(i, 0, edge[0], edge[1], edge[2], seed)
+  k.cores.set(i, 1, core[0], core[1], core[2], 0)
+}
+
 export const STYLE_RUNES = 0
 export const STYLE_RING = 1
 export const STYLE_CLOCK = 2

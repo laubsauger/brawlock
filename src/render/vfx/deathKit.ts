@@ -104,19 +104,23 @@ export interface DeathTint {
 
 const tmpC = new THREE.Color()
 
-/** hex 0xRRGGBB (sRGB) -> linear triple scaled to luminance `lum`. */
-export function hexLinear(hex: number, lum: number, out: RGB3): RGB3 {
+/** hex 0xRRGGBB (sRGB) -> linear triple with its brightest channel at `peak`. */
+export function hexLinear(hex: number, peak: number, out: RGB3): RGB3 {
   tmpC.setHex(hex, THREE.SRGBColorSpace)
-  return normLum(tmpC.r, tmpC.g, tmpC.b, lum, out)
+  return normPeak(tmpC.r, tmpC.g, tmpC.b, peak, out)
 }
 
-function normLum(r: number, g: number, b: number, lum: number, out: RGB3): RGB3 {
-  // never fully grey-out dark colours: floor each channel a little before scaling
-  const l = Math.max(1e-3, 0.2126 * r + 0.7152 * g + 0.0722 * b)
-  const k = lum / l
-  out[0] = Math.min(r * k, 6)
-  out[1] = Math.min(g * k, 6)
-  out[2] = Math.min(b * k, 6)
+/**
+ * Scale so the brightest channel = peak. Keeps the hue saturated at any HDR
+ * multiplier (luminance normalisation pushed dark reds like Scourge to 10+ in
+ * one channel, which bloom washes to white), and lifts dark identities
+ * (Meteor, Gravity, Scourge) to a glowing brightness.
+ */
+function normPeak(r: number, g: number, b: number, peak: number, out: RGB3): RGB3 {
+  const k = peak / Math.max(1e-4, r, g, b)
+  out[0] = r * k
+  out[1] = g * k
+  out[2] = b * k
   return out
 }
 
@@ -138,16 +142,16 @@ export function deathTint(ctx: VfxCtx, e: DeathEvent, out?: DeathTint): DeathTin
   const nt = CAUSE_TINT[cause]
   const id = baseSpellId(cause)
   if (nt) {
-    hexLinear(nt.accent, 0.9, t.spell)
+    hexLinear(nt.accent, 1, t.spell)
     hexLinear(nt.core, 2, t.core)
     t.spellId = ''
   } else if (SPELL_PALETTE[id]) {
     const c = getSpellColor(id)
-    normLum(c.accent.r, c.accent.g, c.accent.b, 0.9, t.spell)
-    normLum(c.core.r, c.core.g, c.core.b, 2, t.core)
+    normPeak(c.accent.r, c.accent.g, c.accent.b, 1, t.spell)
+    normPeak(c.core.r, c.core.g, c.core.b, 2, t.core)
     t.spellId = id
   } else {
-    hexLinear(0xb08060, 0.9, t.spell)
+    hexLinear(0xb08060, 1, t.spell)
     hexLinear(0xffe8c8, 2, t.core)
     t.spellId = ''
   }
@@ -258,8 +262,10 @@ class DeathDecals {
     const r = length(q)
     const n1 = texture(w.noise, q.mul(0.42).add(seed)).r
     const n2 = texture(w.noise, q.mul(1.3).add(seed.mul(1.7))).g
-    const cr = texture(w.noise, q.mul(0.3).add(seed.mul(2.3)))
-    const crack = float(1).sub(smoothstep(0.02, 0.13, cr.b))
+    // cracks: worley cell edges, domain-warped by fbm so they read as fractures
+    // rather than a regular cell grid, and broken up so only some segments show
+    const cr = texture(w.noise, q.mul(0.3).add(n1.sub(0.5).mul(0.09)).add(seed.mul(2.3)))
+    const crack = float(1).sub(smoothstep(0.015, 0.085, cr.b)).mul(smoothstep(0.3, 0.6, n2))
     const tint = A2.xyz
     const inten = A3.w
     const fadeOut = float(1).sub(smoothstep(0.62, 1, tn))
@@ -315,7 +321,7 @@ class DeathDecals {
     const sDarkA = sh.mul(0.92)
     const sDark = vec3(0.016, 0.004, 0.008).mul(n2.mul(0.5).add(0.75))
     const vt = texture(w.noise, vec2(ang01(q).mul(3).add(age.mul(0.06)), r.mul(0.55).sub(age.mul(0.22)).add(seed))).b
-    const vein = float(1).sub(smoothstep(0.03, 0.12, vt)).mul(smoothstep(0.95, 0.15, r))
+    const vein = float(1).sub(smoothstep(0.05, 0.2, vt)).mul(smoothstep(0.95, 0.15, r))
     const rimx = r.sub(0.8).sub(n1.sub(0.5).mul(0.2)).div(0.07)
     const rim = exp(rimx.mul(rimx).negate()).mul(exp(age.mul(-1.4)))
     const pulse = sin(age.mul(7).sub(r.mul(12))).mul(0.4).add(0.6)
@@ -880,7 +886,7 @@ export function ashPile(ctx: VfxCtx, x: number, y: number, o: { radius?: number;
   const life = o.life ?? 3
   const wx = o.windX ?? 0.8
   const wy = o.windY ?? 0.35
-  const ash = o.ash ?? [0.16, 0.15, 0.145]
+  const ash = o.ash ?? [0.24, 0.23, 0.22]
   K.decals.spawn(D_ASH, x, y, f, o.radius ?? 54, life, ash, o.embers ?? 1, wx, wy, 1.15, 1)
   const e = K.emitter(E_ASHWIND, x, y, f + 4, life)
   e.dx = wx
@@ -1191,14 +1197,17 @@ function tickSmoke(ctx: VfxCtx, e: Emitter, t: number): void {
     e.y = p.y
     e.h = p.h
   }
+  // the body slips away under the smoke before the character's burn-up edge
+  // would show (quiet: no embers, no glow)
+  if (e.pawn >= 0 && t - e.t0 > 0.65) ctx.pawnVisibility(e.pawn, { body: 0, plate: false, decal: false })
   const lt = (t - e.t0) / Math.max(0.1, e.t1 - e.t0)
   const w = Math.sin(Math.min(1, lt * 1.2) * Math.PI)
-  const n = emitN(ctx, e, 26 * w)
+  const n = emitN(ctx, e, 44 * w)
   const v = e.victim
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
     const rr = BODY_R * rnd()
-    const g = 0.2 + rnd() * 0.08
+    const g = 0.26 + rnd() * 0.1
     ctx.smoke.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, e.h + rnd() * BODY_H * 0.9, (rnd() - 0.5) * 20, (rnd() - 0.5) * 20, 50 + rnd() * 40, 1.6 + rnd() * 0.8, 30, 100, g, g * 1.02, g * 1.08, 15, 0.6, 18)
     if (rnd() < 0.45) ctx.particles.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, e.h + rnd() * BODY_H, 0, 0, 60 + rnd() * 60, 1.0 + rnd() * 0.5, 5, 2, v[0] * 1.1, v[1] * 1.1, v[2] * 1.1, 10, 0.5, 12)
   }

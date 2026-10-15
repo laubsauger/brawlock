@@ -26,6 +26,9 @@ export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>([
   'gravity',
   'warpzone',
   'magnetize',
+  'splitter',
+  'link',
+  'grip',
   // passive stat items (no VFX needed)
   'ring_of_health',
   'cursed_ring',

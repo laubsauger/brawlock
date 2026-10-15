@@ -149,7 +149,7 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   const c1 = new Part((52 * Math.PI) / 180, MAT_STONE, 1)
   const c2 = new Part((52 * Math.PI) / 180, MAT_STONE, 2)
   const rub = new Part((30 * Math.PI) / 180, MAT_RUBBLE, 0)
-  const rs = r * 0.55
+  const rs = r * 0.63
   const chunks: PillarShape['chunks'] = []
   let height = 0
   const v = ((variant % 5) + 5) % 5
@@ -157,11 +157,11 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   if (v === 0) {
     // broken stump on a two-step plinth, rune frieze, a fallen piece on top
     plinth(core, [
-      { w: r * 0.9, y0: SINK, y1: 26, frieze: true },
-      { w: r * 0.76, y0: 24, y1: 40 },
+      { w: r * 0.93, y0: SINK, y1: 26, frieze: true },
+      { w: r * 0.84, y0: 24, y1: 40 },
     ], seed)
     moulding(core, rs, 40, seed)
-    const yb = 150 * jitter
+    const yb = 128 * jitter
     const b0 = breakProfile(seed + 1, rs, 0.32, 9)
     shaft(core, rs, [44, 80, 115, yb - b0.span - 4, yb], seed, { brk: b0 })
     const b1 = breakProfile(seed + 2, rs, -0.5, 12)
@@ -172,21 +172,24 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else if (v === 1) {
     // tall column with a capital; capital falls first, then the upper drum
     plinth(core, [
-      { w: r * 0.88, y0: SINK, y1: 30, frieze: true },
+      { w: r * 0.92, y0: SINK, y1: 30, frieze: true },
     ], seed)
     moulding(core, rs * 0.95, 30, seed)
-    const yTop = 245 * jitter
+    const yTop = 200 * jitter
     const ySplit = yTop - 62
     const bc = breakProfile(seed + 3, rs, 0.2, 7)
     shaft(core, rs * 0.95, [34, 90, 140, ySplit - bc.span - 3, ySplit], seed, { brk: bc })
-    shaft(c2, rs * 0.94, [ySplit - bc.span - 1, ySplit + 30, yTop], seed + 1, { bottom: true, flat: false })
+    // own small break on top, hidden under the capital until it falls
+    const bd = breakProfile(seed + 12, rs * 0.94, 0.12, 4)
+    shaft(c2, rs * 0.94, [ySplit - bc.span - 1, ySplit + 30, yTop + 1 - bd.span], seed + 1, { bottom: true, brk: bd })
     chunks.push({ x: 0, y: yTop + 14, z: 0, size: rs * 1.3 })
     chunks.push({ x: 0, y: ySplit + 30, z: 0, size: rs })
     // capital: echinus flare + square abacus (chipped corner)
     lathe(
       c1,
       [
-        { y: yTop - 2, r: rs * 0.86, ao: 0.7 },
+        { y: yTop - 2 * bd.span - 4, r: rs * 0.9, ao: 0.6 },
+        { y: yTop - 2, r: rs * 0.9, ao: 0.7 },
         { y: yTop + 4, r: rs * 0.98 },
         { y: yTop + 10, r: rs * 1.16 },
         { y: yTop + 14, r: rs * 1.26 },
@@ -215,15 +218,15 @@ function temple(variant: number, r: number, seed: number): PillarShape {
     skirt(rub, R, r, 8, 0.88, 1.1, 4, 10, seed)
   } else if (v === 2) {
     // tall carved pedestal block with a column stub
-    const yb = 112 * jitter
+    const yb = 100 * jitter
     plinth(core, [
-      { w: r * 0.92, y0: SINK, y1: 16, n: 6 },
-      { w: r * 0.82, y0: 14, y1: yb, n: 6, frieze: true },
-      { w: r * 0.87, y0: yb - 2, y1: yb + 12, n: 6 },
+      { w: r * 0.88, y0: SINK, y1: 16, n: 6 },
+      { w: r * 0.8, y0: 14, y1: yb, n: 6, frieze: true },
+      { w: r * 0.85, y0: yb - 2, y1: yb + 12, n: 6 },
     ], seed)
-    const rsS = rs * 0.82
+    const rsS = rs * 0.8
     moulding(core, rsS, yb + 12, seed)
-    const yt = yb + 78 * jitter
+    const yt = yb + 62 * jitter
     const b0 = breakProfile(seed + 4, rsS, 0.25, 7)
     shaft(core, rsS, [yb + 16, yb + 40, yt - b0.span - 3, yt], seed, { brk: b0 })
     const b1 = breakProfile(seed + 6, rsS, 0.55, 10)
@@ -234,11 +237,11 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else if (v === 3) {
     // steep diagonal break, mossy
     plinth(core, [
-      { w: r * 0.9, y0: SINK, y1: 22 },
-      { w: r * 0.78, y0: 20, y1: 36, frieze: true },
+      { w: r * 0.93, y0: SINK, y1: 22 },
+      { w: r * 0.84, y0: 20, y1: 36, frieze: true },
     ], seed)
     moulding(core, rs, 36, seed)
-    const yb = 175 * jitter
+    const yb = 150 * jitter
     const b0 = breakProfile(seed + 7, rs, 0.45, 10)
     shaft(core, rs, [40, 90, 130, yb - b0.span - 3, yb], seed, { brk: b0 })
     const b1 = breakProfile(seed + 8, rs, 1.05, 8)
@@ -249,16 +252,16 @@ function temple(variant: number, r: number, seed: number): PillarShape {
   } else {
     // two stacked drums, the upper one slipped off-centre
     plinth(core, [
-      { w: r * 0.9, y0: SINK, y1: 24, frieze: true },
-      { w: r * 0.78, y0: 22, y1: 38 },
+      { w: r * 0.93, y0: SINK, y1: 24, frieze: true },
+      { w: r * 0.84, y0: 22, y1: 38 },
     ], seed)
     moulding(core, rs, 38, seed)
-    const y1 = 128 * jitter
+    const y1 = 112 * jitter
     shaft(core, rs, [42, 85, y1], seed, { flat: true })
     const ox = (R() - 0.5) * r * 0.14
     const oz = (R() - 0.5) * r * 0.14
     const b1 = breakProfile(seed + 9, rs, 0.3, 9)
-    const yt = y1 + 88 * jitter
+    const yt = y1 + 72 * jitter
     shaft(c1, rs * 0.98, [y1 + 1, y1 + 40, yt - b1.span - 3, yt], seed + 2, {
       brk: b1,
       bottom: true,

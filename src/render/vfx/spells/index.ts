@@ -53,4 +53,5 @@ import './deathsB'
 
 // ---- workstream C (deaths by cause, lingering after-hit) ----
 import './deaths'
+import './afterhit'
 // ---- end workstream C ----
