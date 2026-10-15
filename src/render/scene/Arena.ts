@@ -7,6 +7,7 @@ import {
   attribute,
   bumpMap,
   cameraPosition,
+  clamp,
   dFdx,
   dFdy,
   dot,
@@ -28,7 +29,6 @@ import {
   step,
   texture,
   uniform,
-  varying,
   vec2,
   vec3,
 } from 'three/tsl'
@@ -380,8 +380,12 @@ export class Arena {
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
     const hotCol = mix(vec3(3.2, 0.9, 0.16), vec3(1.6, 0.08, 0.02), sinkT)
     em = em.add(hotCol.mul(isRem).mul(float(1).sub(sinkT.mul(0.5))))
-    // round-start pulse: pale arcane white-gold, never lava orange
-    em = em.add(vec3(0.75, 0.72, 0.95).mul(varying(wave).mul(0.45)))
+    // round-start pulse: pale arcane white-gold ring, evaluated PER FRAGMENT so
+    // it sweeps as a smooth band (a per-tile value lit whole tiles as squares)
+    const shDf = length(gp.sub(sh.xy))
+    const shXf = shDf.sub(shR).div(90)
+    const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAge))).mul(step(0, shAge))
+    em = em.add(vec3(0.55, 0.52, 0.7).mul(waveF.mul(0.25)).mul(float(1).sub(isSide)))
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = 'Tiles'
@@ -422,15 +426,22 @@ export class Arena {
       col = col.mul(float(1).sub(rune.mul(0.45)))
       col = col.mul(mix(float(1), float(0.65), smoothstep(0.9, 1.0, edge).mul(isTop)))
       m.colorNode = mix(col, col.mul(0.4), isRem.mul(sinkT))
-      m.normalNode = normalMap(mix(texture(top.normal, uvT), texture(side.normal, uvT), isSide), vec2(1.2, 1.2))
-      m.roughnessNode = saturate(orm.g)
-      m.metalnessNode = orm.b
+      // the top maps are sampled in a per-tile rotated frame: rotate the
+      // tangent-space normal back by -rot so it agrees with the mesh uv frame
+      const nTop = texture(top.normal, uvT).xyz.mul(2).sub(1)
+      const nTopR = vec3(nTop.x.mul(cs).add(nTop.y.mul(sn)), nTop.y.mul(cs).sub(nTop.x.mul(sn)), nTop.z)
+      const nSide = texture(side.normal, uvT).xyz.mul(2).sub(1)
+      const nTS = mix(nTopR, nSide, isSide).mul(0.5).add(0.5)
+      m.normalNode = normalMap(nTS, vec2(1.2, 1.2))
+      // never mirror-smooth: low-roughness texels made tile-sized moon hotspots
+      m.roughnessNode = clamp(orm.g, 0.48, 1)
+      m.metalnessNode = orm.b.mul(0.3)
     } else {
       m.colorNode = mix(stone, stone.mul(0.4), isRem.mul(sinkT))
       // relief: grain + chips + cut cracks and glyphs
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
       m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(1.1))
-      m.roughnessNode = saturate(rough)
+      m.roughnessNode = clamp(rough, 0.45, 1)
       m.metalnessNode = float(0)
     }
     // debug (Inspector: Arena > debugFaces): 1 = face classes, 2 = lighting only on white

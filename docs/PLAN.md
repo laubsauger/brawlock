@@ -201,6 +201,9 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 - Knockback shows strength: trail length and hit-spark size scale with impulse; knockback points visible as a growing aura and a number.
 - Lava danger: tiles about to drop pulse red one second before the shrink.
 - Floating combat numbers, crisp and color coded, with stacking.
+- One identity color pair per spell (src/render/vfx/palette.ts), distinct in hue and value from each other and from lava; the team color marks the caster.
+- Every AoE visual ends exactly at the gameplay radius; players read ranges from visuals.
+- On-screen text over the scene gets a glyph-following dark halo, never a boxy panel.
 - Name tag with a compact HP bar over every pawn; broadcast-style kill feed (killer, cause icon, victim; lava kills credit the last hitter).
 - VFX never hide a projectile hitbox. Effects have a hitbox-core layer drawn on top.
 
@@ -220,6 +223,8 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 - A full arc: anticipation (windup telegraph), action (cast flash), impact (directional burst, shockwave, debris), dissipation (smoke, settling embers).
 - Its own sound set (cast, travel loop where fitting, impact).
 - A readable collision core that stays visible above the effect.
+
+**Deaths by cause.** The death event carries the lethal cause; each spell (and lava, pillars) has its own death: lava sinks and burns, Fireball blows apart into embers, Lightning flashes the skeleton then leaves ash, Snowball freezes and shatters, Gravity sucks the body into the singularity, generic fallback crumbles to ash.
 
 A spell counts as implemented only when its sim behavior, tests and this VFX standard are all done; VFX is not deferred to a later polish pass.
 

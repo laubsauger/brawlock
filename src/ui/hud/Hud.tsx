@@ -10,11 +10,11 @@ import { announce, Banner, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
 import { NetReadout, TopCenter, displayRound } from './TopBar'
 import { Gold, Vitals } from './Vitals'
-import { Kbd } from '../widgets'
+import { KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
-import { keyLabel, slotKeyLabel, useBinds } from '../lib/keys'
+import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 
 interface HitMemory {
   /** spell / item of the last sourced hit */
@@ -254,16 +254,16 @@ function Hints() {
   const binds = useBinds()
   const hint = (key: string, label: string) => (
     <span className="flex items-center gap-1">
-      <Kbd>{key}</Kbd> {label}
+      <KeyCaps label={key} /> {label}
     </span>
   )
   return (
     <div className="hud-text-shadow flex items-center gap-3 text-[0.82rem] text-ash">
-      {hint(keyLabel(binds.shop), 'Shop')}
-      {hint(keyLabel(binds.character), 'Stats')}
-      {hint(keyLabel(binds.scoreboard), 'Scores')}
+      {hint(bindLabel(binds, 'shop'), 'Shop')}
+      {hint(bindLabel(binds, 'character'), 'Stats')}
+      {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
       {hint(slotKeyLabel(binds, 6), 'Fireball')}
-      {hint(keyLabel(binds.stop), 'Stop')}
+      {hint(bindLabel(binds, 'stop'), 'Stop')}
     </div>
   )
 }

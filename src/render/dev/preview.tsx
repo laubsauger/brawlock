@@ -10,13 +10,13 @@ import '../../index.css'
 import { useGame, type Quality } from '../../game/store'
 import { input } from '../../game/input'
 import { MatchView, MenuBackdrop, recenterCamera, renderStats } from '../index'
-import { devTime } from '../stats'
+import { devTime, perfProbe } from '../stats'
 import { startSimDriver } from './simDriver'
 import { tweakParams } from '../tweaks'
 import { cameraParams, cameraZoomParam, devCamera } from '../cameraRig'
 
 // dev handles for look-dev from the console
-;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime }
+;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe }
 
 const params = new URLSearchParams(location.search)
 const q = params.get('q') as Quality | null
@@ -29,7 +29,7 @@ function Perf() {
   useEffect(() => {
     const id = setInterval(() => {
       const s = renderStats
-      setTxt(`${s.backend} ${s.tier} dpr ${s.dpr.toFixed(2)} | ${s.fps.toFixed(0)} fps | cpu ${s.cpuMs.toFixed(2)} ms | gpu ${s.gpuMs.toFixed(2)} ms | ${s.drawCalls} draws | ${(s.triangles / 1000).toFixed(0)}k tris`)
+      setTxt(`${s.backend} ${s.tier} dpr ${s.dpr.toFixed(2)} | ${s.fps.toFixed(0)} fps | cpu ${s.cpuMs.toFixed(2)} ms | gpu ${s.gpuMs >= 0 ? s.gpuMs.toFixed(2) + ' ms' : 'n/a'} | ${s.drawCalls} draws | ${(s.triangles / 1000).toFixed(0)}k tris`)
     }, 250)
     return () => clearInterval(id)
   }, [])

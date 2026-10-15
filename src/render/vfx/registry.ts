@@ -45,7 +45,12 @@ export interface PawnRenderInfo {
   owner: number
   alive: boolean
   onLava: boolean
-  /** staff crystal tip, three world units (for cast flares) */
+  /**
+   * where spells leave from, three world units: the warlock's casting palm
+   * (or staff crystal when castFrom = 'staff')
+   */
+  castOrigin: THREE.Vector3
+  /** alias of castOrigin (older modules) */
   tip: THREE.Vector3
 }
 
@@ -114,7 +119,30 @@ export interface VfxCtx {
   kick(dx: number, dy: number, amount: number): void
   /** request hit-stop (seconds, capped); use for big hits on the local pawn */
   hitStop(seconds: number): void
+  /**
+   * Soft blob shadow on the floor under a flying object at game (x, y) and
+   * height h (game units), offset along the key light; grows softer and
+   * fainter with height (Meteor: call every frame while it falls). Built-in
+   * projectiles get this automatically; modules call it for their own.
+   */
+  projectileShadow(x: number, y: number, h: number, radius: number): void
+  /**
+   * The authoritative AoE boundary: a crisp ring at EXACTLY `radius` (game
+   * units, the sim's hit radius) that holds briefly and fades. Rule for all
+   * AoE visuals: fills, flashes and heat stay inside `radius`; particles may
+   * not visibly travel past it (faint dust must fade before 1.05x radius).
+   */
+  aoeRing(x: number, y: number, radius: number, r: number, g: number, b: number, life?: number): void
+  /**
+   * Lingering after-hit effect on a pawn (short, cheap, scaled by strength
+   * 0..~2): 'fire' smoulder + embers ~1.5 s, 'lightning' crackling sparks
+   * ~1 s, 'shadow' dark wisps, 'lava' hem glow/smoke, 'dust' slide trail.
+   * Re-applying refreshes / strengthens it.
+   */
+  afterHit(pawnId: EntityId, kind: AfterHitKind, strength: number): void
 }
+
+export type AfterHitKind = 'fire' | 'lightning' | 'shadow' | 'lava' | 'dust'
 
 export interface SpellVfx {
   /** spell id this module illustrates (claims events/projectiles with this spell) */

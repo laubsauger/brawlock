@@ -28,10 +28,11 @@ import type { Quality } from '../game/store'
 import { ZOOM_MAX, ZOOM_MIN, cameraParams, cameraZoomParam } from './cameraRig'
 import { useEffectiveQuality } from './GpuCanvas'
 import { tweakParams } from './tweaks'
+import { warlockParams } from './character'
 import { tierConfig } from './quality'
 import { postState } from './scene/MatchWorld'
 import { getNoiseTexture } from './scene/noiseTexture'
-import { perfMark, renderStats } from './stats'
+import { perfMark, perfProbe, renderStats } from './stats'
 
 /** Name of the MRT attachment materials write heat distortion strength into. */
 export const HEAT_MRT = 'heat'
@@ -145,6 +146,29 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
 
   useEffect(() => () => pipeline?.dispose(), [pipeline])
 
+  // real GPU cost: render N frames back to back, wait for the queue to drain
+  useEffect(() => {
+    const device = (gl as unknown as { backend?: { device?: GPUDevice } }).backend?.device
+    if (!device) return
+    perfProbe.bench = async (frames = 60) => {
+      await device.queue.onSubmittedWorkDone()
+      const t0 = performance.now()
+      // pass nodes re-render once per node frame; the frame id normally
+      // advances in the renderer's own rAF loop, so advance it per iteration
+      const nodeFrame = (gl as unknown as { _nodes?: { nodeFrame?: { update(): void } } })._nodes?.nodeFrame
+      for (let i = 0; i < frames; i++) {
+        nodeFrame?.update()
+        if (pipeline) pipeline.render()
+        else gl.render(scene, camera)
+      }
+      await device.queue.onSubmittedWorkDone()
+      return (performance.now() - t0) / frames
+    }
+    return () => {
+      perfProbe.bench = null
+    }
+  }, [gl, pipeline, scene, camera])
+
   // Inspector: three.js addon, loaded on demand
   useEffect(() => {
     if (!inspect) return
@@ -161,6 +185,13 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       g.add(cameraParams, 'hfov', 40, 100, 0.5)
       g.add(cameraParams, 'centerOffset', -0.3, 0.4, 0.01)
       g.add(cameraZoomParam, 'distance', ZOOM_MIN, ZOOM_MAX, 10)
+      // character style (cc0 default, the render placeholder as 'procedural'), staff, cast origin
+      const ch = ins.createParameters('Character')
+      ch.add(warlockParams, 'style', ['cc0', 'procedural'] as const)
+      ch.add(warlockParams, 'staff')
+      ch.add(warlockParams, 'staffVariant', ['gnarled', 'iron', 'bone'] as const)
+      ch.add(warlockParams, 'castFrom', ['palm', 'staff'] as const)
+      ch.add(tweakParams, 'showCollision')
       const a = ins.createParameters('Arena')
       a.add(tweakParams, 'tileMaterial', ['auto', 'procedural', 'textured'] as const)
       a.add(tweakParams, 'edgeGlow', 0, 3, 0.05)
@@ -209,7 +240,11 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       p.pending = true
       gl.resolveTimestampsAsync('render')
         .then((ms) => {
-          if (typeof ms === 'number' && ms > 0) renderStats.gpuMs = ms
+          if (typeof ms !== 'number' || ms <= 0) return
+          renderStats.gpuMsRaw = ms
+          // a GPU frame cannot take longer than the frame interval unless the
+          // per-pass timestamps overlap (tile-based GPUs): reject those
+          renderStats.gpuMs = ms <= renderStats.frameMs * 1.1 ? ms : -1
         })
         .catch(() => {})
         .finally(() => {

@@ -574,7 +574,10 @@
     background: var(--grain), linear-gradient(180deg, rgba(40, 30, 24, 0.9) 0%, rgba(22, 15, 11, 0.92) 48%, rgba(14, 9, 7, 0.94) 100%);
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 186, 120, 0.12), inset 0 1px 0 2px rgba(255, 220, 180, 0.06), 0 6px 24px rgba(0, 0, 0, 0.45);
   }
-  .hud-text-shadow { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.6); }
+  /* text over the 3D scene: a dark ink halo hugging each glyph (InkFilters.tsx), not a box */
+  .hud-text-shadow, .ink-sm { filter: url(#ink-sm); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.55); }
+  .ink-md { filter: url(#ink-md); }
+  .ink-lg { filter: url(#ink-lg); }
 
   /* HP */
   .hp-frame {
@@ -687,7 +690,9 @@
     font-size: clamp(3.5rem, 9vw, 7.5rem);
     line-height: 0.9;
     color: #fff2d6;
-    text-shadow: 0 0 30px rgba(255, 110, 30, 0.75), 0 3px 0 #3b0a02, 0 0 2px #000;
+    /* ink halo from the glyphs first, then the molten glow around it */
+    text-shadow: 0 3px 0 #3b0a02;
+    filter: url(#ink-lg) drop-shadow(0 0 16px rgba(255, 110, 30, 0.5));
   }
   .banner[data-tone="count"] .banner-title { font-size: clamp(6rem, 15vw, 12rem); color: #ffd77a; }
 
@@ -729,7 +734,7 @@
     background-clip: text;
     color: transparent;
     text-shadow: none;
-    filter: drop-shadow(0 0 34px rgba(255, 100, 20, 0.85)) drop-shadow(0 4px 0 #3b0a02);
+    filter: url(#ink-lg) drop-shadow(0 0 30px rgba(255, 100, 20, 0.8)) drop-shadow(0 4px 0 #3b0a02);
     display: inline-block;
     padding: 0 0.08em;
   }
@@ -759,9 +764,9 @@
     40% { opacity: 1; transform: translateY(-50%) scaleX(1); }
     100% { opacity: 0; transform: translateY(-50%) scaleX(1.1); }
   }
-  .banner[data-tone="win"] .banner-title { color: #fff1c9; text-shadow: 0 0 34px rgba(255, 190, 70, 0.85), 0 3px 0 #3b1a02; }
-  .banner[data-tone="danger"] .banner-title { color: #ffd3c9; text-shadow: 0 0 30px rgba(220, 30, 30, 0.8), 0 3px 0 #2a0000; }
-  .banner-sub { margin-top: 0.6rem; font-size: 1.35rem; font-weight: 600; color: #f6e3c6; text-shadow: 0 1px 3px #000, 0 0 14px #000; }
+  .banner[data-tone="win"] .banner-title { color: #fff1c9; text-shadow: 0 3px 0 #3b1a02; filter: url(#ink-lg) drop-shadow(0 0 18px rgba(255, 190, 70, 0.6)); }
+  .banner[data-tone="danger"] .banner-title { color: #ffd3c9; text-shadow: 0 3px 0 #2a0000; filter: url(#ink-lg) drop-shadow(0 0 16px rgba(220, 30, 30, 0.6)); }
+  .banner-sub { margin-top: 0.6rem; font-size: 1.35rem; font-weight: 600; color: #f6e3c6; filter: url(#ink-md); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
 
   /* Killfeed */
   .feed-row {
@@ -769,11 +774,11 @@
     padding: 0.28rem 0.7rem;
     font-weight: 600;
     font-size: 0.98rem;
-    background: linear-gradient(90deg, rgba(12, 6, 4, 0.2), rgba(12, 6, 4, 0.78));
     border-right: 2px solid rgba(255, 120, 40, 0.7);
+    filter: url(#ink-sm);
     animation: feed-in 0.3s cubic-bezier(.2, .9, .3, 1) both;
   }
-  .feed-row[data-local="true"] { border-right-color: #ffc548; background: linear-gradient(90deg, rgba(60, 30, 5, 0.2), rgba(60, 30, 5, 0.8)); }
+  .feed-row[data-local="true"] { border-right-color: #ffc548; }
   .feed-row[data-out="true"] { animation: feed-out 0.4s ease both; }
   @keyframes feed-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
   @keyframes feed-out { to { opacity: 0; transform: translateX(16px); } }
@@ -861,16 +866,20 @@
   .dock > * { pointer-events: auto; }
   .dock-panel { flex: 0 1 auto; min-height: 0; max-height: 100%; }
   .spell-detail { min-height: 196px; flex: none; }
+  .gear-detail { min-height: 150px; flex: none; }
+  @container (max-width: 520px) {
+    .spell-detail-row { flex-direction: column; gap: 0.6rem; }
+  }
 
   /* icon tiles: the painted icon is the hero */
-  .tile-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.25rem; }
-  .tile-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; }
+  .tile-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.15rem; }
+  .tile-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.15rem; }
   .icon-tile {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.4rem 0.2rem 0.45rem;
+    gap: 0.22rem;
+    padding: 0.3rem 0.1rem 0.32rem;
     text-align: center;
     background: transparent;
     box-shadow: none;
@@ -899,7 +908,7 @@
       inset 0 0 14px rgba(0, 0, 0, 0.45),
       0 0 16px color-mix(in srgb, var(--hue, #ffb36b) 50%, transparent);
   }
-  .icon-tile[data-state="owned"] .tile-icon {
+  .icon-tile[data-owned="true"] .tile-icon {
     box-shadow:
       inset 0 0 0 2px var(--hue, #ffb36b),
       inset 0 0 14px rgba(0, 0, 0, 0.4),
@@ -909,12 +918,12 @@
   .icon-tile:focus-visible .tile-icon { box-shadow: inset 0 0 0 2px #ffe3a6, 0 0 0 2px rgba(255, 200, 120, 0.6); }
   .tile-name {
     max-width: 100%;
-    font: 600 0.84rem/1.1 var(--font-ui);
+    font: 600 0.82rem/1.05 var(--font-ui);
     color: #ead9c2;
     overflow-wrap: anywhere;
   }
-  .icon-tile[data-state="owned"] .tile-name { color: #fff1d6; }
-  .icon-tile[data-state="owned"] { background: rgba(255, 170, 80, 0.06); box-shadow: none; }
+  .icon-tile[data-owned="true"] .tile-name { color: #fff1d6; }
+  .icon-tile[data-owned="true"] { background: rgba(255, 170, 80, 0.06); box-shadow: none; }
   .tile-cost {
     position: absolute;
     right: -5px; top: -5px;
@@ -954,7 +963,7 @@
   /* dock content reflows instead of squeezing text when a dock gets narrow */
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   .gear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.375rem; }
-  .spell-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; align-content: start; }
+  .spell-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.35rem; align-content: start; }
   @container (max-width: 300px) {
     .stat-grid { grid-template-columns: 1fr; }
   }
@@ -1030,6 +1039,23 @@
   .tab:focus-visible { box-shadow: 0 0 0 2px var(--color-gold); }
   .stat-pulse { animation: stat-pulse 0.7s ease-out; }
   @keyframes stat-pulse { 0% { color: #fff3c4; text-shadow: 0 0 12px rgba(255, 200, 90, 0.9); } 100% { } }
+
+  /* -------------------------------------------------------------------------
+   * Micro-animations: every control answers a press; things that arrive,
+   * level up or change value move a little. All collapse under reduced motion.
+   * ---------------------------------------------------------------------- */
+  .seg button, .tab { transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease; }
+  .seg button:active:not(:disabled), .tab:active { transform: scale(0.95); }
+  .switch:active:not(:disabled)::after { width: 22px; }
+  .switch[aria-checked="true"]:active:not(:disabled)::after { transform: translateX(18px); }
+  .icon-tile:active:not([aria-disabled="true"]) .tile-icon { transform: scale(0.93); transition-duration: 0.06s; }
+  button.kbd { transition: transform 0.1s ease, filter 0.15s ease; }
+  button.kbd:active { transform: translateY(1px) scale(0.96); }
+  .field { transition: border-color 0.15s ease, box-shadow 0.2s ease, background 0.2s ease; }
+  .card-in { animation: card-in 0.4s cubic-bezier(.2, .9, .3, 1) both; }
+  @keyframes card-in { from { opacity: 0; transform: translateX(-16px) scale(0.98); } }
+  .slot .pips i[data-new="true"] { animation: pip-fill 0.6s cubic-bezier(.2, 1.5, .4, 1) both; }
+  .chip { transition: background 0.2s ease, color 0.2s ease; }
 
   /* -------------------------------------------------------------------------
    * Reduced motion: keep state changes, drop the travel.

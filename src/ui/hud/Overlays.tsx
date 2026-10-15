@@ -4,11 +4,11 @@ import { useGame } from '../../game/store'
 import { Sigil } from '../icons'
 import { displayName, itemDef, levelStats, MASTERIES, MASTERY_MAX_LEVEL, masteryValue, SPELL_MAX_LEVEL, type MasteryId } from '../data/catalog'
 import { PAWN_MAX_LIFE, PAWN_MOVE_SPEED } from '../../sim'
-import { keyLabel, slotKeyLabel, useBinds } from '../lib/keys'
+import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled } from '../lib/ticker'
 import { hex, kbMultiplier, localView, TEAM_NAMES } from '../lib/view'
 import { leaveToMenu } from '../flow'
-import { Button, Kbd, PingBars } from '../widgets'
+import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { sfx } from '../lib/sound'
 
 /* ------------------------------------------------------------------------
@@ -176,7 +176,7 @@ export function CharacterSheet() {
         <header className="flex items-center justify-between px-4 pt-3.5 pb-2">
           <h2 className="display text-[2rem] leading-none text-[#ffd890]">Your warlock</h2>
           <Button size="sm" variant="ghost" sound="back" onClick={() => toggle('characterOpen', false)}>
-            Close <Kbd>{keyLabel(binds.character)}</Kbd>
+            Close <KeyCaps label={bindLabel(binds, 'character')} />
           </Button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">

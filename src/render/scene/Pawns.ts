@@ -1,14 +1,16 @@
 import * as THREE from 'three/webgpu'
 import { abs, cos, exp, float, length, max, mix, positionGeometry, saturate, sin, smoothstep, step, uniform, vec2, vec3 } from 'three/tsl'
-import type { PawnState, PlayerSlot } from '../../sim/types'
+import type { PawnState, PlayerSlot, SimEvent } from '../../sim/types'
 import { isLocationSafe } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
-import type { WorldCtx } from './world'
+import { KEY_LIGHT_DIR, type WorldCtx } from './world'
+import { createWarlock, type WarlockHandle } from '../character'
+import { tweaks } from '../tweaks'
 
 const DEATH_DUR = 0.9
-const FLASH_DUR = 0.14
-const DECAL_R = 70
+const FLASH_DUR = 0.3
+const DECAL_R = 84
 const CHARGE_R = 250
 const SCOURGE_RADIUS = 250
 
@@ -91,6 +93,9 @@ export class PawnView {
   private burn = 0
   private invuln = 0
   private flashAt = -10
+  private healAt = -10
+  private arriveAt = -10
+  private healK = 0
   private deathAt = -1
   private castSpell = ''
   private castTotal = 1
@@ -103,6 +108,8 @@ export class PawnView {
   onFizzle: ((v: PawnView) => void) | null = null
   private aim: THREE.Mesh
   private aimMat: THREE.MeshBasicNodeMaterial
+  private aimShadow!: THREE.Mesh
+  private aimShadowMat!: THREE.MeshBasicNodeMaterial
   private aR = makeF()
   private aDir = makeF()
   private aLen = makeF()
@@ -143,19 +150,30 @@ export class PawnView {
     {
       const q = positionGeometry.xy
       const rr = length(q).mul(DECAL_R)
-      // contact shadow: dense core right under the feet + a soft skirt
-      const shadowA = float(1).sub(smoothstep(6, 26, rr)).mul(0.45).add(float(1).sub(smoothstep(10, 50, rr)).mul(0.4))
+      // contact shadow (multiplies the floor: premultiplied blend, rgb 0):
+      // a dense core exactly under the feet/hem, a wide soft penumbra, and a
+      // faint AO darkening around the hem
+      // shadow centre nudged a little behind the body (away from the camera),
+      // where it stays visible around the hem instead of hiding under the robe
+      const sq = q.mul(DECAL_R).sub(vec2(0, 7))
+      const rs = length(sq)
+      const core = float(1).sub(smoothstep(16, 36, rs)).mul(0.72)
+      const penumbra = float(1).sub(smoothstep(26, 76, rs)).mul(0.62)
+      const shadowA = saturate(core.add(penumbra))
       const ringX = rr.sub(39).div(3)
       const ring = exp(ringX.mul(ringX).negate())
       const auraR = this.dKb.mul(14).add(48)
       const auraX = rr.sub(auraR).div(this.dKb.mul(8).add(4))
       const aura = exp(auraX.mul(auraX).negate()).mul(this.dKb)
-      const glow = saturate(ring.add(aura.mul(0.7)))
+      // debug: the sim collision circle (r = 30) as a crisp white line
+      const colX = rr.sub(30).div(0.9)
+      const colRing = exp(colX.mul(colX).negate()).mul(tweaks.uShowCollision)
+      const glow = saturate(ring.add(aura.mul(0.7)).add(colRing))
       const pulse = sin(ctx.uTime.mul(6)).mul(0.15).add(0.85)
       // warm contact light just outside the shadow core: lava-lit floor around the hem
       const warmX = rr.sub(44).div(14)
       const warm = exp(warmX.mul(warmX).negate()).mul(0.22)
-      const col = this.dTeam.mul(ring.mul(2.4).add(aura.mul(pulse).mul(this.dKb.mul(3).add(1)))).add(vec3(1.0, 0.42, 0.12).mul(warm))
+      const col = this.dTeam.mul(ring.mul(2.4).add(aura.mul(pulse).mul(this.dKb.mul(3).add(1)))).add(vec3(1.0, 0.42, 0.12).mul(warm)).add(vec3(2.5, 2.5, 2.5).mul(colRing))
       const a = max(shadowA.mul(float(1).sub(glow)), glow).mul(this.dAlpha)
       const m = new THREE.MeshBasicNodeMaterial()
       m.transparent = true
@@ -236,8 +254,21 @@ export class PawnView {
       this.aim.renderOrder = 3
       this.aim.frustumCulled = false
       this.aim.visible = false
+      // soft shadow copy on the floor (the aim graphics float above it)
+      const sm = new THREE.MeshBasicNodeMaterial()
+      sm.transparent = true
+      sm.depthWrite = false
+      sm.colorNode = vec3(0, 0, 0)
+      sm.opacityNode = saturate(inten.mul(0.6))
+      sm.positionNode = m.positionNode
+      sm.name = 'AimShadow'
+      this.aimShadowMat = sm
+      this.aimShadow = new THREE.Mesh(this.aim.geometry, sm)
+      this.aimShadow.renderOrder = 2
+      this.aimShadow.frustumCulled = false
+      this.aimShadow.visible = false
     }
-    this.root.add(this.decal, this.charge, this.aim)
+    this.root.add(this.decal, this.charge, this.aim, this.aimShadow)
   }
 
   setShadows(on: boolean): void {
@@ -245,9 +276,25 @@ export class PawnView {
     this.staff.castShadow = on
   }
 
+  /** character workstream warlock (cc0 or its procedural wrapper); null = built-in body */
+  private warlock: WarlockHandle | null = null
+
   setSlot(slot: PlayerSlot | undefined, owner: number): void {
     this.owner = owner
     const c = slot ? slot.color : 0xcccccc
+    if (!this.warlock) {
+      try {
+        this.warlock = createWarlock({ color: c, ctx: this.ctx })
+        this.root.add(this.warlock.object3d)
+        // the warlock does its own yaw / lean / tumble / cloth / fx: hide the built-in body
+        this.tilt.visible = false
+      } catch (err) {
+        console.warn('PawnView: createWarlock failed, using the built-in placeholder', err)
+        this.warlock = null
+      }
+    } else {
+      this.warlock.setColor(c)
+    }
     this.color.setHex(c)
     this.u.team.value.copy(this.color)
     this.dTeam.value.copy(this.color)
@@ -255,8 +302,30 @@ export class PawnView {
     this.name = slot?.name ?? ''
   }
 
-  hit(now: number): void {
+  /** last physics (knockback) velocity, game units/s, for directional death FX */
+  knockX = 0
+  knockY = 0
+  private cause = ''
+
+  /** Death cause from the sim ('lava' sinks the corpse into the lava). */
+  deathCause(cause: string): void {
+    this.cause = cause
+  }
+
+  /** Teleport arrival: rematerialize (reverse dissolve, cyan edge) + rim flash. */
+  materialize(now: number): void {
+    this.arriveAt = now
+  }
+
+  /** Damage taken: flash strength scales with damage and knockback. */
+  hit(now: number, amount = 70, kb = 0): void {
     this.flashAt = now
+    this.u.flashK.value = Math.min(1.5, 0.35 + amount / 160 + kb / 1400)
+  }
+
+  healed(now: number, amount: number): void {
+    this.healAt = now
+    this.healK = Math.min(1, 0.3 + amount / 120)
   }
 
   /** Damage impulse along the knockback direction: the robe snaps back against it. */
@@ -289,15 +358,33 @@ export class PawnView {
     this.onFizzle?.(this)
   }
 
-  /** World position of the staff crystal (for flares). */
-  tipWorld(out: THREE.Vector3): THREE.Vector3 {
+  /** Where spells leave from: the warlock's palm (or staff crystal), else the built-in staff tip. */
+  castOrigin(out: THREE.Vector3): THREE.Vector3 {
+    if (this.warlock) return this.warlock.castOrigin(out)
     this.tipW.copy(STAFF_TIP).multiplyScalar(S * MODEL_SCALE)
     return this.staff.localToWorld(out.copy(this.tipW))
   }
 
+  /** Alias of castOrigin (older call sites). */
+  tipWorld(out: THREE.Vector3): THREE.Vector3 {
+    return this.castOrigin(out)
+  }
+
+  /** Per-frame update of the character warlock (no-op for the built-in body). */
+  driveWarlock(p: PawnState, prev: PawnState | undefined, alpha: number, dt: number, events: readonly SimEvent[], castColor: number | null): void {
+    const w = this.warlock
+    if (!w) return
+    w.setCastColor(castColor)
+    w.update(p, prev ?? null, alpha, dt, events)
+  }
+
+  get usesWarlock(): boolean {
+    return this.warlock !== null
+  }
+
   /** 0..1 progress of the current windup (for flares). */
   get castFraction(): number {
-    return this.castProgress
+    return this.warlock ? this.warlock.castCharge : this.castProgress
   }
 
   /** The pawn vanished from state without a death event: dissolve it out. */
@@ -337,9 +424,12 @@ export class PawnView {
       // respawn
       this.deathAt = -1
       this.spin = 0
+      this.cause = ''
     }
 
-    const targetH = safe ? TILE_TOP_H : LAVA_H - 16
+    // lava deaths: the corpse thrashes and sinks out of sight
+    const sinking = this.deathAt >= 0 && this.cause === 'lava'
+    const targetH = sinking ? LAVA_H - 140 : safe ? TILE_TOP_H : LAVA_H - 16
     this.h += (targetH - this.h) * (safe ? 1 - Math.exp(-dt * 30) : k * 0.6)
     this.root.position.set(s.x * S, this.h * S, -s.y * S)
 
@@ -347,6 +437,10 @@ export class PawnView {
     const kx = p.vx - p.walkVx
     const ky = p.vy - p.walkVy
     const kmag = Math.hypot(kx, ky)
+    if (p.alive) {
+      this.knockX = kx
+      this.knockY = ky
+    }
     const lean = Math.min(0.55, kmag / 1300)
     if (lean > 0.01) {
       // lean back against the push: rotate about the horizontal axis perpendicular to it
@@ -472,16 +566,40 @@ export class PawnView {
     } else {
       this.aim.visible = false
     }
-    this.aim.position.y = ((safe ? TILE_TOP_H : LAVA_H) - this.h + 1.2) * S
+    // aim graphics float above the floor and cast a soft shadow along the key light
+    const AIM_LIFT = 12
+    const floorH = (safe ? TILE_TOP_H : LAVA_H) - this.h
+    this.aim.position.y = (floorH + AIM_LIFT) * S
+    this.aimShadow.visible = this.aim.visible
+    this.aimShadow.position.set(
+      (-KEY_LIGHT_DIR.x / KEY_LIGHT_DIR.y) * AIM_LIFT * S,
+      (floorH + 0.7) * S,
+      (-KEY_LIGHT_DIR.z / KEY_LIGHT_DIR.y) * AIM_LIFT * S,
+    )
 
-    this.burn += ((this.onLava && p.alive ? 1 : 0) - this.burn) * (1 - Math.exp(-dt * 8))
+    // hem keeps glowing for a couple of seconds after leaving the lava
+    const burnTarget = this.onLava && p.alive ? 1 : 0
+    this.burn += (burnTarget - this.burn) * (1 - Math.exp(-dt * (burnTarget > this.burn ? 8 : 0.9)))
     this.invuln += ((p.invulnerable ? 1 : 0) - this.invuln) * k
     this.u.burn.value = this.burn
     this.u.invuln.value = this.invuln
-    this.u.flash.value = Math.max(0, 1 - (now - this.flashAt) / FLASH_DUR)
+    const ft = (now - this.flashAt) / FLASH_DUR
+    this.u.flash.value = ft >= 0 && ft < 1 ? (1 - ft) * (1 - ft) : 0
+    this.u.heal.value = Math.max(0, 1 - (now - this.healAt) / 0.6) * this.healK
+    const hpf = p.maxHp > 0 ? p.hp / p.maxHp : 1
+    this.u.lowHp.value = p.alive ? Math.max(0, Math.min(1, (0.3 - hpf) / 0.3 + 0.35)) * (hpf < 0.3 ? 1 : 0) : 0
 
     const dying = this.deathAt >= 0
-    const dis = dying ? Math.min(1, (now - this.deathAt) / DEATH_DUR) : 0
+    let dis = dying ? Math.min(1, (now - this.deathAt) / DEATH_DUR) : 0
+    // teleport: body re-forms from the feet up over 0.2 s with an arcane edge
+    const at = (now - this.arriveAt) / 0.2
+    if (!dying && at >= 0 && at < 1) {
+      dis = 1 - at
+      this.u.dissolveColor.value.setRGB(0.8, 2.2, 4.0)
+    } else if (dying) {
+      this.u.dissolveColor.value.setRGB(4.5, 1.4, 0.25)
+    }
+    this.u.arrive.value = Math.max(0, 1 - (now - this.arriveAt) / 0.35)
     this.u.dissolve.value = dis
     this.body.visible = this.staff.visible = dis < 1
 
@@ -493,10 +611,16 @@ export class PawnView {
   }
 
   dispose(): void {
+    if (this.warlock) {
+      this.root.remove(this.warlock.object3d)
+      this.warlock.dispose()
+      this.warlock = null
+    }
     this.material.dispose()
     this.decalMat.dispose()
     this.chargeMat.dispose()
     this.aimMat.dispose()
+    this.aimShadowMat.dispose()
     this.decal.geometry.dispose()
     this.charge.geometry.dispose()
     this.aim.geometry.dispose()

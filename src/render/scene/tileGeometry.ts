@@ -103,9 +103,22 @@ export function buildTileGeometry(mask: number): THREE.BufferGeometry {
     tri([o0[0], o0[1], bevelY], [o1[0], o1[1], bottom], [o1[0], o1[1], bevelY], sideN)
   }
 
+  // uv matching the shader's world-planar mapping (before the per-tile
+  // rotation): tops/bevels (x, -z) / 192, walls (x - z, y) / 192. The
+  // derivative tangent frame for normal maps is built from this attribute.
+  const uvs: number[] = []
+  const k = 1 / (TILE_SIZE * S)
+  for (let i = 0; i < pos.length; i += 3) {
+    const x = pos[i]
+    const y = pos[i + 1]
+    const z = pos[i + 2]
+    if (Math.abs(nrm[i + 1]) > 0.3) uvs.push(x * k, -z * k)
+    else uvs.push((x - z) * k, y * k)
+  }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
   g.computeBoundingSphere()
   return g
 }

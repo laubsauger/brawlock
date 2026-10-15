@@ -41,6 +41,8 @@ export interface Settings {
   keyPreset: KeyPreset
   /** per-action overrides on top of the preset: action id -> KeyboardEvent.code */
   keybinds: Partial<Record<string, string>>
+  /** secondary key per action on top of the preset's secondary; '' = explicitly unbound */
+  keybindsAlt: Partial<Record<string, string>>
   castMode: CastMode
   /** per-slot cast mode override, slot index 0..11 -> mode */
   castModeSlots: Partial<Record<number, CastMode>>
@@ -117,6 +119,7 @@ const defaultSettings: Settings = {
   showPerf: false,
   keyPreset: 'dota',
   keybinds: {},
+  keybindsAlt: {},
   castMode: 'quick',
   castModeSlots: {},
   uiScale: 1,

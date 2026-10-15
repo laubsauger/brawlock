@@ -315,3 +315,18 @@ export function Crown({ title = 'Host' }: { title?: string }) {
     </svg>
   )
 }
+
+/** "F4 / P" as two key caps with a quiet slash. */
+export function KeyCaps({ label }: { label: string }) {
+  const keys = label.split(' / ').filter(Boolean)
+  return (
+    <span className="inline-flex items-center gap-1">
+      {keys.map((k, i) => (
+        <span key={k} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="text-[0.75rem] text-ash">/</span>}
+          <Kbd>{k}</Kbd>
+        </span>
+      ))}
+    </span>
+  )
+}

@@ -109,9 +109,10 @@ export function startLabDriver(o: LabOptions): () => void {
   frame.localPlayer = 0
   input.drain()
   pushState(cloneState(state))
-  ;(window as unknown as Record<string, unknown>).__lab = { state }
-
   let fightStart = -1
+  // dev probe: sim seconds since the fight started (screenshot scripts wait on it)
+  ;(window as unknown as Record<string, unknown>).__lab = { state, t: () => (fightStart < 0 ? -1 : (state.tick - fightStart) / TICK_HZ) }
+
   let lastCycleT = -1
   const placeAll = () => {
     for (const p of state.pawns) {

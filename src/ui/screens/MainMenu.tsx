@@ -5,6 +5,7 @@ import { Button, Kbd } from '../widgets'
 import { hostGame, joinRoom, playOffline } from '../flow'
 import { sfx } from '../lib/sound'
 import { chooseName, NAME_MAX } from '../lib/name'
+import { staggerIn } from '../lib/motion'
 import { Profile } from './Profile'
 
 function MenuEntry({ title, sub, onClick, primary, expanded }: { title: string; sub: string; onClick: () => void; primary?: boolean; expanded?: boolean }) {
@@ -89,6 +90,9 @@ export function MainMenu() {
   const setScreen = useGame((s) => s.setScreen)
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
+  // menu entries rise in one after another whenever the menu shows
+  useEffect(() => staggerIn(navRef.current), [profileOpen])
   const [draft, setDraft] = useState(name)
   useEffect(() => setDraft(name), [name])
 
@@ -130,7 +134,7 @@ export function MainMenu() {
           />
         </label>
 
-        <nav className="flex flex-col gap-2.5" aria-label="Main menu">
+        <nav ref={navRef} className="flex flex-col gap-2.5" aria-label="Main menu">
           <MenuEntry primary title="Play vs bots" sub="Offline practice against the AI" onClick={playOffline} />
           <MenuEntry title="Host online" sub="Get a room code to send a friend" onClick={hostGame} />
           <MenuEntry title="Join game" sub="Type the host's room code" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />

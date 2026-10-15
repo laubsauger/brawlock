@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
+import { pop } from '../lib/motion'
 import { TICK_HZ, type SpellId } from '../../sim/types'
 import { Sigil } from '../icons'
 import { displayName, itemDef, knownCooldown, SPELL_MAX_LEVEL } from '../data/catalog'
@@ -33,6 +34,14 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
 
   const isItem = index >= SPELL_SLOTS
   const maxLevel = isItem ? (itemDef(info.spell)?.maxLevel ?? 1) : SPELL_MAX_LEVEL
+  // pips gained since the last render pop in; a new spell or level pops the whole slot
+  const prev = useRef({ spell: info.spell, level: info.level })
+  const from = prev.current.spell === info.spell ? prev.current.level : 0
+  useEffect(() => {
+    const p = prev.current
+    if (info.spell && (info.spell !== p.spell || info.level > p.level)) pop(root.current, 1.12, 380)
+    prev.current = { spell: info.spell, level: info.level }
+  }, [info.spell, info.level])
 
   useTick(() => {
     const el = root.current
@@ -93,7 +102,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       {info.spell && maxLevel > 1 && (
         <div className="pips" aria-hidden>
           {Array.from({ length: maxLevel }, (_, i) => (
-            <i key={i} data-on={i < info.level} />
+            <i key={i} data-on={i < info.level} data-new={info.level > from && i >= from && i < info.level} />
           ))}
         </div>
       )}

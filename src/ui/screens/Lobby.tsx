@@ -68,7 +68,7 @@ function PlayerCard({
   const color = hex(slot.color)
   return (
     <li
-      className="fade-in relative flex items-center gap-3.5 rounded-lg px-3 py-2.5"
+      className="card-in relative flex items-center gap-3.5 rounded-lg px-3 py-2.5"
       style={{ background: `linear-gradient(90deg, ${color}1f, rgba(0,0,0,.22) 45%)`, boxShadow: `inset 3px 0 0 ${color}, inset 0 0 0 1px rgba(255,170,100,.08)` }}
     >
       <span
@@ -81,7 +81,7 @@ function PlayerCard({
           <span className="truncate text-[1.15rem] font-bold">{slot.name}</span>
           {isHost && <Crown />}
           {isLocal && <span className="chip text-gold">You</span>}
-          {ready && <span className="chip bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}
+          {ready && <span className="chip pop-in bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}
         </div>
         <div className="flex items-center gap-3 text-sm text-ash">
           <span>{slot.kind === 'bot' ? `Bot, ${DIFFICULTY_LABEL[slot.difficulty ?? 'medium'].toLowerCase()}` : 'Human'}</span>

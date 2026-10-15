@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
+import { countTo, flashEl, pop } from '../lib/motion'
 import { useTick } from '../lib/ticker'
 import { kbMultiplier, localView } from '../lib/view'
 
@@ -35,6 +36,7 @@ export function Vitals() {
     const frac = max > 0 ? Math.min(1, hp / max) : 0
     if (hp !== s.hp || max !== s.max) {
       if (frac < s.frac) s.trailHoldUntil = now + 380 // hold the trail, then bleed down
+      if (s.hp >= 0 && s.hp - hp >= 15) flashEl(hpFrame.current) // took a real hit
       s.frac = frac
       s.hp = hp
       s.max = max
@@ -106,17 +108,34 @@ export function Vitals() {
   )
 }
 
+/** Gold counts toward its new value and pops when it changes. */
 export function Gold() {
   const ref = useRef<HTMLSpanElement>(null)
-  const last = useRef(-1)
+  const root = useRef<HTMLDivElement>(null)
+  const st = useRef({ target: -1, shown: 0, cancel: () => {} })
+  useEffect(() => () => st.current.cancel(), [])
   useTick(() => {
     const g = localView()?.score?.gold
-    if (g == null || g === last.current || !ref.current) return
-    last.current = g
-    ref.current.textContent = String(Math.floor(g))
+    if (g == null || !ref.current) return
+    const v = Math.floor(g)
+    const s = st.current
+    if (v === s.target) return
+    const first = s.target < 0
+    s.target = v
+    s.cancel()
+    if (first) {
+      s.shown = v
+      ref.current.textContent = String(v)
+      return
+    }
+    s.cancel = countTo(s.shown, v, 450, (x) => {
+      s.shown = x
+      if (ref.current) ref.current.textContent = String(x)
+    })
+    pop(root.current, 1.18)
   })
   return (
-    <div className="flex h-[18px] items-center gap-1 text-[0.98rem] leading-none font-bold text-gold" title="Gold">
+    <div ref={root} className="flex h-[18px] items-center gap-1 text-[0.98rem] leading-none font-bold text-gold" title="Gold">
       <span className="coin" aria-hidden />
       <span ref={ref} className="tabular">
         0

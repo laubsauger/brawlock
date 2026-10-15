@@ -7,6 +7,7 @@ import { uniform } from 'three/tsl'
 export type TileMaterialMode = 'auto' | 'procedural' | 'textured'
 
 export const tweaks = {
+
   /** 'auto' = authored PBR set when it exists, else procedural */
   tileMaterial: 'auto' as TileMaterialMode,
   /** bumped whenever a switch needs a material rebuild */
@@ -15,6 +16,8 @@ export const tweaks = {
   uEdgeGlow: uniform(1),
   /** falloff width of that glow into the platform, game units */
   uEdgeWidth: uniform(45),
+  /** debug: draw the sim collision circle (r = 30) under every pawn */
+  uShowCollision: uniform(0),
   /** engraved floor sigils on some tiles (0 off, 1 on) */
   uSigils: uniform(0),
   /** debug: colour tile faces by class (top red, bevel green, wall blue) */
@@ -23,6 +26,7 @@ export const tweaks = {
 
 /** Inspector-friendly accessors (plain properties over the uniforms). */
 export const tweakParams = {
+
   get tileMaterial(): TileMaterialMode {
     return tweaks.tileMaterial
   },
@@ -36,6 +40,12 @@ export const tweakParams = {
   },
   set edgeGlow(v: number) {
     tweaks.uEdgeGlow.value = v
+  },
+  get showCollision(): boolean {
+    return tweaks.uShowCollision.value > 0.5
+  },
+  set showCollision(v: boolean) {
+    tweaks.uShowCollision.value = v ? 1 : 0
   },
   get sigils(): boolean {
     return tweaks.uSigils.value > 0.5

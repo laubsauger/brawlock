@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useGame, type CastMode, type Quality } from '../game/store'
 import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
-import { ACTION_LABEL, BIND_GROUPS, keyLabel, PRESET_INFO, PRESETS, RESERVED_KEYS, resolveBinds, type BindAction } from './lib/keys'
+import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, PRESETS, PRESETS_ALT, RESERVED_KEYS, resolveBinds, type BindAction } from './lib/keys'
 import { sfx } from './lib/sound'
 import { audio } from '../audio'
 import { chooseName } from './lib/name'
@@ -47,23 +47,29 @@ function slotIndex(a: BindAction): number {
   return -1
 }
 
+type Which = 'primary' | 'secondary'
+
 /**
- * Click a key to rebind it, then press the new key. Taking a key that is
- * already in use swaps the two bindings. Esc cancels.
+ * Two keys per action. Click a key cell, then press the new key (Delete or
+ * Backspace clears a secondary, Esc cancels). Taking a key that is already
+ * bound anywhere (primary or secondary) moves it: the other action gets this
+ * cell's old key, or loses that key if this cell was empty.
  */
 function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
   const preset = useGame((st) => st.settings.keyPreset)
   const keybinds = useGame((st) => st.settings.keybinds)
+  const keybindsAlt = useGame((st) => st.settings.keybindsAlt)
   const castMode = useGame((st) => st.settings.castMode)
   const castModeSlots = useGame((st) => st.settings.castModeSlots)
   const setSettings = useGame((st) => st.setSettings)
-  const binds = useMemo(() => resolveBinds({ keyPreset: preset, keybinds }), [preset, keybinds])
-  const [capturing, setCapturing] = useState<BindAction | null>(null)
+  const binds = useMemo(() => resolveBinds({ keyPreset: preset, keybinds, keybindsAlt }), [preset, keybinds, keybindsAlt])
+  const [capturing, setCapturing] = useState<{ action: BindAction; which: Which } | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
     onCapture(capturing !== null)
     if (!capturing) return
+    const { action, which } = capturing
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -72,31 +78,98 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
         setCapturing(null)
         return
       }
+      const next = { primary: { ...binds.primary }, secondary: { ...binds.secondary } }
+      const slotName = (a: BindAction, w: Which) => `${ACTION_LABEL[a]}${w === 'secondary' ? ' (second key)' : ''}`
+      if (e.code === 'Backspace' || e.code === 'Delete') {
+        if (which === 'primary') {
+          sfx('error')
+          setNote('Every action keeps a main key. Rebind it instead, or clear the second key.')
+          return
+        }
+        next.secondary[action] = ''
+        save(next)
+        setNote(`${ACTION_LABEL[action]} has no second key now.`)
+        setCapturing(null)
+        return
+      }
       if (RESERVED_KEYS.has(e.code)) {
         sfx('error')
         setNote(`${keyLabel(e.code)} is reserved. Pick another key.`)
         return
       }
-      const next: Record<string, string> = { ...binds }
-      const old = next[capturing]
-      const clash = (Object.keys(next) as BindAction[]).find((k) => k !== capturing && next[k] === e.code)
-      next[capturing] = e.code
-      if (clash) next[clash] = old
-      // store only what differs from the preset
-      const base = PRESETS[preset]
-      const overrides: Record<string, string> = {}
-      for (const k of Object.keys(next) as BindAction[]) if (next[k] !== base[k]) overrides[k] = next[k]
-      setSettings({ keybinds: overrides })
+      const old = next[which][action]
+      const other = which === 'primary' ? 'secondary' : 'primary'
+      if (next[other][action] === e.code) {
+        // already this action's other key: just swap the two cells of this action
+        next[other][action] = old
+        next[which][action] = e.code
+        save(next)
+        setNote(null)
+        setCapturing(null)
+        return
+      }
+      let clash: { a: BindAction; w: Which } | null = null
+      for (const w of ['primary', 'secondary'] as Which[]) {
+        for (const a of Object.keys(next[w]) as BindAction[]) {
+          if (next[w][a] === e.code && !(a === action && w === which)) clash = { a, w }
+        }
+      }
+      next[which][action] = e.code
+      let msg: string | null = null
+      if (clash) {
+        if (old) {
+          next[clash.w][clash.a] = old
+          msg = `${keyLabel(e.code)} was on ${slotName(clash.a, clash.w)}; that now uses ${keyLabel(old)}.`
+        } else if (clash.w === 'primary' && next.secondary[clash.a]) {
+          // the other action keeps working: its second key becomes its main key
+          next.primary[clash.a] = next.secondary[clash.a]
+          next.secondary[clash.a] = ''
+          msg = `${keyLabel(e.code)} moved here; ${ACTION_LABEL[clash.a]} now uses ${keyLabel(next.primary[clash.a])}.`
+        } else {
+          next[clash.w][clash.a] = ''
+          msg = `${keyLabel(e.code)} moved here; ${slotName(clash.a, clash.w)} has no key now.`
+        }
+      }
+      save(next)
       sfx('click')
-      setNote(clash ? `${keyLabel(e.code)} was on ${ACTION_LABEL[clash]}; that now uses ${keyLabel(old)}.` : null)
+      setNote(msg)
       setCapturing(null)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
+
+    function save(next: { primary: Record<string, string>; secondary: Record<string, string> }) {
+      // store only what differs from the preset, so preset updates still reach the player
+      const base = PRESETS[preset]
+      const baseAlt = PRESETS_ALT[preset]
+      const p: Record<string, string> = {}
+      const s: Record<string, string> = {}
+      for (const k of Object.keys(next.primary) as BindAction[]) if (next.primary[k] !== base[k]) p[k] = next.primary[k]
+      for (const k of Object.keys(next.secondary) as BindAction[]) if (next.secondary[k] !== baseAlt[k]) s[k] = next.secondary[k]
+      setSettings({ keybinds: p, keybindsAlt: s })
+    }
   }, [capturing, binds, preset, setSettings, onCapture])
 
-  const custom = Object.keys(keybinds ?? {}).length > 0 || Object.keys(castModeSlots ?? {}).length > 0
+  const custom = Object.keys(keybinds ?? {}).length > 0 || Object.keys(keybindsAlt ?? {}).length > 0 || Object.keys(castModeSlots ?? {}).length > 0
   const preset_ = PRESET_INFO.find((p) => p.value === preset)
+
+  const cell = (a: BindAction, which: Which, label: string) => {
+    const on = capturing?.action === a && capturing.which === which
+    const code = binds[which][a]
+    return (
+      <button
+        type="button"
+        className={`kbd h-8 min-w-[5rem] px-2 text-[0.92rem] ${on ? 'animate-pulse ring-2 ring-gold' : 'hover:brightness-125'} ${!code && !on ? 'opacity-60' : ''}`}
+        aria-label={`${label}, ${which === 'primary' ? 'main' : 'second'} key: ${code ? keyLabel(code) : 'none'}. Click to change`}
+        onClick={() => {
+          setNote(null)
+          setCapturing(on ? null : { action: a, which })
+        }}
+      >
+        {on ? 'Press a key' : code ? keyLabel(code) : '–'}
+      </button>
+    )
+  }
 
   return (
     <>
@@ -106,8 +179,9 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
           value={preset}
           options={PRESET_INFO.map((p) => ({ value: p.value, label: p.label }))}
           onChange={(keyPreset) => {
-            setSettings({ keyPreset, keybinds: {} })
-            setNote(Object.keys(keybinds ?? {}).length ? 'Custom keys were cleared for the new preset.' : null)
+            const hadCustom = Object.keys(keybinds ?? {}).length + Object.keys(keybindsAlt ?? {}).length > 0
+            setSettings({ keyPreset, keybinds: {}, keybindsAlt: {} })
+            setNote(hadCustom ? 'Custom keys were cleared for the new preset.' : null)
           }}
         />
       </Row>
@@ -115,31 +189,22 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
         <Segmented label="Cast mode" value={castMode} options={CAST_MODES} onChange={(m) => setSettings({ castMode: m })} />
       </Row>
       <div className="py-2">
-        <div className="well grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-1 px-4 py-3">
+        <div className="well grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 px-4 py-3">
           <span className="text-[0.95rem] text-ash">Move: right click (hold to keep moving)</span>
-          <span />
+          <span className="text-center text-[0.8rem] font-semibold text-ash">Key</span>
+          <span className="text-center text-[0.8rem] font-semibold text-ash">Second key</span>
           <span />
           {BIND_GROUPS.map((g) => (
             <div key={g.title} className="contents">
-              <span className="col-span-3 mt-2 text-[0.98rem] font-bold text-[#ffd890]">{g.title}</span>
+              <span className="col-span-4 mt-2 text-[0.98rem] font-bold text-[#ffd890]">{g.title}</span>
               {g.actions.map((a) => {
                 const slot = slotIndex(a.id)
                 const mode = slot >= 0 ? castModeSlots?.[slot] : undefined
-                const isCap = capturing === a.id
                 return (
                   <div key={a.id} className="contents">
                     <span className="truncate text-[0.98rem]">{a.label}</span>
-                    <button
-                      type="button"
-                      className={`kbd h-8 min-w-[5.5rem] px-2 text-[0.92rem] ${isCap ? 'animate-pulse ring-2 ring-gold' : 'hover:brightness-125'}`}
-                      aria-label={`${a.label}: ${keyLabel(binds[a.id])}. Click to change`}
-                      onClick={() => {
-                        setNote(null)
-                        setCapturing(isCap ? null : a.id)
-                      }}
-                    >
-                      {isCap ? 'Press a key' : keyLabel(binds[a.id])}
-                    </button>
+                    {cell(a.id, 'primary', a.label)}
+                    {cell(a.id, 'secondary', a.label)}
                     {slot >= 0 ? (
                       <select
                         className="field w-32 py-1 text-[0.92rem]"
@@ -168,20 +233,22 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
               })}
             </div>
           ))}
-          <span className="col-span-3 mt-2 text-[0.9rem] text-ash">
+          <span className="col-span-4 mt-2 text-[0.9rem] text-ash">
             Fixed: <Kbd>Esc</Kbd> menu and cancel, <Kbd>F2</Kbd> performance overlay
           </span>
         </div>
         <div className="mt-2 flex min-h-8 items-center justify-between gap-3">
           <p className="text-[0.92rem] text-[#ffcf9a]" aria-live="polite">
-            {capturing ? `Press the new key for ${ACTION_LABEL[capturing]}. Esc cancels.` : note}
+            {capturing
+              ? `Press the new ${capturing.which === 'secondary' ? 'second ' : ''}key for ${ACTION_LABEL[capturing.action]}. ${capturing.which === 'secondary' ? 'Delete clears it. ' : ''}Esc cancels.`
+              : note}
           </p>
           <Button
             size="sm"
             variant="ghost"
             disabled={!custom}
             onClick={() => {
-              setSettings({ keybinds: {}, castModeSlots: {} })
+              setSettings({ keybinds: {}, keybindsAlt: {}, castModeSlots: {} })
               setNote(`Back to the ${preset_?.label ?? ''} preset.`)
             }}
           >
@@ -218,7 +285,7 @@ export function SettingsModal() {
       </Section>
 
       <Section title="Audio">
-        <Row label="Mute" hint={`Also with ${keyLabel(resolveBinds(s).mute)} at any time`}>
+        <Row label="Mute" hint={`Also with ${bindLabel(resolveBinds(s), 'mute')} at any time`}>
           <Switch label="Mute" checked={s.muted} onChange={(muted) => setSettings({ muted })} />
         </Row>
         <Row label="Master">

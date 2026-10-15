@@ -289,10 +289,10 @@ export class Obstacles {
       em = vec3(2.0, 0.7, 0.15).mul(band.mul(dmg.mul(1.5).add(0.15)))
     } else if (kind === 1) {
       // volcanic: black basalt with ember veins that widen as it cracks
-      base = mix(vec3(0.025, 0.022, 0.024), vec3(0.075, 0.06, 0.06), n1.r).mul(n2.g.mul(0.4).add(0.75))
+      base = mix(vec3(0.045, 0.04, 0.042), vec3(0.11, 0.09, 0.088), n1.r).mul(n2.g.mul(0.4).add(0.75))
       rough = mix(float(0.45), float(0.85), n2.r)
       const veins = float(1).sub(smoothstep(0, 0.035, texture(noise, vec2(gp.x.add(gp.y), h).mul(1 / 120).add(seed)).b))
-      em = vec3(2.4, 0.5, 0.06).mul(veins.mul(dmg.mul(1.4).add(0.25)).mul(sin(t.mul(2).add(h.mul(0.05))).mul(0.2).add(0.8)))
+      em = vec3(2.4, 0.5, 0.06).mul(veins.mul(dmg.mul(1.4).add(0.45)).mul(sin(t.mul(2).add(h.mul(0.05))).mul(0.2).add(0.8)))
     } else {
       // overgrown: grey stone carpeted in moss on top, lichen speckles
       const stone = mix(vec3(0.07, 0.07, 0.065), vec3(0.16, 0.15, 0.13), n1.r)
@@ -313,7 +313,7 @@ export class Obstacles {
       const orm = triplanarTexture(texture(maps.orm), null, null, sc, positionWorld, normalWorld).rgb
       const hTex = maps.height ?? maps.albedo
       const hh = triplanarTexture(texture(hTex), null, null, sc, positionWorld, normalWorld).r
-      const tint = kind === 0 ? vec3(0.92, 0.88, 0.82) : kind === 1 ? vec3(0.32, 0.3, 0.32) : vec3(0.7, 0.72, 0.66)
+      const tint = kind === 0 ? vec3(0.92, 0.88, 0.82) : kind === 1 ? vec3(0.5, 0.46, 0.48) : vec3(0.7, 0.72, 0.66)
       const stoneT = alb.mul(tint)
       // keep the theme's character (runes, veins, moss) by blending over the texture
       base = mix(stoneT, base, kind === 2 ? 0.45 : 0.25)

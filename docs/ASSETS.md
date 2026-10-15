@@ -72,3 +72,13 @@ All images below were generated with the Codex CLI built-in image generation (`i
 | `art/source/textures/height16/*_height16.png` | Derived from the texture masters | 16-bit height masters (the public height maps are 8-bit) | Original, generated for this project |
 | `art/contact-sheet.png` | Composite of the final icons (`art/tools/contact_sheet.py`) | Review sheet of every icon with its id | Original, generated for this project |
 | `art/previews/*` | Composites | Texture review: 2x2 tiling, raking-light check at 100% and 25%, height preview, and side-by-side with the original mod texture. The `_vs_original` images contain the original mod's textures for comparison only: keep them out of `public/`. | Original, generated for this project |
+
+## Character base (public/models/warlock/warlock.glb)
+
+Customized warlock built on CC0 assets by Quaternius (https://quaternius.com), license CC0 1.0 Universal (public domain), verified in each pack's license file on 2026-10-15:
+
+- Universal Base Characters (Standard): skeleton and base body
+- Universal Animation Library 1 and 2 (Standard): animation clips
+- Modular Character Outfits - Fantasy (Standard): hood, boots, gauntlets
+
+Robe, mantle, cape, runes and materials are custom geometry and shaders in src/render/character.

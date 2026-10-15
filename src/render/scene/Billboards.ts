@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { float, instancedBufferAttribute, length, mrt, pow, saturate, uv, vec2, vec4 } from 'three/tsl'
-import { asV4 } from './world'
+import { asV4, spriteGroundFade, type ArenaField } from './world'
 
 /**
  * Per-frame additive glow sprites (projectile halos and comet streaks, staff
@@ -20,6 +20,7 @@ export class Billboards {
   constructor(
     private capacity = 128,
     heatHaze = false,
+    field: ArenaField | null = null,
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
@@ -41,9 +42,12 @@ export class Billboards {
     m.depthWrite = false
     m.blending = THREE.AdditiveBlending
     m.positionNode = P.xyz
-    m.scaleNode = vec2(P.w.mul(E.y), P.w)
+    const scale = vec2(P.w.mul(E.y), P.w)
+    m.scaleNode = scale
     m.rotationNode = E.x
-    m.colorNode = C.xyz.mul(shape)
+    // soft-particle fade where a glow sprite cuts into the floor
+    const ground = field ? spriteGroundFade(P.xyz, scale, E.x, field, 26) : float(1)
+    m.colorNode = C.xyz.mul(shape).mul(ground)
     m.opacityNode = float(1)
     if (heatHaze) m.mrtNode = mrt({ heat: vec4(shape.mul(E.z), 0, 0, 1) })
     m.name = 'Billboards'

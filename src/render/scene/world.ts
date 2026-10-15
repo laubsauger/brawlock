@@ -1,10 +1,15 @@
 import * as THREE from 'three/webgpu'
-import { Fn, Loop, dot, float, max, positionWorld, texture, uniform, uniformArray, vec2, vec3 } from 'three/tsl'
+import { Fn, Loop, cameraWorldMatrix, cos, dot, float, max, mix, positionGeometry, positionWorld, sin, smoothstep, step, texture, uniform, uniformArray, varying, vec2, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { SDF_EXTENT, SDF_RANGE, SDF_RES, writeArenaSdf } from '../arenaGeom'
-import { S } from '../coords'
+import { LAVA_H, S, TILE_TOP_H } from '../coords'
 import type { TierConfig } from '../quality'
 import { getNoiseTexture } from './noiseTexture'
+
+/** Key (moon) light direction, three world space, pointing TOWARD the light. */
+// high moon (~77 degrees) from slightly behind the camera: the cast shadow sits
+// under the body and a little behind it, reading as contact, not as a hover
+export const KEY_LIGHT_DIR = new THREE.Vector3(-0.16, 0.975, 0.14).normalize()
 
 /** Cast helpers for nodes the typings widen (uniform array elements, buffer attributes). */
 export const asV4 = (n: unknown) => n as Node<'vec4'>
@@ -131,4 +136,29 @@ export function createWorldCtx(tier: TierConfig, fx: number): WorldCtx {
     glow: new GlowLights(),
     tier,
   }
+}
+
+/**
+ * Soft-particle fade for camera-facing sprites: reconstructs each fragment's
+ * world position from the sprite centre, its view-space corner offset and the
+ * camera basis, then fades the sprite out as it approaches the floor (tile
+ * top, or the lava surface where the arena SDF says lava). Removes the hard
+ * straight edge where a sprite cuts into the ground. `soft` in game units.
+ */
+export function spriteGroundFade(
+  center: Node<'vec3'>,
+  scale: Node<'vec2'>,
+  rotation: Node<'float'>,
+  field: ArenaField,
+  soft = 22,
+): Node<'float'> {
+  const corner = positionGeometry.xy.mul(scale)
+  const c = cos(rotation)
+  const s = sin(rotation)
+  const rot = vec2(corner.x.mul(c).sub(corner.y.mul(s)), corner.x.mul(s).add(corner.y.mul(c)))
+  const worldOff = cameraWorldMatrix.mul(vec4(rot, 0, 0)).xyz
+  const wp = varying(center.add(worldOff))
+  const sd = field.sample(vec2(wp.x, wp.z.negate()).div(S))
+  const floorY = mix(float(TILE_TOP_H * S), float(LAVA_H * S), step(0, sd))
+  return smoothstep(floorY, floorY.add(soft * S), wp.y)
 }

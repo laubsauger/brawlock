@@ -100,6 +100,7 @@ function MatchScene({ fx, quality, overlayEl }: { fx: number; quality: Parameter
     scene.background = new THREE.Color(0x0b0604)
     scene.fogNode = world.fogNode
     worldRef.current = world
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__brawlockWorld = world
     return () => {
       scene.remove(world.root)
       scene.fogNode = null

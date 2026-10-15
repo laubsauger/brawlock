@@ -13,11 +13,11 @@ import { DEFAULT_SETTINGS, cloneState, createMatch, step } from '../../sim'
 import { DT, type BotDifficulty, type PlayerInput, type PlayerSlot } from '../../sim/types'
 import { devTime } from '../stats'
 
-const COLORS = [0xff5a36, 0x3fa9ff, 0x5fd35a, 0xc86bff]
-const NAMES = ['You', 'Frostbinder', 'Mossgrave', 'Hexweaver']
+const COLORS = [0xff5a36, 0x3fa9ff, 0x5fd35a, 0xc86bff, 0xffd23f, 0x2ee6c9, 0xff5fa8, 0xa3e048, 0xff8f3f, 0x8f9bff]
+const NAMES = ['You', 'Frostbinder', 'Mossgrave', 'Hexweaver', 'Ashmonger', 'Tidecaller', 'Rosethorn', 'Bilecrown', 'Cinderjaw', 'Duskveil']
 
 export function startSimDriver(opts: { bots?: number; difficulty?: BotDifficulty; shopSeconds?: number; seed?: number } = {}): () => void {
-  const nBots = Math.max(1, Math.min(3, opts.bots ?? 1))
+  const nBots = Math.max(1, Math.min(9, opts.bots ?? 1))
   const slots: PlayerSlot[] = []
   for (let i = 0; i <= nBots; i++) {
     slots.push({ id: i, name: NAMES[i], color: COLORS[i], team: i, kind: i === 0 ? 'human' : 'bot', difficulty: i === 0 ? undefined : opts.difficulty ?? 'medium' })

@@ -10,6 +10,7 @@ import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
+import { InkFilters } from './ui/InkFilters'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { music } from './ui/lib/sound'
 
@@ -119,6 +120,7 @@ export default function App() {
 
   return (
     <div className="relative h-full overflow-hidden">
+      <InkFilters />
       {BACKDROP.has(screen) && <Backdrop />}
       <main key={screen} className="absolute inset-0">
         {screen === 'menu' && <MainMenu />}

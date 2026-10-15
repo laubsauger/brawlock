@@ -15,8 +15,14 @@ export interface RenderStats {
   frameMs: number
   /** smoothed main-thread time of scene update + render submit, ms */
   cpuMs: number
-  /** GPU time of the last resolved frame (timestamp queries), ms; -1 = unavailable */
+  /**
+   * GPU time per frame from timestamp queries, ms; -1 = unavailable or
+   * implausible. On tile-based GPUs (Apple) per-pass timestamps overlap and
+   * their sum can exceed the frame interval; such readings are rejected here
+   * (raw value kept in gpuMsRaw). Use perfProbe.bench() for a real number.
+   */
   gpuMs: number
+  gpuMsRaw: number
   drawCalls: number
   triangles: number
 }
@@ -29,6 +35,7 @@ export const renderStats: RenderStats = {
   frameMs: 0,
   cpuMs: 0,
   gpuMs: -1,
+  gpuMsRaw: -1,
   drawCalls: 0,
   triangles: 0,
 }
@@ -38,3 +45,11 @@ export const perfMark = { start: 0 }
 
 /** Dev-only: slow motion for VFX review (preview ?slow=0.25). 1 = real time. */
 export const devTime = { scale: 1 }
+
+/**
+ * Real GPU cost probe (dev / perf HUD on demand): renders `frames` frames
+ * back to back and waits for the GPU queue to drain, returning ms per frame
+ * (throughput, so it includes CPU encode if that is the bottleneck).
+ * Set by the active render loop; null when no WebGPU canvas is mounted.
+ */
+export const perfProbe: { bench: ((frames?: number) => Promise<number>) | null } = { bench: null }

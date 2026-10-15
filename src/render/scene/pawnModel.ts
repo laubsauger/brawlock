@@ -207,6 +207,16 @@ export interface PawnUniforms {
   flutter: ReturnType<typeof makeFloatUniform>
   /** per-pawn phase so robes do not flutter in sync */
   phase: ReturnType<typeof makeFloatUniform>
+  /** hit flash strength (scaled by damage / knockback of the hit) */
+  flashK: ReturnType<typeof makeFloatUniform>
+  /** 0..1 below 30 % HP: red pulse on the rim */
+  lowHp: ReturnType<typeof makeFloatUniform>
+  /** 1 -> 0 after a heal: soft green glow */
+  heal: ReturnType<typeof makeFloatUniform>
+  /** dissolve edge colour (burn-up orange on death, arcane cyan on teleport) */
+  dissolveColor: ReturnType<typeof makeColorUniform>
+  /** 1 -> 0 after a teleport arrival: cyan rim flash */
+  arrive: ReturnType<typeof makeFloatUniform>
 }
 
 const makeVec3Uniform = () => uniform(new THREE.Vector3())
@@ -226,7 +236,13 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
     sway: makeVec3Uniform(),
     flutter: makeFloatUniform(),
     phase: makeFloatUniform(),
+    flashK: makeFloatUniform(),
+    lowHp: makeFloatUniform(),
+    heal: makeFloatUniform(),
+    dissolveColor: makeColorUniform(),
+    arrive: makeFloatUniform(),
   }
+  u.dissolveColor.value.setRGB(4.5, 1.4, 0.25)
   const t = ctx.uTime
   const part = asF(attribute('aPart', 'float'))
   const team = u.team
@@ -258,7 +274,15 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   em = em.add(team.mul(u.cast.mul(8).add(1.4)).add(vec3(1, 1, 1).mul(u.cast.mul(3))).mul(pCrystal))
   // silhouette rim: team tint plus cool moonlight, keeps dark robes readable on dark tiles
   em = em.add(team.mul(0.28).add(vec3(0.05, 0.07, 0.14)).mul(rimF).mul(float(1).sub(pEyes)))
-  em = em.add(vec3(3, 3, 3).mul(u.flash))
+  // hit: a split-second hot-white core that cools into a red tint, scaled by the hit
+  const hot = smoothstep(0.72, 1.0, u.flash)
+  const hitCol = mix(vec3(2.4, 0.14, 0.07), vec3(3.4, 3.1, 2.8), hot)
+  em = em.add(hitCol.mul(u.flash).mul(u.flashK).mul(rimF.mul(0.6).add(0.55)))
+  // below 30 % HP: a faint persistent red pulse on the rim
+  const lowPulse = sin(t.mul(6.5)).mul(0.5).add(0.5)
+  em = em.add(vec3(1.4, 0.06, 0.04).mul(u.lowHp).mul(rimF.mul(0.9).add(0.12)).mul(lowPulse.mul(0.7).add(0.3)))
+  // heal: soft green wash
+  em = em.add(vec3(0.25, 1.3, 0.45).mul(u.heal).mul(rimF.mul(0.7).add(0.25)))
   // lava light: the closer to the shore (or standing in it), the more the
   // robe is lit orange from below and the sides
   const sdP = ctx.field.sample(gamePos())
@@ -277,7 +301,9 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   const dis = u.dissolve.mul(1.25)
   const v = h01.mul(0.65).add(n.b.mul(0.35))
   const edge = float(1).sub(smoothstep(0, 0.08, v.sub(dis))).mul(step(0.001, u.dissolve))
-  em = em.add(vec3(4.5, 1.4, 0.25).mul(edge))
+  em = em.add(u.dissolveColor.mul(edge))
+  // teleport arrival: arcane rim flash
+  em = em.add(vec3(0.9, 1.8, 3.2).mul(u.arrive).mul(rimF.mul(1.2).add(0.3)))
 
   // ---- faked cloth: the robe hem and mantle lag behind velocity changes
   // (CPU spring in PawnView feeds u.sway), ripple when moving fast, settle

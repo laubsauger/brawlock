@@ -28,7 +28,14 @@ export type BindAction =
   | 'recenter'
   | 'mute'
 
-export type Binds = Record<BindAction, string>
+/** Key per action (KeyboardEvent.code); '' = unbound. */
+export type BindMap = Record<BindAction, string>
+
+/** Primary and secondary key for every action. Either one triggers the action. */
+export interface Binds {
+  primary: BindMap
+  secondary: BindMap
+}
 
 export const BIND_GROUPS: { title: string; actions: { id: BindAction; label: string }[] }[] = [
   {
@@ -80,7 +87,7 @@ export const ACTION_LABEL: Record<BindAction, string> = Object.fromEntries(BIND_
 const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', mute: 'KeyM' } as const
 const DIGITS = { item0: 'Digit1', item1: 'Digit2', item2: 'Digit3', item3: 'Digit4', item4: 'Digit5', item5: 'Digit6' } as const
 
-export const PRESETS: Record<KeyPreset, Binds> = {
+export const PRESETS: Record<KeyPreset, BindMap> = {
   // Dota 2 defaults. B is item 5 there, so the shop sits on F4 as in Dota; C is item 3, so stats move to K.
   dota: {
     spell0: 'KeyQ',
@@ -132,18 +139,40 @@ export const PRESET_INFO: { value: KeyPreset; label: string; hint: string }[] = 
   { value: 'classic', label: 'Classic', hint: 'Spells D R T E C Y, items 1 to 6, as in the original' },
 ]
 
+/**
+ * Preset secondaries. Shop on P everywhere (League's shop key; no preset uses P), so Mac
+ * players never need Fn for F4.
+ */
+const NO_KEYS = Object.fromEntries(Object.keys(PRESETS.dota).map((k) => [k, ''])) as BindMap
+export const PRESETS_ALT: Record<KeyPreset, BindMap> = {
+  dota: { ...NO_KEYS, shop: 'KeyP' },
+  modern: { ...NO_KEYS, shop: 'KeyP' },
+  classic: { ...NO_KEYS, shop: 'KeyP' },
+}
+
 /** Keys that stay fixed: Esc opens the menu, F2 the perf overlay; F5 / F11 / F12 belong to the browser. */
 export const RESERVED_KEYS = new Set(['Escape', 'F2', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'ContextMenu'])
 
-export function resolveBinds(s: Pick<Settings, 'keyPreset' | 'keybinds'>): Binds {
-  const base = PRESETS[s.keyPreset] ?? PRESETS.dota
-  const out = { ...base }
-  for (const [k, v] of Object.entries(s.keybinds ?? {})) if (k in out && typeof v === 'string' && v) out[k as BindAction] = v
-  return out
+export function resolveBinds(s: Pick<Settings, 'keyPreset' | 'keybinds' | 'keybindsAlt'>): Binds {
+  const preset = PRESETS[s.keyPreset] ? s.keyPreset : 'dota'
+  const primary = { ...PRESETS[preset] }
+  for (const [k, v] of Object.entries(s.keybinds ?? {})) if (k in primary && typeof v === 'string' && v) primary[k as BindAction] = v
+  const secondary = { ...PRESETS_ALT[preset] }
+  for (const [k, v] of Object.entries(s.keybindsAlt ?? {})) if (k in secondary && typeof v === 'string') secondary[k as BindAction] = v
+  // a primary always wins: a default secondary on a key the player already uses elsewhere is dropped,
+  // so saved overrides from before secondaries existed keep working unchanged
+  const used = new Set(Object.values(primary).filter(Boolean))
+  for (const k of Object.keys(secondary) as BindAction[]) {
+    const code = secondary[k]
+    if (!code) continue
+    if (used.has(code)) secondary[k] = ''
+    else used.add(code)
+  }
+  return { primary, secondary }
 }
 
 let cacheKey: unknown = null
-let cacheVal: Binds = PRESETS.dota
+let cacheVal: Binds = { primary: PRESETS.dota, secondary: PRESETS_ALT.dota }
 /** Current bindings from the store (cached on the settings object). */
 export function currentBinds(): Binds {
   const s = useGame.getState().settings
@@ -158,13 +187,23 @@ export function currentBinds(): Binds {
 export function useBinds(): Binds {
   const preset = useGame((s) => s.settings.keyPreset)
   const keybinds = useGame((s) => s.settings.keybinds)
-  return useMemo(() => resolveBinds({ keyPreset: preset, keybinds }), [preset, keybinds])
+  const keybindsAlt = useGame((s) => s.settings.keybindsAlt)
+  return useMemo(() => resolveBinds({ keyPreset: preset, keybinds, keybindsAlt }), [preset, keybinds, keybindsAlt])
 }
 
 export function actionForCode(binds: Binds, code: string): BindAction | null {
   const c = code.startsWith('Numpad') && /\d$/.test(code) ? 'Digit' + code.slice(6) : code
-  for (const k in binds) if (binds[k as BindAction] === c) return k as BindAction
+  for (const k in binds.primary) if (binds.primary[k as BindAction] === c) return k as BindAction
+  for (const k in binds.secondary) if (binds.secondary[k as BindAction] === c) return k as BindAction
   return null
+}
+
+/** "F4 / P", or just the primary when there is no secondary (or `short`). */
+export function bindLabel(binds: Binds, action: BindAction, short = false): string {
+  const a = keyLabel(binds.primary[action])
+  const b = keyLabel(binds.secondary[action])
+  if (short || !b) return a || b
+  return a ? `${a} / ${b}` : b
 }
 
 export function slotAction(slot: number): BindAction {
@@ -202,9 +241,10 @@ export function keyLabel(code: string | undefined): string {
   return named[code] ?? code
 }
 
-/** Hotkey label for slot 0..11. */
+/** Hotkey label for slot 0..11 (primary key; secondaries only where space allows). */
 export function slotKeyLabel(binds: Binds, slot: number): string {
-  return keyLabel(binds[slotAction(slot)])
+  const a = slotAction(slot)
+  return keyLabel(binds.primary[a] || binds.secondary[a])
 }
 
 /** True when the event target is a text-entry control (keys belong to it). */

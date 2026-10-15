@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
@@ -48,6 +49,13 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
       }
     })
     .sort((a, b) => b.score - a.score || b.kills - a.kills || (b.damage ?? 0) - (a.damage ?? 0) || a.deaths - b.deaths)
+}
+
+/** A stat that counts up from zero when the board appears, staggered per row. */
+function CountUp({ value, delay = 0 }: { value: number; delay?: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => countTo(0, value, 900, (v) => ref.current && (ref.current.textContent = v.toLocaleString()), delay), [value, delay])
+  return <span ref={ref}>{reducedMotion() ? value.toLocaleString() : '0'}</span>
 }
 
 /** Most damage, then most kills, then fewest deaths. */
@@ -134,7 +142,11 @@ export function Results() {
             <span className="h-4 w-4 rotate-45 rounded-[3px]" style={{ background: mvp.color, boxShadow: `0 0 12px ${mvp.color}` }} aria-hidden />
             <span className="text-[1.25rem] font-bold">{mvp.name}</span>
             <span className="tabular ml-auto text-[1.02rem] text-[#e6d3b8]">
-              {mvp.damage != null && <>{mvp.damage.toLocaleString()} damage, </>}
+              {mvp.damage != null && (
+                <>
+                  <CountUp value={mvp.damage} delay={200} /> damage,{' '}
+                </>
+              )}
               {mvp.kills} {mvp.kills === 1 ? 'kill' : 'kills'}
             </span>
           </div>
@@ -151,8 +163,12 @@ export function Results() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className={`border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}>
+            {rows.map((r, ri) => (
+              <tr
+                key={r.id}
+                className={`card-in border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}
+                style={{ animationDelay: `${150 + ri * 110}ms` }}
+              >
                 <td className="py-2.5 pr-2">
                   <span className="flex items-center gap-3">
                     <span className="h-3.5 w-3.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: r.color, boxShadow: `0 0 8px ${r.color}88` }} aria-hidden />
@@ -161,10 +177,16 @@ export function Results() {
                     {r.id === local && <span className="chip text-gold">You</span>}
                   </span>
                 </td>
-                <td className="py-2.5 text-right text-[1.2rem] font-bold text-gold">{r.score}</td>
-                <td className="py-2.5 text-right">{r.kills}</td>
-                <td className="py-2.5 text-right">{r.deaths}</td>
-                <td className="py-2.5 text-right">{r.damage != null ? r.damage.toLocaleString() : '–'}</td>
+                <td className="py-2.5 text-right text-[1.2rem] font-bold text-gold">
+                  <CountUp value={r.score} delay={250 + ri * 110} />
+                </td>
+                <td className="py-2.5 text-right">
+                  <CountUp value={r.kills} delay={300 + ri * 110} />
+                </td>
+                <td className="py-2.5 text-right">
+                  <CountUp value={r.deaths} delay={350 + ri * 110} />
+                </td>
+                <td className="py-2.5 text-right">{r.damage != null ? <CountUp value={r.damage} delay={400 + ri * 110} /> : '–'}</td>
                 {online && (
                   <td className="py-2.5 text-right">
                     {r.kind === 'bot' ? (

@@ -9,3 +9,15 @@
  * of those spells takes over (built-ins are skipped for claimed spells).
  */
 export {}
+
+// ---- workstream A (columns 1-3: Knockout, Transport, Damage; items Redirector, Pact) ----
+import './homing'
+import './boomerang'
+import './lightning'
+// ---- end workstream A ----
+
+// ---- workstream B (columns 4-6: Devastator, Defense, Knockbackless) ----
+import './meteor'
+import './splitter'
+import './snowball'
+// ---- end workstream B ----

@@ -22,12 +22,13 @@ export class GroundFx {
   private cursor = 0
   private dirty = false
   private material: THREE.MeshBasicNodeMaterial
-  private readonly capacity = 48
 
   /** 'add' = glowing rings; 'shadow' = the same shapes as soft dark shadows under lifted markers */
+  /** capacity 1 = a single slot: every spawn replaces the previous instantly (move marker) */
   constructor(
     private ctx: WorldCtx,
     mode: 'add' | 'shadow' = 'add',
+    private readonly capacity = 48,
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4)
@@ -75,7 +76,7 @@ export class GroundFx {
     const fadeOut = pow(float(1).sub(tn), 1.6)
     const fadeIn = saturate(tn.mul(4)).mul(float(1).sub(step(0.97, tn)))
     const fade = mix(fadeOut, fadeIn, isImplode)
-    const fill = saturate(float(1).sub(rr.div(max(radius, 1)))).mul(pow(float(1).sub(tn), 5)).mul(0.35).mul(float(1).sub(isChevron))
+    const fill = saturate(float(1).sub(rr.div(max(radius, 1)))).mul(pow(float(1).sub(tn), 5)).mul(0.12).mul(float(1).sub(isChevron))
     const edgeCut = saturate(float(1).sub(abs(length(q)).sub(0.97).mul(30)))
     const intensity = ring.add(fill).mul(fade).mul(alive).mul(edgeCut)
 

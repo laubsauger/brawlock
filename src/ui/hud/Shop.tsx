@@ -8,7 +8,6 @@ import {
   COLUMNS,
   ITEMS,
   MASTERIES,
-  MASTERY_ALL_COST,
   MASTERY_COST,
   MASTERY_MAX_LEVEL,
   MASTERY_HUE,
@@ -22,13 +21,14 @@ import {
   type ShopSpell,
   type Stat,
 } from '../data/catalog'
-import { keyLabel, slotKeyLabel, useBinds } from '../lib/keys'
+import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { sfx } from '../lib/sound'
 import { usePolled, useTick } from '../lib/ticker'
 import { canBuyNow, localView } from '../lib/view'
-import { Button, Kbd } from '../widgets'
+import { Button, Kbd, KeyCaps } from '../widgets'
 import { CharacterBody } from './Overlays'
 import { displayRound } from './TopBar'
+import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type OfferState } from './shopOffers'
 
 /**
  * The shop: two docked panels at the screen edges so the arena center (your
@@ -37,7 +37,7 @@ import { displayRound } from './TopBar'
  * phase, B toggles it, arrow keys walk the cards, Enter buys.
  */
 
-type CardState = 'ok' | 'poor' | 'owned' | 'max' | 'soon' | 'locked' | 'full' | 'closed'
+type CardState = OfferState
 
 interface ShopView {
   ready: boolean
@@ -204,39 +204,48 @@ function ShopClock() {
       ref.current.dataset.hot = String(s.phase === 'shop' && s.phaseTicksLeft <= 5 * TICK_HZ)
     }
   })
-  return <span ref={ref} className="tabular text-[1.15rem] font-semibold text-[#f0d9b8] data-[hot=true]:text-[#ffb08f]" />
+  return <span ref={ref} className="tabular ink-sm text-[1.15rem] font-semibold text-[#f0d9b8] data-[hot=true]:text-[#ffb08f]" />
 }
 
+/**
+ * Gear dock detail card. Stacked, never side by side: the dock is narrow, so
+ * the title row, meta row, description and stat list each get the full width
+ * (a side-by-side stat column squeezed the text to one word per line).
+ */
 function DetailView({ detail, empty }: { detail: Detail | null; empty: string }) {
   return (
-    <footer className="min-h-[92px] border-t border-[rgba(255,170,100,0.12)] px-5 py-3" aria-live="polite">
+    <footer className="gear-detail border-t border-[rgba(255,170,100,0.12)] px-4 py-3" aria-live="polite">
       {detail ? (
-        <div className="flex gap-3.5">
-          <Sigil id={detail.icon} size={48} hue={detail.hue} />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-baseline gap-x-3">
-              <span className="text-[1.2rem] font-bold" style={{ color: detail.hue }}>
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="tile-icon shrink-0" style={{ width: 52, height: 52, ['--hue' as string]: detail.hue }}>
+              <Sigil id={detail.icon} size={46} hue={detail.hue} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[1.1rem] leading-tight font-bold" style={{ color: detail.hue }}>
                 {detail.name}
-              </span>
-              {detail.level && detail.level.now > 0 && (
-                <span className="text-sm text-ash">
-                  level {detail.level.now} of {detail.level.max}
-                </span>
-              )}
-              {detail.cost != null && (
-                <span className="text-[0.95rem] text-ash">
-                  {detail.costLabel} for <span className="cost">{detail.cost} gold</span>
-                </span>
-              )}
+              </div>
+              <div className="flex flex-wrap gap-x-2.5 text-[0.86rem] leading-snug text-ash">
+                {detail.level && detail.level.now > 0 && (
+                  <span className="whitespace-nowrap">
+                    Level {detail.level.now} of {detail.level.max}
+                  </span>
+                )}
+                {detail.cost != null && (
+                  <span className="whitespace-nowrap">
+                    {detail.costLabel} for <span className="cost">{detail.cost} gold</span>
+                  </span>
+                )}
+              </div>
             </div>
-            <p className="text-[0.98rem] leading-snug text-[#e6d3b8]">{detail.desc}</p>
-            {detail.note && <p className="mt-0.5 text-[0.92rem] font-semibold text-[#ffb08f]">{detail.note}</p>}
           </div>
+          <p className="text-[0.95rem] leading-snug text-[#e6d3b8]">{detail.desc}</p>
+          {detail.note && <p className="text-[0.9rem] font-semibold text-[#ffb08f]">{detail.note}</p>}
           {detail.stats.length > 0 && (
-            <dl className="tabular grid shrink-0 grid-cols-[auto_auto] content-start gap-x-3 gap-y-0.5 text-[0.98rem]">
+            <dl className="tabular grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 text-[0.92rem]">
               {detail.stats.map((s) => (
                 <div key={s.label} className="contents">
-                  <dt className="text-ash">{s.label}</dt>
+                  <dt className="min-w-0 text-ash">{s.label}</dt>
                   <dd className="text-right font-semibold whitespace-nowrap">
                     {s.from !== undefined && s.from !== s.to ? (
                       <>
@@ -252,7 +261,7 @@ function DetailView({ detail, empty }: { detail: Detail | null; empty: string })
           )}
         </div>
       ) : (
-        <p className="pt-1 text-[0.95rem] text-ash">{empty}</p>
+        <p className="text-[0.95rem] text-ash">{empty}</p>
       )}
     </footer>
   )
@@ -288,13 +297,9 @@ function IconTile({
   id,
   name,
   hue,
-  state,
+  offer,
   size,
-  cost,
-  upgrade = false,
-  level = 0,
   max = 1,
-  tag,
   nav,
   label,
   onBuy,
@@ -303,25 +308,24 @@ function IconTile({
   id: string
   name: string
   hue: string
-  state: CardState
+  offer: Offer
   size: number
-  cost: number | null
-  upgrade?: boolean
-  level?: number
   max?: number
-  tag?: string
   nav: string
   label: string
   onBuy: (e: ReactMouseEvent<HTMLElement>) => void
   onHover: () => void
 }) {
-  const disabled = state === 'soon' || state === 'locked' || state === 'closed'
+  // clicks are gated by the offer state only; ownership is styling
+  const disabled = offer.state === 'soon' || offer.state === 'locked' || offer.state === 'closed' || offer.state === 'max'
+  const showCost = offer.price != null && offer.state !== 'soon' && offer.state !== 'locked'
   return (
     <button
       type="button"
       className="shop-card icon-tile"
       style={{ ['--hue' as string]: hue }}
-      data-state={state}
+      data-state={offer.state}
+      data-owned={offer.owned}
       data-nav={nav}
       aria-disabled={disabled}
       aria-label={label}
@@ -331,26 +335,26 @@ function IconTile({
     >
       <span className="tile-icon" style={{ width: size, height: size }}>
         <Sigil id={id} size={size - 6} />
-        {cost != null && (
+        {showCost && (
           <span className="tile-cost tabular">
-            {upgrade ? '+' : ''}
+            {offer.owned ? '+' : ''}
             <span className="coin" aria-hidden />
-            {cost}
+            {offer.price}
           </span>
         )}
-        {tag && (
+        {offer.tag && (
           <span className="tile-tag">
-            {state === 'soon' && (
+            {offer.tag === 'Soon' && (
               <svg viewBox="0 0 12 12" width="9" height="9" aria-hidden>
                 <path d="M3.5 5V3.8a2.5 2.5 0 0 1 5 0V5M2.5 5h7v5.5h-7Z" fill="none" stroke="currentColor" strokeWidth="1.3" />
               </svg>
             )}
-            {tag}
+            {offer.tag}
           </span>
         )}
       </span>
       <span className="tile-name">{name}</span>
-      {max > 1 && level > 0 && <LevelBars level={level} max={max} />}
+      {max > 1 && offer.level > 0 && <LevelBars level={offer.level} max={max} />}
     </button>
   )
 }
@@ -363,7 +367,7 @@ function SpellDetail({ def, owned, state }: { def: ShopSpell; owned: number; sta
   const next = owned < SPELL_MAX_LEVEL ? owned + 1 : 0
   const price = owned === 0 ? def.buy : owned >= SPELL_MAX_LEVEL ? null : def.upgrades[owned - 1]
   return (
-    <div className="flex gap-4">
+    <div className="spell-detail-row flex gap-4">
       <span className="tile-icon shrink-0" style={{ width: 84, height: 84, ['--hue' as string]: hue }}>
         <Sigil id={def.id} size={78} />
       </span>
@@ -383,7 +387,8 @@ function SpellDetail({ def, owned, state }: { def: ShopSpell; owned: number; sta
         <p className="mb-2 text-[0.98rem] leading-snug text-[#e6d3b8]">{def.desc}</p>
         {stateNote(state) && <p className="mb-2 text-[0.9rem] font-semibold text-[#ffb08f]">{stateNote(state)}</p>}
         {labels.length > 0 && (
-          <table className="tabular w-full text-[0.86rem]">
+          <div className="overflow-x-auto">
+          <table className="tabular w-full min-w-[320px] text-[0.86rem]">
             <thead>
               <tr className="text-ash">
                 <th className="pr-2 text-left font-semibold">Level</th>
@@ -410,6 +415,7 @@ function SpellDetail({ def, owned, state }: { def: ShopSpell; owned: number; sta
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -446,67 +452,44 @@ export function Shop() {
     toggle('shopOpen', false)
   }
 
-  // ---- spells ----------------------------------------------------------
-  const spellState = (def: ShopSpell): CardState => {
-    if (!def.implemented) return 'soon'
-    if (!v.open) return 'closed'
-    const col = v.spells[def.column]
-    if (col.id && col.id !== def.id) return 'locked'
-    if (col.id === def.id) {
-      if (col.level >= SPELL_MAX_LEVEL) return 'max'
-      return v.gold >= def.upgrades[col.level - 1] ? 'ok' : 'poor'
-    }
-    return v.gold >= def.buy ? 'ok' : 'poor'
-  }
+  // ---- offers: purchasability + ownership per entry (shopOffers.ts) ----
+  const spellOfferOf = (def: ShopSpell) => spellOffer(def, v.spells[def.column], v.gold, v.open)
+  const itemOfferOf = (def: ShopItem) => itemOffer(def, v.items[def.id] ?? 0, v.gold, v.open, v.freeItemSlots)
+  const masteryOfferOf = (id: MasteryId | 'all') =>
+    id === 'all' ? masteryAllOffer(MASTERIES.map((m) => v.masteries[m.id]), v.gold, v.open) : masteryOffer(v.masteries[id], v.gold, v.open)
+
   const spellDetail = (def: ShopSpell): Detail => {
-    const owned = v.spells[def.column].id === def.id ? v.spells[def.column].level : 0
-    const next = Math.min(SPELL_MAX_LEVEL, owned + 1)
+    const o = spellOfferOf(def)
+    const next = Math.min(SPELL_MAX_LEVEL, o.level + 1)
     return {
       name: def.name,
       hue: COLUMNS[def.column].hue,
       icon: def.id,
       desc: def.desc,
-      cost: owned === 0 ? def.buy : owned >= SPELL_MAX_LEVEL ? null : def.upgrades[owned - 1],
-      costLabel: owned === 0 ? 'Buy' : `Level ${next}`,
-      stats: diffStats(owned ? levelStats(def.id, owned) : null, levelStats(def.id, next)),
-      note: stateNote(spellState(def)) ?? (owned === 0 ? 'One spell per column, kept for the whole match.' : undefined),
-      level: { now: owned, max: SPELL_MAX_LEVEL },
+      cost: o.price,
+      costLabel: o.level === 0 ? 'Buy' : `Level ${next}`,
+      stats: diffStats(o.level ? levelStats(def.id, o.level) : null, levelStats(def.id, next)),
+      note: stateNote(o.state) ?? (o.level === 0 ? 'One spell per column, kept for the whole match.' : undefined),
+      level: { now: o.level, max: SPELL_MAX_LEVEL },
     }
   }
 
-  // ---- items -----------------------------------------------------------
-  const itemState = (def: ShopItem): CardState => {
-    const owned = v.items[def.id] ?? 0
-    if (!def.implemented) return 'soon'
-    if (!v.open) return 'closed'
-    if (owned >= def.maxLevel) return 'max'
-    if (owned === 0 && v.freeItemSlots === 0) return 'full'
-    return v.gold >= def.cost ? 'ok' : 'poor'
-  }
   const itemDetail = (def: ShopItem): Detail => {
-    const owned = v.items[def.id] ?? 0
-    const next = Math.min(def.maxLevel, owned + 1)
+    const o = itemOfferOf(def)
+    const next = Math.min(def.maxLevel, o.level + 1)
     return {
       name: def.name,
       hue: hueFor(def.id),
       icon: def.id,
       desc: def.desc,
-      cost: owned >= def.maxLevel ? null : def.cost,
-      costLabel: owned === 0 ? 'Buy' : `Level ${next}`,
-      stats: diffStats(owned ? levelStats(def.id, owned) : null, levelStats(def.id, next)),
-      note: stateNote(itemState(def)),
-      level: def.maxLevel > 1 ? { now: owned, max: def.maxLevel } : undefined,
+      cost: o.state === 'soon' ? null : o.price,
+      costLabel: o.level === 0 ? 'Buy' : `Level ${next}`,
+      stats: diffStats(o.level ? levelStats(def.id, o.level) : null, levelStats(def.id, next)),
+      note: stateNote(o.state),
+      level: def.maxLevel > 1 ? { now: o.level, max: def.maxLevel } : undefined,
     }
   }
 
-  // ---- masteries -------------------------------------------------------
-  const anyMaxed = MASTERIES.some((m) => v.masteries[m.id] >= MASTERY_MAX_LEVEL)
-  const masteryState = (id: MasteryId | 'all'): CardState => {
-    if (!v.open) return 'closed'
-    if (id === 'all') return anyMaxed ? 'max' : v.gold >= MASTERY_ALL_COST ? 'ok' : 'poor'
-    if (v.masteries[id] >= MASTERY_MAX_LEVEL) return 'max'
-    return v.gold >= MASTERY_COST ? 'ok' : 'poor'
-  }
   const fmtMastery = (id: MasteryId, lvl: number) => {
     const val = masteryValue(id, lvl)
     return id === 'lifesteal' ? `${Math.round(val * 100)}%` : `+${Math.round((val - 1) * 100)}%`
@@ -518,10 +501,10 @@ export function Shop() {
         hue: MASTERY_HUE,
         icon: 'all',
         desc: 'One level of every mastery, 2 gold cheaper than buying them one by one. Unavailable once any mastery is maxed.',
-        cost: anyMaxed ? null : MASTERY_ALL_COST,
+        cost: masteryOfferOf('all').price,
         costLabel: 'Buy',
         stats: MASTERIES.map((m) => ({ label: m.name, from: fmtMastery(m.id, v.masteries[m.id]), to: fmtMastery(m.id, Math.min(MASTERY_MAX_LEVEL, v.masteries[m.id] + 1)) })),
-        note: stateNote(masteryState('all')),
+        note: stateNote(masteryOfferOf('all').state),
       }
     }
     const m = MASTERIES.find((x) => x.id === id)!
@@ -534,7 +517,7 @@ export function Shop() {
       cost: lvl >= MASTERY_MAX_LEVEL ? null : MASTERY_COST,
       costLabel: `Level ${Math.min(MASTERY_MAX_LEVEL, lvl + 1)}`,
       stats: [{ label: m.name, from: fmtMastery(id, lvl), to: fmtMastery(id, Math.min(MASTERY_MAX_LEVEL, lvl + 1)) }],
-      note: stateNote(masteryState(id)),
+      note: stateNote(masteryOfferOf(id).state),
       level: { now: lvl, max: MASTERY_MAX_LEVEL },
     }
   }
@@ -571,7 +554,7 @@ export function Shop() {
               Gear
             </button>
             <button type="button" role="tab" className="tab flex items-center gap-1.5" aria-selected={characterOpen} onClick={() => toggle('characterOpen', true)}>
-              Stats <Kbd>{keyLabel(binds.character)}</Kbd>
+              Stats <KeyCaps label={bindLabel(binds, 'character')} />
             </button>
           </div>
           {characterOpen ? (
@@ -584,40 +567,36 @@ export function Shop() {
                 <h3 className="section-title mb-2 px-1">Masteries</h3>
                 <div className="tile-grid-4">
                   {MASTERIES.map((m, i) => {
-                    const st = masteryState(m.id)
+                    const o = masteryOfferOf(m.id)
                     return (
                       <IconTile
                         key={m.id}
                         id={m.id}
                         name={m.name}
                         hue={MASTERY_HUE}
-                        state={st === 'max' ? 'owned' : st}
-                        size={50}
-                        cost={st === 'max' ? null : MASTERY_COST}
-                        upgrade={v.masteries[m.id] > 0}
-                        level={v.masteries[m.id]}
+                        offer={o}
+                        size={58}
                         max={MASTERY_MAX_LEVEL}
                         nav={`${i},0`}
-                        label={`${m.name} mastery, level ${v.masteries[m.id]} of ${MASTERY_MAX_LEVEL}`}
+                        label={`${m.name} mastery, level ${o.level} of ${MASTERY_MAX_LEVEL}${o.price != null ? `, next level ${o.price} gold` : ''}`}
                         onHover={() => setHover({ kind: 'mastery', id: m.id })}
-                        onBuy={(e) => purchase(e, st, { kind: 'buyMastery', mastery: m.id })}
+                        onBuy={(e) => purchase(e, o.state, { kind: 'buyMastery', mastery: m.id })}
                       />
                     )
                   })}
                   {(() => {
-                    const st = masteryState('all')
+                    const o = masteryOfferOf('all')
                     return (
                       <IconTile
                         id="all"
                         name="All three"
                         hue={MASTERY_HUE}
-                        state={st === 'max' ? 'locked' : st}
-                        size={50}
-                        cost={st === 'max' ? null : MASTERY_ALL_COST}
+                        offer={o}
+                        size={58}
                         nav="3,0"
-                        label="Raise all three masteries"
+                        label={`Raise all three masteries${o.price != null ? ` for ${o.price} gold` : ''}`}
                         onHover={() => setHover({ kind: 'mastery', id: 'all' })}
-                        onBuy={(e) => purchase(e, st, { kind: 'buyMastery', mastery: 'all' })}
+                        onBuy={(e) => purchase(e, o.state, { kind: 'buyMastery', mastery: 'all' })}
                       />
                     )
                   })()}
@@ -628,25 +607,20 @@ export function Shop() {
                 </h3>
                 <div className="tile-grid-3">
                   {ITEMS.map((def, i) => {
-                    const st = itemState(def)
-                    const lvl = v.items[def.id] ?? 0
+                    const o = itemOfferOf(def)
                     return (
                       <IconTile
                         key={def.id}
                         id={def.id}
                         name={def.name}
                         hue={hueFor(def.id)}
-                        state={lvl > 0 && st !== 'poor' && st !== 'closed' ? 'owned' : st}
-                        size={54}
-                        cost={st === 'soon' || st === 'max' ? null : def.cost}
-                        upgrade={lvl > 0}
-                        level={lvl}
+                        offer={o}
+                        size={62}
                         max={def.maxLevel}
-                        tag={st === 'soon' ? 'Soon' : st === 'max' ? 'Max' : lvl > 0 && def.maxLevel === 1 ? 'Owned' : undefined}
                         nav={`${i % 3},${1 + Math.floor(i / 3)}`}
-                        label={`${lvl ? 'Upgrade' : 'Buy'} ${def.name}${lvl ? `, level ${lvl} of ${def.maxLevel}` : ''}${st === 'soon' ? ', coming soon' : ''}`}
+                        label={`${o.level ? 'Upgrade' : 'Buy'} ${def.name}${o.level ? `, level ${o.level} of ${def.maxLevel}` : ''}${o.state === 'soon' ? ', coming soon' : ''}`}
                         onHover={() => setHover({ kind: 'item', id: def.id })}
-                        onBuy={(e) => purchase(e, st, { kind: 'buyItem', item: def.id })}
+                        onBuy={(e) => purchase(e, o.state, { kind: 'buyItem', item: def.id })}
                       />
                     )
                   })}
@@ -666,7 +640,7 @@ export function Shop() {
             <GoldCounter gold={v.gold} />
             <ShopClock />
             <Button size="sm" variant="ghost" sound={null} className="ml-auto" onClick={close}>
-              Close <Kbd>{keyLabel(binds.shop)}</Kbd>
+              Close <KeyCaps label={bindLabel(binds, 'shop')} />
             </Button>
           </header>
           {!v.open && (
@@ -679,7 +653,7 @@ export function Shop() {
               const owned = v.spells[c]
               const defs = SPELLS.filter((s) => s.column === c)
               return (
-                <div key={col.name} className="flex min-w-0 flex-col gap-1" aria-label={`${col.name} column`}>
+                <div key={col.name} className="flex min-w-0 flex-col gap-0.5" aria-label={`${col.name} column`}>
                   <div className="mb-0.5 flex items-center justify-between gap-1 pt-1" title={col.hint}>
                     <span className="truncate text-[0.98rem] font-bold" style={{ color: col.hue }}>
                       {col.name}
@@ -687,26 +661,20 @@ export function Shop() {
                     <Kbd>{slotKeyLabel(binds, c)}</Kbd>
                   </div>
                   {defs.map((def, r) => {
-                    const st = spellState(def)
-                    const mine = owned.id === def.id
-                    const price = mine ? (owned.level >= SPELL_MAX_LEVEL ? null : def.upgrades[owned.level - 1]) : def.buy
+                    const o = spellOffer(def, owned, v.gold, v.open)
                     return (
                       <IconTile
                         key={def.id}
                         id={def.id}
                         name={def.name}
                         hue={col.hue}
-                        state={mine ? (st === 'poor' || st === 'closed' ? st : 'owned') : st}
-                        size={58}
-                        cost={st === 'soon' || st === 'locked' || st === 'max' ? null : price}
-                        upgrade={mine}
-                        level={mine ? owned.level : 0}
+                        offer={o}
+                        size={68}
                         max={SPELL_MAX_LEVEL}
-                        tag={st === 'soon' ? 'Soon' : st === 'max' ? 'Max' : undefined}
                         nav={`${c},${r}`}
-                        label={`${def.name}${st === 'soon' ? ', coming soon' : mine ? `, level ${owned.level} of ${SPELL_MAX_LEVEL}` : `, buy for ${def.buy} gold`}`}
+                        label={`${def.name}${o.state === 'soon' ? ', coming soon' : o.owned ? `, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
                         onHover={() => setHover({ kind: 'spell', id: def.id })}
-                        onBuy={(e) => purchase(e, st, { kind: 'buySpell', spell: def.id })}
+                        onBuy={(e) => purchase(e, o.state, { kind: 'buySpell', spell: def.id })}
                       />
                     )
                   })}
@@ -719,7 +687,7 @@ export function Shop() {
               <SpellDetail
                 def={spellHover}
                 owned={v.spells[spellHover.column].id === spellHover.id ? v.spells[spellHover.column].level : 0}
-                state={spellState(spellHover)}
+                state={spellOfferOf(spellHover).state}
               />
             ) : (
               <p className="pt-1 text-[0.95rem] text-ash">Point at a spell for its numbers at every level. Click or press Enter to buy; arrow keys move between cards.</p>

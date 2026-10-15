@@ -14,11 +14,14 @@ import {
   smoothstep,
   step,
   texture,
+  triplanarTexture,
   uniform,
   vec3,
 } from 'three/tsl'
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { S } from '../coords'
+import type { Node } from 'three/webgpu'
+import { loadSurface, type SurfaceMaps } from './textures'
 import { asF, gamePos, type WorldCtx } from './world'
 
 /**
@@ -132,6 +135,11 @@ export class Environment {
   private uCrystal = uniform(new THREE.Color())
   private theme = -1
   private disposables: { dispose(): void }[] = []
+  private rockMaps: SurfaceMaps | null = null
+  private mossMaps: SurfaceMaps | null = null
+  private rockMeshes: THREE.InstancedMesh[] = []
+  private rockMat: THREE.MeshStandardNodeMaterial | null = null
+  private disposed = false
 
   constructor(private ctx: WorldCtx) {
     this.group.name = 'Environment'
@@ -192,6 +200,7 @@ export class Environment {
       mesh.computeBoundingSphere()
       mesh.frustumCulled = false
       mesh.name = `rocks-${k}`
+      this.rockMeshes.push(mesh)
       this.group.add(mesh)
       this.disposables.push(mesh)
     })
@@ -229,6 +238,18 @@ export class Environment {
     this.disposables.push(skyGeo, skyMat)
 
     this.setTheme(0)
+    this.rockMat = rockMat
+    const aniso = ctx.tier.anisotropy
+    void Promise.all([loadSurface('shared', 'cliff_rock', aniso), loadSurface('shared', 'ground_moss', aniso)]).then(([rock, moss]) => {
+      if (this.disposed || !rock) return
+      this.rockMaps = rock
+      this.mossMaps = moss
+      const mat = this.rockMaterial()
+      for (const m of this.rockMeshes) m.material = mat
+      this.rockMat?.dispose()
+      this.rockMat = mat
+      this.disposables.push(mat)
+    })
   }
 
   setTheme(theme: number): void {
@@ -255,7 +276,24 @@ export class Environment {
     rock = rock.mul(n2.r.mul(0.5).add(0.75))
     const up = saturate(normalWorld.y)
     const mossMask = smoothstep(0.45, 0.8, up.add(n.b.mul(0.4)).sub(float(1).sub(this.uMossAmt).mul(0.6))).mul(step(30, h))
-    const col = mix(rock, this.uMoss.mul(n2.g.mul(0.6).add(0.7)), mossMask)
+    let col: Node<'vec3'> = mix(rock, this.uMoss.mul(n2.g.mul(0.6).add(0.7)), mossMask)
+    let height: Node<'float'> = n2.r.mul(0.6).add(n.g.mul(0.3)).add(strata.mul(0.15))
+    let rough: Node<'float'> = mix(float(0.78), float(0.95), mossMask).sub(n2.g.mul(0.25)).add(n2.r.sub(0.5).mul(0.2))
+    const rm = this.rockMaps
+    if (rm) {
+      // authored cliff rock + moss, triplanar in world space (huge boulders, no stretching)
+      const sc = float(1 / 3.2)
+      const alb = triplanarTexture(texture(rm.albedo), null, null, sc, positionWorld, normalWorld).rgb
+      const orm = triplanarTexture(texture(rm.orm), null, null, sc, positionWorld, normalWorld).rgb
+      const hh = triplanarTexture(texture(rm.height ?? rm.albedo), null, null, sc, positionWorld, normalWorld).r
+      const rockT = alb.mul(mix(this.uRock, this.uRock2, n.g).mul(3.2)).mul(orm.r)
+      let mossT: Node<'vec3'> = this.uMoss.mul(n2.g.mul(0.6).add(0.7))
+      const mm = this.mossMaps
+      if (mm) mossT = triplanarTexture(texture(mm.albedo), null, null, float(1 / 1.6), positionWorld, normalWorld).rgb.mul(this.uMoss.mul(6))
+      col = mix(rockT, mossT, mossMask)
+      height = hh.mul(0.85).add(strata.mul(0.15))
+      rough = mix(orm.g, float(0.95), mossMask)
+    }
     // molten waterline and heat cracks low on the rock
     const water = exp(h.div(-12))
     const crack = float(1).sub(smoothstep(0, 0.06, texture(noise, gp.mul(1 / 160).add(h.mul(0.006))).b)).mul(exp(h.div(-160)))
@@ -263,9 +301,9 @@ export class Environment {
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = 'CalderaRock'
     m.colorNode = col
-    m.roughnessNode = mix(float(0.78), float(0.95), mossMask).sub(n2.g.mul(0.25)).add(n2.r.sub(0.5).mul(0.2))
+    m.roughnessNode = saturate(rough)
     // faceted grit and strata relief
-    m.normalNode = bumpMap(n2.r.mul(0.6).add(n.g.mul(0.3)).add(strata.mul(0.15)).sub(crack.mul(0.4)), float(1.4))
+    m.normalNode = bumpMap(height.sub(crack.mul(0.4)), float(1.4))
     m.metalnessNode = float(0)
     m.emissiveNode = vec3(2.2, 0.5, 0.06)
       .mul(water.mul(0.8).add(crack.mul(0.45)))
@@ -288,6 +326,7 @@ export class Environment {
   }
 
   dispose(): void {
+    this.disposed = true
     for (const d of this.disposables) d.dispose()
   }
 }

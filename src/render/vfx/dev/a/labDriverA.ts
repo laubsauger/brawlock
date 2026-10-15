@@ -77,6 +77,16 @@ function cast(lab: Lab, player: number, spell: string, x: number, y: number): vo
 
 const at = (i: number) => HOME[i]
 
+/** teleport a pawn (lab setup) */
+function put(lab: Lab, i: number, x: number, y: number): void {
+  const p = pawn(lab.state, i)
+  if (!p) return
+  p.x = x
+  p.y = y
+  p.vx = p.vy = p.walkVx = p.walkVy = 0
+  p.moveTarget = null
+}
+
 function home(lab: Lab): void {
   for (let i = 0; i < HOME.length; i++) {
     const p = pawn(lab.state, i)
@@ -97,11 +107,13 @@ const SCRIPTS: Record<string, Step[]> = {
     [170, () => {}],
   ],
   lightning: [
-    [10, (l) => cast(l, 0, 'lightning', at(1).x, at(1).y), 'lightning -> A'],
+    [10, (l) => put(l, 0, -180, -20), 'lightning: caster in range'],
+    [4, (l) => cast(l, 0, 'lightning', at(1).x, at(1).y), 'lightning -> A'],
     [70, (l) => cast(l, 0, 'lightning', -40, 380), 'lightning -> miss (full range)'],
     [60, (l) => cast(l, 3, 'shield', at(3).x, at(3).y), 'C shields'],
     [8, (l) => cast(l, 0, 'lightning', at(3).x, at(3).y), 'lightning -> blocked by bubble'],
-    [70, (l) => cast(l, 0, 'fireball', at(2).x, at(2).y), 'fireball, then lightning detonates it'],
+    [70, (l) => put(l, 0, -180, -20), 'fireball, then lightning detonates it'],
+    [2, (l) => cast(l, 0, 'fireball', at(2).x, at(2).y)],
     [14, (l) => cast(l, 0, 'lightning', at(2).x, at(2).y)],
     [80, () => {}],
   ],
@@ -168,6 +180,21 @@ export interface LabOptions {
   spell: string
   /** chaos mode: total players (2..10), each spamming random lab spells */
   chaos?: number
+  /** freeze (devTime.scale = 0) `ticks` after script step `step` runs in the first loop */
+  freeze?: { step: number; ticks: number } | null
+}
+
+/** Console handles: __labA.ctl.freezeIn(12), __labA.ctl.resume(0.3) */
+export const labControl = {
+  freezeAt: -1,
+  tick: 0,
+  freezeIn(ticks: number): void {
+    labControl.freezeAt = labControl.tick + ticks
+    if (devTime.scale === 0) devTime.scale = 0.3
+  },
+  resume(scale = 0.3): void {
+    devTime.scale = scale
+  },
 }
 
 export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void): () => void {
@@ -207,13 +234,18 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
     if (fightAt < 0) {
       fightAt = s.tick
       if (!chaos) home(lab)
-      nextAt = s.tick + 140 // past the 2 s spawn invulnerability
+      nextAt = s.tick + 20
       stepIdx = 0
       return
     }
     s.arena.nextShrinkTick = -1
     for (const p of s.pawns) {
       if (!p.alive) continue
+      // lab: no 2 s spawn invulnerability wait
+      if (p.invulnerable) {
+        p.invulnerable = false
+        p.modifiers = p.modifiers.filter((m) => m.id !== 'spawnInvulnerable')
+      }
       // dummies (and everyone in the lab) never die: keep HP topped up
       p.hp = p.maxHp
       if (chaos) continue
@@ -254,6 +286,7 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
       onLabel?.(lab.label)
     }
     fn(lab)
+    if (opts.freeze && scriptIdx === 0 && stepIdx === opts.freeze.step) labControl.freezeAt = s.tick + opts.freeze.ticks
     stepIdx++
     const nxt = stepIdx < script.length ? script[stepIdx][0] : 0
     nextAt = s.tick + nxt
@@ -271,6 +304,13 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
     let guard = 0
     while (acc >= DT && guard++ < 8) {
       acc -= DT
+      labControl.tick = state.tick
+      if (labControl.freezeAt >= 0 && state.tick >= labControl.freezeAt) {
+        labControl.freezeAt = -1
+        devTime.scale = 0
+        acc = 0
+        break
+      }
       director()
       const inputs: PlayerInput[] = []
       const due = lab.queue.filter((q) => q.at <= state.tick)

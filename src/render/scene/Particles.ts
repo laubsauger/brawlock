@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { abs, atan, cameraViewMatrix, cos, exp, float, instancedBufferAttribute, length, max, min, mix, pow, saturate, sin, smoothstep, step, uv, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
-import { asV4, type WorldCtx } from './world'
+import { asV4, spriteGroundFade, type WorldCtx } from './world'
 
 export type ParticleMode = 'add' | 'smoke' | 'debris'
 
@@ -81,20 +81,24 @@ export class Particles {
     m.transparent = true
     m.depthWrite = false
     m.positionNode = pos
-    m.scaleNode = vec2(size.mul(stretch), size)
-    m.rotationNode = atan(vv.y, vv.x)
+    const scale = vec2(size.mul(stretch), size)
+    const rotation = atan(vv.y, vv.x)
+    m.scaleNode = scale
+    m.rotationNode = rotation
+    // soft particles: dissolve into the floor instead of a hard cut line
+    const ground = spriteGroundFade(pos, scale, rotation, ctx.field, mode === 'smoke' ? 40 : 18)
     m.sizeAttenuation = true
     if (mode === 'add') {
       m.blending = THREE.AdditiveBlending
       const fade = pow(float(1).sub(tn), 1.4).mul(smoothstep(0, 0.04, tn))
       const coolCol = mix(A2.xyz, A2.xyz.mul(vec3(0.5, 0.1, 0.045)), smoothstep(0.0, 0.75, tn).mul(cooling))
       m.colorNode = coolCol.mul(soft.mul(soft).mul(1.4).add(pow(soft, 6).mul(2)))
-      m.opacityNode = fade.mul(alive)
+      m.opacityNode = fade.mul(alive).mul(ground)
     } else if (mode === 'debris') {
       // solid chips: hard-edged, opaque, shrink out at the end of life
       m.blending = THREE.NormalBlending
       m.colorNode = A2.xyz.mul(float(1.15).sub(d.mul(0.4)))
-      m.opacityNode = step(d, 0.85).mul(alive).mul(float(1).sub(smoothstep(0.8, 1, tn)))
+      m.opacityNode = step(d, 0.85).mul(alive).mul(float(1).sub(smoothstep(0.8, 1, tn))).mul(step(0.5, ground))
       m.alphaTest = 0.5
       m.transparent = false
       m.depthWrite = true
@@ -102,7 +106,7 @@ export class Particles {
       m.blending = THREE.NormalBlending
       const fade = smoothstep(0, 0.12, tn).mul(float(1).sub(smoothstep(0.45, 1, tn)))
       m.colorNode = A2.xyz
-      m.opacityNode = soft.mul(soft).mul(fade).mul(alive).mul(0.34)
+      m.opacityNode = soft.mul(soft).mul(fade).mul(alive).mul(0.34).mul(ground)
     }
     m.name = `Particles-${mode}`
     this.material = m
