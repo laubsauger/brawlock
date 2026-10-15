@@ -44,7 +44,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
   let cause = o.causes[0]
 
   const pawnOf = (owner: number) => state.pawns.find((p) => p.owner === owner)!
-  const anchor = (c: string) => (c === 'lava' ? { x: 1440, y: -120 } : c === 'scourge' ? { x: -170, y: 0 } : { x: 160, y: 0 })
+  const anchor = (c: string) => (c === 'lava' ? { x: 1620, y: -120 } : c === 'scourge' ? { x: -170, y: 0 } : { x: 160, y: 0 })
 
   const setup = () => {
     cause = o.causes[cycle % o.causes.length]
@@ -52,7 +52,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
     const v = pawnOf(1)
     const b = pawnOf(2)
     const a = anchor(cause)
-    k.x = cause === 'lava' ? 1100 : -300
+    k.x = cause === 'lava' ? 1180 : -300
     k.y = 0
     b.x = -200
     b.y = -800

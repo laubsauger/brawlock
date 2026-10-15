@@ -24,6 +24,7 @@ import {
   positionWorld,
   rotate,
   saturate,
+  select,
   sin,
   smoothstep,
   step,
@@ -281,14 +282,9 @@ export class Arena {
     // ease-out with a small overshoot
     const rise = back.mul(back).mul(back).mul(-170).add(sin(riseT.mul(Math.PI)).mul(6))
     const centre = positionLocal.sub(positionGeometry)
-    const centreGame = vec2(centre.x, centre.z.negate()).div(S)
     const sh = this.uShock
-    const shAge = t.sub(sh.z)
-    const shR = shAge.mul(2600)
-    const shD = length(centreGame.sub(sh.xy))
-    const shX = shD.sub(shR).div(140)
-    const wave = exp(shX.mul(shX).negate()).mul(sh.w).mul(saturate(float(1.6).sub(shAge))).mul(step(0, shAge))
-    const lift = rise.add(wave.mul(7)).sub(sink)
+    // (the round-start wave no longer lifts tiles: it exposed bright wall strips)
+    const lift = rise.sub(sink)
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
 
     // ---------------- fragment: layered stone
@@ -392,7 +388,7 @@ export class Arena {
     const shDf = length(gp.sub(sh.xy))
     const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
     const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
-    em = em.add(vec3(0.55, 0.52, 0.7).mul(waveF.mul(0.25)).mul(float(1).sub(isSide)))
+    em = em.add(vec3(0.5, 0.48, 0.62).mul(waveF.mul(0.16)).mul(isTop))
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = 'Tiles'
@@ -421,7 +417,7 @@ export class Arena {
         const vUv = vec2(vg.x.mul(cs).sub(vg.y.mul(sn)), vg.x.mul(sn).add(vg.y.mul(cs)))
         const hTex = top.height ?? top.albedo
         const useLum = top.height === null
-        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), hTex, useLum, 0.018, 10)
+        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), hTex, useLum, 0.008, 8)
       }
       // POM only on the flat tops: on the 45 degree bevel the horizontal-surface
       // march stretched and darkened the albedo (the dark band under the rim)
@@ -439,16 +435,19 @@ export class Arena {
       const nTopR = vec3(nTop.x.mul(cs).add(nTop.y.mul(sn)), nTop.y.mul(cs).sub(nTop.x.mul(sn)), nTop.z)
       const nSide = texture(side.normal, uvT).xyz.mul(2).sub(1)
       const nTS = mix(nTopR, nSide, isSide).mul(0.5).add(0.5)
-      m.normalNode = normalMap(nTS, vec2(1.2, 1.2))
+      // calm relief: tops at ~40 % of the authored strength, walls a bit more
+      const nScale = mix(float(0.45), float(0.8), isSide)
+      m.normalNode = normalMap(nTS, vec2(nScale, nScale))
       // never mirror-smooth: low-roughness texels made tile-sized moon hotspots
-      m.roughnessNode = clamp(orm.g, 0.48, 1)
+      // matte basalt; only genuinely glossy texels (wet / obsidian) stay shiny
+      m.roughnessNode = select(orm.g.lessThan(0.22), float(0.38), max(orm.g, 0.66))
       m.metalnessNode = orm.b.mul(0.3)
     } else {
       m.colorNode = mix(stone, stone.mul(0.4), isRemV.mul(sinkTV))
       // relief: grain + chips + cut cracks and glyphs
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
-      m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(1.1))
-      m.roughnessNode = clamp(rough, 0.45, 1)
+      m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(0.5))
+      m.roughnessNode = clamp(rough, 0.62, 1)
       m.metalnessNode = float(0)
     }
     // debug (Inspector: Arena > debugFaces): 1 = face classes, 2 = lighting only on white

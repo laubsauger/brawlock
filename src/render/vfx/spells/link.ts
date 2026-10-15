@@ -26,7 +26,7 @@ const CHAIN = pal('link', 'accent', 1.0)
 const CHAIN_HOT = pal('link', 'core', 2.0)
 const CHAIN_DIM = palMix('link', 0.0, 0.3)
 const LINK_LEN = 22
-const WIDTH = 16
+const WIDTH = 28
 
 interface Tether {
   seen: number
@@ -239,6 +239,11 @@ registerSpellVfx({
     vA.copy(o)
     vB.set(tp.x * S, tp.h * S, -tp.y * S)
     drawChain(ctx, vA, vB, 1, -toVictim, 1)
+    // energy glow along the taut chain
+    for (let k = 1; k < 6; k++) {
+      const u = k / 6
+      glowG(t.ax + (t.bx - t.ax) * u, t.ay + (t.by - t.ay) * u, t.ah + (t.bh - t.ah) * u, 60, CHAIN, 0.22, 1.8)
+    }
     // shackle around the victim / pillar
     glowG(tp.x, tp.y, tp.h, mod.data.obstacle ? 200 : 110, CHAIN, 0.8, 0.07, 1, 1, ctx.now * 2)
     glowG(tp.x, tp.y, tp.h, 90, CHAIN_DIM, 1.2, 1.5)

@@ -176,7 +176,7 @@ const mod: SpellVfx = {
     const r = p.radius
     const st = streakOf(ctx, p.data.origOwner ?? p.owner)
     const boost = Math.min(1, st / 5)
-    k.cores.add(x, y, PH, r * 0.9, dx, dy, 0.7, p.id, P.edge, P.body, P.hot, 1 + boost * 0.3)
+    k.cores.add(x, y, PH, r, dx, dy, 0.7, p.id, P.edge, P.body, P.hot, 1 + boost * 0.3)
     // refresh arrows circling the bolt: 2 arrows, 3 from streak 3 up
     k.air.add(G_REFRESH, x, y, PH - 2, r * (1.35 + boost * 0.35), -now * 8, P.body[0], P.body[1], P.body[2], 1.1 + boost * 0.6, st >= 3 ? 3 : 2, 1.1)
     k.glowAt(x, y, PH, r * (3 + boost), P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)

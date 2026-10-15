@@ -177,7 +177,7 @@ const mod: SpellVfx = {
     const sp = Math.hypot(p.vx, p.vy)
     const dx = sp > 1 ? p.vx / sp : 1
     const dy = sp > 1 ? p.vy / sp : 0
-    k.cores.add(x, y, PH, r * 0.9, dx, dy, 0.9, p.id, P.edge, P.body, P.hot)
+    k.cores.add(x, y, PH, r, dx, dy, 0.9, p.id, P.edge, P.body, P.hot)
     k.glowAt(x, y, PH, r * 3.2, P.body[0] * 0.38, P.body[1] * 0.38, P.body[2] * 0.38, 1.7, 0.5)
     ctx.glow.add(x, y, 200, 0.8, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)

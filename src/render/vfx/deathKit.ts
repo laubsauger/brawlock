@@ -300,12 +300,15 @@ class DeathDecals {
     const bx = rr.sub(0.8).div(0.14)
     const band = exp(bx.mul(bx).negate())
     const tongue = smoothstep(1.12, 0.82, rr.sub(flame.mul(0.22))).mul(smoothstep(0.66, 0.8, rr))
-    const ringI = band.mul(flame.mul(1.5).add(0.35)).add(tongue.mul(flame).mul(1.2)).mul(float(1).sub(smoothstep(0.55, 1, tn)))
+    const ringI = band.mul(flame.mul(1.1).add(0.2)).add(tongue.mul(flame).mul(0.8)).mul(float(1).sub(smoothstep(0.55, 1, tn)))
+    // on bright lava the ring reads by contrast: a dark cooled-crust band
+    // under the flames + a dark slag raft, flames kept saturated (no white-out)
     const slag = smoothstep(0.72, 0.25, rr.add(n1.sub(0.5).mul(0.4))).mul(0.88)
-    const bDarkA = slag.mul(fadeOut)
+    const crust = band.mul(float(1).sub(flame.mul(0.6))).mul(0.85)
+    const bDarkA = max(slag, crust).mul(fadeOut)
     const bDark = vec3(0.03, 0.011, 0.008).mul(n2.add(0.6))
-    const bGlow = mix(tint, vec3(4.2, 2.4, 0.8), flame.mul(band)).mul(ringI)
-      .add(vec3(2.6, 0.55, 0.07).mul(crack.mul(slag).mul(exp(age.mul(-0.8))).mul(0.8)))
+    const bGlow = mix(tint, vec3(3.0, 1.25, 0.22), flame.mul(band)).mul(ringI).mul(0.55)
+      .add(vec3(2.4, 0.5, 0.06).mul(crack.mul(slag).mul(exp(age.mul(-0.8))).mul(0.7)))
 
     // SIGIL: shadow burn, swirling veins in the spell colour, hot rim
     const sh = smoothstep(0.88, 0.32, r.add(n1.sub(0.5).mul(0.5)))
@@ -846,7 +849,7 @@ export function charHeap(ctx: VfxCtx, x: number, y: number, dx: number, dy: numb
   const f = decalFloor(ctx, x, y)
   const k = Math.max(0.6, Math.min(1.6, strength))
   const c = tint.spell
-  K.decals.spawn(D_CHAR, x, y, f, 62 * k, life, [c[0] * 3.2, c[1] * 3.2, c[2] * 3.2], 0, dx, dy, 1.35, 1)
+  K.decals.spawn(D_CHAR, x, y, f, 80 * k, life, [c[0] * 3.2, c[1] * 3.2, c[2] * 3.2], 0, dx, dy, 1.35, 1)
   const e = K.emitter(E_SMOLDER, x, y, f + 6, life - 0.3)
   e.k = k
   setTint(e, tint)
@@ -986,22 +989,24 @@ export function sinkInLava(ctx: VfxCtx, pawnId: EntityId, x: number, y: number, 
   const k = Math.max(0.6, Math.min(1.6, strength))
   const ps = ctx.particles
   const H = LAVA_H + 2
-  // splash crown: molten droplets arc up and fall back (cooling to crimson)
-  const n = ps.budget(64 * k)
+  // splash crown: molten droplets thrown from a ring, arcing up and falling
+  // back (streaked, cooling to crimson); kept saturated so it never whites
+  // out over the bright lava
+  const n = ps.budget(40 * k)
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
-    const sp = 90 + rnd() * 260
-    ps.spawn(x + Math.cos(a) * 18, y + Math.sin(a) * 18, H + 6, Math.cos(a) * sp, Math.sin(a) * sp, 380 + rnd() * 520, 0.65 + rnd() * 0.5, 9 + rnd() * 9, -3, 3.8, 1.5, 0.3, -1500, 0.4, -0.04)
+    const r0 = 18 + rnd() * 16
+    const sp = 70 + rnd() * 230
+    ps.spawn(x + Math.cos(a) * r0, y + Math.sin(a) * r0, H + 6, Math.cos(a) * sp, Math.sin(a) * sp, 320 + rnd() * 480, 0.6 + rnd() * 0.5, 6 + rnd() * 6, -2, 2.6, 0.8, 0.12, -1500, 0.4, -0.035)
   }
   // dark slag clots thrown with them
-  const nd = ctx.debris.budget(16 * k)
+  const nd = ctx.debris.budget(22 * k)
   for (let i = 0; i < nd; i++) {
     const a = rnd() * TAU
     const sp = 70 + rnd() * 200
     ctx.debris.spawn(x, y, H + 10, Math.cos(a) * sp, Math.sin(a) * sp, 300 + rnd() * 380, 0.7 + rnd() * 0.4, 6 + rnd() * 6, 3, 0.06, 0.018, 0.01, -1600, 0.3, 0)
   }
-  ctx.ground.spawn(RING_EXPAND, x, y, H, 20, 170, 0.8, 18, 3.4, 1.0, 0.14)
-  ctx.ground.spawn(RING_EXPAND, x, y, H, 50, 260, 0.55, 8, 2.0, 0.5, 0.06)
+  ctx.ground.spawn(RING_EXPAND, x, y, H, 20, 170, 0.8, 12, 1.8, 0.5, 0.07)
   // burning ring + slag raft on the lava surface
   K.decals.spawn(D_BURNRING, x, y, H, 118 * k, 2.9, [2.6, 0.5, 0.06], 0, 1, 0, 1, 1)
   const rf = K.emitter(E_RINGFIRE, x, y, H, 2.6)
@@ -1017,11 +1022,11 @@ function tickRingFire(ctx: VfxCtx, e: Emitter, t: number): void {
   const lt = (t - e.t0) / Math.max(0.1, e.t1 - e.t0)
   const grow = 1 - Math.pow(1 - Math.min(1, lt * 1.7), 3)
   const R = 118 * e.k * 0.8 * (0.38 + 0.62 * grow)
-  const n = emitN(ctx, e, 90 * e.k * (1 - lt))
+  const n = emitN(ctx, e, 60 * e.k * (1 - lt))
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
     const rr = R * (0.92 + rnd() * 0.16)
-    ctx.particles.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, e.h + 2, Math.cos(a) * 20, Math.sin(a) * 20, 90 + rnd() * 130, 0.3 + rnd() * 0.3, 14 + rnd() * 10, -4, 3.4, 1.2, 0.18, 150, 1.4, 5)
+    ctx.particles.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, e.h + 2, Math.cos(a) * 20, Math.sin(a) * 20, 90 + rnd() * 130, 0.3 + rnd() * 0.3, 12 + rnd() * 8, -4, 2.2, 0.62, 0.08, 150, 1.4, 5)
   }
   if (!lowQ(ctx)) ctx.glow.add(e.x, e.y, R * 1.6, 0.55 * (1 - lt), 1.0, 0.32, 0.05)
 }
@@ -1039,12 +1044,12 @@ function tickLava(ctx: VfxCtx, e: Emitter, t: number): void {
   const top = LAVA_H + BODY_H * above
   // robe on fire: flames lick up the remaining body
   if (above > 0.05) {
-    const n = emitN(ctx, e, 120 * e.k * (0.4 + above))
+    const n = emitN(ctx, e, 80 * e.k * (0.4 + above))
     for (let i = 0; i < n; i++) {
       const a = rnd() * TAU
-      const rr = BODY_R * (0.5 + rnd() * 0.6)
+      const rr = BODY_R * (0.6 + rnd() * 0.6)
       const hh = LAVA_H + rnd() * (top - LAVA_H)
-      ps.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, hh, Math.cos(a) * 25, Math.sin(a) * 25, 130 + rnd() * 170, 0.28 + rnd() * 0.28, 18 + rnd() * 16, -5, 3.6, 1.15, 0.2, 160, 1.5, 6)
+      ps.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, hh, Math.cos(a) * 25, Math.sin(a) * 25, 130 + rnd() * 170, 0.28 + rnd() * 0.28, 14 + rnd() * 12, -5, 2.6, 0.8, 0.13, 160, 1.5, 6)
     }
   }
   // thrashing: bursts of molten splash while it fights the pull
@@ -1056,15 +1061,15 @@ function tickLava(ctx: VfxCtx, e: Emitter, t: number): void {
     for (let i = 0; i < m; i++) {
       const a = a0 + (rnd() - 0.5) * 1.6
       const sp = 80 + rnd() * 200
-      ps.spawn(e.x + Math.cos(a) * 22, e.y + Math.sin(a) * 22, LAVA_H + 6, Math.cos(a) * sp, Math.sin(a) * sp, 220 + rnd() * 300, 0.45 + rnd() * 0.3, 8 + rnd() * 6, -2, 3.6, 1.4, 0.25, -1500, 0.4, -0.04)
+      ps.spawn(e.x + Math.cos(a) * 22, e.y + Math.sin(a) * 22, LAVA_H + 6, Math.cos(a) * sp, Math.sin(a) * sp, 220 + rnd() * 300, 0.45 + rnd() * 0.3, 6 + rnd() * 5, -2, 2.6, 0.8, 0.12, -1500, 0.4, -0.035)
     }
-    ctx.ground.spawn(RING_EXPAND, e.x, e.y, LAVA_H + 2, 15, 70, 0.4, 7, 2.6, 0.7, 0.1)
+    ctx.ground.spawn(RING_EXPAND, e.x, e.y, LAVA_H + 2, 15, 70, 0.4, 6, 1.4, 0.38, 0.05)
   }
   // smoke plume: thick dark column rising and leaning with the drift
-  const sm = emitN(ctx, e, lt < 2.4 ? 26 * e.k : 0, 'acc3')
+  const sm = emitN(ctx, e, lt < 2.4 ? 40 * e.k : 0, 'acc3')
   for (let i = 0; i < sm; i++) {
     const g = 0.035 + rnd() * 0.03
-    ctx.smoke.spawn(e.x + (rnd() - 0.5) * 40, e.y + (rnd() - 0.5) * 40, LAVA_H + 30 + rnd() * 40, 25 + (rnd() - 0.5) * 40, (rnd() - 0.5) * 30, 150 + rnd() * 120, 1.8 + rnd() * 0.8, 40, 170, g, g * 0.7, g * 0.6, 40, 0.5, 22)
+    ctx.smoke.spawn(e.x + (rnd() - 0.5) * 40, e.y + (rnd() - 0.5) * 40, LAVA_H + 30 + rnd() * 40, 25 + (rnd() - 0.5) * 40, (rnd() - 0.5) * 30, 150 + rnd() * 120, 1.8 + rnd() * 0.8, 50, 200, g, g * 0.7, g * 0.6, 40, 0.5, 22)
   }
   // victim-colour wisps escaping the fire
   const v = e.victim

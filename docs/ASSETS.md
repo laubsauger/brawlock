@@ -77,8 +77,21 @@ All images below were generated with the Codex CLI built-in image generation (`i
 
 Customized warlock built on CC0 assets by Quaternius (https://quaternius.com), license CC0 1.0 Universal (public domain), verified in each pack's license file on 2026-10-15:
 
-- Universal Base Characters (Standard): skeleton and base body
+- Universal Base Characters (Standard): skeleton reference; its Superhero head was used only in the archived v1 export (v3 has no face)
 - Universal Animation Library 1 and 2 (Standard): animation clips
-- Modular Character Outfits - Fantasy (Standard): hood, boots, gauntlets
+- Modular Character Outfits - Fantasy (Standard): rig, hood, boots, gauntlets, sleeves, tunic (Male_Ranger)
 
 Robe, mantle, cape, runes and materials are custom geometry and shaders in src/render/character.
+
+Details (character workstream):
+
+| Item | Source | License |
+|---|---|---|
+| Rig + outfit parts: `Male_Ranger.gltf` (Arms, Arms_Bracer, Body, Feet_Boots, Head_Hood, Legs; Pauldron and Belts dropped) with `T_Ranger_*` and `T_Regular_Male_*` textures | Quaternius, Modular Character Outfits - Fantasy [Standard] v2.1, https://quaternius.itch.io/modular-character-outfits-fantasy | CC0 1.0 (`License_Standard.txt` in the pack) |
+| Clips: Idle_Loop, Walk_Loop, Jog_Fwd_Loop, Spell_Simple_Enter / Idle_Loop / Shoot / Exit, Hit_Chest, Hit_Head, Death01 (UAL1); OverhandThrow, NinjaJump_Land, Hit_Knockback (UAL2). Retargeted by bone name (same rig): rotations for all bones, pelvis translation scaled to the outfit's leg length | Quaternius, Universal Animation Library [Standard] v3.0 and Universal Animation Library 2 [Standard], https://quaternius.itch.io/universal-animation-library, https://quaternius.itch.io/universal-animation-library-2 | CC0 1.0 (`License.txt` in each pack) |
+| Archived v1 head (`Superhero_Male_FullBody.gltf`, head/neck triangles only) | Quaternius, Universal Base Characters [Standard], https://quaternius.itch.io/universal-base-characters | CC0 1.0 (`License_Standard.txt`) |
+
+- Build: `src/render/character/pipeline/build-warlock.mjs` (gltf-transform + meshoptimizer, run from a scratch dir; header has the command). It merges the parts and clips, simplifies (v3: ~8.2k outfit tris), converts textures to WebP (Ranger base colour + normal 2048, ORM and skin 512-1024) and applies meshopt compression with one scene-wide quantization volume. Output: `public/models/warlock/warlock.glb`, about 1.0 MB, loaded with GLTFLoader + MeshoptDecoder.
+- Runtime additions (code, not assets): coat, tabard, sash, underlayer, cape, mantle, bell sleeves, medallions, hood void and eyes, staff variants, all TSL materials and runes.
+- Every export and progress screenshot is kept in `art/archive/models/warlock/` (gitignored): v1 (with head), v2, v2b, v3 GLBs, the all-clips catalog GLB used to pick clips, and the review screenshots.
+- KayKit Adventurers (CC0) was downloaded for comparison and rejected (chibi proportions); nothing from it ships.

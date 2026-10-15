@@ -48,6 +48,7 @@ import './warpzone'
 import './magnetize'
 import './rockpillar'
 import './link'
+import './deathsB'
 // ---- end workstream B ----
 
 // ---- workstream C (deaths by cause, lingering after-hit) ----

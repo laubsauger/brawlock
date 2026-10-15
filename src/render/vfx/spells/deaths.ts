@@ -126,7 +126,8 @@ function drawDeath(ctx: VfxCtx, e: DeathEvent, dx: number, dy: number): void {
 function lavaDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number): void {
   sinkInLava(ctx, pawn, x, y, 1, tint)
   disintegrate(ctx, pawn, x, y, LAVA_H, tint, { kind: 'lava', strength: 0.75 })
-  flash(ctx, x, y, LAVA_H + 60, [3.2, 1.1, 0.2], 1, 360, 260, 0.45)
+  // no sprite flash over bright lava (it only whites out): floor light only
+  ctx.glow.add(x, y, 260, 0.8, 1.0, 0.35, 0.06)
   ctx.shakeNear(x, y, 0.25)
 }
 

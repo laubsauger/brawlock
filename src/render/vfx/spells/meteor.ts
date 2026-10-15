@@ -364,6 +364,9 @@ const meteorVfx = {
         const o = originOf(info)
         glowG(o.x / S, -o.z / S, o.y / S, 60 + 120 * k, MAGENTA, 0.6 + 1.2 * k, 2.2)
         glowG(o.x / S, -o.z / S, o.y / S, 40 + 60 * k, PINK_HOT, 0.5 + k, 2, 2, 1, ctx.now * 3)
+        // signature: a violet sky-rune wheels open above the caster's raised arm
+        drawCircle(info.x, info.y, info.h + 250, 70 + 60 * k, STYLE_RUNES, VIOLET[0], VIOLET[1], VIOLET[2], 0.6 + 1.2 * k, 0, 2.5, pw.id, 0.1, 1.2, 12, ctx.now - 1)
+        glowG(info.x, info.y, info.h + 250, 140 + 100 * k, VIOLET_DEEP, 2, 1, 3, 1, ctx.now)
       }
     }
     // craters cooling

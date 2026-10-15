@@ -10,6 +10,8 @@
  *   &every=3                            cycle length, seconds (sim time)
  *   &place=-350_0,350_0                 pawn anchors per player id; re-placed + healed each cycle
  *   &ai=0                               bots stand still (only the script casts)
+ *   &hp=20                              pawns re-placed with this HP each cycle (death tests)
+ *   &chaos&bots=9                       10 warlocks casting random granted spells (perf soak)
  */
 import { createBot, type Bot } from '../../../bots'
 import { frame, pushEvents, pushState, resetFrame } from '../../../game/frame'
@@ -56,8 +58,8 @@ export function parseScript(s: string | null): ScriptStep[] {
   return out
 }
 
-const COLORS = [0xff5a36, 0x3fa9ff, 0x5fd35a, 0xc86bff]
-const NAMES = ['You', 'Frostbinder', 'Mossgrave', 'Hexweaver']
+const COLORS = [0xff5a36, 0x3fa9ff, 0x5fd35a, 0xc86bff, 0xffd23f, 0x3fe0d0, 0xff6fb5, 0xa0a0ff, 0x9bff5a, 0xffa040]
+const NAMES = ['You', 'Frostbinder', 'Mossgrave', 'Hexweaver', 'Ashcaller', 'Tidewarden', 'Rosethorn', 'Starveil', 'Bramblekin', 'Emberwake']
 
 export interface LabOptions {
   bots: number
@@ -70,6 +72,10 @@ export interface LabOptions {
   ai: boolean
   /** 'teams' puts player 0 and 1 on one team (ally view tests) */
   teams: boolean
+  /** HP pawns are reset to each cycle (death tests), 0 = full */
+  hp: number
+  /** chaos: every pawn keeps casting random granted spells at random others (perf tests) */
+  chaos: boolean
 }
 
 export function labOptionsFromUrl(params: URLSearchParams): LabOptions {
@@ -90,12 +96,14 @@ export function labOptionsFromUrl(params: URLSearchParams): LabOptions {
     place,
     ai: params.get('ai') !== '0',
     teams: params.has('allies'),
+    hp: Number(params.get('hp') ?? 0),
+    chaos: params.has('chaos'),
   }
 }
 
 /** Real sim + bots like render/dev/simDriver, plus grants, anchors and scripted casts. */
 export function startLabDriver(o: LabOptions): () => void {
-  const nBots = Math.max(1, Math.min(3, o.bots))
+  const nBots = Math.max(1, Math.min(9, o.bots))
   const slots: PlayerSlot[] = []
   for (let i = 0; i <= nBots; i++) {
     const team = o.teams && i === 1 ? 0 : i
@@ -122,7 +130,7 @@ export function startLabDriver(o: LabOptions): () => void {
       p.y = a.y
       p.vx = p.vy = p.walkVx = p.walkVy = 0
       p.moveTarget = null
-      p.hp = p.maxHp
+      p.hp = o.hp > 0 ? Math.min(p.maxHp, o.hp) : p.maxHp
       p.kbPoints = 0
       p.facing = Math.atan2(-a.y, -a.x)
     }
@@ -137,6 +145,24 @@ export function startLabDriver(o: LabOptions): () => void {
       lastCycleT = -1
     }
     for (const p of state.pawns) for (const g of o.grant) if (p.slots[SPELLS[g]?.column - 1] !== g) grantSpell(state, p.owner, g, o.level)
+    if (o.chaos) {
+      // perf / readability soak: everyone keeps casting, nobody dies, nobody drifts off
+      state.arena.nextShrinkTick = -1
+      for (const p of state.pawns) {
+        if (!p.alive) continue
+        p.hp = p.maxHp
+        if (Math.hypot(p.x, p.y) > 900 && !p.cast) inputs.push({ player: p.owner, tick: state.tick, cmds: [{ kind: 'move', x: (Math.random() - 0.5) * 600, y: (Math.random() - 0.5) * 600 }] })
+        if (p.cast || Math.random() > 0.025 || o.grant.length === 0) continue
+        const others = state.pawns.filter((q) => q.alive && q.owner !== p.owner)
+        if (others.length === 0) continue
+        const t = others[Math.floor(Math.random() * others.length)]
+        const sp = o.grant[Math.floor(Math.random() * o.grant.length)]
+        const slot = grantSpell(state, p.owner, sp, o.level)
+        if (slot >= 0) inputs.push({ player: p.owner, tick: state.tick, cmds: [{ kind: 'cast', slot, x: t.x + (Math.random() - 0.5) * 100, y: t.y + (Math.random() - 0.5) * 100 }] })
+      }
+      lastCycleT = 0
+      return
+    }
     const T = (state.tick - fightStart) / TICK_HZ
     const ct = T % o.every
     if (ct < lastCycleT) placeAll()

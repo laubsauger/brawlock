@@ -820,10 +820,10 @@ export class CC0Warlock implements WarlockHandle {
       }
       if (P.overhead > 1e-3) {
         // both hands rise overhead (a V), slightly forward
-        this.rotBone('upperarm_l', Z, 2.45 * P.overhead)
-        this.rotBone('upperarm_r', Z, -2.45 * P.overhead)
-        this.rotBone('upperarm_l', X, -0.35 * P.overhead)
-        this.rotBone('upperarm_r', X, -0.35 * P.overhead)
+        this.rotBone('upperarm_l', Z, 2.75 * P.overhead)
+        this.rotBone('upperarm_r', Z, -2.75 * P.overhead)
+        this.rotBone('upperarm_l', X, -0.45 * P.overhead)
+        this.rotBone('upperarm_r', X, -0.45 * P.overhead)
         this.rotBone('spine_03', X, -0.12 * P.overhead)
       }
       if (P.cross > 1e-3) {

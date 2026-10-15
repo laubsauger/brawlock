@@ -359,6 +359,10 @@ async function main() {
     pause(on?: boolean) {
       paused = on ?? !paused
     },
+    /** advance the sim + warlocks by s seconds right now (deterministic captures; pair with pause) */
+    step(s: number) {
+      for (let t = 0; t < s - 1e-6; t += 1 / 60) frameStep(1 / 60)
+    },
     /** advance time by s seconds while paused (frame-exact screenshots) */
     advance(s: number) {
       pendingAdvance += s

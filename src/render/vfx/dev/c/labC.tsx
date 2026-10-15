@@ -1,7 +1,7 @@
 /**
  * Dev-only death / after-hit VFX lab (workstream C). Not part of the app build.
  *   npx vite --port 5196 -> http://localhost:5196/src/render/vfx/dev/c/labC.html?cause=fireball
- * Params: &cause=<fireball|lava|scourge|obstacle|disconnect|<spell id>|all>  &every=3.5 (s per cycle)
+ * Params: &cause=<fireball|lava|scourge|obstacle|disconnect|<spell id>|all>  &every=5 (s per cycle)
  *         &hit (after-hit mode: damage instead of kill)  &q=low|medium|high|ultra  &fx=0..1
  *         &slow=0.3  &zoom=500..1500  &vc=<victim colour hex, e.g. ff6fb5>
  * Console: __labC.since() = sim seconds since the victim's last death (screenshot timing),
@@ -37,7 +37,7 @@ function Lab() {
     const c = params.get('cause') ?? 'all'
     const causes = c === 'all' ? [...ALL_CAUSES] : c.split(',')
     const vc = params.get('vc')
-    const stop = startDeathLab({ causes, every: Number(params.get('every') ?? 3.5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined }, setLabel)
+    const stop = startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined }, setLabel)
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0
     const id = setInterval(() => {
       const s = renderStats

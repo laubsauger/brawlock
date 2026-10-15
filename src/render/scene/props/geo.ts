@@ -121,8 +121,11 @@ export interface LatheOpts {
   cap?: { rings: number; h?: (a: number, rho: number) => number; ao?: number }
   /** close the bottom (needed for detachable chunks) */
   bottom?: boolean
-  /** carving u scale: u = angle * r * k (game units along the surface) */
-  bandU?: number
+  /**
+   * carving cell size (game units): u = arc length in cells, rounded to a
+   * whole number of cells around the ring (seam-free; adds a seam column)
+   */
+  bandCell?: number
 }
 
 export const uniformAngles = (n: number, rot = 0): number[] => Array.from({ length: n }, (_, j) => rot + (j / n) * Math.PI * 2)
@@ -161,7 +164,11 @@ export function superRadius(n: number, sx = 1, sz = 1): (a: number) => number {
 export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
   const A = o.angles
   const N = A.length
+  const seam = o.bandCell !== undefined
   const ids: number[][] = []
+  const xs = new Float64Array(N + 1)
+  const zs = new Float64Array(N + 1)
+  const ysR = new Float64Array(N + 1)
   for (let i = 0; i < rings.length; i++) {
     const R = rings[i]
     const row: number[] = []
@@ -169,15 +176,26 @@ export function lathe(part: Part, rings: Ring[], o: LatheOpts): number[][] {
       const a = A[j]
       const m = o.shape ? o.shape(a, j) : 1
       const r = R.r * m + (o.disp ? o.disp(a, R.y, i, j) : 0)
-      const y = R.y + (o.ydisp ? o.ydisp(a, i, j) : 0)
-      const u = o.bandU ? a * R.r * o.bandU : 0
-      row.push(part.v((R.ox ?? 0) + Math.cos(a) * r, y, (R.oz ?? 0) + Math.sin(a) * r, R.ao ?? 1, u, R.bv ?? -1))
+      xs[j] = (R.ox ?? 0) + Math.cos(a) * r
+      zs[j] = (R.oz ?? 0) + Math.sin(a) * r
+      ysR[j] = R.y + (o.ydisp ? o.ydisp(a, i, j) : 0)
     }
+    // carving u: arc length, scaled to a whole number of cells around the ring
+    let total = 0
+    const cum = new Float64Array(N + 1)
+    for (let j = 0; j < N; j++) {
+      const k = (j + 1) % N
+      total += Math.hypot(xs[k] - xs[j], zs[k] - zs[j])
+      cum[j + 1] = total
+    }
+    const cells = seam ? Math.max(1, Math.round(total / (o.bandCell as number))) : 0
+    for (let j = 0; j < N; j++) row.push(part.v(xs[j], ysR[j], zs[j], R.ao ?? 1, seam ? (cum[j] / total) * cells : 0, R.bv ?? -1))
+    if (seam) row.push(part.v(xs[0], ysR[0], zs[0], R.ao ?? 1, cells, R.bv ?? -1))
     ids.push(row)
   }
   for (let i = 0; i + 1 < rings.length; i++) {
     for (let j = 0; j < N; j++) {
-      const j1 = (j + 1) % N
+      const j1 = seam ? j + 1 : (j + 1) % N
       part.quad(ids[i][j], ids[i][j1], ids[i + 1][j1], ids[i + 1][j])
     }
   }

@@ -5,7 +5,7 @@ import { isLocationSafe } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
-import { createWarlock, type WarlockHandle } from '../character'
+import { createWarlock, type CastArm, type WarlockHandle } from '../character'
 import { tweaks } from '../tweaks'
 import { COLLISION_RING_R } from '../scale'
 
@@ -392,6 +392,22 @@ export class PawnView {
     if (this.warlock) return this.warlock.castOrigin(out)
     this.tipW.copy(STAFF_TIP).multiplyScalar(S * MODEL_SCALE)
     return this.staff.localToWorld(out.copy(this.tipW))
+  }
+
+  /**
+   * Casting arm chain(s) in world space: the character's real bones when the
+   * warlock provides them (both arms for two-handed casts), else null.
+   */
+  castArms(a: CastArm, b: CastArm): number {
+    const w = this.warlock
+    if (!w || typeof w.castArm !== 'function') return 0
+    if (w.castHands === 'both') {
+      w.castArm(a, 'left')
+      w.castArm(b, 'right')
+      return 2
+    }
+    w.castArm(a, w.castHands)
+    return 1
   }
 
   /** Alias of castOrigin (older call sites). */

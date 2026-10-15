@@ -298,9 +298,10 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   const flicker = n.r.mul(1.3).add(sin(tF.mul(29)).mul(0.15))
   const burnMask = float(1).sub(smoothstep(0.15, 0.85, h01.sub(n.g.mul(0.3))))
   em = em.add(vec3(3.2, 0.95, 0.16).mul(u.burn.mul(flicker).mul(burnMask.add(0.15))))
-  // invulnerability shimmer
-  const shimmer = sin(tF.mul(9).add(positionGeometry.y.mul(80))).mul(0.5).add(0.5)
-  em = em.add(vec3(1.0, 1.5, 2.6).mul(u.invuln.mul(rimF.mul(0.8).add(0.15)).mul(shimmer.mul(0.6).add(0.4))))
+  // invulnerability: a subtle translucent golden outline that breathes; the
+  // robe and team colours stay readable (no body-wide stripes)
+  const breathe = sin(tF.mul(4)).mul(0.25).add(0.75)
+  em = em.add(vec3(1.5, 1.1, 0.35).mul(u.invuln.mul(rimF.mul(rimF).mul(0.9)).mul(breathe)))
   // death: burn-up from the feet with a hot edge
   const dis = u.dissolve.mul(1.25)
   const v = h01.mul(0.65).add(n.b.mul(0.35))

@@ -5,7 +5,7 @@ import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
 import { cameraRig, devCamera, moveMarkers } from '../cameraRig'
-import { warlockParams, warlockReady } from '../character'
+import { warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
 import type { TierConfig } from '../quality'
@@ -1354,8 +1354,8 @@ export class MatchWorld {
     // FIGHT: a pale arcane white-gold pulse (never lava-coloured), subtle
     // (no flash sprite at the centre: it read as a white ball over the origin)
     const R = layerRadius(curr.arena.layer) + 300
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 160, R, 1.1, 40, 0.8, 0.76, 1.0)
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 260, R * 0.6, 0.8, 18, 1.1, 0.95, 0.62)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 160, R, 1.1, 14, 0.42, 0.4, 0.55)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 260, R * 0.6, 0.8, 7, 0.5, 0.44, 0.3)
     this.arena.shock(0, 0, t, 0.5)
     this.ctx.glow.add(0, 0, 500, 0.25, 0.4, 0.38, 0.5)
     if (this.opts.mode === 'match') cameraRig.shake(0.3 * this.opts.fx)
@@ -1532,6 +1532,27 @@ export class MatchWorld {
   private windHot = new THREE.Color()
   private ringFades = new Map<PawnView, number>()
   private wO = new THREE.Vector3()
+  private armA: CastArm = { shoulder: new THREE.Vector3(), elbow: new THREE.Vector3(), wrist: new THREE.Vector3(), palm: new THREE.Vector3(), dir: new THREE.Vector3() }
+  private armB: CastArm = { shoulder: new THREE.Vector3(), elbow: new THREE.Vector3(), wrist: new THREE.Vector3(), palm: new THREE.Vector3(), dir: new THREE.Vector3() }
+
+  /** Fallback arm chain from the cast origin and facing (procedural body). */
+  private approxArm(v: PawnView, p: PawnState, out: CastArm): void {
+    const fx = Math.cos(p.facing)
+    const fy = Math.sin(p.facing)
+    const ox = this.wO.x / S
+    const oy = -this.wO.z / S
+    const rx = fy
+    const ry = -fx
+    const side = (ox - v.x) * rx + (oy - v.y) * ry >= 0 ? 1 : -1
+    const sx = v.x + rx * side * 17 + fx * 4
+    const sy = v.y + ry * side * 17 + fy * 4
+    out.shoulder.set(sx * S, (v.h + 118) * S, -sy * S)
+    out.palm.copy(this.wO)
+    out.elbow.copy(out.shoulder).lerp(out.palm, 0.5)
+    out.elbow.y -= 10 * S
+    out.wrist.copy(out.elbow).lerp(out.palm, 0.8)
+    out.dir.copy(out.palm).sub(out.wrist).normalize()
+  }
 
   private castRingFade(v: PawnView): number {
     const a = this.ringFades.get(v) ?? 0
@@ -1560,51 +1581,68 @@ export class MatchWorld {
     const h = this.windHot
     const k = Math.min(1, v.castFraction)
     const t = this.ctx.uTime.value
-    // geometry: palm (cast origin), shoulder and elbow approximated from facing
+    // geometry: the character's real arm bones (castArm), else an approximation
+    // from the cast origin and facing; two-handed casts draw both arms
     v.castOrigin(this.wO)
+    const nArms = v.castArms(this.armA, this.armB)
+    if (nArms === 0) this.approxArm(v, p, this.armA)
+    const arms = nArms === 2 ? 2 : 1
+    const B = this.billboardsTop
+    const flick = 0.85 + Math.sin(t * 38) * 0.15
+    for (let ai = 0; ai < arms; ai++) {
+      const arm = ai === 0 ? this.armA : this.armB
+      // arm chain in game units (x, y ground, h height)
+      const sx = arm.shoulder.x / S
+      const sy = -arm.shoulder.z / S
+      const sh = arm.shoulder.y / S
+      const ox = arm.palm.x / S
+      const oy = -arm.palm.z / S
+      const oh = arm.palm.y / S
+      const ex = arm.elbow.x / S
+      const ey = -arm.elbow.z / S
+      const eh = arm.elbow.y / S
+      const rx = -(oy - ey)
+      const ry = ox - ex
+      const rl = Math.hypot(rx, ry) || 1
+      if (!hide.includes('rings')) {
+        const n = style?.ringCount ?? 3
+        for (let i = 0; i < n; i++) {
+          const ph = (t * 1.7 + i / n) % 1
+          // shoulder -> elbow -> palm
+          const seg = ph < 0.5 ? ph * 2 : (ph - 0.5) * 2
+          const ax = ph < 0.5 ? sx : ex
+          const ay = ph < 0.5 ? sy : ey
+          const ah = ph < 0.5 ? sh : eh
+          const bx = ph < 0.5 ? ex : ox
+          const by = ph < 0.5 ? ey : oy
+          const bh = ph < 0.5 ? eh : oh
+          const px = ax + (bx - ax) * seg
+          const py = ay + (by - ay) * seg
+          const ph2 = ah + (bh - ah) * seg
+          const size = (78 - 40 * ph) * (0.8 + 0.5 * k)
+          const br = (0.8 + 2.6 * k) * (0.7 + 0.3 * ph) * flick
+          B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.3) * br, (c.g + h.g * 0.3) * br, (c.b + h.b * 0.3) * br, -2.6)
+        }
+      }
+      if (!hide.includes('spiral')) {
+        const ns = this.particles.budget(dt * (50 + 120 * k))
+        for (let i = 0; i < ns; i++) {
+          const u = Math.random()
+          const th = t * 16 + u * 14
+          const cx = ex + (ox - ex) * u
+          const cy = ey + (oy - ey) * u
+          const ch = eh + (oh - eh) * u
+          const r = 10 - u * 4
+          const px = cx + Math.cos(th) * r * (rx / rl)
+          const py = cy + Math.cos(th) * r * (ry / rl)
+          const pz = ch + Math.sin(th) * r
+          this.particles.spawn(px, py, pz, (ox - px) * 4, (oy - py) * 4, (oh - pz) * 4, 0.14, 7, 2, c.r * 2.4, c.g * 2.4, c.b * 2.4, 0, 0, -0.05)
+        }
+      }
+    }
     const ox = this.wO.x / S
     const oy = -this.wO.z / S
     const oh = this.wO.y / S
-    const fx = Math.cos(p.facing)
-    const fy = Math.sin(p.facing)
-    const rx = fy
-    const ry = -fx
-    const side = (ox - v.x) * rx + (oy - v.y) * ry >= 0 ? 1 : -1
-    const sx = v.x + rx * side * 17 + fx * 4
-    const sy = v.y + ry * side * 17 + fy * 4
-    const sh = v.h + 118
-    const ex = (sx + ox) / 2
-    const ey = (sy + oy) / 2
-    const eh = (sh + oh) / 2 - 10
-    const B = this.billboardsTop
-    const flick = 0.85 + Math.sin(t * 38) * 0.15
-    if (!hide.includes('rings')) {
-      const n = style?.ringCount ?? 3
-      for (let i = 0; i < n; i++) {
-        const ph = (t * 1.7 + i / n) % 1
-        const px = sx + (ox - sx) * ph
-        const py = sy + (oy - sy) * ph
-        const ph2 = sh + (oh - sh) * ph
-        const size = (78 - 40 * ph) * (0.8 + 0.5 * k)
-        const br = (0.8 + 2.6 * k) * (0.7 + 0.3 * ph) * flick
-        B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.3) * br, (c.g + h.g * 0.3) * br, (c.b + h.b * 0.3) * br, -2.6)
-      }
-    }
-    if (!hide.includes('spiral')) {
-      const ns = this.particles.budget(dt * (50 + 120 * k))
-      for (let i = 0; i < ns; i++) {
-        const u = Math.random()
-        const th = t * 16 + u * 14
-        const cx = ex + (ox - ex) * u
-        const cy = ey + (oy - ey) * u
-        const ch = eh + (oh - eh) * u
-        const r = 10 - u * 4
-        const px = cx + Math.cos(th) * r * rx
-        const py = cy + Math.cos(th) * r * ry
-        const pz = ch + Math.sin(th) * r
-        this.particles.spawn(px, py, pz, (ox - px) * 4, (oy - py) * 4, (oh - pz) * 4, 0.14, 7, 2, c.r * 2.4, c.g * 2.4, c.b * 2.4, 0, 0, -0.05)
-      }
-    }
     if (!hide.includes('orb')) {
       const os = style?.orbScale ?? 1
       // halo ~1.6x warlock radius at full charge, hot core in the palette core colour
