@@ -7,6 +7,7 @@ import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometr
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
 import { createWarlock, type WarlockHandle } from '../character'
 import { tweaks } from '../tweaks'
+import { COLLISION_RING_R } from '../scale'
 
 const DEATH_DUR = 0.9
 const FLASH_DUR = 0.3
@@ -110,6 +111,11 @@ export class PawnView {
   private aimMat: THREE.MeshBasicNodeMaterial
   private aimShadow!: THREE.Mesh
   private aimShadowMat!: THREE.MeshBasicNodeMaterial
+  private castRing!: THREE.Mesh
+  private castRingMat!: THREE.MeshBasicNodeMaterial
+  private crProgress = makeF()
+  private crAlpha = makeF()
+  private crColor = makeC()
   private aR = makeF()
   private aDir = makeF()
   private aLen = makeF()
@@ -153,9 +159,8 @@ export class PawnView {
       // contact shadow (multiplies the floor: premultiplied blend, rgb 0):
       // a dense core exactly under the feet/hem, a wide soft penumbra, and a
       // faint AO darkening around the hem
-      // shadow centre nudged a little behind the body (away from the camera),
-      // where it stays visible around the hem instead of hiding under the robe
-      const sq = q.mul(DECAL_R).sub(vec2(0, 7))
+      // contact core right under the feet (the cast shadow is the main cue)
+      const sq = q.mul(DECAL_R)
       const rs = length(sq)
       const core = float(1).sub(smoothstep(16, 36, rs)).mul(0.72)
       const penumbra = float(1).sub(smoothstep(26, 76, rs)).mul(0.62)
@@ -166,7 +171,7 @@ export class PawnView {
       const auraX = rr.sub(auraR).div(this.dKb.mul(8).add(4))
       const aura = exp(auraX.mul(auraX).negate()).mul(this.dKb)
       // debug: the sim collision circle (r = 30) as a crisp white line
-      const colX = rr.sub(30).div(0.9)
+      const colX = rr.sub(COLLISION_RING_R).div(0.9)
       const colRing = exp(colX.mul(colX).negate()).mul(tweaks.uShowCollision)
       const glow = saturate(ring.add(aura.mul(0.7)).add(colRing))
       const pulse = sin(ctx.uTime.mul(6)).mul(0.15).add(0.85)
@@ -268,7 +273,31 @@ export class PawnView {
       this.aimShadow.frustumCulled = false
       this.aimShadow.visible = false
     }
-    this.root.add(this.decal, this.charge, this.aim, this.aimShadow)
+    // cast ground ring: fills from the centre over the windup in the spell colour
+    {
+      const q = positionGeometry.xy
+      const rr = length(q).mul(70)
+      const ex = rr.sub(54).div(3)
+      const edge = exp(ex.mul(ex).negate()).mul(this.crProgress.mul(0.7).add(0.4))
+      const fillR = this.crProgress.mul(54)
+      const fill = float(1).sub(smoothstep(fillR.sub(6), fillR, rr)).mul(0.22)
+      const front = rr.sub(fillR).div(4)
+      const frontRing = exp(front.mul(front).negate()).mul(this.crProgress).mul(0.9)
+      const m = new THREE.MeshBasicNodeMaterial()
+      m.transparent = true
+      m.depthWrite = false
+      m.blending = THREE.AdditiveBlending
+      m.colorNode = this.crColor.mul(edge.add(fill).add(frontRing)).mul(this.crAlpha).mul(1.6)
+      m.opacityNode = float(1)
+      m.positionNode = groundQuadPosition(70)
+      m.name = 'CastRing'
+      this.castRingMat = m
+      this.castRing = new THREE.Mesh(groundQuad(), m)
+      this.castRing.renderOrder = 3
+      this.castRing.frustumCulled = false
+      this.castRing.visible = false
+    }
+    this.root.add(this.decal, this.charge, this.aim, this.aimShadow, this.castRing)
   }
 
   setShadows(on: boolean): void {
@@ -376,6 +405,23 @@ export class PawnView {
     if (!w) return
     w.setCastColor(castColor)
     w.update(p, prev ?? null, alpha, dt, events)
+  }
+
+  /** Windup ground ring under the caster: progress 0..1, linear colour, alpha. */
+  setCastRing(progress: number, color: THREE.Color, alpha: number): void {
+    this.crProgress.value = progress
+    this.crColor.value.copy(color)
+    this.crAlpha.value = alpha
+    this.castRing.visible = alpha > 0.01
+    this.castRing.position.y = ((this.onLava ? LAVA_H : TILE_TOP_H) - this.h + 1.4) * S
+  }
+
+  /** Per-frame visibility (VFX overrides: Windwalk, custom deaths). */
+  applyVisibility(body: number, decal: boolean): void {
+    const show = body > 0.05
+    if (this.warlock) this.warlock.object3d.visible = show
+    else this.tilt.visible = show
+    if (!decal) this.decal.visible = false
   }
 
   get usesWarlock(): boolean {
@@ -621,6 +667,8 @@ export class PawnView {
     this.chargeMat.dispose()
     this.aimMat.dispose()
     this.aimShadowMat.dispose()
+    this.castRingMat.dispose()
+    this.castRing.geometry.dispose()
     this.decal.geometry.dispose()
     this.charge.geometry.dispose()
     this.aim.geometry.dispose()

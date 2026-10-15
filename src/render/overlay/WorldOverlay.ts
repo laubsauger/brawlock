@@ -22,7 +22,7 @@ const CALLOUT_LIFE = 1.1
 /** KB meter full scale (multiplier x2 at 1000 points) */
 const KB_FULL = 1000
 
-export type NumberKind = 'dmg' | 'heal' | 'burn'
+export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb'
 
 interface FloatNum {
   el: HTMLDivElement
@@ -226,6 +226,12 @@ export class WorldOverlay {
       color = 'rgb(70,255,90)'
       glow = 'rgba(40,255,90,.55)'
       n.el.textContent = `+${n.amount}`
+    } else if (n.kind === 'absorb') {
+      // shielded / absorbed damage (Rush): orange, bracketed
+      size = 14 + Math.min(8, n.amount / 12)
+      color = 'rgb(255,170,60)'
+      glow = 'rgba(255,140,30,.55)'
+      n.el.textContent = `(${n.amount})`
     } else if (n.kind === 'burn') {
       size = 13 + Math.min(4, n.amount / 40)
       color = 'rgb(255,140,40)'

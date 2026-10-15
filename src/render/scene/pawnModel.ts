@@ -23,6 +23,7 @@ import {
   step,
   texture,
   uniform,
+  varying,
   vec2,
   vec3,
 } from 'three/tsl'
@@ -244,6 +245,9 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   }
   u.dissolveColor.value.setRGB(4.5, 1.4, 0.25)
   const t = ctx.uTime
+  // fragment-stage clock via a vertex varying: a uniform read in both stages of
+  // one material only updated its vertex copy (frozen flicker / pulses)
+  const tF = varying(t)
   const part = asF(attribute('aPart', 'float'))
   const team = u.team
 
@@ -279,7 +283,7 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   const hitCol = mix(vec3(2.4, 0.14, 0.07), vec3(3.4, 3.1, 2.8), hot)
   em = em.add(hitCol.mul(u.flash).mul(u.flashK).mul(rimF.mul(0.6).add(0.55)))
   // below 30 % HP: a faint persistent red pulse on the rim
-  const lowPulse = sin(t.mul(6.5)).mul(0.5).add(0.5)
+  const lowPulse = sin(tF.mul(6.5)).mul(0.5).add(0.5)
   em = em.add(vec3(1.4, 0.06, 0.04).mul(u.lowHp).mul(rimF.mul(0.9).add(0.12)).mul(lowPulse.mul(0.7).add(0.3)))
   // heal: soft green wash
   em = em.add(vec3(0.25, 1.3, 0.45).mul(u.heal).mul(rimF.mul(0.7).add(0.25)))
@@ -290,12 +294,12 @@ export function createPawnMaterial(ctx: WorldCtx): { material: THREE.MeshStandar
   const fromBelow = float(0.65).sub(normalWorld.y.mul(0.45))
   em = em.add(vec3(1.0, 0.34, 0.07).mul(base.mul(3).add(0.025)).mul(lavaNear).mul(fromBelow))
   // burning: flickering orange licking up from the hem
-  const n = texture(ctx.noise, vec2(positionGeometry.x.add(positionGeometry.z).mul(2.2), positionGeometry.y.mul(1.4).sub(t.mul(1.6))))
-  const flicker = n.r.mul(1.3).add(sin(t.mul(29)).mul(0.15))
+  const n = texture(ctx.noise, vec2(positionGeometry.x.add(positionGeometry.z).mul(2.2), positionGeometry.y.mul(1.4).sub(tF.mul(1.6))))
+  const flicker = n.r.mul(1.3).add(sin(tF.mul(29)).mul(0.15))
   const burnMask = float(1).sub(smoothstep(0.15, 0.85, h01.sub(n.g.mul(0.3))))
   em = em.add(vec3(3.2, 0.95, 0.16).mul(u.burn.mul(flicker).mul(burnMask.add(0.15))))
   // invulnerability shimmer
-  const shimmer = sin(t.mul(9).add(positionGeometry.y.mul(80))).mul(0.5).add(0.5)
+  const shimmer = sin(tF.mul(9).add(positionGeometry.y.mul(80))).mul(0.5).add(0.5)
   em = em.add(vec3(1.0, 1.5, 2.6).mul(u.invuln.mul(rimF.mul(0.8).add(0.15)).mul(shimmer.mul(0.6).add(0.4))))
   // death: burn-up from the feet with a hot edge
   const dis = u.dissolve.mul(1.25)

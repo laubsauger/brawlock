@@ -13,10 +13,11 @@
  */
 import type { ProjectileState, SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
-import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
-import { G_CROSS, G_SHOCK, PAL_TWIN, PH, acquireKit, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { G_CROSS, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { spellDeath } from './deathsA'
 
-const P = PAL_TWIN
+const P = palFor('twin')
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
@@ -33,19 +34,7 @@ let frameNo = 0
 /** last pair landing, for the convergence burst */
 const landed = { x: 0, y: 0, t: -10, owner: -1 }
 
-const TRAIL: TrailStyle = {
-  life: 0.26,
-  width: 44,
-  widthTail: 0.15,
-  head: [3.4, 2.4, 0.9],
-  mid: [2.9, 1.2, 0.18],
-  tail: [0.8, 0.2, 0.02],
-  intensity: 2.0,
-  falloff: 1.4,
-  noise: 0.35,
-  spacing: 8,
-  rim: 0.3,
-}
+const TRAIL: TrailStyle = trailFrom(P, { life: 0.26, width: 44, widthTail: 0.15, intensity: 2.0, falloff: 1.4, noise: 0.35, spacing: 8, rim: 0.3 })
 
 /** point on the twin ellipse at parameter t (game coords) */
 function arcPoint(p: ProjectileState, a: Arc, t: number, out: { x: number; y: number }): void {
@@ -73,11 +62,20 @@ function burst(k: KitA, ctx: VfxCtx, x: number, y: number, big: number): void {
   for (let i = 0; i < ns; i++) ctx.smoke.spawn(x, y, PH, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, 60, 0.9, 30, 100, 0.05, 0.035, 0.02, 25, 1.2, 8)
 }
 
+const ORBIT: TrailStyle = trailFrom(P, { life: 0.08, width: 10, widthTail: 0.2, intensity: 1.6, falloff: 1.6, noise: 0, spacing: 4, rim: 0 }, 0.7)
+
+/** signature charge-up: two gold orbs circling the hand in mirror */
+function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
+  k.orbit(o.x, o.y, o.h, 2, 30 + 8 * w, ctx.now * (7 + 9 * w), 8 + 5 * w, P, 0.8 + 0.6 * w, -6000 - id * 4, ORBIT, 16)
+}
+
 const mod: SpellVfx = {
   spell: 'twin',
   init(ctx) {
     K = acquireKit(ctx)
   },
+  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     releaseKit(K)
     K = null
@@ -131,6 +129,9 @@ const mod: SpellVfx = {
         }
         return
       }
+      case 'death':
+        if (e.cause !== 'twin') return
+        return spellDeath(k, ctx, e)
       default:
         return
     }
@@ -147,7 +148,9 @@ const mod: SpellVfx = {
       if (!info) continue
       k.begin()
       k.origin(info, o)
-      k.windupAt(o.x, o.y, o.h, windupProgress(k, ctx, p.id, p.cast.ticksLeft), P, ctx.now, ctx.dt, p.id)
+      const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
+      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
+      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
     }
     if (arcs.size > 0) for (const [id, a] of arcs) if (frameNo - a.seen > 2) arcs.delete(id)
   },
@@ -197,7 +200,7 @@ const mod: SpellVfx = {
         const t = d.t + (tLeft * i) / N
         arcPoint(p, a, t, tmp)
         const f = i / N
-        const al = 0.45 * Math.min(1, i / 2) * (0.5 + 0.5 * f) * Math.min(1, tLeft * 2)
+        const al = 0.3 * Math.min(1, i / 2) * (0.5 + 0.5 * f) * Math.min(1, tLeft * 2)
         k.stripPoint(tmp.x, tmp.y, fl, 14, P.body[0], P.body[1], P.body[2], al, k.team[0], k.team[1], k.team[2], 0.4)
       }
       k.stripEnd()

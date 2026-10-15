@@ -11,6 +11,8 @@ import { Credits } from './ui/screens/Credits'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
 import { InkFilters } from './ui/InkFilters'
+import { Toasts } from './ui/Toasts'
+import { undoRemap } from './ui/lib/remap'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { music } from './ui/lib/sound'
 
@@ -92,8 +94,13 @@ function useUiScale() {
 function useGlobalKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
       if (isTypingTarget(e.target)) return
+      // Ctrl/Cmd+Z: undo the last key swap (HUD drag, shop drag, Settings)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyZ' && !e.repeat) {
+        if (undoRemap()) e.preventDefault()
+        return
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
       const s = useGame.getState()
       if (actionForCode(currentBinds(), e.code) === 'mute') s.setSettings({ muted: !s.settings.muted })
       else if (e.code === 'F2') {
@@ -131,6 +138,7 @@ export default function App() {
       </main>
       {settingsOpen && <SettingsModal />}
       <SplashScreen />
+      <Toasts />
       <PerfHud />
     </div>
   )

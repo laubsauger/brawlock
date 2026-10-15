@@ -22,9 +22,11 @@ import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
 import { Scorches } from './Scorches'
 import { KEY_LIGHT_DIR, createWorldCtx, type WorldCtx } from './world'
+import { spellPalette } from '../vfx/palette'
 import { spellVfxModules, vfxForModifier, vfxForSpell, type AfterHitKind, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../vfx/registry'
 import '../vfx/spells'
 import { toWorld } from '../coords'
+import { AOE_RING_INSET, AOE_RING_THICK } from '../scale'
 import type { Quality } from '../../game/store'
 
 /** Shared with the post pipeline: hurt flash, heat haze data. */
@@ -81,6 +83,8 @@ interface Flash {
 }
 
 const SCOURGE_COLOR = [1.5, 0.55, 2.4] as const
+/** half-extent of the key-light shadow frustum, three units */
+const SHADOW_EXT = 14
 const TELEPORT_COLOR = [0.55, 0.9, 2.6] as const
 
 /**
@@ -106,6 +110,8 @@ export class MatchWorld {
   private obstacles: Obstacles
   private debris: Particles
   private billboards: Billboards
+  /** windup telegraphs drawn over bodies (no depth test) */
+  private billboardsTop: Billboards
   private projectiles: Projectiles
   private overlay: WorldOverlay | null
   private views = new Map<number, PawnView>()
@@ -113,6 +119,7 @@ export class MatchWorld {
   private plates: PlateInput[] = []
   private flashes: Flash[] = []
   private beams: Beam[] = []
+  private handRings: { x: number; y: number; h: number; born: number; life: number; r: number; g: number; b: number }[] = []
   private ghosts: { x: number; y: number; h: number; born: number; life: number; r: number; g: number; b: number; pillar?: boolean }[] = []
   private bv0 = new THREE.Vector3()
   private bv1 = new THREE.Vector3()
@@ -147,6 +154,9 @@ export class MatchWorld {
   private contact = new ContactShadows(128)
   /** key light direction (toward the light), from the camera's left-back, high */
   private moonDir = KEY_LIGHT_DIR
+  /** light-space basis perpendicular to the key light (shadow texel snapping) */
+  private lightRight = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), KEY_LIGHT_DIR).normalize()
+  private lightUp = new THREE.Vector3().crossVectors(KEY_LIGHT_DIR, new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), KEY_LIGHT_DIR).normalize()).normalize()
 
   constructor(private opts: MatchWorldOptions) {
     this.ctx = createWorldCtx(opts.tier, opts.fx)
@@ -167,18 +177,22 @@ export class MatchWorld {
     this.obstacles.onHit = (x, y, r, hpFrac) => this.obstacleChips(x, y, r, hpFrac, null)
     this.debris = new Particles(ctx, 512, 'debris')
     this.billboards = new Billboards(160, opts.tier.heatHaze, this.ctx.field)
+    this.billboardsTop = new Billboards(96, false, null, true)
     this.projectiles = new Projectiles(ctx, this.particles, this.smoke, this.billboards)
     // night: low cool ambient from the sky, warm bounce from the lava below,
     // a cool moon key from high behind the camera's left (lights the faces the
     // camera sees; shadows fall up-right on screen)
-    this.hemi = new THREE.HemisphereLight(0x221c3a, 0xff4a12, 0.85)
-    this.moon = new THREE.DirectionalLight(0x9fb2ff, 1.7)
+    // the moon dominates the open floor so its cast shadows read (~0.6+ density);
+    // the lava bounce from below keeps shadowed sides warm instead of flat
+    this.hemi = new THREE.HemisphereLight(0x1e1932, 0xff4a12, 0.7)
+    this.moon = new THREE.DirectionalLight(0xa4b6ff, 2.2)
     this.moon.position.copy(this.moonDir).multiplyScalar(30)
     if (opts.tier.shadowMap > 0) {
       const sh = this.moon.shadow
       this.moon.castShadow = true
       sh.mapSize.set(opts.tier.shadowMap, opts.tier.shadowMap)
-      const ext = 17
+      // fitted to the view at max zoom (~2700 units across), texel-snapped below
+      const ext = SHADOW_EXT
       const cam = sh.camera as THREE.OrthographicCamera
       cam.left = -ext
       cam.right = ext
@@ -189,10 +203,10 @@ export class MatchWorld {
       // tight bias: shadows must start AT the feet / pillar base (no peter-panning)
       sh.bias = -0.00015
       sh.normalBias = 0.004
-      sh.radius = 2
+      sh.radius = 3
     }
     this.root.add(this.hemi, this.moon, this.moon.target, this.contact.mesh)
-    this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.projectiles.mesh)
+    this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.projectiles.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
       this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
@@ -291,7 +305,36 @@ export class MatchWorld {
       projectileShadow: (x, y, h, radius) => self.projectileShadow(x, y, h, radius),
       aoeRing: (x, y, radius, r, g, b, life) => self.aoeRing(x, y, radius, r, g, b, life),
       afterHit: (pawnId, kind, strength) => self.afterHit(pawnId, kind, strength),
+      pawnVisibility: (pawnId, v) => {
+        const cur = self.visOverrides.get(pawnId)
+        if (cur) Object.assign(cur, v)
+        else self.visOverrides.set(pawnId, { ...v })
+      },
+      get tickEvents() {
+        return self.currentTickEvents
+      },
+      damageCause: (e) => self.damageCause(e, self.currentTickEvents),
+      combatText: (pawnId, amount, kind, kb) => {
+        const v = self.views.get(pawnId)
+        if (v) self.overlay?.number(pawnId, v.x, v.y, v.h + 120, amount, kind, self.ctx.uTime.value, kb ?? 0)
+      },
     }
+  }
+
+  /** per-frame pawn visibility overrides from VFX modules (cleared every frame) */
+  private visOverrides = new Map<number, { body?: number; plate?: boolean; decal?: boolean }>()
+  private currentTickEvents: readonly SimEvent[] = []
+
+  /** spell id behind a damage event (same-tick projectile/beam/explosion/melee), 'lava', or null */
+  damageCause(e: SimEvent & { type: 'damage' }, tickEvents: readonly SimEvent[]): string | null {
+    if (e.kb <= 0 && e.source === null) return 'lava'
+    for (const x of tickEvents) {
+      if (x.type === 'projectileHit' && x.target === e.target) return x.spell
+      if (x.type === 'beam' && x.target === e.target) return x.spell
+      if (x.type === 'spellHit' && x.target === e.target) return x.spell
+    }
+    for (const x of tickEvents) if (x.type === 'explosion') return x.spell
+    return null
   }
 
   /** Lingering after-hit effects per pawn (see VfxCtx.afterHit). */
@@ -362,7 +405,7 @@ export class MatchWorld {
   aoeRing(x: number, y: number, radius: number, r: number, g: number, b: number, life = 0.45): void {
     const floor = isLocationSafe(x, y, this.arena.currentLayer) ? TILE_TOP_H + 1.2 : LAVA_H + 2
     // static ring (r0 = r1 = radius), thin, so its visible edge IS the hit edge
-    this.ground.spawn(RING_EXPAND, x, y, floor, radius - 1.5, radius - 1.5, life, 3, r, g, b)
+    this.ground.spawn(RING_EXPAND, x, y, floor, radius - AOE_RING_INSET, radius - AOE_RING_INSET, life, AOE_RING_THICK, r, g, b)
   }
 
   /** Blob shadow under a flying object, offset away from the key light. */
@@ -398,7 +441,9 @@ export class MatchWorld {
     this.ctx.uTime.value = t
     this.ctx.glow.begin()
     this.billboards.begin()
+    this.billboardsTop.begin()
     this.contact.begin()
+    this.visOverrides.clear()
     const src = this.opts.source
     const buf = src.buf
     const curr = buf.curr
@@ -436,6 +481,10 @@ export class MatchWorld {
       this.updateLocalHelpers(curr)
       this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
       if (this.modulesOn) this.drawModules(prev, curr, alpha)
+      for (const [id, v] of this.views) {
+        const o = this.visOverrides.get(id)
+        v.applyVisibility(o?.body ?? 1, o?.decal ?? true)
+      }
       this.builtinProjectileShadows(prev, curr, alpha)
     }
 
@@ -445,15 +494,20 @@ export class MatchWorld {
     this.drawFlashes(t)
     this.drawBeams(t, camera)
     this.updateCamera(camera, curr, dt, aspect, t)
-    // key light + its shadow frustum follow the camera focus (texel-snapped)
+    // key light + its shadow frustum follow the camera focus, snapped to whole
+    // shadow-map texels in light space (no shimmering edges while panning)
     {
       const fx = this.opts.mode === 'menu' ? 0 : cameraRig.fx * S
       const fz = this.opts.mode === 'menu' ? 0 : -cameraRig.fy * S
-      const snap = (34 / Math.max(512, this.opts.tier.shadowMap || 512)) * 4
-      const sx = Math.round(fx / snap) * snap
-      const sz = Math.round(fz / snap) * snap
-      this.moon.target.position.set(sx, 0, sz)
-      this.moon.position.set(sx + this.moonDir.x * 30, this.moonDir.y * 30, sz + this.moonDir.z * 30)
+      const texel = (SHADOW_EXT * 2) / Math.max(512, this.opts.tier.shadowMap || 512)
+      const R = this.lightRight
+      const U = this.lightUp
+      this.tmpV.set(fx, 0, fz)
+      const a = this.tmpV.dot(R)
+      const b = this.tmpV.dot(U)
+      this.tmpV.addScaledVector(R, Math.round(a / texel) * texel - a).addScaledVector(U, Math.round(b / texel) * texel - b)
+      this.moon.target.position.copy(this.tmpV)
+      this.moon.position.copy(this.tmpV).addScaledVector(this.moonDir, 30)
     }
     this.updateCursor(camera)
     if (this.overlay) {
@@ -470,7 +524,7 @@ export class MatchWorld {
         pl.hp = v.hp
         pl.maxHp = v.maxHp
         pl.kbPoints = v.kbPoints
-        pl.visible = v.alive && !v.dead
+        pl.visible = v.alive && !v.dead && this.visOverrides.get(id)?.plate !== false
         pl.local = v.owner === buf.localPlayer
       }
       this.overlay.update(camera, t, this.plates, n, cameraRig.fx, cameraRig.fy)
@@ -488,6 +542,7 @@ export class MatchWorld {
     this.scorches.commit()
     this.debris.commit()
     this.billboards.commit()
+    this.billboardsTop.commit()
     this.contact.commit()
   }
 
@@ -585,7 +640,9 @@ export class MatchWorld {
     this.frameEvents.length = 0
     for (const b of batches) {
       for (const e of b.events) this.frameEvents.push(e)
+      this.currentTickEvents = b.events
       for (const e of b.events) this.handleEvent(e, b.events, curr, t)
+      this.currentTickEvents = []
       if (b.tick > this.lastEventTick) this.lastEventTick = b.tick
     }
   }
@@ -671,6 +728,7 @@ export class MatchWorld {
         }
         const burn = e.kb <= 0 && e.source === null
         if (burn) this.afterHit(e.target, 'lava', 1)
+        if (e.absorbed && e.absorbed > 0) this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 150, e.absorbed, 'absorb', t)
         this.overlay?.number(e.target, e.x, e.y, (v?.h ?? TILE_TOP_H) + 120, e.amount, burn ? 'burn' : 'dmg', t, e.kb)
         if (match && this.isLocalPawn(curr, e.target)) {
           cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * fx)
@@ -719,9 +777,17 @@ export class MatchWorld {
           if (v) this.scourgeBlast(v.x, v.y, 250)
         }
         if (v && !e.spell.startsWith('scourge')) {
-          // muzzle flash at the staff tip
-          v.tipWorld(this.tmpV)
-          this.flash(this.tmpV.x / S, -this.tmpV.z / S, this.tmpV.y / S, 0.16, 160, 70, 2.2, 1.0, 0.35)
+          // release: bright flash at the hand + recoil shockwave
+          v.castOrigin(this.tmpV)
+          this.windCol.setHex(spellPalette(e.spell).accent)
+          const c = this.windCol
+          const hx = this.tmpV.x / S
+          const hy = -this.tmpV.z / S
+          const hh = this.tmpV.y / S
+          this.flash(hx, hy, hh, 0.16, 180, 110, c.r * 2.5 + 0.8, c.g * 2.5 + 0.8, c.b * 2.5 + 0.8)
+          this.handRings.push({ x: hx, y: hy, h: hh, born: t, life: 0.25, r: c.r * 2.2, g: c.g * 2.2, b: c.b * 2.2 })
+          const floor = isLocationSafe(v.x, v.y, this.arena.currentLayer) ? TILE_TOP_H + 1.2 : LAVA_H + 2
+          this.ground.spawn(RING_EXPAND, v.x, v.y, floor, 24, 120, 0.3, 7, c.r * 1.6, c.g * 1.6, c.b * 1.6)
         }
         break
       }
@@ -837,6 +903,17 @@ export class MatchWorld {
 
   /** A windup that never released: the charge gutters out in smoke and sparks. */
   private fizzleFx(v: PawnView): void {
+    // rings shatter outward along the arm, the orb sputters out
+    v.setCastRing(0, this.windCol, 0)
+    this.ringFades.delete(v)
+    v.castOrigin(this.tmpV)
+    const shards = this.particles.budget(18)
+    for (let i = 0; i < shards; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 160 + Math.random() * 260
+      this.particles.spawn(this.tmpV.x / S, -this.tmpV.z / S, this.tmpV.y / S, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * sp, 0.25 + Math.random() * 0.15, 8, 1, 1.6, 1.4, 1.8, -900, 2.5, -0.1)
+    }
+    this.handRings.push({ x: this.tmpV.x / S, y: -this.tmpV.z / S, h: this.tmpV.y / S, born: this.ctx.uTime.value, life: 0.18, r: 0.9, g: 0.8, b: 1.0 })
     v.tipWorld(this.tmpV)
     const x = this.tmpV.x / S
     const y = -this.tmpV.z / S
@@ -888,6 +965,17 @@ export class MatchWorld {
       this.billboards.addStreak(gh.x * S, gh.h * S, -gh.y * S, size, stretch, Math.PI / 2, gh.r * e, gh.g * e, gh.b * e, gh.pillar ? 1.2 : 1.6, 0)
     }
     this.ghosts.length = gw
+    // release recoil rings expanding from the hand
+    let hw = 0
+    for (let i = 0; i < this.handRings.length; i++) {
+      const hr = this.handRings[i]
+      const u = (t - hr.born) / hr.life
+      if (u >= 1) continue
+      this.handRings[hw++] = hr
+      const e = 1 - u
+      this.billboards.add(hr.x * S, hr.h * S, -hr.y * S, (24 + u * 130) * S, hr.r * e, hr.g * e, hr.b * e, -2.2)
+    }
+    this.handRings.length = hw
   }
 
   /** Short bright streaks between two points (teleport link), drawn as view-aligned stretched sprites. */
@@ -1264,11 +1352,12 @@ export class MatchWorld {
 
   private roundStart(curr: SimState, t: number): void {
     // FIGHT: a pale arcane white-gold pulse (never lava-coloured), subtle
+    // (no flash sprite at the centre: it read as a white ball over the origin)
     const R = layerRadius(curr.arena.layer) + 300
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 40, R, 1.1, 45, 0.9, 0.85, 1.15)
-    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 10, R * 0.6, 0.8, 22, 1.3, 1.15, 0.75)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 160, R, 1.1, 40, 0.8, 0.76, 1.0)
+    this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 260, R * 0.6, 0.8, 18, 1.1, 0.95, 0.62)
     this.arena.shock(0, 0, t, 0.5)
-    this.flash(0, 0, 120, 0.4, 700, 360, 1.1, 1.05, 1.3)
+    this.ctx.glow.add(0, 0, 500, 0.25, 0.4, 0.38, 0.5)
     if (this.opts.mode === 'match') cameraRig.shake(0.3 * this.opts.fx)
   }
 
@@ -1433,33 +1522,112 @@ export class MatchWorld {
       }
     }
     if (p.cast && p.cast.started !== false && p.alive) {
-      // windup: a charging orb in the spell colour grows at the cast origin
-      // (palm socket or staff tip), energy streaks are drawn inward, and a
-      // faint light pools on the floor
-      v.castOrigin(this.tmpV)
-      const look = spellLook(p.cast.spell)
-      const sc = p.cast.spell.startsWith('scourge') ? SCOURGE_COLOR : look.trail
-      const k = v.castFraction
-      const flick = 0.85 + Math.sin(this.ctx.uTime.value * 40) * 0.15
-      this.billboards.add(this.tmpV.x, this.tmpV.y, this.tmpV.z, (30 + k * 80) * S, sc[0] * (0.5 + k * 1.6) * flick, sc[1] * (0.5 + k * 1.6) * flick, sc[2] * (0.5 + k * 1.6) * flick, 1.8, 0.3)
-      this.billboards.add(this.tmpV.x, this.tmpV.y, this.tmpV.z, (12 + k * 26) * S, 2.6 + k * 2, 2.2 + k * 1.5, 1.6 + k, 3.2)
-      const ox = this.tmpV.x / S
-      const oy = -this.tmpV.z / S
-      const oh = this.tmpV.y / S
-      const n = this.particles.budget(dt * (30 + k * 90))
+      this.drawWindup(v, p, dt)
+    } else {
+      v.setCastRing(0, this.windCol, Math.max(0, this.castRingFade(v) - dt * 6))
+    }
+  }
+
+  private windCol = new THREE.Color()
+  private windHot = new THREE.Color()
+  private ringFades = new Map<PawnView, number>()
+  private wO = new THREE.Vector3()
+
+  private castRingFade(v: PawnView): number {
+    const a = this.ringFades.get(v) ?? 0
+    const n = Math.max(0, a - 0.1)
+    if (n === 0) this.ringFades.delete(v)
+    else this.ringFades.set(v, n)
+    return n
+  }
+
+  /**
+   * Shared hand-cast windup (readable across the screen at any facing):
+   * rune rings travel shoulder -> hand, tightening and brightening with the
+   * charge; an energy spiral wraps the forearm; a palm orb grows to ~0.7x the
+   * warlock radius with inward-pulled motes; a ground ring fills under the
+   * caster. Colour = spell palette accent; modules flavour it via windupStyle.
+   */
+  private drawWindup(v: PawnView, p: PawnState, dt: number): void {
+    const spell = p.cast!.spell
+    const mod = this.modulesOn ? vfxForSpell(spell) : undefined
+    const style = mod?.windupStyle?.(spell) ?? null
+    const hide = style?.hide ?? []
+    const pal = spellPalette(spell)
+    this.windCol.setHex(style?.color ?? pal.accent)
+    this.windHot.setHex(pal.core)
+    const c = this.windCol
+    const h = this.windHot
+    const k = Math.min(1, v.castFraction)
+    const t = this.ctx.uTime.value
+    // geometry: palm (cast origin), shoulder and elbow approximated from facing
+    v.castOrigin(this.wO)
+    const ox = this.wO.x / S
+    const oy = -this.wO.z / S
+    const oh = this.wO.y / S
+    const fx = Math.cos(p.facing)
+    const fy = Math.sin(p.facing)
+    const rx = fy
+    const ry = -fx
+    const side = (ox - v.x) * rx + (oy - v.y) * ry >= 0 ? 1 : -1
+    const sx = v.x + rx * side * 17 + fx * 4
+    const sy = v.y + ry * side * 17 + fy * 4
+    const sh = v.h + 118
+    const ex = (sx + ox) / 2
+    const ey = (sy + oy) / 2
+    const eh = (sh + oh) / 2 - 10
+    const B = this.billboardsTop
+    const flick = 0.85 + Math.sin(t * 38) * 0.15
+    if (!hide.includes('rings')) {
+      const n = style?.ringCount ?? 3
       for (let i = 0; i < n; i++) {
+        const ph = (t * 1.7 + i / n) % 1
+        const px = sx + (ox - sx) * ph
+        const py = sy + (oy - sy) * ph
+        const ph2 = sh + (oh - sh) * ph
+        const size = (78 - 40 * ph) * (0.8 + 0.5 * k)
+        const br = (0.8 + 2.6 * k) * (0.7 + 0.3 * ph) * flick
+        B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.3) * br, (c.g + h.g * 0.3) * br, (c.b + h.b * 0.3) * br, -2.6)
+      }
+    }
+    if (!hide.includes('spiral')) {
+      const ns = this.particles.budget(dt * (50 + 120 * k))
+      for (let i = 0; i < ns; i++) {
+        const u = Math.random()
+        const th = t * 16 + u * 14
+        const cx = ex + (ox - ex) * u
+        const cy = ey + (oy - ey) * u
+        const ch = eh + (oh - eh) * u
+        const r = 10 - u * 4
+        const px = cx + Math.cos(th) * r * rx
+        const py = cy + Math.cos(th) * r * ry
+        const pz = ch + Math.sin(th) * r
+        this.particles.spawn(px, py, pz, (ox - px) * 4, (oy - py) * 4, (oh - pz) * 4, 0.14, 7, 2, c.r * 2.4, c.g * 2.4, c.b * 2.4, 0, 0, -0.05)
+      }
+    }
+    if (!hide.includes('orb')) {
+      const os = style?.orbScale ?? 1
+      // halo ~1.6x warlock radius at full charge, hot core in the palette core colour
+      B.add(this.wO.x, this.wO.y, this.wO.z, (50 + k * 130) * os * S, c.r * (0.9 + k * 2.2) * flick, c.g * (0.9 + k * 2.2) * flick, c.b * (0.9 + k * 2.2) * flick, 1.4)
+      B.add(this.wO.x, this.wO.y, this.wO.z, (18 + k * 46) * os * S, h.r * (1.6 + k * 2.4), h.g * (1.6 + k * 2.4), h.b * (1.6 + k * 2.4), 2.6)
+      const ni = this.particles.budget(dt * (30 + k * 90))
+      for (let i = 0; i < ni; i++) {
         const a = Math.random() * Math.PI * 2
         const e = (Math.random() - 0.5) * 1.6
-        const r0 = 55 + Math.random() * 45
+        const r0 = (50 + Math.random() * 40) * os
         const dx = Math.cos(a) * Math.cos(e)
         const dy = Math.sin(a) * Math.cos(e)
         const dh = Math.sin(e)
         const life = 0.18 + Math.random() * 0.08
         const sp = r0 / life
-        this.particles.spawn(ox + dx * r0, oy + dy * r0, oh + dh * r0, -dx * sp, -dy * sp, -dh * sp, life, 6, 2, sc[0] * 1.4, sc[1] * 1.4, sc[2] * 1.4, 0, 0, -0.05)
+        this.particles.spawn(ox + dx * r0, oy + dy * r0, oh + dh * r0, -dx * sp, -dy * sp, -dh * sp, life, 6, 2, c.r * 1.8, c.g * 1.8, c.b * 1.8, 0, 0, -0.05)
       }
-      this.ctx.glow.add(v.x, v.y, 140 + k * 100, 0.2 + k * 0.5, sc[0] * 0.5, sc[1] * 0.5, sc[2] * 0.5)
     }
+    if (!hide.includes('ground')) {
+      v.setCastRing(k, c, 1)
+      this.ringFades.set(v, 1)
+    }
+    this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
   }
 
   // ---------------------------------------------------------------- ambient
@@ -1606,6 +1774,7 @@ export class MatchWorld {
     this.obstacles.dispose()
     this.debris.dispose()
     this.billboards.dispose()
+    this.billboardsTop.dispose()
     this.contact.dispose()
     this.projectiles.dispose()
     this.ctx.field.dispose()

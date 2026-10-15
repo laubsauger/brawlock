@@ -1,0 +1,6 @@
+Use case: stylized-concept
+Asset type: game environment prop concept sheet, widescreen 16:9 landscape
+Subject: detail sheet of three overgrown ruin pillar props on a mossy dark stone tile floor: left = a massive mossy standing stone with soft rounded weathered edges and a thick moss cap, grass tufts at the base; middle = a ruined column drum wrapped in thick twisting roots that grip down into the floor; right = the standing stone damaged, cracks glowing faint green, a cluster of glowing emerald crystals breaking through the stone, chips flying. Emphasize readable silhouettes and a strong dark contact shadow all around each base.
+Style: cinematic AAA dark-fantasy game concept art, painterly-rendered 3D, high material detail, matching a moonlit volcanic caldera arena: cool blue moonlight key light from upper left, warm orange lava bounce light from below. Dark, desaturated stone values; glow used sparingly.
+Camera: top-down 3/4 game camera, looking down at about 60 degrees pitch, like a Dota 2 / League of Legends gameplay camera. Every object sits on the same dark runed stone tile floor and casts a soft dark contact shadow all around its base.
+Constraints: no text, no letters, no labels, no numbers, no UI, no border, no characters, no people.

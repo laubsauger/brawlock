@@ -9,28 +9,26 @@
  * The charge hit ('spellHit' windwalk) cracks a violet shockwave along the hit direction and
  * the walker re-forms in a smoke burst; any other end of the modifier also re-forms it.
  *
- * Hiding: render has no per-pawn visibility hook yet, so the module hides the PawnView root
- * (found by its position in ctx.scene) for the frames the modifier runs, restoring it each frame.
+ * Visibility goes through ctx.pawnVisibility every frame the modifier runs: enemies get no body,
+ * nameplate or team ring at all; owner and allies see a half-faded ghost body.
  */
-import type * as THREE from 'three/webgpu'
 import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { isEnemy } from '../../../sim/teams'
-import { S } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { TAU, burst, floorH, glowG, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB } from './kitB'
+import { TAU, burst, floorH, glowG, kitBegin, kitInit, kitRelease, light, rand, screenAngle, type RGB, pal } from './kitB'
 
 const SPELL = 'windwalk'
-const WRAITH: RGB = [1.05, 0.55, 2.3]
-const WRAITH_DEEP: RGB = [0.35, 0.12, 0.8]
-const SMOKE_V = [0.09, 0.05, 0.16] as const
+// identity: pale grey-white, no hue (vfx/palette.ts)
+const WRAITH: RGB = pal('windwalk', 'accent', 1.2)
+const WRAITH_DEEP: RGB = pal('windwalk', 'accent', 0.3)
+const SMOKE_V = [0.16, 0.165, 0.17] as const
 const TRAIL_N = 8
 const TRAIL_DT = 0.05
 
 interface Walker {
   seen: number
   since: number
-  root: THREE.Object3D | null
   tx: Float32Array
   ty: Float32Array
   tt: Float32Array
@@ -39,30 +37,12 @@ interface Walker {
 }
 
 const walkers = new Map<number, Walker>()
-const hidden: THREE.Object3D[] = []
 let frameNo = 0
-
-/** The PawnView root group at (x, y) (render sets root.position = (x S, h S, -y S)). */
-function findRoot(ctx: VfxCtx, x: number, y: number): THREE.Object3D | null {
-  const wx = x * S
-  const wz = -y * S
-  let best: THREE.Object3D | null = null
-  let bd = 0.02
-  for (const o of ctx.scene.children) {
-    if (o.type !== 'Group' || o.name !== '') continue
-    const d = Math.abs(o.position.x - wx) + Math.abs(o.position.z - wz)
-    if (d < bd) {
-      bd = d
-      best = o
-    }
-  }
-  return best
-}
 
 function walker(id: number, now: number): Walker {
   let w = walkers.get(id)
   if (!w) {
-    w = { seen: 0, since: now, root: null, tx: new Float32Array(TRAIL_N), ty: new Float32Array(TRAIL_N), tt: new Float32Array(TRAIL_N).fill(-10), head: 0, lastSample: -10 }
+    w = { seen: 0, since: now, tx: new Float32Array(TRAIL_N), ty: new Float32Array(TRAIL_N), tt: new Float32Array(TRAIL_N).fill(-10), head: 0, lastSample: -10 }
     walkers.set(id, w)
   }
   return w
@@ -96,8 +76,6 @@ registerSpellVfx({
     kitInit(ctx)
   },
   dispose() {
-    for (const r of hidden) r.visible = true
-    hidden.length = 0
     walkers.clear()
     kitRelease()
   },
@@ -150,9 +128,6 @@ registerSpellVfx({
   frame(ctx: VfxCtx) {
     kitBegin(ctx)
     frameNo++
-    // re-show everything; drawModifier hides again what is still windwalking
-    for (const r of hidden) r.visible = true
-    hidden.length = 0
     for (const [id, w] of walkers) if (frameNo - w.seen > 2) walkers.delete(id)
   },
   drawModifier(pawn: PawnState, _mod: ModifierState, x: number, y: number, ctx: VfxCtx) {
@@ -164,17 +139,14 @@ registerSpellVfx({
     const enemyView = viewerIsEnemy(ctx, pawn.owner)
     const fadeIn = Math.min(1, (ctx.now - w.since) / 0.2)
     if (enemyView) {
-      if (!w.root || Math.abs(w.root.position.x - x * S) + Math.abs(w.root.position.z + y * S) > 0.05) w.root = findRoot(ctx, x, y)
-      if (w.root) {
-        w.root.visible = false
-        hidden.push(w.root)
-      }
+      ctx.pawnVisibility(pawn.id, { body: 0, plate: false, decal: false })
       // only a faint bend in the air where the walker moves (heat-haze tiers), no colour
       const sp = Math.hypot(pawn.vx, pawn.vy)
       if (ctx.tier.heatHaze && sp > 40) glowG(x, y, fh + 70, 150, WRAITH, 0, 1.2, 3, 1.6, Math.PI / 2, 0.55 * Math.min(1, sp / 400))
       return
     }
-    // --- wraith look for the owner / allies
+    // --- wraith look for the owner / allies: a half-faded ghost body
+    ctx.pawnVisibility(pawn.id, { body: 1 - 0.55 * fadeIn })
     const t = ctx.now
     // after-images along the path
     if (t - w.lastSample > TRAIL_DT) {
@@ -188,10 +160,10 @@ registerSpellVfx({
       const age = t - w.tt[k]
       if (age > TRAIL_N * TRAIL_DT || age <= 0.0) continue
       const f = 1 - age / (TRAIL_N * TRAIL_DT)
-      glowG(w.tx[k], w.ty[k], fh + 75, 120, WRAITH, 0.32 * f * f * fadeIn, 1.4, 3, 0.7, 0, 0.3)
+      glowG(w.tx[k], w.ty[k], fh + 75, 130, WRAITH, 0.55 * f * f * fadeIn, 1.4, 3, 0.7, 0, 0.3)
     }
     // smoke shroud and cold rim around the body
-    glowG(x, y, fh + 80, 170, WRAITH_DEEP, 1.2 * fadeIn, 1, 3, 0.75, 0, 0.6)
+    glowG(x, y, fh + 80, 180, WRAITH_DEEP, 1.7 * fadeIn, 1, 3, 0.75, 0, 0.6)
     glowG(x, y, fh + 70, 140, WRAITH, 0.3 * fadeIn, 1.8, 0, 0.8)
     glowG(x, y, fh + 3, 110, WRAITH, 0.25 * fadeIn, 0.06, 1)
     light(ctx, x, y, 160, 0.5 * fadeIn, WRAITH, 0.4)

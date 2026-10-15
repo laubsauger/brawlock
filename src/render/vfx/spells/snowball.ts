@@ -14,9 +14,14 @@ import { S, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  FROST, ICE_VIOLET, InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitAdopt, kitBegin,
+  InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitAdopt, kitBegin,
   kitInit, kitRelease, light, originOf, projShadow, rand, type RGB,
+  pal,
 } from './kitB'
+
+// identity: light ice blue (vfx/palette.ts)
+const FROST = pal('snowball', 'accent', 1.5)
+const ICE_VIOLET = pal('snowball', 'accent', 0.7)
 
 const SPELL = 'snowball'
 const MOD = 'snowball'

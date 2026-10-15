@@ -5,11 +5,15 @@ export type WarlockStyle = 'cc0' | 'procedural'
 export type CastFrom = 'palm' | 'staff'
 
 /**
- * World metres per model metre for the CC0 rig. Matches the gameplay footprint
- * (collision radius 30 units): height 1.87 m -> 1.29 m (129 units, Dota-like),
- * and a broader, chunkier build: hem ~66 units across, mantle ~58 units.
+ * World metres per model metre for the CC0 rig, matched to the original's
+ * gameplay read (collision radius 30 units, top-down silhouette ~70-80 units):
+ * height 1.87 m -> 1.29 m (129 units), and a broad, hunched build: hem ~80
+ * units across, mantle ~75, arms + bell sleeves ~80.
  */
-export const CC0_SCALE = { xz: 0.82, y: 0.69 } as const
+export const CC0_SCALE = { xz: 0.76, y: 0.69 } as const
+
+/** height of the CC0 rig incl. the hood (GLB metres, before CC0_SCALE) */
+export const RIG_HEIGHT_M = 1.865
 
 /**
  * Live look-dev switches for warlocks (Inspector / preview). Read when a

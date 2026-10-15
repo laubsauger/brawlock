@@ -16,10 +16,14 @@
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
-import { G_SHOCK, PAL_STORM, PH, acquireKit, hash01, pawnById, releaseKit, windupProgress, type KitA, type RGB } from './kitA'
+import { G_SHOCK, PH, acquireKit, hash01, palFor, pawnById, releaseKit, windupProgress, type KitA, type RGB } from './kitA'
+import { spellDeath } from './deathsA'
 
-const P = PAL_STORM
-const AFTER: RGB = [0.9, 0.35, 1.6]
+const P = palFor('lightning')
+/** afterimage cools to the darker identity edge */
+const AFTER: RGB = P.edge
+/** the detonated Fireball's own fire */
+const FB = palFor('fireball')
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
@@ -108,7 +112,7 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         const px = b.x0 + (b.x1 - b.x0) * t - ((b.y1 - b.y0) / (len || 1)) * jit
         const py = b.y0 + (b.y1 - b.y0) * t + ((b.x1 - b.x0) / (len || 1)) * jit
         const env = Math.min(1, t * 6) * Math.min(1, (1 - t) * 6 + 0.3)
-        k.stripPoint(px, py, fl, 22, 1.4, 0.55, 1.9, 0.5 * fade * fade * env)
+        k.stripPoint(px, py, fl, 22, P.body[0], P.body[1], P.body[2], 0.45 * fade * fade * env)
       }
       k.stripEnd()
     } else {
@@ -217,7 +221,7 @@ const mod: SpellVfx = {
         const fl = k.floor(x1, y1)
         if (e.blocked) {
           // tink: glancing sparks back toward the caster, small bright ring
-          ctx.flash(x1, y1, h1, 0.1, 170, 110, 3.5, 3.6, 4.0)
+          ctx.flash(x1, y1, h1, 0.1, 150, 90, P.hot[0], P.hot[1], P.hot[2])
           crackleSparks(ctx, x1, y1, h1, 22, 900, -ux, -uy, 1.0)
           k.pulse(G_SHOCK, true, x1, y1, h1, 55, 55, 0.22, 0, 0, P.hot, 1.2, 0.2, 0.9, 0.12)
         } else if (e.target === null) {
@@ -249,7 +253,7 @@ const mod: SpellVfx = {
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
           const sp = R * (1.2 + Math.random() * 1.6)
-          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 200, 0.32 + Math.random() * 0.2, 34 + Math.random() * 20, -10, 3.0, 0.9, 0.25, -200, 3.4, 0)
+          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 200, 0.32 + Math.random() * 0.2, 34 + Math.random() * 20, -10, FB.body[0] * 1.3, FB.body[1] * 1.3, FB.body[2] * 1.3, -200, 3.4, 0)
         }
         crackleSparks(ctx, e.x, e.y, PH, 30, R * 3.2)
         for (let i = 0; i < 7; i++) {
@@ -260,13 +264,16 @@ const mod: SpellVfx = {
         const ns = ctx.smoke.budget(8)
         for (let i = 0; i < ns; i++) {
           const a = Math.random() * Math.PI * 2
-          ctx.smoke.spawn(e.x, e.y, PH, Math.cos(a) * 80, Math.sin(a) * 80, 60 + Math.random() * 40, 1.2 + Math.random() * 0.6, 50, 160, 0.06, 0.05, 0.07, 20, 1, 14)
+          ctx.smoke.spawn(e.x, e.y, PH, Math.cos(a) * 80, Math.sin(a) * 80, 60 + Math.random() * 40, 1.2 + Math.random() * 0.6, 50, 160, 0.05, 0.05, 0.06, 20, 1, 14)
         }
         if (!ctx.isLava(e.x, e.y)) ctx.scorches.spawn(e.x, e.y, fl - 0.4, R * 0.45, 5)
-        ctx.flash(e.x, e.y, PH + 20, 0.3, R, 200, 3.2, 2.6, 3.6)
+        ctx.flash(e.x, e.y, PH + 20, 0.24, R, 160, P.body[0] * 1.4, P.body[1] * 1.4, P.body[2] * 1.4)
         ctx.shakeNear(e.x, e.y, 0.35)
         return
       }
+      case 'death':
+        if (e.cause !== 'lightning') return
+        return spellDeath(k, ctx, e)
       default:
         return
     }
@@ -284,7 +291,12 @@ const mod: SpellVfx = {
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
       k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      // crackling micro-arcs around the hand, more as it charges
+      // signature: arcs jumping between the fingers and crawling up the arm
+      const sx = info.x + (o.x - info.x) * 0.25
+      const sy = info.y + (o.y - info.y) * 0.25
+      const sh = info.h + 112
+      const armSeed = p.id * 53 + Math.floor(ctx.now * 22)
+      k.bolt(o.x, o.y, o.h, sx, sy, sh, armSeed, 9, 2.5, P.body, P.hot, 0.6 + w * 0.8, w > 0.5 ? 1 : 0, 9, 14, 0.25)
       const arcs = 1 + Math.floor(w * 3)
       for (let i = 0; i < arcs; i++) {
         const seed = p.id * 97 + i * 13 + Math.floor(ctx.now * 28)

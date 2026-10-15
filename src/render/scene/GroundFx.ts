@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { abs, atan, exp, float, fract, instancedBufferAttribute, length, max, mix, positionGeometry, pow, saturate, select, step, vec3 } from 'three/tsl'
+import { abs, atan, exp, float, fract, instancedBufferAttribute, length, max, mix, positionGeometry, pow, saturate, select, step, varying, vec3 } from 'three/tsl'
 import { S } from '../coords'
 import { asV4, type WorldCtx } from './world'
 
@@ -51,7 +51,10 @@ export class GroundFx {
     const B1 = asV4(instancedBufferAttribute(this.b1))
     const B2 = asV4(instancedBufferAttribute(this.b2))
     const age = t.sub(B0.w)
-    const tn = age.div(B1.z)
+    // normalised age computed ONCE in the vertex stage and handed to the
+    // fragment as a varying: the fragment's own copy of the clock uniform was
+    // not tracking the frame clock, which froze rings/fades (persistent discs)
+    const tn = varying(age.div(B1.z))
     const alive = step(0, tn).mul(step(tn, 1))
     const thick = B2.w
     const rMax = max(B1.x, B1.y).add(thick.mul(2.5))

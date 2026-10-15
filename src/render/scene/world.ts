@@ -7,9 +7,15 @@ import type { TierConfig } from '../quality'
 import { getNoiseTexture } from './noiseTexture'
 
 /** Key (moon) light direction, three world space, pointing TOWARD the light. */
-// high moon (~77 degrees) from slightly behind the camera: the cast shadow sits
-// under the body and a little behind it, reading as contact, not as a hover
-export const KEY_LIGHT_DIR = new THREE.Vector3(-0.16, 0.975, 0.14).normalize()
+// Moon at ~52 degrees elevation from the far upper-left of the view: cast
+// shadows fall toward the lower-right of the screen, beside the body (~0.8x
+// its height), like the original game. Toward the light, three world space.
+export const KEY_LIGHT_ELEVATION = (52 * Math.PI) / 180
+export const KEY_LIGHT_DIR = new THREE.Vector3(
+  -0.33 * Math.cos(KEY_LIGHT_ELEVATION),
+  Math.sin(KEY_LIGHT_ELEVATION),
+  -0.944 * Math.cos(KEY_LIGHT_ELEVATION),
+).normalize()
 
 /** Cast helpers for nodes the typings widen (uniform array elements, buffer attributes). */
 export const asV4 = (n: unknown) => n as Node<'vec4'>

@@ -220,6 +220,7 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 **VFX definition of done.** No spell, projectile, ability or hit ships as a plain shape. Each one has:
 
 - Layers: hot emissive core into bloom, soft glow, trail with heat falloff, secondary particles (embers, sparks, smoke), light cast on nearby ground, heat distortion where it fits, an impact decal that fades.
+- A signature windup: the shared casting base (arm rings, palm orb, ground ring) plus a spell-specific charge-up so opponents can recognize the spell before release.
 - A full arc: anticipation (windup telegraph), action (cast flash), impact (directional burst, shockwave, debris), dissipation (smoke, settling embers).
 - Its own sound set (cast, travel loop where fitting, impact).
 - A readable collision core that stays visible above the effect.
@@ -385,4 +386,5 @@ New spells and items, map variants and hazards, alternative movement schemes, dr
 6. **three.js WebGPU is still labeled experimental** upstream; pin the version and upgrade deliberately.
 7. **Determinism across browsers**: engine trig differs even between V8 versions. All sim trig goes through `sim/math.ts` (fdlibm-style); CI compares state hashes across engines.
 8. **Small genre audience** (Spellsworn and Battlerite sit at tens of concurrent players; Spellbreak and Magicka: Wizard Wars shut down). Bots, instant solo play and near-zero hosting cost matter more than server scale.
+10. **Staff casting shelved** (2026-10-15): the staff attachment does not grip or follow the hands and would need staff-specific animations. Hand casting is the default; revisit the staff when animation work is budgeted.
 9. **Character art** is the biggest presentation lever. Decided: CC0 base, customized. Risk: stylized low-poly bases cap fidelity; revisit (AI 3D gen or commission) if the customized base cannot reach the bar.

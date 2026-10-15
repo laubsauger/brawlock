@@ -28,6 +28,8 @@ export function startSimDriver(opts: { bots?: number; difficulty?: BotDifficulty
   const bots: Bot[] = slots.filter((s) => s.kind === 'bot').map((s) => createBot(s.id, s.difficulty ?? 'medium', seed + s.id))
   resetFrame()
   frame.localPlayer = 0
+  // dev handle: look-dev scripts may reposition pawns in the live sim state
+  ;(window as unknown as Record<string, unknown>).__brawlockSim = state
   input.drain()
   pushState(cloneState(state))
 

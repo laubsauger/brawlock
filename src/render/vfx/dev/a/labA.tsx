@@ -3,6 +3,8 @@
  *   npx vite --port 5192  ->  http://localhost:5192/src/render/vfx/dev/a/labA.html?spell=boomerang
  * Params: &spell=<id>|all|chaos  &n=2..10 (chaos players)  &q=low|medium|high|ultra  &fx=0..1
  *         &slow=0.3  &zoom=<camera distance 500..1500>  &inspect
+ *         &pillars (keep the round's random pillars)  &lethal (dummies die on the first hit)
+ *         &shots=t1,t2,..  capture: freeze at each tick after script step 0 (resume via __labA.ctl.resume)
  *         &freeze=<step>,<ticks>  pause the world <ticks> after script step <step> (first loop);
  *         resume / re-freeze from the console: __labA.ctl.resume(0.3), __labA.ctl.freezeIn(10)
  */
@@ -44,7 +46,7 @@ function Lab() {
   useEffect(() => {
     const fz = (params.get('freeze') ?? '').split(',').map(Number)
     const freeze = fz.length === 2 && fz.every((v) => Number.isFinite(v)) ? { step: fz[0], ticks: fz[1] } : null
-    const stop = startLabDriver({ spell: params.get('spell') ?? 'all', chaos: Number(params.get('n') ?? 10), freeze }, setLabel)
+    const stop = startLabDriver({ spell: params.get('spell') ?? 'all', chaos: Number(params.get('n') ?? 10), freeze, pillars: params.has('pillars'), lethal: params.has('lethal'), shotsAt: (params.get('shots') ?? '').split(',').filter(Boolean).map(Number) }, setLabel)
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0
     return () => {
       stop()

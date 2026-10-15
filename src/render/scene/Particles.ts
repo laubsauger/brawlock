@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { abs, atan, cameraViewMatrix, cos, exp, float, instancedBufferAttribute, length, max, min, mix, pow, saturate, sin, smoothstep, step, uv, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, atan, cameraViewMatrix, cos, exp, float, instancedBufferAttribute, length, max, min, mix, pow, saturate, sin, smoothstep, step, uv, varying, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
 import { asV4, spriteGroundFade, type WorldCtx } from './world'
 
@@ -56,7 +56,10 @@ export class Particles {
     const A3 = asV4(instancedBufferAttribute(this.a3))
 
     const age = t.sub(A0.w)
-    const tn = age.div(A1.w)
+    // normalised age computed ONCE in the vertex stage and handed to the
+    // fragment as a varying: the fragment's own copy of the clock uniform was
+    // not tracking the frame clock, which froze rings/fades (persistent discs)
+    const tn = varying(age.div(A1.w))
     const alive = step(0, tn).mul(step(tn, 1))
     const k = max(A3.z, 0.0001)
     const dragF = float(1).sub(exp(k.negate().mul(age))).div(k)

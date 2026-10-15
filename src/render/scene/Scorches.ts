@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { float, instancedBufferAttribute, length, mix, positionGeometry, saturate, smoothstep, step, texture, vec3 } from 'three/tsl'
+import { float, instancedBufferAttribute, length, mix, positionGeometry, saturate, smoothstep, step, texture, varying, vec3 } from 'three/tsl'
 import { S } from '../coords'
 import { asV4, type WorldCtx } from './world'
 
@@ -28,7 +28,10 @@ export class Scorches {
     const A = asV4(instancedBufferAttribute(this.a))
     const B = asV4(instancedBufferAttribute(this.b))
     const age = ctx.uTime.sub(A.w)
-    const tn = age.div(B.y)
+    // normalised age computed ONCE in the vertex stage and handed to the
+    // fragment as a varying: the fragment's own copy of the clock uniform was
+    // not tracking the frame clock, which froze rings/fades (persistent discs)
+    const tn = varying(age.div(B.y))
     const alive = step(0, tn).mul(step(tn, 1))
     const q = positionGeometry.xy
     const R = B.x

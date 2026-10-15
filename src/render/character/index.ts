@@ -50,13 +50,15 @@ import { loadWarlockAsset, getWarlockAsset, WARLOCK_URL } from './asset'
 import { warlockParams, type CastFrom, type WarlockStyle } from './config'
 import type { StaffVariant } from './geometry'
 import { ProceduralWarlock } from './procedural'
-import type { DeathKind, WarlockHandle, WarlockOptions } from './types'
+import type { CastArm, DeathKind, WarlockHandle, WarlockOptions } from './types'
 import { CC0Warlock } from './warlock'
 
-export type { DeathKind, WarlockHandle, WarlockOptions, WarlockStyle, CastFrom, StaffVariant }
+export type { CastArm, DeathKind, WarlockHandle, WarlockOptions, WarlockStyle, CastFrom, StaffVariant }
 export { warlockParams, WARLOCK_URL }
-export { CC0_SCALE } from './config'
+export { CC0_SCALE, RIG_HEIGHT_M } from './config'
+export { HEM_RX_M } from './geometry'
 export { deathKindFor } from './warlock'
+export { CAST_CATEGORY, CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
 export { clothParams } from './materials'
 
 /** Loads and prepares the CC0 warlock (GLB, materials, cloth). Safe to call repeatedly. */

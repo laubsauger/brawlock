@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { pop } from '../lib/motion'
+import { slotDragProps, startSlotCapture } from '../lib/slotDnd'
 import { TICK_HZ, type SpellId } from '../../sim/types'
 import { Sigil } from '../icons'
 import { displayName, itemDef, knownCooldown, SPELL_MAX_LEVEL } from '../data/catalog'
@@ -87,9 +88,11 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
   return (
     <div
       ref={root}
-      className={`slot ${isItem ? 'item' : ''}`}
+      className={`slot interactive ${isItem ? 'item' : ''}`}
       data-empty={!info.spell}
-      title={info.spell ? `${name}${maxLevel > 1 ? `, level ${info.level}` : ''}` : isItem ? 'Empty item slot' : 'Empty spell slot. Buy one in the shop (B)'}
+      {...slotDragProps(index, !!info.spell)}
+      onClick={(e) => startSlotCapture(index, e.currentTarget)}
+      title={`${info.spell ? `${name}${maxLevel > 1 ? `, level ${info.level}` : ''}` : isItem ? 'Empty item slot' : 'Empty spell slot'}. Drag onto another slot to swap keys, or click and press a key.`}
     >
       {info.spell && (
         <div className="icon">

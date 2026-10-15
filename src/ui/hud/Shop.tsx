@@ -28,6 +28,7 @@ import { canBuyNow, localView } from '../lib/view'
 import { Button, Kbd, KeyCaps } from '../widgets'
 import { CharacterBody } from './Overlays'
 import { displayRound } from './TopBar'
+import { slotDragProps, slotDropProps } from '../lib/slotDnd'
 import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type OfferState } from './shopOffers'
 
 /**
@@ -46,6 +47,8 @@ interface ShopView {
   spells: { id: SpellId | null; level: number }[]
   /** owned items by id -> level */
   items: Record<string, number>
+  /** owned items by id -> hotbar slot (6..11), for key swaps */
+  itemSlots: Record<string, number>
   freeItemSlots: number
   masteries: Record<MasteryId, number>
   phase: string
@@ -56,17 +59,21 @@ function readShop(): ShopView {
   const v = localView()
   const pawn = v?.pawn
   const items: Record<string, number> = {}
+  const itemSlots: Record<string, number> = {}
   let free = 0
   for (let i = 6; i < 12; i++) {
     const id = pawn?.slots[i]
-    if (id) items[id] = pawn?.levels[i] ?? 1
-    else free++
+    if (id) {
+      items[id] = pawn?.levels[i] ?? 1
+      itemSlots[id] = i
+    } else free++
   }
   return {
     ready: !!pawn && !!v?.score,
     gold: Math.floor(v?.score?.gold ?? 0),
     spells: Array.from({ length: 6 }, (_, c) => ({ id: pawn?.slots[c] ?? null, level: pawn?.levels[c] ?? 0 })),
     items,
+    itemSlots,
     freeItemSlots: pawn ? free : 0,
     masteries: { duration: 0, range: 0, lifesteal: 0, ...v?.score?.masteries },
     phase: v?.state.phase ?? '',
@@ -304,6 +311,7 @@ function IconTile({
   label,
   onBuy,
   onHover,
+  slot,
 }: {
   id: string
   name: string
@@ -315,6 +323,8 @@ function IconTile({
   label: string
   onBuy: (e: ReactMouseEvent<HTMLElement>) => void
   onHover: () => void
+  /** hotbar slot of an owned spell / item: drag onto another to swap their keys */
+  slot?: number
 }) {
   // clicks are gated by the offer state only; ownership is styling
   const disabled = offer.state === 'soon' || offer.state === 'locked' || offer.state === 'closed' || offer.state === 'max'
@@ -332,6 +342,7 @@ function IconTile({
       onMouseEnter={onHover}
       onFocus={onHover}
       onClick={onBuy}
+      {...(slot != null ? slotDragProps(slot) : {})}
     >
       <span className="tile-icon" style={{ width: size, height: size }}>
         <Sigil id={id} size={size - 6} />
@@ -621,6 +632,7 @@ export function Shop() {
                         label={`${o.level ? 'Upgrade' : 'Buy'} ${def.name}${o.level ? `, level ${o.level} of ${def.maxLevel}` : ''}${o.state === 'soon' ? ', coming soon' : ''}`}
                         onHover={() => setHover({ kind: 'item', id: def.id })}
                         onBuy={(e) => purchase(e, o.state, { kind: 'buyItem', item: def.id })}
+                        slot={v.itemSlots[def.id]}
                       />
                     )
                   })}
@@ -654,7 +666,7 @@ export function Shop() {
               const defs = SPELLS.filter((s) => s.column === c)
               return (
                 <div key={col.name} className="flex min-w-0 flex-col gap-0.5" aria-label={`${col.name} column`}>
-                  <div className="mb-0.5 flex items-center justify-between gap-1 pt-1" title={col.hint}>
+                  <div className="col-head mb-0.5 flex items-center justify-between gap-1 rounded pt-1" title={`${col.hint}. Drop an owned spell here to swap keys.`} {...slotDropProps(c)}>
                     <span className="truncate text-[0.98rem] font-bold" style={{ color: col.hue }}>
                       {col.name}
                     </span>
@@ -675,6 +687,7 @@ export function Shop() {
                         label={`${def.name}${o.state === 'soon' ? ', coming soon' : o.owned ? `, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
                         onHover={() => setHover({ kind: 'spell', id: def.id })}
                         onBuy={(e) => purchase(e, o.state, { kind: 'buySpell', spell: def.id })}
+                        slot={o.owned ? c : undefined}
                       />
                     )
                   })}

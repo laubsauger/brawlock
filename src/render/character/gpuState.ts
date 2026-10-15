@@ -19,7 +19,7 @@ export class WarlockGpu {
   castFlare = 0
   /** 1 on cancel, decays: flickers the charge out */
   castFizzle = 0
-  /** casting hand: +1 left, -1 right */
+  /** casting hand(s): +1 left, -1 right, 0 both */
   castSide = 1
   /** white hit flash 0..1 */
   flash = 0
@@ -63,6 +63,13 @@ export class WarlockGpu {
   readonly armR1 = new THREE.Vector3()
   /** between the eyes (model space), for the glow spill inside the hood */
   readonly eyes = new THREE.Vector3()
+  /**
+   * front drape envelope per leg (model space, smoothed on the CPU): x = knee
+   * height, y = z the robe front must clear at the knee, z = z it must clear at
+   * the hem, w unused
+   */
+  readonly frontL = new THREE.Vector4(0.5, 0, 0, 0)
+  readonly frontR = new THREE.Vector4(0.5, 0, 0, 0)
 }
 
 const st = (f: NodeFrame): WarlockGpu | undefined => f.object?.userData.wl as WarlockGpu | undefined
@@ -75,6 +82,12 @@ function u3(get: (s: WarlockGpu) => THREE.Vector3) {
 }
 function uc(get: (s: WarlockGpu) => THREE.Color) {
   return uniform(new THREE.Color()).onObjectUpdate((f) => {
+    const s = st(f)
+    return s ? get(s) : undefined
+  })
+}
+function u4(get: (s: WarlockGpu) => THREE.Vector4) {
+  return uniform(new THREE.Vector4()).onObjectUpdate((f) => {
     const s = st(f)
     return s ? get(s) : undefined
   })
@@ -121,4 +134,6 @@ export const U = {
   armR0: u3((s) => s.armR0),
   armR1: u3((s) => s.armR1),
   eyes: u3((s) => s.eyes),
+  frontL: u4((s) => s.frontL),
+  frontR: u4((s) => s.frontR),
 }

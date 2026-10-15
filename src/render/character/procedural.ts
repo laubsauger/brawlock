@@ -6,7 +6,7 @@ import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometr
 import { createWorldCtx, type WorldCtx } from '../scene/world'
 import type { CastFrom } from './config'
 import type { StaffVariant } from './geometry'
-import type { DeathKind, WarlockHandle } from './types'
+import type { CastArm, DeathKind, WarlockHandle } from './types'
 import { syncFootprint } from './debug'
 
 /**
@@ -85,6 +85,8 @@ export class ProceduralWarlock implements WarlockHandle {
     return this.castProgress
   }
 
+  readonly castHands = 'right' as const
+
   setColor(color: number): void {
     this.color.setHex(color)
     this.u.team.value.copy(this.color)
@@ -101,6 +103,16 @@ export class ProceduralWarlock implements WarlockHandle {
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
     this.tip.copy(STAFF_TIP).multiplyScalar(S * MODEL_SCALE)
     return this.staff.localToWorld(out.copy(this.tip))
+  }
+
+  /** The placeholder has no arm: the chain runs from the staff pivot to the crystal. */
+  castArm(out: CastArm): CastArm {
+    this.staffPivot.getWorldPosition(out.shoulder)
+    out.elbow.copy(out.shoulder)
+    out.wrist.copy(out.shoulder)
+    this.castOrigin(out.palm)
+    out.dir.subVectors(out.palm, out.wrist).normalize()
+    return out
   }
 
   impulse(dx: number, dy: number, kb: number): void {

@@ -3,8 +3,9 @@
 //   npm i @gltf-transform/core@4 @gltf-transform/functions@4 @gltf-transform/extensions@4 meshoptimizer@0.22
 //   WARLOCK_SRC=<dir with the extracted packs> node build-warlock.mjs <out.glb> [--variant v1|v2] [--catalog]
 // Needs `sips` (macOS) and `cwebp` on PATH for textures.
-//   v2 (default): hood without a face (the runtime adds the void + eyes), no pauldron
-//                 (the runtime mantle replaces it), parts simplified to ~7k tris.
+//   v3 (default): v2 without the belts / buckles (the runtime sash + medallion replace them)
+//   v2:           hood without a face (the runtime adds the void + eyes), no pauldron
+//                 (the runtime mantle replaces it), parts simplified to ~9k tris.
 //   v1:           first export, Superhero head under the hood, full-res parts.
 //   --catalog:    every UAL1 + UAL2 clip (uncompressed) for picking clips in the preview.
 import { NodeIO } from '@gltf-transform/core'
@@ -26,7 +27,8 @@ const UAL2 = `${SRC}/downloads/quaternius-ual2/x/Universal Animation Library 2[S
 const out = process.argv[2]
 const CATALOG = process.argv.includes('--catalog')
 const vi = process.argv.indexOf('--variant')
-const VARIANT = vi > 0 ? process.argv[vi + 1] : 'v2'
+const VARIANT = vi > 0 ? process.argv[vi + 1] : 'v3'
+const V2UP = VARIANT === 'v2' || VARIANT === 'v3'
 
 /** our clip name -> [library, source clip] */
 const CLIPS = {
@@ -67,8 +69,11 @@ const joints = skin.listJoints()
 const jointByName = new Map(joints.map((j) => [j.getName(), j]))
 const armature = root.listScenes()[0].listChildren().find((n) => n.getName() === 'Armature')
 
-if (VARIANT === 'v2') {
+if (V2UP) {
   for (const n of root.listNodes()) if (/Pauldron/.test(n.getName())) n.dispose()
+}
+if (VARIANT === 'v3') {
+  for (const n of root.listNodes()) if (/Belt/.test(n.getName())) n.dispose()
 }
 
 // ---------------------------------------------------------------- v1: head from the base body
@@ -198,11 +203,11 @@ if (!CATALOG) {
   await doc.transform(weld())
   let total = 0
   for (const mesh of root.listMeshes()) {
-    const rule = VARIANT === 'v2' ? SIMPLIFY.find(([re]) => re.test(mesh.getName())) : /Boots/.test(mesh.getName()) ? [null, 0.5] : null
+    const rule = V2UP ? SIMPLIFY.find(([re]) => re.test(mesh.getName())) : /Boots/.test(mesh.getName()) ? [null, 0.5] : null
     for (const prim of mesh.listPrimitives()) {
       const before = prim.getIndices().getCount() / 3
-      if (rule) simplifyPrimitive(prim, { simplifier: MeshoptSimplifier, ratio: rule[1], error: VARIANT === 'v2' ? 0.045 : 0.001 })
-      if (VARIANT === 'v2' && /Boots|Bracer/.test(mesh.getName())) {
+      if (rule) simplifyPrimitive(prim, { simplifier: MeshoptSimplifier, ratio: rule[1], error: V2UP ? 0.045 : 0.001 })
+      if (V2UP && /Boots|Bracer/.test(mesh.getName())) {
         // UV seams split these into many islands the simplifier must keep; they are dark
         // leather mostly under the hem / sleeves, so weld by position only (seam UVs
         // smear a little) and simplify again with small islands pruned

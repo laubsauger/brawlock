@@ -12,6 +12,7 @@ import { NetReadout, TopCenter, displayRound } from './TopBar'
 import { Gold, Vitals } from './Vitals'
 import { KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
+import { resetSlotLayout } from '../lib/remap'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
@@ -252,6 +253,8 @@ function WaitingVeil() {
 
 function Hints() {
   const binds = useBinds()
+  // any spell / item key moved from the preset (HUD drag, shop drag, Settings)
+  const slotCustom = useGame((s) => [...Object.keys(s.settings.keybinds ?? {}), ...Object.keys(s.settings.keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k)))
   const hint = (key: string, label: string) => (
     <span className="flex items-center gap-1">
       <KeyCaps label={key} /> {label}
@@ -264,6 +267,11 @@ function Hints() {
       {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
       {hint(slotKeyLabel(binds, 6), 'Fireball')}
       {hint(bindLabel(binds, 'stop'), 'Stop')}
+      {slotCustom && (
+        <button type="button" className="interactive rounded px-1.5 text-[0.82rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => resetSlotLayout()}>
+          Reset key layout
+        </button>
+      )}
     </div>
   )
 }

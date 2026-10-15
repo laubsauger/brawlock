@@ -38,6 +38,7 @@ import {
   time,
   uniform,
   uv,
+  varying,
   vec2,
   vec3,
 } from 'three/tsl'
@@ -69,6 +70,14 @@ export const clothParams = {
   /** 1: robe-covered body parts render pure red, everything else black (preview clipping check) */
   debugClip: uniform(0),
 }
+
+/**
+ * Time for fragment code. three r186: a material that reads `time` in both the
+ * vertex and the fragment stage freezes the fragment copy, so fragment code
+ * reads the vertex value through a varying (the cloth animates in the vertex
+ * stage).
+ */
+const tF = f(varying(time))
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
 const LEATHER = vec3(0.042, 0.027, 0.022)
@@ -146,8 +155,8 @@ function bumpNormal(h: F): V3 {
  * the hem, invulnerability shimmer, and the death burn-up (via opacity +
  * alphaTest). Heights are model metres (0 feet .. 1.9 hood tip).
  */
-function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: F): void {
-  const t = time
+function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2): void {
+  const t = tF
   const h01 = saturate(heightNode.div(1.9))
   const n1 = sin(heightNode.mul(37).add(t.mul(7)).add(positionGeometry.x.mul(55))).mul(0.5).add(0.5)
   const n2 = sin(positionGeometry.z.mul(61).sub(t.mul(5.3)).add(heightNode.mul(19))).mul(0.5).add(0.5)
@@ -178,11 +187,10 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
   em = em.add(U.dissolveColor.mul(edge))
   // clipping check: covered body parts pure red, the rest black (depth still written)
   const dbg = clothParams.debugClip
-  const cv = cover ?? float(0)
-  const red = step(0.5, cv).mul(step(cv, 1.5))
-  const green = step(1.5, cv)
+  const red = cover ? step(0.5, cover.x) : float(0)
+  const green = cover ? step(0.5, cover.y) : float(0)
   m.colorNode = mix(col, vec3(0, 0, 0), dbg)
-  m.emissiveNode = mix(em, vec3(red.mul(40), green.mul(40), 0), dbg)
+  m.emissiveNode = mix(em, vec3(red.mul(0.8), green.mul(0.8), 0), dbg)
   m.opacityNode = step(dis, v)
   m.alphaTest = 0.5
 }
@@ -225,7 +233,10 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   // inside of the hood (and anything else seen from behind near the face) = void
   const back = f(float(1).sub(step(0, faceDirection)))
   const nearFace = smoothstep(0.24, 0.13, length(positionLocal.sub(U.eyes)))
-  const voidK = f(max(back.mul(nearFace), back.mul(0.6)))
+  // the hood's inner layer faces the head: also void
+  const headC = U.eyes.sub(vec3(0, 0.005, 0.085))
+  const inward = smoothstep(0.05, 0.35, dot(normalLocal, normalize(headC.sub(positionLocal))))
+  const voidK = f(max(back.mul(0.6), max(back, inward).mul(nearFace)))
   const base = v3(fabricCol.mul(isFabric).add(leatherCol.mul(leather)).add(metalCol.mul(metal)).mul(float(1).sub(voidK)))
   m.roughnessNode = mix(orm.g.mul(0.9).add(0.08), float(0.32), metal).max(mix(float(0), float(0.62), isFabric)).max(voidK)
   m.metalnessNode = metal.mul(float(1).sub(voidK))
@@ -234,9 +245,25 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   m.sheenRoughnessNode = float(0.42)
   const ns = src.normalScale
   m.normalNode = normalMap(texture(nTex), vec2(ns.x, ns.y))
-  // metal studs catch a little player colour; eye glow lights the hood inside
-  const em = v3(rim().mul(float(1).sub(voidK)).add(U.team.mul(0.06).mul(metal)).add(eyeSpill(0.35).mul(float(1).sub(back.mul(0.7)))))
-  applyFx(m, base, em, f(positionLocal.y), f(attribute('aCover', 'float')))
+  // a thin rune stripe down the back of the hood (bind-pose centre line)
+  const pg = positionGeometry
+  const hoodBack = step(1.5, pg.y).mul(step(pg.z, -0.03)).mul(float(1).sub(back)).mul(float(1).sub(inward))
+  const ax = abs(pg.x)
+  const aaH = fwidth(pg.x).mul(1.5)
+  const sLine = float(1).sub(smoothstep(float(0.0016).sub(aaH), float(0.0016).add(aaH), abs(ax.sub(0.012))))
+  const hCell = floor(pg.y.div(0.03))
+  const hGlyph = f(glyph(hCell.add(900), vec2(pg.x.div(0.02).add(0.5), fract(pg.y.div(0.03))))).mul(step(ax, 0.0095))
+  const hoodRunes = f(max(sLine, hGlyph.mul(0.8)).mul(hoodBack))
+  const hPulse = sin(pg.y.mul(9).sub(tF.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
+  // metal studs catch a little player colour; eye glow lights the hood rim
+  const em = v3(
+    rim()
+      .mul(float(1).sub(voidK))
+      .add(U.team.mul(0.06).mul(metal))
+      .add(eyeSpill(0.35).mul(float(1).sub(voidK)))
+      .add(U.team.mul(hoodRunes.mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost))),
+  )
+  applyFx(m, base, em, f(positionLocal.y), v2(attribute('aCover', 'vec2')))
   return m
 }
 
@@ -252,9 +279,11 @@ export function createGloveMaterial(src: THREE.MeshStandardMaterial, palmLeftX: 
   m.metalnessNode = float(0)
   if (src.normalMap) m.normalNode = normalMap(texture(src.normalMap), vec2(src.normalScale.x, src.normalScale.y))
   // casting hand glows: palm / fingers of the casting side (bind pose x sign)
-  const sideX = positionGeometry.x.mul(U.castSide)
+  // castSide: +1 left, -1 right, 0 both hands
+  const both = float(1).sub(abs(U.castSide))
+  const sideX = mix(positionGeometry.x.mul(U.castSide), abs(positionGeometry.x), both)
   const handMask = smoothstep(palmLeftX - 0.04, palmLeftX + 0.06, sideX)
-  const flicker = sin(time.mul(53)).mul(0.5).add(0.5)
+  const flicker = sin(tF.mul(53)).mul(0.5).add(0.5)
   const charge = U.castCharge.mul(U.castCharge).add(U.castFlare.mul(2.5)).add(U.castFizzle.mul(flicker).mul(0.8))
   const em = v3(U.castColor.mul(charge.mul(2.2)).mul(handMask).add(rim(0.6)))
   applyFx(m, base, em, f(positionLocal.y))
@@ -268,11 +297,11 @@ export function createVoidMaterial(): THREE.MeshBasicNodeMaterial {
   m.name = 'WarlockVoid'
   const part = f(attribute('aPart', 'float'))
   const eye = step(0.5, part)
-  const pulse = sin(time.mul(2.1).add(U.phase)).mul(0.08).add(0.92)
+  const pulse = sin(tF.mul(2.1).add(U.phase)).mul(0.08).add(0.92)
   const hot = mix(U.team, vec3(1, 1, 1), 0.45)
-  const glow = hot.mul(float(5).add(U.castCharge.mul(5)).add(U.castFlare.mul(10)).mul(pulse).mul(U.runeBoost))
-  // the void is black, faintly lit around the eyes
-  m.colorNode = mix(mix(eyeSpill(0.12), glow, eye), vec3(0, 0, 0), clothParams.debugClip)
+  const glow = hot.mul(float(8).add(U.castCharge.mul(8)).add(U.castFlare.mul(14)).mul(pulse).mul(U.runeBoost))
+  // the void is pure black: only the eyes glow
+  m.colorNode = mix(glow.mul(eye), vec3(0, 0, 0), clothParams.debugClip)
   m.opacityNode = step(U.dissolve.mul(1.3), float(0.92))
   m.alphaTest = 0.5
   return m
@@ -315,13 +344,15 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const isSleeve = isK(4)
   const isMedal = isK(5)
   const isPanel = isK(6)
+  const isSash = isK(7)
+  const isUnder = isK(8)
 
   // ---- vertex: spring lag + flutter + billow, pendulum-clamped, pushed out of the limbs
   {
     const p0 = v3(positionLocal)
     const n0 = v3(normalLocal)
     // per-layer response: the tabard swings more than the coat, the mantle and sleeves less
-    const gain = f(isCoat.add(isTabard.mul(1.35)).add(isCape).add(isMantle.mul(0.45)).add(isSleeve.mul(0.5)))
+    const gain = f(isCoat.add(isTabard.mul(0.8)).add(isCape).add(isMantle.mul(0.45)).add(isSleeve.mul(0.5)))
     const sway = mix(U.swayCoat, U.swayCape, isCape)
     const uvn = uv()
     const nh = v2(normalize(vec2(n0.x, n0.z).add(vec2(1e-4, 0))))
@@ -341,14 +372,37 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
     const rise = L.sub(sqrt(max(L.mul(L).sub(dot(d, d)), 0)))
     let p = v3(p0.add(vec3(d.x, rise, d.y)))
     const nOut = v3(vec3(n0.x, 0, n0.z).normalize())
-    const k = f(smoothstep(0.015, 0.12, w).mul(float(1).sub(isMedal).sub(isPanel)))
-    // legs: thigh capsule starts a little below the hip joint (no waist bulge)
+    const k = f(smoothstep(0.015, 0.12, w).mul(float(1).sub(isMedal).sub(isPanel).sub(isSash).sub(isUnder)))
+    // front panels drape over a striding leg as a whole: the CPU tracks, per
+    // leg, how far forward the robe front must clear at knee and hem height
+    // (spring-smoothed); the panel row bends to that envelope along +z, the
+    // same for its full width, so it swings instead of crumpling
+    const upright = smoothstep(0.6, 0.85, U.pelvis.y)
+    const envAt = (fr: Node<'vec4'>) => {
+      const kneeY = fr.x
+      const above = saturate(p.y.sub(kneeY).div(0.45))
+      const below = saturate(kneeY.sub(p.y).div(max(kneeY.sub(0.1), 0.1)))
+      // above the knee the envelope ramps from nothing (at the sash) up to the knee
+      const zAbove = mix(fr.y, U.pelvis.z, above)
+      const zBelow = mix(fr.y, fr.z, below)
+      return select(p.y.greaterThan(kneeY), zAbove, zBelow)
+    }
+    const envL = envAt(U.frontL)
+    const envR = envAt(U.frontR)
+    const frontW = f(saturate(n0.z.mul(2.5)).mul(isCoat))
+    const env = mix(select(p.x.greaterThan(0), envL, envR), max(envL, envR), isTabard)
+    const gap = env.sub(p.z)
+    const dz = sqrt(gap.mul(gap).add(0.0003)).add(gap).mul(0.5) // soft max(gap, 0)
+    const wFront = f(isTabard.add(frontW).mul(upright).mul(smoothstep(0.02, 0.15, w)))
+    p = v3(p.add(vec3(sign(p.x).mul(dz).mul(0.2).mul(isCoat), 0, dz).mul(wFront)))
+    // legs (sides and back): capsules, thigh starting a little below the hip joint
+    const kLeg = f(k.mul(float(1).sub(isTabard)).mul(float(1).sub(frontW.mul(0.85))))
     const thighL = v3(mix(U.hipL, U.kneeL, 0.18))
     const thighR = v3(mix(U.hipR, U.kneeR, 0.18))
-    p = pushOut(p, thighL, U.kneeL, 0.105, nOut, k)
-    p = pushOut(p, U.kneeL, U.footL, clothParams.calfR, nOut, k)
-    p = pushOut(p, thighR, U.kneeR, 0.105, nOut, k)
-    p = pushOut(p, U.kneeR, U.footR, clothParams.calfR, nOut, k)
+    p = pushOut(p, thighL, U.kneeL, 0.105, nOut, kLeg)
+    p = pushOut(p, U.kneeL, U.footL, clothParams.calfR, nOut, kLeg)
+    p = pushOut(p, thighR, U.kneeR, 0.105, nOut, kLeg)
+    p = pushOut(p, U.kneeR, U.footR, clothParams.calfR, nOut, kLeg)
     // torso keeps the cape off the back, upper arms keep the mantle above them
     const kBody = f(k.mul(isCape.add(isMantle)))
     p = pushOut(p, U.pelvis, U.chest, 0.17, nOut, kBody)
@@ -380,13 +434,15 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   // which edges carry trim: hem everywhere; slit / vent edges on the coat, all
   // sides on tabard / cape / panel, the front opening on the mantle; sleeves the cuff
   const sideTrim = isCoat.add(isTabard).add(isCape).add(isMantle).add(isPanel)
+  // distance to the nearest trimmed edge: hem (not the panel), sides, top (sash only)
+  const dHem = f(fromHem.add(isPanel.mul(9)))
+  const dSide = f(fromSide.add(float(1).sub(sideTrim).mul(9)))
+  const dTop = f(fromTop.add(float(1).sub(isSash).mul(9)))
+  const across = f(min(min(dHem, dSide), dTop))
   const BAND = 0.034
-  const hemBand = f(float(1).sub(step(BAND, fromHem)).mul(float(1).sub(isPanel)))
-  const sideBand = f(float(1).sub(step(BAND, fromSide)).mul(sideTrim))
-  const band = f(max(hemBand, sideBand).mul(isFabric))
-  // distance into the band (0 at the outer edge) and the coordinate along it
-  const across = f(select(hemBand.greaterThan(sideBand), fromHem, fromSide))
-  const along = f(select(hemBand.greaterThan(sideBand), um, fromTop))
+  const band = f(float(1).sub(step(mix(float(BAND), float(0.012), isSash), across)).mul(isFabric).mul(float(1).sub(isUnder)))
+  const sideWins = dSide.lessThan(min(dHem, dTop))
+  const along = f(select(sideWins, fromTop, um))
   const aaL = fwidth(across).mul(1.5)
   const line = (c: number, wdt: number) => float(1).sub(smoothstep(float(wdt).sub(aaL), float(wdt).add(aaL), abs(across.sub(c))))
   const edgeLine = line(0.004, 0.0021)
@@ -394,7 +450,7 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const CELL = 0.03
   const cellId = floor(along.div(CELL))
   const gp = vec2(fract(along.div(CELL)).mul(1.25).sub(0.125), across.sub(0.0095).div(BAND - 0.0185))
-  const inGlyph = step(0, gp.y).mul(step(gp.y, 1))
+  const inGlyph = step(0, gp.y).mul(step(gp.y, 1)).mul(float(1).sub(isSash))
   const g = f(glyph(cellId.add(kind.mul(97)), vec2(gp.x, gp.y)))
   // central rune column on the tabard and the chest panel
   const colX = abs(uvn.x.sub(0.5)).mul(rowW)
@@ -411,7 +467,7 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const sigCore = f(glyph(float(777), capeC.div(0.07).add(0.5)).mul(step(cr, 0.05)))
   const sigil = f(max(max(ringS(0.12, 0.0022), ringS(0.078, 0.0013)), max(sigRunes, sigCore)).mul(isCape))
   // edge lines brightest, runes softer; a slow pulse travels along the trims
-  const pulse = sin(along.mul(9).sub(time.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
+  const pulse = sin(along.mul(9).sub(tF.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
   const runeMask = f(
     edgeLine
       .mul(1.3)
@@ -422,16 +478,28 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
       .add(sigil.mul(0.7)),
   )
   // sleeves: casting arm runes charge with the windup
-  const castArm = f(isSleeve.mul(step(0.5, side.mul(U.castSide))))
-  const flicker = sin(time.mul(53)).mul(0.5).add(0.5)
-  const castGlow = U.castCharge.mul(U.castCharge).mul(3).add(U.castFlare.mul(6)).add(U.castFizzle.mul(flicker).mul(2))
-  const runeCol = mix(U.team, U.castColor, castArm.mul(saturate(castGlow)))
-  const runeInt = f(float(0.55).add(pulse.mul(0.45)).mul(U.runeBoost).add(castArm.mul(castGlow)))
+  // the casting arm ignites from the shoulder (mantle side) down the sleeve to
+  // the cuff as the windup charges; flares on release, flickers out on cancel
+  // castSide: +1 left, -1 right, 0 both hands
+  const bothHands = float(1).sub(abs(U.castSide))
+  const onCastSide = max(step(0.06, positionGeometry.x.mul(U.castSide)), bothHands)
+  const armCoord = f(isMantle.mul(uvn.y.mul(0.4)).add(isSleeve.mul(uvn.y.mul(0.55).add(0.45))))
+  const armPart = f(isSleeve.mul(max(step(0.5, side.mul(U.castSide)), bothHands)).add(isMantle.mul(onCastSide)))
+  const ignite = smoothstep(armCoord.sub(0.1), armCoord, U.castCharge.mul(1.15))
+  const flicker = sin(tF.mul(53)).mul(0.5).add(0.5)
+  const castArm = f(armPart.mul(max(ignite, max(U.castFlare, U.castFizzle.mul(flicker)))))
+  const castGlow = f(float(2.6).add(U.castCharge.mul(1.5)).add(U.castFlare.mul(5)))
+  const runeCol = mix(U.team, U.castColor, saturate(castArm.add(U.castCharge.mul(0.35))))
+  // every trim pulses brighter while a windup charges (readable from any angle)
+  const chargePulse = U.castCharge.mul(sin(tF.mul(18)).mul(0.35).add(1.1))
+  const runeInt = f(float(0.55).add(pulse.mul(0.45)).mul(U.runeBoost).add(chargePulse).add(castArm.mul(castGlow)))
 
   // base: player-tinted near-black outside, lining a shade of the player colour,
   // embroidered band under the runes, ash dust and wear along the hem
   const back = f(float(1).sub(step(0, faceDirection)))
-  const wear = sin(um.mul(97)).mul(sin(fromTop.mul(41))).mul(0.5).add(0.5)
+  // detail fades out by screen-space frequency (no stripes / moire at distance)
+  const fadeAt = (coord: F, period: number) => float(1).sub(smoothstep(0.2, 0.45, fwidth(coord).div(period)))
+  const wear = sin(um.mul(97)).mul(sin(fromTop.mul(41))).mul(0.5).mul(fadeAt(um, 0.065)).add(0.5)
   let base = v3(fabric(1).mul(float(0.85).add(wear.mul(0.3))))
   base = v3(mix(base, U.team.mul(0.045).add(vec3(0.008, 0.007, 0.009)), back))
   base = v3(mix(base, U.team.mul(0.05).add(vec3(0.01, 0.008, 0.011)), band.mul(float(1).sub(back))))
@@ -450,16 +518,25 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   {
     const deep = smoothstep(0.05, 0.9, uvn.y).mul(isCoat.add(isCape).add(isTabard.mul(0.5)).add(isMantle.mul(0.6)))
     const warp = sin(fromTop.mul(5.5).add(um.mul(3))).mul(1.4)
-    const folds = sin(um.mul((Math.PI * 2) / 0.085).add(warp)).mul(0.004).mul(deep)
-    const fine = sin(um.mul((Math.PI * 2) / 0.032).add(fromTop.mul(4))).mul(0.0012).mul(deep)
+    // two incommensurate drapes, warped along the length: reads as folds, not stripes
+    const folds = sin(um.mul((Math.PI * 2) / 0.12).add(warp))
+      .mul(0.6)
+      .add(sin(um.mul((Math.PI * 2) / 0.071).add(warp.mul(1.3)).add(1.7)).mul(0.4))
+      .mul(0.003)
+      .mul(deep)
+      .mul(fadeAt(um, 0.071))
+    const fine = float(0)
     const wPer = 0.0035
     const weaveFade = float(1).sub(smoothstep(0.25, 0.6, max(fwidth(um), fwidth(fromTop)).div(wPer)))
     const weave = sin(um.mul((Math.PI * 2) / wPer)).mul(sin(fromTop.mul((Math.PI * 2) / wPer))).mul(0.00015).mul(weaveFade)
     m.normalNode = bumpNormal(f(folds.add(fine).add(weave).mul(isFabric)))
   }
 
-  let em = v3(runeCol.mul(runeMask.mul(runeInt)).mul(float(1).sub(back.mul(0.85))))
-  em = v3(em.add(U.team.mul(gem.mul(isMedal).mul(float(3).add(U.castFlare.mul(4))).mul(pulse.mul(0.3).add(0.7)))))
+  // trims glow on both faces (cape and coat tails show their inside when they swing)
+  let em = v3(runeCol.mul(runeMask.mul(runeInt)).mul(float(1).sub(back.mul(0.25))))
+  em = v3(em.add(mix(U.team, U.castColor, U.castCharge).mul(gem.mul(isMedal).mul(float(5).add(U.castCharge.mul(7)).add(U.castFlare.mul(8))).mul(pulse.mul(0.3).add(0.7)))))
+  // casting arm fabric warms up under the runes
+  em = v3(em.add(U.castColor.mul(castArm.mul(0.045)).mul(isFabric)))
   em = v3(em.add(rim(0.8)).add(eyeSpill(0.25).mul(isMantle)))
   applyFx(m, base, em, f(positionLocal.y))
   return m

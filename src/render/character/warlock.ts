@@ -7,7 +7,9 @@ import type { WarlockAsset } from './asset'
 import { CC0_SCALE, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
-import type { DeathKind, WarlockHandle } from './types'
+import { clothParams } from './materials'
+import type { CastArm, DeathKind, WarlockHandle } from './types'
+import { CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
 import { syncFootprint } from './debug'
 
 const TAU = Math.PI * 2
@@ -26,12 +28,13 @@ const RUN_SPEED = 3.1
 const WALK_SPEED = 1.15
 /** Clip lengths used to fit windups (s). */
 const ENTER_LEN = 0.53
+/** OverhandThrow: arm at its highest (s) */
+const THROW_PEAK = 0.34
 /** game units / s of knockback (non-walk velocity) that throws the warlock off its feet */
 const TUMBLE_KB = 650
 const TUMBLE_END = 220
 
 type CastPhase = 'none' | 'windup' | 'release' | 'backswing'
-type CastVariant = 'point' | 'slam'
 
 /** sim death cause -> look */
 export function deathKindFor(cause: string | undefined, kb: number): DeathKind {
@@ -150,7 +153,10 @@ export class CC0Warlock implements WarlockHandle {
 
   // state machine
   private castPhase: CastPhase = 'none'
-  private castVariant: CastVariant = 'point'
+  private castCat: CastCategory = 'directional'
+  private hands: CastHands = 'left'
+  /** smoothed procedural cast poses (0..1) */
+  private pose = { overhead: 0, cross: 0, flare: 0, beam: 0, ground: 0, sky: 0 }
   private castSpell = ''
   private castTotal = 1
   private castT = 0
@@ -213,6 +219,9 @@ export class CC0Warlock implements WarlockHandle {
     socket(this.bone.hand_r, asset.rest.palmR, this.palm.r)
     socket(this.bone.Head, asset.rest.eyes, this.eyeSocket)
 
+    // bigger hands read better from the gameplay camera (the casting hand most)
+    this.bone.hand_l.scale.setScalar(1.18)
+    this.bone.hand_r.scale.setScalar(1.18)
     this.anim = new Animator(this.model, asset.clips, asset.additive)
     this.anim.full('idle', { fade: 0.001 })
     this.gpu.phase = Math.random() * 100
@@ -258,9 +267,29 @@ export class CC0Warlock implements WarlockHandle {
     this.staffMesh = mesh
   }
 
+  /** Hand(s) of the current / last cast: 'both' for aoe, buff and beam spells. */
+  get castHands(): CastHands {
+    return this.hands
+  }
+
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
     if (this.castFrom === 'staff' && this.staffMesh) return this.staffTip.getWorldPosition(out)
-    return (this.gpu.castSide < 0 ? this.palm.r : this.palm.l).getWorldPosition(out)
+    if (this.hands === 'both') {
+      this.palm.l.getWorldPosition(out)
+      return out.add(this.palm.r.getWorldPosition(this.v3)).multiplyScalar(0.5)
+    }
+    return (this.hands === 'right' ? this.palm.r : this.palm.l).getWorldPosition(out)
+  }
+
+  castArm(out: CastArm, hand?: 'left' | 'right'): CastArm {
+    const l = (hand ?? (this.hands === 'right' ? 'right' : 'left')) === 'left'
+    const b = this.bone
+    ;(l ? b.upperarm_l : b.upperarm_r).getWorldPosition(out.shoulder)
+    ;(l ? b.lowerarm_l : b.lowerarm_r).getWorldPosition(out.elbow)
+    ;(l ? b.hand_l : b.hand_r).getWorldPosition(out.wrist)
+    ;(l ? this.palm.l : this.palm.r).getWorldPosition(out.palm)
+    out.dir.subVectors(out.palm, out.wrist).normalize()
+    return out
   }
 
   impulse(dx: number, dy: number, strength: number): void {
@@ -353,46 +382,91 @@ export class CC0Warlock implements WarlockHandle {
     return !this.tumbling && this.locomotion === 'idle'
   }
 
+  /** play on the upper layer, or on both layers when the legs are planted */
+  private castClip(name: string, o: Parameters<Animator['full']>[1]): void {
+    if (this.castFullBody) this.anim.full(name, o)
+    else this.anim.upper.play(name, o)
+  }
+
+  private setCategory(spell: string): void {
+    this.castCat = castCategory(spell)
+    this.hands = CAST_HANDS[this.castCat]
+    this.gpu.castSide = this.hands === 'left' ? 1 : this.hands === 'right' ? -1 : 0
+  }
+
   private beginWindup(spell: string, ticks: number): void {
     this.castSpell = spell
     this.castTotal = Math.max(1, ticks)
     this.castT = 0
     this.castPhase = 'windup'
     this.gpu.castFizzle = 0
-    this.castVariant = spell.startsWith('scourge') ? 'slam' : 'point'
-    this.gpu.castSide = 1
+    this.setCategory(spell)
     const dur = ticks / 60
     // standing casts use the clip's legs too (wide, planted stance)
     this.castFullBody = this.standing()
-    const o = { fade: 0.07, loop: false, timeScale: ENTER_LEN / Math.max(0.12, dur * (this.castVariant === 'slam' ? 0.4 : 0.95)), restart: true }
-    if (this.castFullBody) this.anim.full('castEnter', o)
-    else this.anim.upper.play('castEnter', o)
+    switch (this.castCat) {
+      case 'directional':
+      case 'ground':
+      case 'beam':
+        this.castClip('castEnter', { fade: 0.07, loop: false, timeScale: ENTER_LEN / Math.max(0.12, dur * 0.95), restart: true })
+        break
+      case 'sky':
+        // overhand throw wound up to its peak (arm high), held until release
+        this.castClip('throw', { fade: 0.08, loop: false, timeScale: THROW_PEAK / Math.max(0.12, dur * 0.9), restart: true })
+        break
+      default:
+        // aoe / buff / move: procedural poses over the current clip
+        this.castFullBody = false
+    }
   }
 
   private release(spell: string): void {
     const instant = this.castPhase !== 'windup' || spell !== this.castSpell
-    if (instant) this.castFullBody = this.standing()
+    if (instant) {
+      this.castFullBody = this.standing()
+      this.setCategory(spell)
+    }
     this.castSpell = spell
     this.gpu.castFlare = 1
     this.gpu.castCharge = 0
     this.gpu.castFizzle = 0
     this.releaseT = 0
     this.castPhase = 'release'
-    if (spell.startsWith('scourge')) {
-      this.castVariant = 'slam'
-      this.anim.full('slam', { fade: 0.06, loop: false, at: 0.1, timeScale: 1.25, restart: true })
-    } else {
-      this.castVariant = 'point'
-      this.gpu.castSide = 1
-      const o = { fade: instant ? 0.04 : 0.05, loop: false, at: instant ? 0.02 : 0.06, timeScale: instant ? 2 : 1.7, restart: true }
-      if (this.castFullBody) this.anim.full('castShoot', o)
-      else this.anim.upper.play('castShoot', o)
+    switch (this.castCat) {
+      case 'aoe':
+        this.anim.full('slam', { fade: 0.06, loop: false, at: 0.1, timeScale: 1.25, restart: true })
+        break
+      case 'sky': {
+        const a = this.anim.upper.current
+        if (!instant && a && this.anim.upper.currentName === 'throw') {
+          a.paused = false
+          a.timeScale = 1.5
+          const lo = this.anim.lower.current
+          if (this.castFullBody && lo && this.anim.lower.currentName === 'throw') {
+            lo.paused = false
+            lo.timeScale = 1.5
+          }
+        } else this.castClip('throw', { fade: 0.04, loop: false, at: THROW_PEAK, timeScale: 1.5, restart: true })
+        break
+      }
+      case 'buff':
+        // procedural cross -> flare (see the stance block)
+        break
+      case 'move':
+        this.castClip('castShoot', { fade: 0.03, loop: false, at: 0.05, timeScale: 2.6, restart: true })
+        // lunge: kick the body lean forward
+        this.tipVx += Math.cos(this.lastFacing) * 2.2
+        this.tipVz += -Math.sin(this.lastFacing) * 2.2
+        break
+      default:
+        this.castClip('castShoot', { fade: instant ? 0.04 : 0.05, loop: false, at: instant ? 0.02 : 0.06, timeScale: instant ? 2 : 1.7, restart: true })
     }
   }
 
   private endCast(fade: number): void {
     this.castPhase = 'none'
-    if (this.castFullBody || this.castVariant === 'slam') this.locomotion = ''
+    const legs = this.castFullBody || this.castCat === 'aoe'
+    if (legs) this.locomotion = ''
     else this.anim.upperFollow(fade)
     this.castFullBody = false
   }
@@ -529,6 +603,7 @@ export class CC0Warlock implements WarlockHandle {
 
     // ---- kinematics (game units / s)
     const facing = prev ? lerpAngle(prev.facing, p.facing, alpha) : p.facing
+    this.lastFacing = facing
     const walk = Math.hypot(p.walkVx, p.walkVy)
     const kbx = p.vx - p.walkVx
     const kby = p.vy - p.walkVy
@@ -578,7 +653,7 @@ export class CC0Warlock implements WarlockHandle {
     this.yawG.rotation.y = this.yaw + this.deathSpin
 
     // ---- locomotion layer
-    const castLocksLegs = this.castPhase !== 'none' && (this.castFullBody || this.castVariant === 'slam')
+    const castLocksLegs = this.castPhase !== 'none' && (this.castFullBody || (this.castCat === 'aoe' && this.castPhase !== 'windup'))
     if (!this.dead && !this.tumbling && !castLocksLegs) {
       const speedM = (walk * S) / CC0_SCALE.xz
       let want = 'idle'
@@ -604,8 +679,13 @@ export class CC0Warlock implements WarlockHandle {
       g.castCharge = Math.min(1, Math.max(g.castCharge, 1 - left / this.castTotal))
       const enter = this.anim.upper.current
       if (enter && this.anim.upper.currentName === 'castEnter' && enter.time >= ENTER_LEN - 0.02) {
-        if (this.castFullBody) this.anim.full('castLoop', { fade: 0.2, loop: true })
-        else this.anim.upper.play('castLoop', { fade: 0.2, loop: true })
+        this.castClip('castLoop', { fade: 0.2, loop: true })
+      }
+      // sky: hold the overhand throw at its peak (arm raised) until release
+      if (enter && this.anim.upper.currentName === 'throw' && enter.time >= THROW_PEAK) {
+        enter.paused = true
+        const lo = this.anim.lower.current
+        if (lo && this.anim.lower.currentName === 'throw') lo.paused = true
       }
       // a windup that starts moving (knockback slide) drops the planted legs
       if (this.castFullBody && walk > 30) {
@@ -614,13 +694,13 @@ export class CC0Warlock implements WarlockHandle {
       }
     } else if (this.castPhase === 'release') {
       this.releaseT += dt
-      const slam = this.castVariant === 'slam'
-      if (!slam && this.releaseT > 0.24) {
+      const cat = this.castCat
+      if ((cat === 'directional' || cat === 'ground' || cat === 'beam' || cat === 'move') && this.releaseT > 0.24) {
         this.castPhase = 'backswing'
-        const o = { fade: 0.12, loop: false, timeScale: 1.25, restart: true }
-        if (this.castFullBody) this.anim.full('castExit', o)
-        else this.anim.upper.play('castExit', o)
-      } else if (slam && this.releaseT > 0.95) this.endCast(0.25)
+        this.castClip('castExit', { fade: 0.12, loop: false, timeScale: 1.25, restart: true })
+      } else if (cat === 'aoe' && this.releaseT > 0.95) this.endCast(0.25)
+      else if (cat === 'sky' && this.releaseT > 0.62) this.endCast(0.25)
+      else if (cat === 'buff' && this.releaseT > 0.5) this.endCast(0.2)
       // Dota cancel: walking or a new order cuts the follow-through at once
       if (walk > 30 && this.releaseT > 0.06) this.endCast(0.1)
     } else if (this.castPhase === 'backswing') {
@@ -636,13 +716,16 @@ export class CC0Warlock implements WarlockHandle {
     g.castFizzle *= Math.exp(-dt * 6)
     this.anim.syncUpper()
 
+    // undo last frame's stance offsets so the mixer sees (and keeps) the clip pose
+    for (const b of this.touched) b.quaternion.copy(this.savedQ.get(b)!)
+    this.touched.length = 0
     const animate = this.dead ? this.deathTimeline(dt) : true
     if (animate) this.anim.update(dt)
 
     // ---- torso twist: coil the casting shoulder back on windup, drive it through on release
     {
       let tw = 0
-      if (this.castVariant === 'point') {
+      if (this.castCat === 'directional' || this.castCat === 'ground' || this.castCat === 'move') {
         if (this.castPhase === 'windup') tw = 0.22 * g.castCharge
         else if (this.castPhase === 'release') tw = -0.38 * Math.min(1, this.releaseT / 0.08)
         else if (this.castPhase === 'backswing') tw = -0.38 * Math.max(0, 1 - this.releaseT / 0.5)
@@ -690,16 +773,82 @@ export class CC0Warlock implements WarlockHandle {
     }
 
     this.model.updateMatrixWorld(true)
-    if (Math.abs(this.twist) > 1e-3) {
-      // rotate spine_02 / spine_03 about the model's up axis, half each
+    // ---- stance layered on the clips: hunched, powerful shoulders, arms held a
+    // little away from the robe (wider top-down silhouette), torso twist on casts
+    {
       this.model.getWorldQuaternion(this.qa)
-      for (const name of ['spine_02', 'spine_03']) {
-        const bone = this.bone[name]
-        bone.parent!.getWorldQuaternion(this.qb)
-        this.axis.set(0, 1, 0).applyQuaternion(this.qa).applyQuaternion(this.qb.invert())
-        bone.quaternion.premultiply(this.qt.setFromAxisAngle(this.axis, this.twist * 0.5))
-        bone.updateMatrixWorld(true)
+      const upright = !this.dead && !this.tumbling
+      const castL = this.castPhase !== 'none' ? 1 : 0
+      this.stanceK += ((upright ? 1 : 0) - this.stanceK) * damp(6, dt)
+      this.castArmK += (castL - this.castArmK) * damp(12, dt)
+      const k = this.stanceK
+      const X = this.axisX.set(1, 0, 0)
+      const Y = this.axisY.set(0, 1, 0)
+      const Z = this.axisZ.set(0, 0, 1)
+      if (k > 1e-3) {
+        this.rotBone('spine_02', X, 0.08 * k)
+        this.rotBone('spine_03', X, 0.07 * k)
+        this.rotBone('neck_01', X, -0.1 * k)
       }
+      if (Math.abs(this.twist) > 1e-3) {
+        this.rotBone('spine_02', Y, this.twist * 0.5)
+        this.rotBone('spine_03', Y, this.twist * 0.5)
+      }
+      // procedural cast poses (smoothed weights; the clip carries the rest)
+      const P = this.pose
+      const ph = this.castPhase
+      const cat = this.castCat
+      const ch = g.castCharge
+      const rt = this.releaseT
+      const live = !this.dead && !this.tumbling
+      const target = {
+        overhead: live && cat === 'aoe' && ph === 'windup' ? Math.pow(Math.max(ch, 0.25), 0.6) : 0,
+        cross: live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0,
+        flare: live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0,
+        beam: live && cat === 'beam' && ph !== 'none' ? 1 : 0,
+        ground: live && cat === 'ground' && (ph === 'release' || ph === 'backswing') ? Math.max(0, 1 - Math.max(0, rt - 0.2) / 0.35) : 0,
+        sky: live && cat === 'sky' && ph === 'windup' ? ch : 0,
+      }
+      const rate = ph === 'release' ? 28 : 12
+      for (const key of Object.keys(P) as (keyof typeof P)[]) P[key] += (target[key] - P[key]) * damp(rate, dt)
+      const useL = this.hands !== 'right' ? this.castArmK : 0
+      const useR = this.hands !== 'left' ? this.castArmK : 0
+      if (k > 1e-3) {
+        // resting arms held a little away from the robe (wider top-down read)
+        this.rotBone('upperarm_l', Z, 0.13 * k * (1 - useL))
+        this.rotBone('upperarm_r', Z, -0.13 * k * (1 - useR))
+      }
+      if (P.overhead > 1e-3) {
+        // both hands rise overhead (a V), slightly forward
+        this.rotBone('upperarm_l', Z, 2.45 * P.overhead)
+        this.rotBone('upperarm_r', Z, -2.45 * P.overhead)
+        this.rotBone('upperarm_l', X, -0.35 * P.overhead)
+        this.rotBone('upperarm_r', X, -0.35 * P.overhead)
+        this.rotBone('spine_03', X, -0.12 * P.overhead)
+      }
+      if (P.cross > 1e-3) {
+        this.rotBone('upperarm_l', X, -1.1 * P.cross)
+        this.rotBone('upperarm_r', X, -1.1 * P.cross)
+        this.rotBone('upperarm_l', Y, -0.6 * P.cross)
+        this.rotBone('upperarm_r', Y, 0.6 * P.cross)
+      }
+      if (P.flare > 1e-3) {
+        this.rotBone('upperarm_l', Z, 1.5 * P.flare)
+        this.rotBone('upperarm_r', Z, -1.5 * P.flare)
+        this.rotBone('upperarm_l', X, 0.35 * P.flare)
+        this.rotBone('upperarm_r', X, 0.35 * P.flare)
+        this.rotBone('spine_03', X, -0.15 * P.flare)
+      }
+      if (P.beam > 1e-3) {
+        // right hand joins the left's forward thrust (the clip drives the left)
+        this.rotBone('upperarm_r', X, -1.45 * P.beam)
+        this.rotBone('upperarm_r', Y, 0.24 * P.beam)
+      }
+      if (P.ground > 1e-3) {
+        this.rotBone('upperarm_l', X, 0.7 * P.ground)
+        this.rotBone('spine_03', X, 0.16 * P.ground)
+      }
+      if (P.sky > 1e-3) this.rotBone('upperarm_r', Z, -0.4 * P.sky)
     }
 
     // ---- bones -> capsules (model metres)
@@ -719,6 +868,7 @@ export class CC0Warlock implements WarlockHandle {
     at('upperarm_r', g.armR0)
     at('lowerarm_r', g.armR1)
     g.eyes.setFromMatrixPosition(this.eyeSocket.matrixWorld).applyMatrix4(this.inv)
+    this.updateFrontEnvelope(dt)
 
     // ---- cloth springs: world velocity -> model local
     {
@@ -759,6 +909,81 @@ export class CC0Warlock implements WarlockHandle {
       g.invuln += ((p.invulnerable ? 1 : 0) - g.invuln) * damp(10, dt)
     }
     g.runeBoost += ((this.victory ? 2.4 : 1) - g.runeBoost) * damp(3, dt)
+  }
+
+  private stanceK = 1
+  private lastFacing = 0
+  private castArmK = 0
+  private axisX = new THREE.Vector3()
+  private axisY = new THREE.Vector3()
+  private axisZ = new THREE.Vector3()
+
+  /** clip pose of bones the stance layer touched this frame (restored before the next mixer update) */
+  private savedQ = new Map<THREE.Bone, THREE.Quaternion>()
+  private touched: THREE.Bone[] = []
+
+  /**
+   * Rotate a bone about a model-space axis (after the clips; needs fresh world
+   * matrices). The clip value is saved and put back before the next mixer
+   * update: the mixer only writes bones whose value changed, so an offset left
+   * in place would accumulate every frame (time frozen, held poses).
+   */
+  private rotBone(name: string, axisModel: THREE.Vector3, angle: number): void {
+    const bone = this.bone[name]
+    if (!this.touched.includes(bone)) {
+      let q = this.savedQ.get(bone)
+      if (!q) this.savedQ.set(bone, (q = new THREE.Quaternion()))
+      q.copy(bone.quaternion)
+      this.touched.push(bone)
+    }
+    bone.parent!.getWorldQuaternion(this.qb)
+    this.axis.copy(axisModel).applyQuaternion(this.qa).applyQuaternion(this.qb.invert()).normalize()
+    bone.quaternion.premultiply(this.qt.setFromAxisAngle(this.axis, angle))
+    bone.updateMatrixWorld(true)
+  }
+
+  private envVel = [0, 0, 0, 0]
+  private envInit = false
+
+  /**
+   * How far forward the robe front must clear each leg at knee and hem height
+   * (model metres), from the live bones, then spring-smoothed: the front
+   * panels follow a striding leg like cloth (quick out, slower settle) instead
+   * of snapping to it every frame.
+   */
+  private updateFrontEnvelope(dt: number): void {
+    const g = this.gpu
+    const r = clothParams.calfR.value + 0.035
+    const HEM_Y = 0.12
+    const leg = (knee: THREE.Vector3, foot: THREE.Vector3, out: THREE.Vector4, i: number) => {
+      const kneeZ = knee.z + r
+      // shin line extended to the hem height (the panel hangs off the shin / foot)
+      const t = (knee.y - HEM_Y) / Math.max(0.05, knee.y - foot.y)
+      const hemZ = Math.max(knee.z + (foot.z - knee.z) * Math.min(1.3, t) + r, kneeZ - 0.25)
+      if (!this.envInit) {
+        out.set(knee.y, kneeZ, hemZ, 0)
+        return
+      }
+      out.x += (knee.y - out.x) * damp(25, dt)
+      for (const [k, target] of [
+        [1, kneeZ],
+        [2, hemZ],
+      ] as const) {
+        const cur = k === 1 ? out.y : out.z
+        const vi = i * 2 + k - 1
+        // stiff when pushed out, softer when the leg swings back
+        const K = target > cur ? 900 : 220
+        const C = target > cur ? 50 : 22
+        this.envVel[vi] += ((target - cur) * K - this.envVel[vi] * C) * dt
+        const next = cur + this.envVel[vi] * dt
+        // never more than 2 cm behind the leg (fast strides)
+        if (k === 1) out.y = Math.max(next, target - 0.02)
+        else out.z = Math.max(next, target - 0.02)
+      }
+    }
+    leg(g.kneeL, g.footL, g.frontL, 0)
+    leg(g.kneeR, g.footR, g.frontR, 1)
+    this.envInit = true
   }
 
   private grip = new THREE.Vector3()

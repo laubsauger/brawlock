@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { CORNER_NN, CORNER_NP, CORNER_PN, CORNER_PP, TILE_SIZE } from '../arenaGeom'
 import { S, TILE_BOTTOM_H, TILE_TOP_H } from '../coords'
+import { TILE_HALF } from '../scale'
 
 /**
  * Procedural tile slab for one corner mask: rounded footprint, chamfered top
@@ -11,8 +12,7 @@ import { S, TILE_BOTTOM_H, TILE_TOP_H } from '../coords'
  * soft edge silhouette reads at gameplay zoom; which corners round follows the
  * original rule exactly (arenaGeom.cornerMask).
  */
-const GAP = 4 // grout between neighbouring tiles (game units)
-const HALF = TILE_SIZE / 2 - GAP / 2
+const HALF = TILE_HALF
 const RADIUS = 30
 const BEVEL = 6
 const ARC_SEGS = 6

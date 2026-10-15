@@ -6,7 +6,7 @@
  * Lab page: /src/render/vfx/dev/b/labB.html  (see b/labB.tsx for every URL param)
  *   ?grant=meteor,shield&lvl=7          every pawn owns these spells (one per shop column)
  *   &script=1:meteor:t0;0:shield:self:0.6   cycle of scripted casts  caster:spell:target[:delay s]
- *        target = t<player> (that pawn's position), self, or <x>_<y> (game units)
+ *        target = t<player> (that pawn's position), self, or <x>_<y> (game units); spell 'move' walks there
  *   &every=3                            cycle length, seconds (sim time)
  *   &place=-350_0,350_0                 pawn anchors per player id; re-placed + healed each cycle
  *   &ai=0                               bots stand still (only the script casts)
@@ -145,7 +145,7 @@ export function startLabDriver(o: LabOptions): () => void {
       if (!(s.delay > lastCycleT && s.delay <= ct) && !(lastCycleT < 0 && s.delay === 0)) continue
       const pawn = state.pawns.find((p) => p.owner === s.caster)
       if (!pawn || !pawn.alive) continue
-      const slot = grantSpell(state, s.caster, s.spell, o.level)
+      const slot = s.spell === 'move' ? 0 : grantSpell(state, s.caster, s.spell, o.level)
       if (slot < 0) continue
       let x = pawn.x + Math.cos(pawn.facing) * 200
       let y = pawn.y + Math.sin(pawn.facing) * 200
@@ -160,7 +160,7 @@ export function startLabDriver(o: LabOptions): () => void {
           y = t.y
         }
       }
-      const cmd: InputCommand = { kind: 'cast', slot, x, y }
+      const cmd: InputCommand = s.spell === 'move' ? { kind: 'move', x, y } : { kind: 'cast', slot, x, y }
       inputs.push({ player: s.caster, tick: state.tick, cmds: [cmd] })
     }
     lastCycleT = ct

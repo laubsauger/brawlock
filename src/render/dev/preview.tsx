@@ -16,7 +16,7 @@ import { tweakParams } from '../tweaks'
 import { cameraParams, cameraZoomParam, devCamera } from '../cameraRig'
 
 // dev handles for look-dev from the console
-;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe }
+;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe, input }
 
 const params = new URLSearchParams(location.search)
 const q = params.get('q') as Quality | null

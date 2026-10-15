@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { buildCloth, buildStaff, buildVoid, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
+import { buildCloth, buildStaff, buildVoid, setCalfRadiusHint, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
 import { clothParams, createClothMaterial, createGloveMaterial, createOutfitMaterial, createStaffMaterial, createVoidMaterial } from './materials'
 
 /**
@@ -153,6 +153,8 @@ async function build(url: string): Promise<WarlockAsset> {
   // (always covered by the coat, and the first thing to poke through it), and
   // measure the lower legs (boots) for the cloth capsules
   const beltY = bonePos('pelvis').y + 0.04
+  const headBones = new Set(['Head', 'neck_01'].map((nm) => boneIndex.get(nm)!))
+  let domAll = new Int32Array(0)
   let calfR = 0.07
   let shoulderR = 0.08
   {
@@ -173,16 +175,24 @@ async function build(url: string): Promise<WarlockAsset> {
       }
       dom[v] = best
     }
+    domAll = dom
     const hidden = new Set(['pelvis', 'thigh_l', 'thigh_r', 'spine_01'].map((nm) => boneIndex.get(nm)!))
+    const calfIdx = new Set(['calf_l', 'calf_r'].map((nm) => boneIndex.get(nm)!))
+    const kneeY = bonePos('calf_l').y
     const idx = outfitGeo.index!
     const keep: number[] = []
     for (let t = 0; t < idx.count; t += 3) {
       const a = idx.getX(t)
       const b = idx.getX(t + 1)
       const c = idx.getX(t + 2)
-      const under = hidden.has(dom[a]) && hidden.has(dom[b]) && hidden.has(dom[c])
-      const low = Math.max(pos.getY(a), pos.getY(b), pos.getY(c)) < beltY - 0.04
-      if (!(under && low)) keep.push(a, b, c)
+      const ya = pos.getY(a)
+      const yb = pos.getY(b)
+      const yc = pos.getY(c)
+      // thighs / hips under the coat (any corner), and the pants around the knee
+      // above the boot tops: the underlayer trousers replace both
+      const thigh = (hidden.has(dom[a]) || hidden.has(dom[b]) || hidden.has(dom[c])) && Math.max(ya, yb, yc) < beltY
+      const kneePants = calfIdx.has(dom[a]) && calfIdx.has(dom[b]) && calfIdx.has(dom[c]) && Math.min(ya, yb, yc) > kneeY - 0.1
+      if (!thigh && !kneePants) keep.push(a, b, c)
     }
     outfitGeo.setIndex(keep)
     // boot / lower-leg radius around knee -> ankle (98th percentile), for the cloth capsules
@@ -207,16 +217,21 @@ async function build(url: string): Promise<WarlockAsset> {
     // debug tint for the clipping check: 1 = hips / thighs / lower spine, the robe
     // must always cover them; 2 = lower legs above the hem, legitimately seen
     // through the front split while striding
-    const cover = new Float32Array(n)
+    // two channels (x = must hide, y = legit through the split) so interpolation
+    // between flagged and unflagged corners never fakes the other class
+    const cover = new Float32Array(n * 2)
     const calves = new Set(['calf_l', 'calf_r'].map((nm) => boneIndex.get(nm)!))
     for (let v = 0; v < n; v++) {
-      if (pos.getY(v) < 0.22) continue
-      if (hidden.has(dom[v])) cover[v] = 1
-      else if (calves.has(dom[v])) cover[v] = 2
+      const y = pos.getY(v)
+      if (y < 0.22) continue
+      // above the sash the tunic is meant to show
+      if (hidden.has(dom[v]) && y < beltY + 0.02) cover[v * 2] = 1
+      else if (calves.has(dom[v])) cover[v * 2 + 1] = 1
     }
-    outfitGeo.setAttribute('aCover', new THREE.BufferAttribute(cover, 1))
+    outfitGeo.setAttribute('aCover', new THREE.BufferAttribute(cover, 2))
   }
   clothParams.calfR.value = calfR + 0.012
+  setCalfRadiusHint(calfR + 0.004)
   clothParams.armR.value = shoulderR + 0.012
 
   const opos = outfitGeo.getAttribute('position')
@@ -227,11 +242,15 @@ async function build(url: string): Promise<WarlockAsset> {
       if (i === undefined) throw new Error(`warlock rig: no bone ${n}`)
       return i
     },
-    slice: (y0, y1) => {
+    slice: (y0, y1, part) => {
       const r = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 }
       for (let i = 0; i < opos.count; i++) {
         const y = opos.getY(i)
         if (y < y0 || y > y1) continue
+        if (part) {
+          const isHead = headBones.has(domAll[i])
+          if ((part === 'head') !== isHead) continue
+        }
         const x = opos.getX(i)
         if (Math.abs(x) > 0.3) continue // T-pose arms
         const z = opos.getZ(i)

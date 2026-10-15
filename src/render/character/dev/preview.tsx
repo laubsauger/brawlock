@@ -4,7 +4,7 @@
  * A fake pawn (60 Hz, original friction) drives createWarlock() exactly like
  * the match does: PawnState + prev + alpha + per-tick SimEvents.
  * Params: ?style=procedural  ?staff=gnarled|iron|bone  ?view=game|close  ?n=10  ?mode=circle|line|idle
- *         ?splash (show the key art for comparison)  ?nopost
+ *         ?splash (show the key art for comparison)  ?nopost  ?turntable
  * window.__wp exposes the controls for scripted screenshots.
  */
 import * as THREE from 'three/webgpu'
@@ -21,7 +21,7 @@ const DT = 1 / 60
 const FRICTION = Math.pow(0.96, DT / 0.035)
 const COLORS = [0x2fd6c8, 0xe0352b, 0x4f7dff, 0xf2b630, 0x9b4dff, 0x3ccf4e, 0xff6fb5, 0xe8e8e8, 0xff8a1f, 0x18b0ff]
 
-type Mode = 'idle' | 'circle' | 'line' | 'walk'
+type Mode = 'idle' | 'circle' | 'line' | 'walk' | 'treadmill' | 'treadwalk'
 
 interface Actor {
   pawn: PawnState
@@ -121,11 +121,23 @@ async function main() {
   {
     const sp = pass(scene, camera)
     const col = sp.getTextureNode('output')
-    pipeline.outputNode = post ? col.add(bloom(col, 0.7, 0.4, 0.85)) : col
+    // same bloom as the match (RenderLoop, High tier): strength 0.6, radius 0.4, threshold 1, smoothWidth 0.6
+    if (post) {
+      const b = bloom(col, 0.6, 0.4, 1.0)
+      b.smoothWidth.value = 0.6
+      pipeline.outputNode = col.add(b)
+    } else pipeline.outputNode = col
   }
 
   const t0 = performance.now()
-  await preloadWarlock()
+  try {
+    await preloadWarlock()
+  } catch (e) {
+    // keep the page alive: show the error and run the procedural style
+    console.error(e)
+    warlockParams.style = 'procedural'
+    document.body.insertAdjacentHTML('beforeend', `<pre style="color:#f88;position:absolute;bottom:8px;left:8px;max-width:60vw;white-space:pre-wrap">CC0 warlock failed to build, showing the procedural style:\n${String((e as Error)?.stack ?? e)}</pre>`)
+  }
   const loadMs = performance.now() - t0
   const staffParam = params.get('staff') as StaffVariant | null
   if (staffParam) {
@@ -194,6 +206,11 @@ async function main() {
         const l = Math.hypot(dx, dy) || 1
         wx = (dx / l) * 210
         wy = (dy / l) * 210
+      } else if (a.mode === 'treadmill' || a.mode === 'treadwalk') {
+        // run / walk in place along the current facing (captures from fixed angles)
+        const sp = a.mode === 'treadmill' ? 210 : 90
+        wx = Math.cos(p.facing) * sp
+        wy = Math.sin(p.facing) * sp
       } else if (a.mode === 'line' || a.mode === 'walk') {
         if (p.x > 380) a.dir = -1
         if (p.x < -380) a.dir = 1
@@ -216,8 +233,9 @@ async function main() {
     p.walkVy = wy
     p.vx = kbx + wx
     p.vy = kby + wy
-    p.x += p.vx * DT
-    p.y += p.vy * DT
+    const tread = a.mode === 'treadmill' || a.mode === 'treadwalk'
+    p.x += (tread ? kbx : p.vx) * DT
+    p.y += (tread ? kby : p.vy) * DT
     if (Math.hypot(p.x, p.y) > 1200) {
       p.x *= 0.5
       p.y *= 0.5
@@ -351,6 +369,28 @@ async function main() {
     splash(on?: boolean) {
       splashImg.style.display = (on ?? splashImg.style.display === 'none') ? 'block' : 'none'
     },
+    /** clipping debug colours (red = must be covered, green = legit through the split) */
+    debugClip(on?: boolean) {
+      clothParams.debugClip.value = (on ?? clothParams.debugClip.value < 0.5) ? 1 : 0
+    },
+    /** camera presets around the hero for captures (front / side / back / gameplay angle zoomed) */
+    cam(preset: 'front' | 'side' | 'back' | 'game' | 'gameFar') {
+      const a = hero()
+      const pos = a.holder.position
+      const f = a.pawn.facing
+      const fx = Math.cos(f)
+      const fz = -Math.sin(f)
+      const pitch = (58 * Math.PI) / 180
+      if (preset === 'front') camera.position.set(pos.x + fx * 3.6, pos.y + 1.0, pos.z + fz * 3.6)
+      else if (preset === 'side') camera.position.set(pos.x - fz * 3.6, pos.y + 1.0, pos.z + fx * 3.6)
+      else if (preset === 'back') camera.position.set(pos.x - fx * 3.6, pos.y + 1.0, pos.z - fz * 3.6)
+      else {
+        const dist = preset === 'game' ? 4.2 : 11
+        camera.position.set(pos.x, pos.y + dist * Math.sin(pitch), pos.z + dist * Math.cos(pitch))
+      }
+      controls.target.set(pos.x, pos.y + (preset.startsWith('game') ? 0.55 : 0.7), pos.z)
+      controls.update()
+    },
     info() {
       const asset = getWarlockAsset()
       return { loadMs: Math.round(loadMs), triangles: asset?.triangles, fps: Math.round(fps), actors: actors.length, calls: renderer.info.render.drawCalls }
@@ -376,6 +416,16 @@ async function main() {
   btn('long cast', () => ctl.cast('fireball', 0.9))
   btn('scourge', () => ctl.cast('scourge', 0.9))
   btn('instant', () => ctl.instant('thrust'))
+  // one button per cast category (castStyles.ts)
+  for (const [label, spell, secs] of [
+    ['aoe:gravity', 'gravity', 0.6],
+    ['sky:meteor', 'meteor', 0.6],
+    ['buff:shield', 'shield', 0],
+    ['ground:pillar', 'rockpillar', 0.4],
+    ['beam:lightning', 'lightning', 0.5],
+    ['move:teleport', 'teleport', 0],
+  ] as const)
+    btn(label, () => (secs > 0 ? ctl.cast(spell, secs) : ctl.instant(spell)))
   btn('cancel', () => ctl.cancel())
   btn('hit', () => ctl.hit(250))
   btn('knockback', () => ctl.hit(1100))
@@ -386,8 +436,9 @@ async function main() {
   btn('burn', () => ctl.burn())
   btn('invuln', () => ctl.invuln())
   btn('style', () => ctl.style(warlockParams.style === 'cc0' ? 'procedural' : 'cc0'))
-  btn('staff', () => ctl.staff(warlockParams.staff ? null : warlockParams.staffVariant))
-  btn('staff variant', () => {
+  // known issue: the staff has no grip / animations yet (shelved, off by default)
+  btn('staff (wip)', () => ctl.staff(warlockParams.staff ? null : warlockParams.staffVariant))
+  btn('staff variant (wip)', () => {
     const order: StaffVariant[] = ['gnarled', 'iron', 'bone']
     ctl.staff(order[(order.indexOf(warlockParams.staffVariant) + 1) % order.length])
   })
@@ -395,15 +446,18 @@ async function main() {
   btn('color', () => ctl.color(COLORS[Math.floor(Math.random() * COLORS.length)]))
   btn('view', () => ctl.view(view === 'close' ? 'game' : view === 'game' ? 'side' : 'close'))
   btn('turntable', () => ctl.turntable())
+  btn('freeze', () => ctl.pause())
   btn('x10', () => ctl.count(actors.length === 1 ? 10 : 1))
   btn('studio light', () => ctl.studio())
   btn('splash', () => ctl.splash())
   btn('footprint', () => (warlockParams.debugFootprint = !warlockParams.debugFootprint))
   for (const k of ['ash', 'lava', 'fireball', 'lightning', 'freeze', 'gravity', 'drain'] as DeathKind[]) btn(`die:${k}`, () => ctl.die(k))
   document.body.appendChild(ui)
+  if (params.get('ui') === '0') ui.style.display = 'none'
   const hud = document.createElement('div')
   hud.style.cssText = 'position:absolute;right:8px;top:8px;font:12px ui-monospace,monospace;color:#ffd9b0;text-shadow:0 1px 2px #000;text-align:right;white-space:pre'
   document.body.appendChild(hud)
+  if (params.get('ui') === '0') hud.style.display = 'none'
   const splashImg = document.createElement('img')
   splashImg.src = '/art/brand/splash.webp'
   splashImg.style.cssText = 'position:absolute;right:8px;bottom:8px;width:38vw;border:1px solid #4a3d5a;display:none'
@@ -412,7 +466,7 @@ async function main() {
 
   // ---------------------------------------------------------------- camera
   let view = (params.get('view') as 'close' | 'game' | 'side' | 'top') ?? 'close'
-  let turntable = !params.has('still')
+  let turntable = params.has('turntable')
   let paused = false
   let pendingAdvance = 0
   const camOffset = new THREE.Vector3()
@@ -503,7 +557,8 @@ load ${loadMs.toFixed(0)} ms`
   // rendered from 8 orbit angles + the gameplay camera and the pixels counted.
   const clipCheck = async (opts: { samplesPerSec?: number; size?: number } = {}) => {
     const sps = opts.samplesPerSec ?? 5
-    const size = opts.size ?? 192
+    // readback rows must be 256-byte aligned: size * 4 % 256 === 0
+    const size = Math.ceil((opts.size ?? 192) / 64) * 64
     checking = true
     const rt = new THREE.RenderTarget(size, size)
     const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60)
@@ -607,6 +662,49 @@ load ${loadMs.toFixed(0)} ms`
     return report
   }
   ;(window as unknown as Record<string, unknown>).__clipCheck = clipCheck
+
+  /** top-down silhouette size (game units): orthographic view over the hero on white, bbox of covered pixels */
+  const measureTopDown = async () => {
+    const size = 512 // rows must be 256-byte aligned for the readback
+    const span = 2.4 // metres
+    const rt = new THREE.RenderTarget(size, size)
+    const cam = new THREE.OrthographicCamera(-span / 2, span / 2, span / 2, -span / 2, 0.1, 20)
+    const pos = hero().holder.position
+    cam.position.set(pos.x, 6, pos.z)
+    cam.up.set(0, 0, -1)
+    cam.lookAt(pos.x, 0, pos.z)
+    const savedBg = scene.background
+    scene.background = new THREE.Color(1, 1, 1)
+    grid.visible = ground.visible = false
+    const fp = warlockParams.debugFootprint
+    warlockParams.debugFootprint = false
+    for (const a of actors) a.w.update(a.pawn, a.prev, 1, 0, [])
+    renderer.setRenderTarget(rt)
+    renderer.render(scene, cam)
+    renderer.setRenderTarget(null)
+    const px = (await renderer.readRenderTargetPixelsAsync(rt, 0, 0, size, size)) as Uint8Array
+    let x0 = size
+    let x1 = -1
+    let y0 = size
+    let y1 = -1
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 4
+        if (px[i] < 200 || px[i + 1] < 200 || px[i + 2] < 200) {
+          x0 = Math.min(x0, x)
+          x1 = Math.max(x1, x)
+          y0 = Math.min(y0, y)
+          y1 = Math.max(y1, y)
+        }
+      }
+    scene.background = savedBg
+    grid.visible = ground.visible = true
+    warlockParams.debugFootprint = fp
+    rt.dispose()
+    const unitsPerPx = (span * 100) / size
+    return { across: Math.round((x1 - x0 + 1) * unitsPerPx), deep: Math.round((y1 - y0 + 1) * unitsPerPx), height: Math.round(getWarlockAsset() ? 186.5 * 0.69 : 0) }
+  }
+  ;(window as unknown as Record<string, unknown>).__measure = measureTopDown
   btn('clip check', () => void clipCheck().then((r) => (hud.textContent = r)))
 }
 

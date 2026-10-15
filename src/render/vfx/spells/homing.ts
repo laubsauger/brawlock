@@ -14,58 +14,24 @@
  *   speed trail at the feet (burnout = darker, bigger, crimson)
  */
 import type { SimEvent } from '../../../sim/types'
-import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
-import { G_RETICLE, G_RUNE, G_SHOCK, PAL_BLOOD, PAL_HOMING, PH, acquireKit, pawnById, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { G_RETICLE, G_RUNE, G_SHOCK, PH, acquireKit, palFor, palShade, pawnById, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { spellDeath } from './deathsA'
 import { RING_EXPAND } from '../../scene/GroundFx'
 
-const P = PAL_HOMING
+const P = palFor('homing')
+/** burnout (Homing self-detonation while thrusting): the same hue, darker, hotter core */
+const BURN = palShade(P, 0.55)
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
 /** last self-detonation (to skip the plain destroy pop for the same bolt) */
 const novaAt = { x: 0, y: 0, t: -10 }
 
-const TRAIL: TrailStyle = {
-  life: 0.3,
-  width: 50,
-  widthTail: 0.12,
-  head: [3.3, 1.2, 1.6],
-  mid: [2.6, 0.22, 0.75],
-  tail: [0.6, 0.02, 0.18],
-  intensity: 2.6,
-  falloff: 1.3,
-  noise: 0.4,
-  spacing: 9,
-  rim: 0.3,
-}
-const WISP: TrailStyle = {
-  life: 0.36,
-  width: 16,
-  widthTail: 0.3,
-  head: [3.4, 1.4, 1.9],
-  mid: [2.3, 0.3, 0.6],
-  tail: [0.45, 0.02, 0.12],
-  intensity: 1.6,
-  falloff: 1.8,
-  noise: 0.7,
-  spacing: 7,
-  rim: 0,
-}
-const HASTE: TrailStyle = {
-  life: 0.45,
-  width: 46,
-  widthTail: 0.25,
-  head: [2.6, 0.6, 1.0],
-  mid: [1.8, 0.16, 0.5],
-  tail: [0.4, 0.02, 0.1],
-  intensity: 1.4,
-  falloff: 1.3,
-  noise: 0.8,
-  spacing: 10,
-  rim: 0.3,
-  flat: true,
-}
-const HASTE_BURN: TrailStyle = { ...HASTE, width: 62, head: [3.0, 0.5, 0.25], mid: [2.0, 0.08, 0.06], tail: [0.35, 0.0, 0.01], intensity: 1.9 }
+const TRAIL: TrailStyle = trailFrom(P, { life: 0.3, width: 50, widthTail: 0.12, intensity: 2.6, falloff: 1.3, noise: 0.4, spacing: 9, rim: 0.3 })
+const WISP: TrailStyle = trailFrom(P, { life: 0.36, width: 16, widthTail: 0.3, intensity: 1.6, falloff: 1.8, noise: 0.7, spacing: 7, rim: 0 }, 0.7)
+const HASTE: TrailStyle = trailFrom(P, { life: 0.45, width: 46, widthTail: 0.25, intensity: 1.4, falloff: 1.3, noise: 0.8, spacing: 10, rim: 0.3, flat: true }, 0.3)
+const HASTE_BURN: TrailStyle = trailFrom(BURN, { life: 0.45, width: 62, widthTail: 0.25, intensity: 1.9, falloff: 1.3, noise: 0.8, spacing: 10, rim: 0.3, flat: true }, 0.25)
 
 function nova(k: KitA, ctx: VfxCtx, x: number, y: number, radius: number): void {
   const fl = k.floor(x, y)
@@ -123,6 +89,17 @@ function pop(k: KitA, ctx: VfxCtx, x: number, y: number, big: boolean): void {
   if (big && !ctx.isLava(x, y)) ctx.scorches.spawn(x, y, fl - 0.4, 55)
 }
 
+/** signature charge-up: a magenta seeker eye locking down above the hand */
+function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
+  const now = ctx.now
+  const hh = o.h + 44
+  const r = 72 - 40 * w
+  k.air.add(G_RETICLE, o.x, o.y, hh, r, now * 2.5, P.body[0], P.body[1], P.body[2], 0.7 + 0.9 * w, w)
+  k.air.add(G_RETICLE, o.x, o.y, hh + 1, r * 0.5, -now * 5, P.hot[0], P.hot[1], P.hot[2], 0.25 + 0.6 * w, 1)
+  k.glowAt(o.x, o.y, hh, 14 + 16 * w, P.hot[0] * w, P.hot[1] * w, P.hot[2] * w, 3)
+  void info
+}
+
 const mod: SpellVfx = {
   spell: 'homing',
   modifiers: ['homingHaste'],
@@ -178,6 +155,9 @@ const mod: SpellVfx = {
         if (e.spell !== 'homing') return
         pop(k, ctx, e.x, e.y, false)
         return
+      case 'death':
+        if (e.cause !== 'homing') return
+        return spellDeath(k, ctx, e)
       default:
         return
     }
@@ -193,7 +173,9 @@ const mod: SpellVfx = {
       if (!info) continue
       k.begin()
       k.origin(info, o)
-      k.windupAt(o.x, o.y, o.h, windupProgress(k, ctx, p.id, p.cast.ticksLeft), P, ctx.now, ctx.dt, p.id)
+      const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
+      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
+      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
     }
   },
 
@@ -266,7 +248,7 @@ const mod: SpellVfx = {
     if (!k) return
     k.begin()
     const burn = m.data.burnout === 1
-    const pal = burn ? PAL_BLOOD : P
+    const pal = burn ? BURN : P
     const info = ctx.pawn(pawn.id)
     const fl = info ? info.h + 2 : k.floor(x, y)
     k.trailPoint(-1000 - pawn.id, x, y, fl + 3, burn ? HASTE_BURN : HASTE, pawn.owner)

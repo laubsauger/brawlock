@@ -61,6 +61,7 @@ import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../../coords'
 import { Billboards } from '../../scene/Billboards'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
+import { getSpellColor, mixRGB, withLuminance, type RGB3 } from '../palette'
 import type { PawnRenderInfo, VfxCtx } from '../registry'
 
 export type RGB = readonly [number, number, number]
@@ -75,26 +76,44 @@ export interface Pal {
   spark: RGB
 }
 
-/** Column 1 Knockout: fiery red-orange */
-export const PAL_KNOCK: Pal = { hot: [3.4, 1.85, 0.75], body: [2.9, 0.6, 0.11], edge: [1.7, 0.19, 0.035], tail: [0.75, 0.06, 0.015], light: [1.0, 0.3, 0.06], spark: [4.6, 2.2, 0.75] }
-/** per-spell identities (until render's vfx/palette.ts lands): Homing magenta-red */
-export const PAL_HOMING: Pal = { hot: [3.5, 1.5, 2.3], body: [2.9, 0.26, 0.95], edge: [1.65, 0.05, 0.45], tail: [0.6, 0.01, 0.2], light: [1.0, 0.16, 0.45], spark: [4.3, 1.7, 2.9] }
-/** Boomerang red-copper */
-export const PAL_COPPER: Pal = { hot: [3.5, 2.1, 1.15], body: [2.7, 0.78, 0.3], edge: [1.55, 0.3, 0.1], tail: [0.6, 0.09, 0.03], light: [1.0, 0.4, 0.16], spark: [4.5, 2.7, 1.35] }
-/** Lightning electric white-blue */
-export const PAL_STORM: Pal = { hot: [3.1, 3.4, 4.4], body: [1.0, 1.65, 3.7], edge: [0.35, 0.62, 2.3], tail: [0.1, 0.18, 0.9], light: [0.5, 0.72, 1.45], spark: [3.3, 3.9, 5.2] }
-/** Twin gold-orange */
-export const PAL_TWIN: Pal = { hot: [3.7, 3.0, 1.45], body: [3.3, 1.65, 0.3], edge: [1.95, 0.78, 0.08], tail: [0.8, 0.26, 0.02], light: [1.0, 0.62, 0.15], spark: [4.7, 3.5, 1.45] }
-/** Column 2 Transport: arcane cyan-blue */
-export const PAL_ARCANE: Pal = { hot: [1.7, 2.9, 3.7], body: [0.32, 1.35, 3.1], edge: [0.12, 0.42, 1.9], tail: [0.04, 0.1, 0.7], light: [0.18, 0.55, 1.25], spark: [1.8, 3.3, 4.6] }
-/** Column 3 Damage: molten orange-gold */
-export const PAL_MOLTEN: Pal = { hot: [3.7, 2.8, 1.25], body: [3.1, 1.5, 0.24], edge: [1.85, 0.62, 0.06], tail: [0.85, 0.2, 0.02], light: [1.0, 0.56, 0.12], spark: [4.7, 3.3, 1.2] }
-/** Items: bronze / ember */
-export const PAL_BRONZE: Pal = { hot: [3.3, 2.3, 1.25], body: [2.3, 1.12, 0.38], edge: [1.25, 0.5, 0.13], tail: [0.55, 0.18, 0.04], light: [0.9, 0.5, 0.2], spark: [4.2, 2.6, 1.1] }
-/** Pact: blood red with an ember edge */
-export const PAL_BLOOD: Pal = { hot: [3.4, 1.0, 0.7], body: [2.5, 0.13, 0.12], edge: [1.2, 0.04, 0.05], tail: [0.4, 0.01, 0.015], light: [1.0, 0.08, 0.05], spark: [4.2, 1.3, 0.7] }
-/** Drain heal orb: life green */
-export const PAL_HEAL: Pal = { hot: [2.1, 3.7, 1.7], body: [0.5, 2.7, 0.7], edge: [0.14, 1.25, 0.3], tail: [0.04, 0.45, 0.1], light: [0.3, 1.0, 0.35], spark: [2.5, 4.4, 2.0] }
+const palCache = new Map<string, Pal>()
+
+/**
+ * Kit palette for a spell id, derived from the shared identity palette
+ * (vfx/palette.ts, colorblind-tuned): hot = the near-white core, body / edge /
+ * tail / light = the identity ACCENT at falling luminance, spark = core-accent mix.
+ * Cached, one allocation per id.
+ */
+export function palFor(id: string): Pal {
+  let p = palCache.get(id)
+  if (p) return p
+  const c = getSpellColor(id)
+  const core: RGB3 = [c.core.r, c.core.g, c.core.b]
+  const acc: RGB3 = [c.accent.r, c.accent.g, c.accent.b]
+  const L = (rgb: readonly number[], l: number) => withLuminance(rgb, l, [0, 0, 0])
+  p = {
+    hot: L(core, 2.3),
+    body: L(acc, 1.0),
+    edge: L(acc, 0.42),
+    tail: L(acc, 0.1),
+    light: L(acc, 0.5),
+    spark: L(mixRGB(core, acc, 0.45, [0, 0, 0]), 2.8),
+  }
+  palCache.set(id, p)
+  return p
+}
+
+/** the same hues, darker and hotter-cored (Homing burnout, Pact slow ...) */
+export function palShade(base: Pal, k: number): Pal {
+  const m = (c: RGB): RGB => [c[0] * k, c[1] * k, c[2] * k]
+  return { hot: base.hot, body: m(base.body), edge: m(base.edge), tail: m(base.tail), light: m(base.light), spark: base.spark }
+}
+
+/** trail colours from a palette: white-hot head, identity body, cooled tail */
+export function trailFrom(P: Pal, s: Omit<TrailStyle, 'head' | 'mid' | 'tail'>, hotMix = 0.5): TrailStyle {
+  const head: RGB = [P.hot[0] * hotMix + P.body[0] * (1 - hotMix) * 1.4, P.hot[1] * hotMix + P.body[1] * (1 - hotMix) * 1.4, P.hot[2] * hotMix + P.body[2] * (1 - hotMix) * 1.4]
+  return { ...s, head, mid: P.body, tail: P.tail }
+}
 
 /** glyph types (Glyphs.add `type`) */
 export const G_RUNE = 0
@@ -110,9 +129,25 @@ export const G_DISC = 9
 
 const TAU = Math.PI * 2
 
+/** spells drawn by workstream A (damage attribution) */
+const OUR_SPELLS: ReadonlySet<string> = new Set(['boomerang', 'lightning', 'homing', 'twin', 'thrust', 'cluster', 'drain', 'bouncer', 'recharge'])
+
 // ---------------------------------------------------------------------------
 // Strips
 // ---------------------------------------------------------------------------
+
+/** set a single upload range, reusing the range object (no per-frame allocation) */
+function uploadRange(a: THREE.BufferAttribute, start: number, count: number): void {
+  const r = a.updateRanges
+  if (r.length === 1) {
+    r[0].start = start
+    r[0].count = count
+  } else {
+    a.clearUpdateRanges()
+    a.addUpdateRange(start, count)
+  }
+  a.needsUpdate = true
+}
 
 const STRIP_MAXP = 512
 
@@ -320,14 +355,11 @@ class Strips {
   commit(): void {
     this.geo.setDrawRange(0, this.ni)
     if (this.nv === 0) return
-    for (const a of [this.aPos, this.aCol, this.aAux, this.aEdge]) {
-      a.clearUpdateRanges()
-      a.addUpdateRange(0, this.nv * a.itemSize)
-      a.needsUpdate = true
-    }
-    this.aIdx.clearUpdateRanges()
-    this.aIdx.addUpdateRange(0, this.ni)
-    this.aIdx.needsUpdate = true
+    uploadRange(this.aPos, 0, this.nv * 3)
+    uploadRange(this.aCol, 0, this.nv * 4)
+    uploadRange(this.aAux, 0, this.nv * 4)
+    uploadRange(this.aEdge, 0, this.nv * 4)
+    uploadRange(this.aIdx, 0, this.ni)
   }
 
   dispose(): void {
@@ -562,11 +594,9 @@ class Glyphs {
   commit(): void {
     this.mesh.count = this.n
     if (this.n === 0) return
-    for (const a of [this.g0, this.g1, this.g2]) {
-      a.clearUpdateRanges()
-      a.addUpdateRange(0, this.n * 4)
-      a.needsUpdate = true
-    }
+    uploadRange(this.g0, 0, this.n * 4)
+    uploadRange(this.g1, 0, this.n * 4)
+    uploadRange(this.g2, 0, this.n * 4)
   }
 
   dispose(): void {
@@ -675,11 +705,7 @@ class Cores {
   commit(): void {
     this.mesh.count = this.n
     if (this.n === 0) return
-    for (const a of this.attrs) {
-      a.clearUpdateRanges()
-      a.addUpdateRange(0, this.n * 4)
-      a.needsUpdate = true
-    }
+    for (let i = 0; i < this.attrs.length; i++) uploadRange(this.attrs[i], 0, this.n * 4)
   }
 
   dispose(): void {
@@ -1270,33 +1296,34 @@ export class KitA {
     const st = tr.style!
     const total = tr.n + (tr.live ? 1 : 0)
     if (total < 2) return
-    this.strips.begin(!!st.flat, st.falloff, st.noise, -now * 0.0)
-    const emit = (x: number, y: number, h: number, age: number) => {
-      const f = Math.min(1, Math.max(0, age / st.life))
-      let r: number
-      let g: number
-      let b: number
-      if (f < 0.3) {
-        const k = f / 0.3
-        r = st.head[0] + (st.mid[0] - st.head[0]) * k
-        g = st.head[1] + (st.mid[1] - st.head[1]) * k
-        b = st.head[2] + (st.mid[2] - st.head[2]) * k
-      } else {
-        const k = (f - 0.3) / 0.7
-        r = st.mid[0] + (st.tail[0] - st.mid[0]) * k
-        g = st.mid[1] + (st.tail[1] - st.mid[1]) * k
-        b = st.mid[2] + (st.tail[2] - st.mid[2]) * k
-      }
-      const fade = (1 - f) * (1 - f) * Math.min(1, age * 40 + 0.35)
-      const wd = st.width * (1 + (st.widthTail - 1) * f)
-      this.strips.point(x * S, h * S, -y * S, wd * S, r, g, b, st.intensity * tr.gain * fade, tr.rimR, tr.rimG, tr.rimB, st.rim)
-    }
-    if (tr.live) emit(tr.hx, tr.hy, tr.hh, 0)
+    this.strips.begin(!!st.flat, st.falloff, st.noise, 0)
+    if (tr.live) this.emitTrail(tr, st, tr.hx, tr.hy, tr.hh, 0)
     for (let k = tr.n - 1; k >= 0; k--) {
       const i = (tr.start + k) % TRAIL_MAXP
-      emit(tr.x[i], tr.y[i], tr.h[i], now - tr.t[i])
+      this.emitTrail(tr, st, tr.x[i], tr.y[i], tr.h[i], now - tr.t[i])
     }
     this.strips.end(this.camPos)
+  }
+
+  private emitTrail(tr: Trail, st: TrailStyle, x: number, y: number, h: number, age: number): void {
+    const f = Math.min(1, Math.max(0, age / st.life))
+    let r: number
+    let g: number
+    let b: number
+    if (f < 0.3) {
+      const k = f / 0.3
+      r = st.head[0] + (st.mid[0] - st.head[0]) * k
+      g = st.head[1] + (st.mid[1] - st.head[1]) * k
+      b = st.head[2] + (st.mid[2] - st.head[2]) * k
+    } else {
+      const k = (f - 0.3) / 0.7
+      r = st.mid[0] + (st.tail[0] - st.mid[0]) * k
+      g = st.mid[1] + (st.tail[1] - st.mid[1]) * k
+      b = st.mid[2] + (st.tail[2] - st.mid[2]) * k
+    }
+    const fade = (1 - f) * (1 - f) * Math.min(1, age * 40 + 0.35)
+    const wd = st.width * (1 + (st.widthTail - 1) * f)
+    this.strips.point(x * S, h * S, -y * S, wd * S, r, g, b, st.intensity * tr.gain * fade, tr.rimR, tr.rimG, tr.rimB, st.rim)
   }
 
   // ------------------------------------------------------------ pawns, colours
@@ -1375,6 +1402,19 @@ export class KitA {
     this.lastAttrEvt = e
     this.attrResult = null
     if (e.source === null) return null
+    // render's same-tick cause (projectileHit / beam / spellHit / explosion) wins when it names one of ours
+    const cause = this.ctx.damageCause ? this.ctx.damageCause(e) : null
+    if (cause !== null && OUR_SPELLS.has(cause)) {
+      let id = -1
+      for (const x of this.ctx.tickEvents ?? []) {
+        if (x.type === 'projectileHit' && x.target === e.target && x.spell === cause) {
+          id = x.id
+          break
+        }
+      }
+      this.attrResult = { spell: cause, kind: cause, data: id }
+      return this.attrResult
+    }
     const now = this.ctx.now
     for (const x of this.expects) {
       if (x.until < now || (x.owner >= 0 && x.owner !== e.source)) continue
@@ -1427,8 +1467,16 @@ export class KitA {
     const l = Math.hypot(dx, dy)
     out.x = l > 1e-3 ? dx / l : 0
     out.y = l > 1e-3 ? dy / l : 0
+    // remembered for a lethal-hit death drawn right after this damage event
+    this.lastHit.target = target
+    this.lastHit.x = out.x
+    this.lastHit.y = out.y
+    this.lastHit.t = this.ctx.now
     return out
   }
+
+  /** direction of the last hit drawn by one of our modules (for the death that follows it) */
+  readonly lastHit = { target: -1, x: 0, y: 0, t: -10 }
 
   // ------------------------------------------------------------ shared bursts
 
@@ -1494,13 +1542,14 @@ export class KitA {
   }
 
   /**
-   * Spell-specific windup flavor at the cast origin (render draws the central
-   * telegraph): motes spiralling into the hand, a small rune turning around it,
-   * a growing glow. k = windup progress 0..1.
+   * Base of every signature charge-up (render draws the shared "someone is
+   * casting" telegraph): motes in the spell's colour spiralling into the cast
+   * hand and a glow that grows with progress k (0..1). Each spell adds its own
+   * recognizable shape on top.
    */
-  windupAt(x: number, y: number, h: number, k: number, pal: Pal, now: number, dt: number, seed: number): void {
+  windupAt(x: number, y: number, h: number, k: number, pal: Pal, _now: number, dt: number, _seed: number): void {
     const ps = this.ctx.particles
-    const n = ps.budget(dt * (40 + k * 80))
+    const n = ps.budget(dt * (30 + k * 60))
     for (let i = 0; i < n; i++) {
       const a = Math.random() * TAU
       const rr = 55 + Math.random() * 45
@@ -1511,10 +1560,23 @@ export class KitA {
       const oh = (Math.random() - 0.5) * 60
       ps.spawn(x + ox, y + oy, h + oh, (-ox + oy * 0.6) / life, (-oy - ox * 0.6) / life, -oh / life, life, 5 + k * 4, 2, pal.spark[0], pal.spark[1], pal.spark[2], 0, 0, -0.03)
     }
-    const s = 0.5 + k * 0.5
-    this.air.add(G_RUNE, x, y, h - 4, 34 + k * 14, now * 3.2 + seed, pal.body[0], pal.body[1], pal.body[2], 0.45 + k * 0.6, k, seed)
-    this.glowAt(x, y, h, (50 + k * 70) * s, pal.body[0] * (0.4 + k), pal.body[1] * (0.4 + k), pal.body[2] * (0.4 + k), 2.2)
-    this.glowAt(x, y, h, 18 + k * 22, pal.hot[0] * k, pal.hot[1] * k, pal.hot[2] * k, 3)
+    this.glowAt(x, y, h, 40 + k * 50, pal.body[0] * (0.3 + k * 0.7), pal.body[1] * (0.3 + k * 0.7), pal.body[2] * (0.3 + k * 0.7), 2.2)
+  }
+
+  /**
+   * n small glowing bodies orbiting (x, y, h) on a tilted ring: hot core
+   * spheres with short trails (Twin's pair, Cluster's four embers...).
+   */
+  orbit(x: number, y: number, h: number, n: number, radius: number, angle: number, size: number, pal: Pal, intensity: number, key: number, trail: TrailStyle | null, tilt = 14): void {
+    for (let i = 0; i < n; i++) {
+      const a = angle + (i / n) * TAU
+      const ox = x + Math.cos(a) * radius
+      const oy = y + Math.sin(a) * radius
+      const oh = h + Math.sin(a * 2) * tilt * (i % 2 === 0 ? 1 : -1)
+      this.cores.add(ox, oy, oh, size, -Math.sin(a), Math.cos(a), 0.6, key + i, pal.edge, pal.body, pal.hot, intensity)
+      this.glowAt(ox, oy, oh, size * 4, pal.body[0] * 0.4 * intensity, pal.body[1] * 0.4 * intensity, pal.body[2] * 0.4 * intensity, 2)
+      if (trail) this.trailPoint(key + i, ox, oy, oh, trail)
+    }
   }
 
   dispose(): void {

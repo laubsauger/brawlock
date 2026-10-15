@@ -19,27 +19,28 @@ import {
 import type { Node } from 'three/webgpu'
 import { S } from '../../coords'
 import { asV4 } from '../../scene/world'
+import { getSpellColor, withLuminance } from '../palette'
 import type { PawnRenderInfo, VfxCtx } from '../registry'
 
 export type RGB = readonly [number, number, number]
 
 // ---------------------------------------------------------------- palette (linear HDR)
-/** column 4 Devastator: violet-magenta */
-export const VIOLET: RGB = [1.15, 0.28, 2.6]
-export const MAGENTA: RGB = [2.6, 0.35, 1.9]
-export const PINK_HOT: RGB = [3.2, 1.5, 2.9]
-export const VIOLET_DEEP: RGB = [0.35, 0.05, 0.75]
-/** column 5 Defense: radiant gold-white */
-export const GOLD: RGB = [2.7, 1.75, 0.55]
-export const GOLD_WHITE: RGB = [3.0, 2.6, 1.7]
-export const FLAME: RGB = [3.0, 0.95, 0.18]
-/** column 6 Knockbackless: eldritch green */
-export const ELDRITCH: RGB = [0.45, 2.7, 0.75]
-export const ELD_PALE: RGB = [1.3, 3.0, 1.4]
-export const ELD_DEEP: RGB = [0.06, 0.55, 0.16]
-/** Snowball frost */
-export const FROST: RGB = [1.6, 2.2, 3.0]
-export const ICE_VIOLET: RGB = [1.4, 1.1, 3.0]
+/**
+ * Spell identity colours come from vfx/palette.ts (colourblind-tuned core + accent per spell).
+ * pal() rescales one of them to a target luminance (HDR, > 1 blooms) so dark identities
+ * (Meteor, Gravity) still glow and bright ones never flatten to white. Call at module load.
+ */
+export function pal(id: string, which: 'core' | 'accent', lum: number): RGB {
+  const c = getSpellColor(id)[which]
+  return withLuminance([c.r, c.g, c.b], lum, [0, 0, 0])
+}
+
+/** accent -> core mix (t 0..1) of a spell's identity, at a target luminance. */
+export function palMix(id: string, t: number, lum: number): RGB {
+  const c = getSpellColor(id)
+  const m: [number, number, number] = [c.accent.r + (c.core.r - c.accent.r) * t, c.accent.g + (c.core.g - c.accent.g) * t, c.accent.b + (c.core.b - c.accent.b) * t]
+  return withLuminance(m, lum, m)
+}
 
 export const TAU = Math.PI * 2
 
@@ -378,7 +379,7 @@ function circleMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const ce = texture(noise, cq.mul(0.5)).b
   const ce2 = texture(noise, cq.mul(1.1).add(3.7)).b
   const crackMask = smoothstep(1.0, 0.2, r.add(texture(noise, cq.mul(0.2)).r.sub(0.5).mul(0.5))).mul(float(1).sub(progress))
-  const s4 = smoothstep(0.06, 0.0, ce).add(smoothstep(0.04, 0.0, ce2).mul(0.5)).mul(crackMask).mul(1.5).add(smoothstep(0.45, 0.0, r).mul(float(1).sub(progress)).mul(float(1).sub(progress)).mul(0.6))
+  const s4 = smoothstep(0.06, 0.0, ce).add(smoothstep(0.04, 0.0, ce2).mul(0.5)).mul(crackMask).mul(1.5).add(smoothstep(0.35, 0.0, r).mul(pow(float(1).sub(progress), 3)).mul(0.25))
   // --- style 5: ripples running inward (spin > 0) / outward (spin < 0)
   const rip = pow(saturate(sin(r.mul(14).add(t.mul(spin)).add(seed))), 8)
   const s5 = rip.mul(smoothstep(1.0, 0.75, r)).mul(smoothstep(0.08, 0.3, r)).mul(0.55).add(ringAt(0.98, th.mul(0.01)).mul(0.5))

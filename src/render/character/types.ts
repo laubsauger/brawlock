@@ -32,6 +32,16 @@ export interface WarlockOptions {
   ctx?: WorldCtx
 }
 
+/** World-space casting arm chain (filled by castArm()). */
+export interface CastArm {
+  shoulder: THREE.Vector3
+  elbow: THREE.Vector3
+  wrist: THREE.Vector3
+  palm: THREE.Vector3
+  /** unit direction wrist -> palm (where the hand points) */
+  dir: THREE.Vector3
+}
+
 export interface WarlockHandle {
   /** Local-space model: the owner places it at the pawn's ground point (feet at y = 0). */
   readonly object3d: THREE.Object3D
@@ -43,6 +53,10 @@ export interface WarlockHandle {
   update(pawn: PawnState, prev: PawnState | null, alpha: number, dt: number, events: readonly SimEvent[]): void
   /** World position spells originate from (casting palm, or staff crystal). */
   castOrigin(out: THREE.Vector3): THREE.Vector3
+  /** Casting arm chain in world space this frame (for halo rings travelling down the arm); `hand` picks one of two casting hands. */
+  castArm(out: CastArm, hand?: 'left' | 'right'): CastArm
+  /** Hand(s) of the current / last cast (castStyles.ts): 'both' for aoe, buff and beam spells; castOrigin is then between the palms. */
+  readonly castHands: 'left' | 'right' | 'both'
   /** 0..1 over the cast point (windup), 0 when idle / released / cancelled. */
   readonly castCharge: number
   /** Colour of the current cast glow (hand, sleeve runes, staff crystal). Default: player colour. */

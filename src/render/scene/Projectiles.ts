@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu'
 import { attribute, dot, mix, normalView, positionView, pow, saturate, sin, smoothstep, vec3 } from 'three/tsl'
 import type { ProjectileState } from '../../sim/types'
 import { PROJECTILE_H, S } from '../coords'
+import { projectileCoreRadius } from '../scale'
 import type { Billboards } from './Billboards'
 import type { Particles } from './Particles'
 import { asV4, type WorldCtx } from './world'
@@ -127,7 +128,7 @@ export class Projectiles {
       const er = look.edge[0] * 0.65 + this.tc.r * 0.35
       const eg = look.edge[1] * 0.65 + this.tc.g * 0.35
       const eb = look.edge[2] * 0.65 + this.tc.b * 0.35
-      const r = Math.max(8, p.radius) * 0.95
+      const r = projectileCoreRadius(p.radius)
       this.v.set(x * S, PROJECTILE_H * S, -y * S)
       this.sc.setScalar(r * S)
       this.m.compose(this.v, this.q, this.sc)

@@ -37,7 +37,10 @@ const SLOT: Record<string, number> = {
 
 export const LAB_SPELLS = ['boomerang', 'lightning', 'homing', 'twin', 'thrust', 'swap', 'cluster', 'drain', 'bouncer', 'recharge', 'redirector', 'pact'] as const
 
-/** P0 caster, three enemy dummies, one ally */
+/** lab layout is shifted off the arena centre (keeps the action clear of centre props) */
+const OFF = { x: -150, y: -560 }
+
+/** P0 caster, three enemy dummies, one ally (local coords, + OFF in the world) */
 const HOME = [
   { x: -420, y: -40 },
   { x: 300, y: 0 },
@@ -72,7 +75,7 @@ function grant(s: SimState, player: number, spell: string, level = 3): number {
 
 function cast(lab: Lab, player: number, spell: string, x: number, y: number): void {
   const slot = grant(lab.state, player, spell)
-  if (slot >= 0) lab.queue.push({ at: lab.state.tick, player, cmd: { kind: 'cast', slot, x, y } })
+  if (slot >= 0) lab.queue.push({ at: lab.state.tick, player, cmd: { kind: 'cast', slot, x: x + OFF.x, y: y + OFF.y } })
 }
 
 const at = (i: number) => HOME[i]
@@ -81,8 +84,8 @@ const at = (i: number) => HOME[i]
 function put(lab: Lab, i: number, x: number, y: number): void {
   const p = pawn(lab.state, i)
   if (!p) return
-  p.x = x
-  p.y = y
+  p.x = x + OFF.x
+  p.y = y + OFF.y
   p.vx = p.vy = p.walkVx = p.walkVy = 0
   p.moveTarget = null
 }
@@ -91,8 +94,8 @@ function home(lab: Lab): void {
   for (let i = 0; i < HOME.length; i++) {
     const p = pawn(lab.state, i)
     if (!p) continue
-    p.x = HOME[i].x
-    p.y = HOME[i].y
+    p.x = HOME[i].x + OFF.x
+    p.y = HOME[i].y + OFF.y
     p.vx = p.vy = p.walkVx = p.walkVy = 0
     p.moveTarget = null
     p.facing = i === 0 ? 0 : Math.PI
@@ -180,19 +183,37 @@ export interface LabOptions {
   spell: string
   /** chaos mode: total players (2..10), each spamming random lab spells */
   chaos?: number
+  /** keep the round's random pillars (default: cleared so scripted shots fly clean) */
+  pillars?: boolean
+  /** dummies start at 5 HP and are not healed: the first hit kills (death VFX) */
+  lethal?: boolean
   /** freeze (devTime.scale = 0) `ticks` after script step `step` runs in the first loop */
   freeze?: { step: number; ticks: number } | null
+  /** capture schedule: freeze at these ticks after step 0 of the first loop (one after another) */
+  shotsAt?: number[]
 }
 
-/** Console handles: __labA.ctl.freezeIn(12), __labA.ctl.resume(0.3) */
+/** Console / capture handles: __labA.ctl.freezeIn(12), __labA.ctl.resume(0.3) */
 export const labControl = {
   freezeAt: -1,
   tick: 0,
+  /** tick the first script loop started (step 0), -1 before */
+  t0: -1,
+  /** completed script loops */
+  loops: 0,
+  /** events of the first script loop: [tick - t0, type, spell, extra] */
+  log: [] as [number, string, string, number][],
+  /** pending freezes (absolute ticks, ascending) */
+  pending: [] as number[],
+  /** set while frozen by a scheduled shot; shots = freezes so far */
+  frozen: false,
+  shots: 0,
   freezeIn(ticks: number): void {
     labControl.freezeAt = labControl.tick + ticks
     if (devTime.scale === 0) devTime.scale = 0.3
   },
   resume(scale = 0.3): void {
+    labControl.frozen = false
     devTime.scale = scale
   },
 }
@@ -233,6 +254,8 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
     }
     if (fightAt < 0) {
       fightAt = s.tick
+      // lab: clear random pillars out of the scripted lines of fire
+      if (!chaos && !opts.pillars) s.obstacles.length = 0
       if (!chaos) home(lab)
       nextAt = s.tick + 20
       stepIdx = 0
@@ -246,15 +269,18 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
         p.invulnerable = false
         p.modifiers = p.modifiers.filter((m) => m.id !== 'spawnInvulnerable')
       }
-      // dummies (and everyone in the lab) never die: keep HP topped up
-      p.hp = p.maxHp
+      // dummies (and everyone in the lab) never die: keep HP topped up (unless &lethal)
+      if (opts.lethal && p.owner !== 0) {
+        if (s.tick === fightAt + 1) p.hp = 5
+      } else p.hp = p.maxHp
       if (chaos) continue
       const i = p.owner
       if (i === 0 || i >= HOME.length) continue
-      const h = HOME[i]
+      const hx = HOME[i].x + OFF.x
+      const hy = HOME[i].y + OFF.y
       const sp = Math.hypot(p.vx - p.walkVx, p.vy - p.walkVy)
-      const far = Math.hypot(p.x - h.x, p.y - h.y)
-      if (sp < 40 && far > 60 && !p.cast) p.moveTarget = { x: h.x, y: h.y }
+      const far = Math.hypot(p.x - hx, p.y - hy)
+      if (sp < 40 && far > 60 && !p.cast) p.moveTarget = { x: hx, y: hy }
     }
     if (chaos) {
       for (const p of s.pawns) {
@@ -276,6 +302,7 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
     if (stepIdx >= script.length) {
       stepIdx = 0
       scriptIdx++
+      labControl.loops++
       home(lab)
       nextAt = s.tick + 30
       return
@@ -284,6 +311,11 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
     if (label) {
       lab.label = `${order[scriptIdx % order.length]}: ${label}`
       onLabel?.(lab.label)
+    }
+    if (scriptIdx === 0 && stepIdx === 0 && labControl.t0 < 0) {
+      labControl.t0 = s.tick
+      if (opts.shotsAt) for (const t of opts.shotsAt) labControl.pending.push(s.tick + t)
+      labControl.pending.sort((a, b) => a - b)
     }
     fn(lab)
     if (opts.freeze && scriptIdx === 0 && stepIdx === opts.freeze.step) labControl.freezeAt = s.tick + opts.freeze.ticks
@@ -311,12 +343,32 @@ export function startLabDriver(opts: LabOptions, onLabel?: (s: string) => void):
         acc = 0
         break
       }
+      if (labControl.pending.length > 0 && state.tick >= labControl.pending[0]) {
+        labControl.pending.shift()
+        labControl.frozen = true
+        labControl.shots++
+        devTime.scale = 0
+        acc = 0
+        break
+      }
       director()
       const inputs: PlayerInput[] = []
       const due = lab.queue.filter((q) => q.at <= state.tick)
       lab.queue = lab.queue.filter((q) => q.at > state.tick)
       for (const q of due) inputs.push({ player: q.player, tick: state.tick, cmds: [q.cmd] })
       step(state, inputs)
+      if (labControl.t0 >= 0 && labControl.loops === 0) {
+        for (const e of state.events) {
+          const rel = state.tick - labControl.t0
+          if (e.type === 'cast' || e.type === 'castStart') labControl.log.push([rel, e.type, e.spell, e.pawn])
+          else if (e.type === 'damage') labControl.log.push([rel, 'damage', '', e.target])
+          else if (e.type === 'death') labControl.log.push([rel, 'death', e.cause ?? '', e.pawn])
+          else if (e.type === 'modifier') labControl.log.push([rel, e.on ? 'modOn' : 'modOff', e.id, e.pawn])
+          else if (e.type === 'heal') labControl.log.push([rel, 'heal', '', e.target])
+          else if (e.type === 'beam') labControl.log.push([rel, e.blocked ? 'beamBlocked' : 'beam', e.spell, e.target ?? -1])
+          else if ('spell' in e && typeof e.spell === 'string') labControl.log.push([rel, e.type, e.spell, 'id' in e ? (e.id as number) : -1])
+        }
+      }
       pushEvents(state.tick, state.events.slice())
       stepped = true
     }

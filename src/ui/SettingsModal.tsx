@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useGame, type CastMode, type Quality } from '../game/store'
 import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
-import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, PRESETS, PRESETS_ALT, RESERVED_KEYS, resolveBinds, type BindAction } from './lib/keys'
+import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, resolveBinds, type BindAction } from './lib/keys'
 import { sfx } from './lib/sound'
+import { assignKey, clearSecondary, resetSlotLayout } from './lib/remap'
+import { slotDragProps } from './lib/slotDnd'
 import { audio } from '../audio'
 import { chooseName } from './lib/name'
 
@@ -50,7 +52,7 @@ function slotIndex(a: BindAction): number {
 type Which = 'primary' | 'secondary'
 
 /**
- * Two keys per action. Click a key cell, then press the new key (Delete or
+ * Two keys per action. Drag a spell or item row onto another to swap their keys. Click a key cell, then press the new key (Delete or
  * Backspace clears a secondary, Esc cancels). Taking a key that is already
  * bound anywhere (primary or secondary) moves it: the other action gets this
  * cell's old key, or loses that key if this cell was empty.
@@ -78,78 +80,32 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
         setCapturing(null)
         return
       }
-      const next = { primary: { ...binds.primary }, secondary: { ...binds.secondary } }
-      const slotName = (a: BindAction, w: Which) => `${ACTION_LABEL[a]}${w === 'secondary' ? ' (second key)' : ''}`
       if (e.code === 'Backspace' || e.code === 'Delete') {
         if (which === 'primary') {
           sfx('error')
           setNote('Every action keeps a main key. Rebind it instead, or clear the second key.')
           return
         }
-        next.secondary[action] = ''
-        save(next)
+        clearSecondary(action)
         setNote(`${ACTION_LABEL[action]} has no second key now.`)
         setCapturing(null)
         return
       }
-      if (RESERVED_KEYS.has(e.code)) {
+      const r = assignKey(action, which, e.code)
+      if (!r.ok) {
         sfx('error')
-        setNote(`${keyLabel(e.code)} is reserved. Pick another key.`)
+        setNote(r.note)
         return
       }
-      const old = next[which][action]
-      const other = which === 'primary' ? 'secondary' : 'primary'
-      if (next[other][action] === e.code) {
-        // already this action's other key: just swap the two cells of this action
-        next[other][action] = old
-        next[which][action] = e.code
-        save(next)
-        setNote(null)
-        setCapturing(null)
-        return
-      }
-      let clash: { a: BindAction; w: Which } | null = null
-      for (const w of ['primary', 'secondary'] as Which[]) {
-        for (const a of Object.keys(next[w]) as BindAction[]) {
-          if (next[w][a] === e.code && !(a === action && w === which)) clash = { a, w }
-        }
-      }
-      next[which][action] = e.code
-      let msg: string | null = null
-      if (clash) {
-        if (old) {
-          next[clash.w][clash.a] = old
-          msg = `${keyLabel(e.code)} was on ${slotName(clash.a, clash.w)}; that now uses ${keyLabel(old)}.`
-        } else if (clash.w === 'primary' && next.secondary[clash.a]) {
-          // the other action keeps working: its second key becomes its main key
-          next.primary[clash.a] = next.secondary[clash.a]
-          next.secondary[clash.a] = ''
-          msg = `${keyLabel(e.code)} moved here; ${ACTION_LABEL[clash.a]} now uses ${keyLabel(next.primary[clash.a])}.`
-        } else {
-          next[clash.w][clash.a] = ''
-          msg = `${keyLabel(e.code)} moved here; ${slotName(clash.a, clash.w)} has no key now.`
-        }
-      }
-      save(next)
       sfx('click')
-      setNote(msg)
+      setNote(r.note)
       setCapturing(null)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
+  }, [capturing, onCapture])
 
-    function save(next: { primary: Record<string, string>; secondary: Record<string, string> }) {
-      // store only what differs from the preset, so preset updates still reach the player
-      const base = PRESETS[preset]
-      const baseAlt = PRESETS_ALT[preset]
-      const p: Record<string, string> = {}
-      const s: Record<string, string> = {}
-      for (const k of Object.keys(next.primary) as BindAction[]) if (next.primary[k] !== base[k]) p[k] = next.primary[k]
-      for (const k of Object.keys(next.secondary) as BindAction[]) if (next.secondary[k] !== baseAlt[k]) s[k] = next.secondary[k]
-      setSettings({ keybinds: p, keybindsAlt: s })
-    }
-  }, [capturing, binds, preset, setSettings, onCapture])
-
+  const slotCustom = [...Object.keys(keybinds ?? {}), ...Object.keys(keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k))
   const custom = Object.keys(keybinds ?? {}).length > 0 || Object.keys(keybindsAlt ?? {}).length > 0 || Object.keys(castModeSlots ?? {}).length > 0
   const preset_ = PRESET_INFO.find((p) => p.value === preset)
 
@@ -202,7 +158,16 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
                 const mode = slot >= 0 ? castModeSlots?.[slot] : undefined
                 return (
                   <div key={a.id} className="contents">
-                    <span className="truncate text-[0.98rem]">{a.label}</span>
+                    {slot >= 0 ? (
+                      <span className="bind-row truncate rounded px-1 text-[0.98rem]" title="Drag onto another row of this group to swap keys" {...slotDragProps(slot)}>
+                        <span className="mr-1.5 text-ash" aria-hidden>
+                          ⋮⋮
+                        </span>
+                        {a.label}
+                      </span>
+                    ) : (
+                      <span className="truncate text-[0.98rem]">{a.label}</span>
+                    )}
                     {cell(a.id, 'primary', a.label)}
                     {cell(a.id, 'secondary', a.label)}
                     {slot >= 0 ? (
@@ -243,17 +208,22 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
               ? `Press the new ${capturing.which === 'secondary' ? 'second ' : ''}key for ${ACTION_LABEL[capturing.action]}. ${capturing.which === 'secondary' ? 'Delete clears it. ' : ''}Esc cancels.`
               : note}
           </p>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!custom}
-            onClick={() => {
-              setSettings({ keybinds: {}, keybindsAlt: {}, castModeSlots: {} })
-              setNote(`Back to the ${preset_?.label ?? ''} preset.`)
-            }}
-          >
-            Reset to preset
-          </Button>
+          <span className="flex gap-1">
+            <Button size="sm" variant="ghost" disabled={!slotCustom} onClick={() => resetSlotLayout()}>
+              Reset slot layout
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!custom}
+              onClick={() => {
+                setSettings({ keybinds: {}, keybindsAlt: {}, castModeSlots: {} })
+                setNote(`Back to the ${preset_?.label ?? ''} preset.`)
+              }}
+            >
+              Reset to preset
+            </Button>
+          </span>
         </div>
       </div>
     </>

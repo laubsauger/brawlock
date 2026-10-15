@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { float, instancedBufferAttribute, length, mrt, pow, saturate, uv, vec2, vec4 } from 'three/tsl'
+import { abs, exp, float, instancedBufferAttribute, length, mix, mrt, pow, saturate, step, uv, vec2, vec4 } from 'three/tsl'
 import { asV4, spriteGroundFade, type ArenaField } from './world'
 
 /**
@@ -21,6 +21,8 @@ export class Billboards {
     private capacity = 128,
     heatHaze = false,
     field: ArenaField | null = null,
+    /** draw over geometry (no depth test): telegraphs that must read through bodies */
+    onTop = false,
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
@@ -35,8 +37,12 @@ export class Billboards {
     const E = asV4(instancedBufferAttribute(this.e))
     const d = length(uv().sub(0.5)).mul(2)
     const soft = saturate(float(1).sub(d))
-    // C.w = falloff exponent: high = tight hot core, low = broad haze
-    const shape = pow(soft, C.w)
+    // C.w = falloff exponent: high = tight hot core, low = broad haze;
+    // negative = ring sprite (halo / rune ring), |C.w| = ring sharpness
+    const isRing = step(C.w, 0)
+    const rx = d.sub(0.72).mul(abs(C.w).mul(4))
+    const ringShape = exp(rx.mul(rx).negate()).mul(step(d, 1))
+    const shape = mix(pow(soft, abs(C.w)), ringShape, isRing)
     const m = new THREE.SpriteNodeMaterial()
     m.transparent = true
     m.depthWrite = false
@@ -50,13 +56,14 @@ export class Billboards {
     m.colorNode = C.xyz.mul(shape).mul(ground)
     m.opacityNode = float(1)
     if (heatHaze) m.mrtNode = mrt({ heat: vec4(shape.mul(E.z), 0, 0, 1) })
-    m.name = 'Billboards'
+    if (onTop) m.depthTest = false
+    m.name = onTop ? 'BillboardsOnTop' : 'Billboards'
     this.material = m
     this.sprite = new THREE.Sprite(m)
     this.sprite.count = 0
     this.sprite.frustumCulled = false
-    this.sprite.renderOrder = 7
-    this.sprite.name = 'billboards'
+    this.sprite.renderOrder = onTop ? 9 : 7
+    this.sprite.name = onTop ? 'billboards-top' : 'billboards'
   }
 
   begin(): void {

@@ -29,6 +29,7 @@ import {
   step,
   texture,
   uniform,
+  varying,
   vec2,
   vec3,
 } from 'three/tsl'
@@ -291,6 +292,11 @@ export class Arena {
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
 
     // ---------------- fragment: layered stone
+    // fragment reads of the clock go through vertex varyings (the fragment
+    // stage's own uniform copy did not track the frame clock)
+    const tF = varying(t)
+    const sinkTV = varying(sinkT)
+    const isRemV = varying(isRem)
     const gp = gamePos()
     const lp = positionGeometry.xz.div(TILE_SIZE * 0.5 * S)
     const ny = normalGeometry.y
@@ -333,7 +339,7 @@ export class Arena {
     const crossL = float(1).sub(smoothstep(0.01, 0.025, min(ax, ay))).mul(step(max(ax, ay), 0.3))
     // sigils read as a UI artifact at gameplay zoom: off by default (tweak 'sigils')
     const rune = max(max(sq, dia.mul(0.8)), crossL.mul(0.6)).mul(hasRune).mul(isTop).mul(tweaks.uSigils)
-    const runePulse = sin(t.mul(1.4).add(seed.mul(40))).mul(0.4).add(0.6)
+    const runePulse = sin(tF.mul(1.4).add(seed.mul(40))).mul(0.4).add(0.6)
     stone = stone.mul(float(1).sub(rune.mul(0.45)))
 
     // gloss breakup: glassy inclusions and polished wear vs rough grain
@@ -343,7 +349,7 @@ export class Arena {
     rough = mix(rough, rough.mul(0.7), wear)
 
     // telegraph pulse on the next ring, red-hot on removed tiles
-    const pulse = sin(t.mul(15)).mul(0.5).add(0.5)
+    const pulse = sin(tF.mul(15)).mul(0.5).add(0.5)
     const tele = this.uTelegraph.mul(ring)
     const sd = field.sample(gp)
     const W = tweaks.uEdgeWidth
@@ -365,7 +371,7 @@ export class Arena {
     const albedoLum = stone.r.add(stone.g).add(stone.b).mul(1.4).add(0.05)
     let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), float(0.25), isSide))
     // lava veins: heat seeping up through the cracks, stronger toward the shore
-    const veinPulse = sin(t.mul(0.9).add(n.b.mul(12)).add(seed.mul(20))).mul(0.25).add(0.75)
+    const veinPulse = sin(tF.mul(0.9).add(n.b.mul(12)).add(seed.mul(20))).mul(0.25).add(0.75)
     const vein = crackLine.mul(nearLava.mul(1.2).mul(tweaks.uEdgeGlow).add(0.05)).mul(veinPulse)
     em = em.add(vec3(1.5, 0.3, 0.04).mul(vein))
     em = em.add(this.uRune.mul(rune).mul(runePulse.mul(0.05)).mul(tele.mul(14).add(1)))
@@ -378,13 +384,14 @@ export class Arena {
     const teleP = tele.mul(pulse.mul(0.7).add(0.3))
     em = em.add(vec3(0.16, 0.008, 0.003).mul(teleP).mul(isTop.mul(0.7).add(0.3)))
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
-    const hotCol = mix(vec3(3.2, 0.9, 0.16), vec3(1.6, 0.08, 0.02), sinkT)
-    em = em.add(hotCol.mul(isRem).mul(float(1).sub(sinkT.mul(0.5))))
+    const hotCol = mix(vec3(3.2, 0.9, 0.16), vec3(1.6, 0.08, 0.02), sinkTV)
+    em = em.add(hotCol.mul(isRemV).mul(float(1).sub(sinkTV.mul(0.5))))
     // round-start pulse: pale arcane white-gold ring, evaluated PER FRAGMENT so
     // it sweeps as a smooth band (a per-tile value lit whole tiles as squares)
+    const shAgeF = tF.sub(sh.z)
     const shDf = length(gp.sub(sh.xy))
-    const shXf = shDf.sub(shR).div(90)
-    const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAge))).mul(step(0, shAge))
+    const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
+    const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
     em = em.add(vec3(0.55, 0.52, 0.7).mul(waveF.mul(0.25)).mul(float(1).sub(isSide)))
 
     const m = new THREE.MeshStandardNodeMaterial()
@@ -425,7 +432,7 @@ export class Arena {
       let col = alb.mul(tint).mul(orm.r)
       col = col.mul(float(1).sub(rune.mul(0.45)))
       col = col.mul(mix(float(1), float(0.65), smoothstep(0.9, 1.0, edge).mul(isTop)))
-      m.colorNode = mix(col, col.mul(0.4), isRem.mul(sinkT))
+      m.colorNode = mix(col, col.mul(0.4), isRemV.mul(sinkTV))
       // the top maps are sampled in a per-tile rotated frame: rotate the
       // tangent-space normal back by -rot so it agrees with the mesh uv frame
       const nTop = texture(top.normal, uvT).xyz.mul(2).sub(1)
@@ -437,7 +444,7 @@ export class Arena {
       m.roughnessNode = clamp(orm.g, 0.48, 1)
       m.metalnessNode = orm.b.mul(0.3)
     } else {
-      m.colorNode = mix(stone, stone.mul(0.4), isRem.mul(sinkT))
+      m.colorNode = mix(stone, stone.mul(0.4), isRemV.mul(sinkTV))
       // relief: grain + chips + cut cracks and glyphs
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
       m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(1.1))

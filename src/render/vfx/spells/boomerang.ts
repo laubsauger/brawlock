@@ -14,40 +14,26 @@
  */
 import type { SimEvent, SimState } from '../../../sim/types'
 import { RING_IMPLODE } from '../../scene/GroundFx'
-import { registerSpellVfx, type SpellVfx } from '../registry'
-import { G_BLADE, G_SHOCK, PAL_COPPER, PH, acquireKit, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { G_BLADE, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { spellDeath } from './deathsA'
 
-const P = PAL_COPPER
+const P = palFor('boomerang')
 let K: KitA | null = null
 const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
 const last = new Map<number, { x: number; y: number }>()
 
-const TRAIL: TrailStyle = {
-  life: 0.55,
-  width: 64,
-  widthTail: 0.25,
-  head: [3.0, 1.4, 0.6],
-  mid: [2.3, 0.55, 0.18],
-  tail: [0.55, 0.06, 0.02],
-  intensity: 1.5,
-  falloff: 1.5,
-  noise: 0.35,
-  spacing: 10,
-  rim: 0.35,
-}
-const EDGE: TrailStyle = {
-  life: 0.22,
-  width: 10,
-  widthTail: 0.2,
-  head: [3.6, 2.4, 1.3],
-  mid: [2.6, 0.8, 0.25],
-  tail: [0.6, 0.08, 0.02],
-  intensity: 1.6,
-  falloff: 2,
-  noise: 0,
-  spacing: 6,
-  rim: 0,
+const TRAIL: TrailStyle = trailFrom(P, { life: 0.55, width: 48, widthTail: 0.25, intensity: 1.1, falloff: 1.5, noise: 0.35, spacing: 10, rim: 0.35 }, 0.4)
+const EDGE: TrailStyle = trailFrom(P, { life: 0.22, width: 10, widthTail: 0.2, intensity: 1.6, falloff: 2, noise: 0, spacing: 6, rim: 0 }, 0.8)
+
+/** signature charge-up: the glaive materializes in the hand, spinning up */
+function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
+  const now = ctx.now
+  const r = 38 * (0.35 + 0.65 * w)
+  k.air.add(G_BLADE, o.x, o.y, o.h + 8, r, now * (6 + 22 * w), P.body[0], P.body[1], P.body[2], 0.4 + 0.9 * w, 0.5 + 0.5 * w, 3)
+  k.air.add(G_BLADE, o.x, o.y, o.h + 7, r * 1.05, now * (6 + 22 * w) - 0.4, P.edge[0], P.edge[1], P.edge[2], 0.3 * w, 1, 3)
+  void info
 }
 
 const mod: SpellVfx = {
@@ -55,6 +41,8 @@ const mod: SpellVfx = {
   init(ctx) {
     K = acquireKit(ctx)
   },
+  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     releaseKit(K)
     K = null
@@ -136,6 +124,9 @@ const mod: SpellVfx = {
         }
         return
       }
+      case 'death':
+        if (e.cause !== 'boomerang') return
+        return spellDeath(k, ctx, e)
       default:
         return
     }
@@ -151,7 +142,9 @@ const mod: SpellVfx = {
       if (!info) continue
       k.begin()
       k.origin(info, o)
-      k.windupAt(o.x, o.y, o.h, windupProgress(k, ctx, p.id, p.cast.ticksLeft), P, ctx.now, ctx.dt, p.id)
+      const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
+      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
+      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
     }
     // forget positions of blades that are gone
     if (last.size > 0) {

@@ -1,0 +1,6 @@
+Use case: stylized-concept
+Asset type: game environment prop concept sheet, widescreen 16:9 landscape
+Subject: damage progression sheet for a ruined temple column prop, three columns in a row on a dark stone tile floor: left = intact weathered fluted column on a stepped square plinth with a carved capital; middle = same column damaged, chunks missing, thin glowing amber-orange cracks opening in the stone (hairline crack network, not windows or slits); right = heavily damaged, deep fractures glowing bright molten orange from inside, pieces breaking off and flying, dust. Heavy, monumental, chunky proportions about 1.5 times as tall as wide, rubble skirt and moss at the base, faint engraved runes.
+Style: cinematic AAA dark-fantasy game concept art, painterly-rendered 3D, high material detail, matching a moonlit volcanic caldera arena: cool blue moonlight key light from upper left, warm orange lava bounce light from below. Dark, desaturated stone values; glow used sparingly.
+Camera: top-down 3/4 game camera, looking down at about 60 degrees pitch, like a Dota 2 / League of Legends gameplay camera. Every object sits on the same dark runed stone tile floor and casts a soft dark contact shadow all around its base.
+Constraints: no text, no letters, no labels, no numbers, no UI, no border, no characters, no people.

@@ -140,6 +140,23 @@ export interface VfxCtx {
    * Re-applying refreshes / strengthens it.
    */
   afterHit(pawnId: EntityId, kind: AfterHitKind, strength: number): void
+  /**
+   * Per-frame visibility override for a pawn (call every frame you need it,
+   * e.g. from drawModifier for Windwalk, or while a custom death plays):
+   * body = 0..1 (warlock hidden below 0.05; the built-in body fades), plate =
+   * overhead name/HP bars, decal = team ring + contact shadow.
+   */
+  pawnVisibility(pawnId: EntityId, v: { body?: number; plate?: boolean; decal?: boolean }): void
+  /** events of the tick currently being dispatched (inside onEvent), else [] */
+  readonly tickEvents: readonly SimEvent[]
+  /**
+   * What caused a 'damage' event: the spell id of the projectile / beam /
+   * explosion / melee hit on that target in the same tick, 'lava' for lava
+   * ticks, null if unknown.
+   */
+  damageCause(e: SimEvent & { type: 'damage' }): string | null
+  /** floating combat text (overlay): 'dmg' | 'heal' | 'burn' | 'absorb' */
+  combatText(pawnId: EntityId, amount: number, kind: 'dmg' | 'heal' | 'burn' | 'absorb', kb?: number): void
 }
 
 export type AfterHitKind = 'fire' | 'lightning' | 'shadow' | 'lava' | 'dust'
@@ -157,7 +174,24 @@ export interface SpellVfx {
   drawProjectile?(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void
   drawModifier?(pawn: PawnState, mod: ModifierState, x: number, y: number, ctx: VfxCtx): void
   frame?(ctx: VfxCtx): void
+  /**
+   * Flavour the shared hand-cast windup for this module's spell(s): colour
+   * (default: palette accent), ring count, orb scale, or hide parts of the
+   * base ('rings' | 'spiral' | 'orb' | 'ground') to draw your own.
+   */
+  windupStyle?(spell: string): WindupStyle | null
   dispose?(): void
+}
+
+export interface WindupStyle {
+  /** 0xRRGGBB, default: spell palette accent */
+  color?: number
+  /** rings travelling down the arm, default 3 */
+  ringCount?: number
+  /** palm orb scale, default 1 */
+  orbScale?: number
+  /** parts of the base windup to suppress */
+  hide?: ('rings' | 'spiral' | 'orb' | 'ground')[]
 }
 
 const modules: SpellVfx[] = []

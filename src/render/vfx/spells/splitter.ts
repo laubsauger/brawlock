@@ -11,9 +11,15 @@ import { PROJECTILE_H, S } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  MAGENTA, PINK_HOT, TAU, VIOLET, burst, castFlash, drawCore, floorH, glowG, hexRgb, kitBegin, kitInit, kitRelease,
+  TAU, burst, castFlash, drawCore, floorH, glowG, hexRgb, kitBegin, kitInit, kitRelease,
   light, mixRgb, projShadow, rand, screenAngle,
+  pal, palMix,
 } from './kitB'
+
+// identity: bright magenta (vfx/palette.ts)
+const MAGENTA = pal('splitter', 'accent', 0.85)
+const PINK_HOT = pal('splitter', 'core', 1.8)
+const VIOLET = palMix('splitter', 0.0, 0.35)
 
 const SPELL = 'splitter'
 const H = PROJECTILE_H

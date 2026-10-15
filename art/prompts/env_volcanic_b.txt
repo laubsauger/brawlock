@@ -1,0 +1,6 @@
+Use case: stylized-concept
+Asset type: game environment prop concept sheet, widescreen 16:9 landscape
+Subject: close detail sheet of three volcanic arena pillar props on a dark obsidian tile floor: left = a cluster of 5-7 hexagonal basalt columns of varied heights, sharp edges, flat tops with chips; middle = the same cluster damaged, glowing molten orange cracks spreading through the columns, ember particles; right = a jagged obsidian shard spire made of a few large angled crystal-like black glass slabs with thin ember veins. Emphasize sculpted geometry: bevelled hexagon edges, chipped corners, dark rubble skirt at the base, heat glow only in crevices.
+Style: cinematic AAA dark-fantasy game concept art, painterly-rendered 3D, high material detail, matching a moonlit volcanic caldera arena: cool blue moonlight key light from upper left, warm orange lava bounce light from below. Dark, desaturated stone values; glow used sparingly.
+Camera: top-down 3/4 game camera, looking down at about 60 degrees pitch, like a Dota 2 / League of Legends gameplay camera. Every object sits on the same dark runed stone tile floor and casts a soft dark contact shadow all around its base.
+Constraints: no text, no letters, no labels, no numbers, no UI, no border, no characters, no people.

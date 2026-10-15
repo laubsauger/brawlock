@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spell Palette Swatches</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; background: #111014; color: #e8dccb; font: 12px ui-monospace, monospace; }
+      h2 { font-size: 13px; margin: 14px 12px 6px; color: #ffcf9a; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding: 0 12px; }
+      .cell { position: relative; }
+      canvas { width: 100%; display: block; border-radius: 4px; }
+      .lbl { position: absolute; left: 6px; top: 4px; text-shadow: 0 1px 2px #000, 0 0 4px #000; font-size: 11px; }
+      .note { padding: 4px 12px 12px; color: #9a8f80; }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position:absolute">
+      <defs>
+        <filter id="deut" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.367322 0.860646 -0.227968 0 0  0.280085 0.672501 0.047413 0 0  -0.01182 0.04294 0.968881 0 0  0 0 0 1 0" /></filter>
+        <filter id="prot" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.152286 1.052583 -0.204868 0 0  0.114503 0.786281 0.099216 0 0  -0.003882 -0.048116 1.051998 0 0  0 0 0 1 0" /></filter>
+        <filter id="trit" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="1.255528 -0.076749 -0.178779 0 0  -0.078411 0.930809 0.147602 0 0  0.004733 0.691367 0.3039 0 0  0 0 0 1 0" /></filter>
+      </defs>
+    </svg>
+    <div id="root"></div>
+    <script type="module" src="./swatches.ts"></script>
+  </body>
+</html>

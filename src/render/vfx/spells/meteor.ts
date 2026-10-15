@@ -17,10 +17,17 @@ import { PROJECTILE_H, S, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  InstPool, MAGENTA, PINK_HOT, STYLE_CRACKS, STYLE_RING, STYLE_RUNES, TAU, VIOLET, VIOLET_DEEP, burst, castFlash, drawCircle,
+  InstPool, STYLE_CRACKS, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle,
   drawShadow, floorH, glowG, hexRgb, implode, kitAdopt, kitBegin, kitInit, kitRelease, light, originOf, projShadow, rand, screenAngle,
   type RGB,
+  pal, palMix,
 } from './kitB'
+
+// identity: deep violet fire (vfx/palette.ts)
+const VIOLET = pal('meteor', 'accent', 0.5)
+const MAGENTA = palMix('meteor', 0.35, 0.8)
+const PINK_HOT = pal('meteor', 'core', 1.7)
+const VIOLET_DEEP = pal('meteor', 'accent', 0.1)
 
 const SPELL = 'meteor'
 const DEF = SPELLS[SPELL]
@@ -32,8 +39,8 @@ const ROCK_R = 92
 const CRATER_LIFE = 3.4
 
 const EMBER: RGB = [3.0, 0.7, 1.6]
-const SMOKE_C = [0.07, 0.04, 0.08] as const
-const DUST_C = [0.2, 0.16, 0.2] as const
+const SMOKE_C = [0.025, 0.012, 0.035] as const
+const DUST_C = [0.17, 0.14, 0.17] as const
 
 interface Flight {
   id: number
@@ -134,18 +141,19 @@ function impact(ctx: VfxCtx, x: number, y: number, R: number): void {
   ctx.aoeRing(x, y, R, MAGENTA[0], MAGENTA[1], MAGENTA[2], 0.6)
   // short coloured flash (2-3 frames): bloom glows, nothing flattens to white
   ctx.flash(x, y, fh + 90, 0.06, R * 0.9, R * 0.9, VIOLET[0] * 0.7, VIOLET[1] * 0.7, VIOLET[2] * 0.7)
-  ctx.flash(x, y, fh + 40, 0.5, R * 0.85, R * 0.45, MAGENTA[0] * 0.35, MAGENTA[1] * 0.35, MAGENTA[2] * 0.35)
+  ctx.flash(x, y, fh + 40, 0.18, R * 0.6, R * 0.35, PINK_HOT[0] * 0.3, PINK_HOT[1] * 0.3, PINK_HOT[2] * 0.3)
   ctx.ground.spawn(RING_EXPAND, x, y, fh, 30, R - 14, 0.38, 18 * k, VIOLET[0] * 0.55, VIOLET[1] * 0.55, VIOLET[2] * 0.55)
-  ctx.ground.spawn(RING_EXPAND, x, y, fh, R * 0.45, R * 0.96, 0.75, 8 * k, MAGENTA[0] * 0.35, MAGENTA[1] * 0.35, MAGENTA[2] * 0.35)
   if (onTile) ctx.scorches.spawn(x, y, TILE_TOP_H + 0.6, R * 0.78, 7)
   const ps = ctx.particles
-  // violet fireball: few, layered, not overlapping into white
-  let n = ps.budget(26 * k)
+  // rolling violet fire: billows pushed out low and up, cooling fast (hot cores only at the start)
+  let n = ps.budget(30 * k)
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU
-    const sp = rand(0.4, 1.8) * R
-    const c = Math.random() < 0.5 ? VIOLET : MAGENTA
-    ps.spawn(x, y, fh + 40, Math.cos(a) * sp, Math.sin(a) * sp, rand(120, 420), rand(0.35, 0.7), rand(46, 80) * k, 12, c[0] * 0.42, c[1] * 0.42, c[2] * 0.42, 40, 3.4, 0)
+    const sp = rand(0.6, 1.9) * R
+    const hot = i < n * 0.25
+    const c = hot ? PINK_HOT : Math.random() < 0.5 ? VIOLET : MAGENTA
+    const kk = hot ? 0.3 : 0.5
+    ps.spawn(x, y, fh + rand(20, 60), Math.cos(a) * sp, Math.sin(a) * sp, rand(150, 450), rand(0.3, 0.55), rand(50, 85) * k, -rand(70, 110) * k, c[0] * kk, c[1] * kk, c[2] * kk, 120, 3.6, 0)
   }
   // fire column climbing out of the crater
   n = ps.budget(22 * k)
@@ -175,17 +183,19 @@ function impact(ctx: VfxCtx, x: number, y: number, R: number): void {
     const sp = rand(0.3, 1.0) * R
     ctx.debris.spawn(x, y, fh + 50, Math.cos(a) * sp, Math.sin(a) * sp, rand(500, 800), rand(1.0, 1.3), rand(34, 48), 24, 0.035, 0.025, 0.04, -2200, 1.3, 0)
   }
-  // dust: ground-hugging ring of grey-violet dust + a dark smoke column
+  // dust ring hugging the floor + black-violet smoke billowing outward and up
   const sm = ctx.smoke
-  n = sm.budget(20 * k)
+  n = sm.budget(18 * k)
   for (let i = 0; i < n; i++) {
     const a = (i / Math.max(1, n)) * TAU + Math.random() * 0.3
     const sp = rand(0.5, 0.8) * R
-    sm.spawn(x + Math.cos(a) * R * 0.25, y + Math.sin(a) * R * 0.25, fh + 20, Math.cos(a) * sp, Math.sin(a) * sp, rand(10, 60), rand(1.4, 2.2), 60, R * 0.4, DUST_C[0], DUST_C[1], DUST_C[2], 10, 1.5, 0)
+    sm.spawn(x + Math.cos(a) * R * 0.25, y + Math.sin(a) * R * 0.25, fh + 15, Math.cos(a) * sp, Math.sin(a) * sp, rand(10, 50), rand(1.0, 1.6), 50, R * 0.36, DUST_C[0], DUST_C[1], DUST_C[2], 10, 1.6, 0)
   }
-  n = sm.budget(16 * k)
+  n = sm.budget(26 * k)
   for (let i = 0; i < n; i++) {
-    sm.spawn(x + rand(-40, 40), y + rand(-40, 40), fh + 60 + i * 12, rand(-30, 30), rand(-30, 30), rand(260, 560), rand(1.8, 2.8), 70, 200 * k, SMOKE_C[0], SMOKE_C[1], SMOKE_C[2], -90, 1.4, 25)
+    const a = Math.random() * TAU
+    const sp = rand(0.15, 0.55) * R
+    sm.spawn(x + Math.cos(a) * 40, y + Math.sin(a) * 40, fh + rand(40, 120), Math.cos(a) * sp, Math.sin(a) * sp, rand(250, 600), rand(1.3, 2.2), 70, rand(150, 230) * k, SMOKE_C[0], SMOKE_C[1], SMOKE_C[2], -120, 1.5, 20)
   }
   // close to the camera focus: big shake + a shove away from the impact
   ctx.shakeNear(x, y, 0.45 + 0.35 * k)
@@ -367,8 +377,9 @@ const meteorVfx = {
       const u = age / CRATER_LIFE
       const fh = floorH(ctx, c.x, c.y)
       const cool = 1 - u
-      drawCircle(c.x, c.y, fh + 0.2, c.r * 0.85, STYLE_CRACKS, MAGENTA[0] * cool + VIOLET[0] * u, MAGENTA[1] * cool, MAGENTA[2] * cool + VIOLET[2] * u, 2.2 * cool, u * 0.85, 0, c.seed, 0, 1, 0, c.born - 1)
-      light(ctx, c.x, c.y, c.r, 1.6 * (1 - u) * (1 - u), MAGENTA, 0.5, true)
+      drawCircle(c.x, c.y, fh + 0.2, c.r * 0.85, STYLE_CRACKS, PINK_HOT[0] * cool + VIOLET[0] * u, PINK_HOT[1] * cool + VIOLET[1] * u, PINK_HOT[2] * cool + VIOLET[2] * u, 1.1 * cool, u * 0.85, 0, c.seed, 0, 1, 0, c.born - 1)
+      const lu = Math.max(0, 1 - age / 0.5)
+      if (lu > 0) light(ctx, c.x, c.y, c.r * 0.8, 1.4 * lu * lu, MAGENTA, 0.5, true)
       const ps = ctx.particles
       const n = ps.budget(ctx.dt * 60 * (1 - u))
       for (let j = 0; j < n; j++) {
