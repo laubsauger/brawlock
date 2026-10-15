@@ -3,6 +3,7 @@ import { useGame, type CastMode, type Quality } from '../game/store'
 import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
 import { ACTION_LABEL, BIND_GROUPS, keyLabel, PRESET_INFO, PRESETS, RESERVED_KEYS, resolveBinds, type BindAction } from './lib/keys'
 import { sfx } from './lib/sound'
+import { audio } from '../audio'
 import { chooseName } from './lib/name'
 
 const QUALITY: { value: Quality; label: string }[] = [
@@ -234,6 +235,21 @@ export function SettingsModal() {
           <div className="w-56">
             <Slider label="Music volume" value={s.musicVolume} onChange={(musicVolume) => setSettings({ musicVolume })} />
           </div>
+        </Row>
+        <Row label="Check your sound" hint={s.muted ? 'Sound is muted. Unmute to hear the test.' : 'Plays a chime, a fireball and an explosion at these volumes'}>
+          <Button
+            size="sm"
+            sound={null}
+            onClick={() => {
+              try {
+                audio.test()
+              } catch (e) {
+                console.error('[ui] audio test failed', e)
+              }
+            }}
+          >
+            Test sound
+          </Button>
         </Row>
       </Section>
 
