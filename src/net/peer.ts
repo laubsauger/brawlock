@@ -23,12 +23,20 @@
 import type { DataConnection, Peer as PeerType } from 'peerjs'
 import { newRoomCode, peerIdForCode, roomLink } from './code'
 import { BaseTransport, type HostEndpoint, type NetFactory, type Transport } from './transport'
+import { recoverFromChunkError } from '../lib/staleBuild'
 
 type PeerCtor = typeof import('peerjs').Peer
 
 let peerCtor: Promise<PeerCtor> | null = null
-function loadPeer(): Promise<PeerCtor> {
-  peerCtor ??= import('peerjs').then((m) => m.Peer)
+export function loadPeer(): Promise<PeerCtor> {
+  peerCtor ??= import('peerjs')
+    .then((m) => m.Peer)
+    .catch((e: unknown) => {
+      peerCtor = null
+      // a deploy replaced this chunk: reload into the new build (keeps the room code)
+      if (recoverFromChunkError(e)) return new Promise<PeerCtor>(() => {})
+      throw e
+    })
   return peerCtor
 }
 

@@ -27,6 +27,8 @@ const initialRoom: string | null = (() => {
     const url = new URL(window.location.href)
     if (!url.searchParams.has('room')) return null
     const code = codeFromSearch(url.search)
+    // survives a stale-build reload (src/lib/staleBuild.ts)
+    if (code) sessionStorage.setItem('brawlock.pendingRoom', code)
     url.searchParams.delete('room')
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
     return code

@@ -99,7 +99,7 @@ function drawMain(p: ProjectileState, x: number, y: number, ctx: VfxCtx, t: Trac
   const uy = p.vy / sp
   hexRgb(ctx.colorOf(p.owner), team)
   mixRgb(MAGENTA, team, 0.3, edge)
-  drawCore(x, y, H, r * 0.82, edge, PINK_HOT, p.id % 7)
+  drawCore(x, y, H, r * 0.92, edge, PINK_HOT, p.id % 7)
   const ang = screenAngle(ctx, x, y, H, ux, uy)
   glowG(x, y, H, r * 4.2, VIOLET, 0.26, 1.6, 0, 1, 0, 0.6)
   glowG(x - ux * r * 1.7, y - uy * r * 1.7, H, r * 2.3, MAGENTA, 0.6, 1.5, 0, 3.2, ang, 0.4)

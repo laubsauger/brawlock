@@ -125,12 +125,15 @@ function targetPoint(ctx: VfxCtx, mod: ModifierState, out: { x: number; y: numbe
   const id = mod.data.target
   if (mod.data.obstacle) {
     const st = ctx.state
-    const o = st?.obstacles.find((q) => q.id === id)
-    if (!o) return false
-    out.x = o.x
-    out.y = o.y
-    out.h = TILE_TOP_H + 110
-    return true
+    if (!st) return false
+    for (const o of st.obstacles) {
+      if (o.id !== id) continue
+      out.x = o.x
+      out.y = o.y
+      out.h = TILE_TOP_H + 110
+      return true
+    }
+    return false
   }
   const info = ctx.pawn(id)
   if (!info) return false
@@ -204,7 +207,7 @@ registerSpellVfx({
     const info = ctx.pawnOf(p.owner)
     hexRgb(ctx.colorOf(p.owner), team)
     mixRgb(CHAIN, team, 0.3, edge)
-    drawCore(x, y, H, p.radius * 0.7, edge, CHAIN_HOT, p.id % 7)
+    drawCore(x, y, H, p.radius * 0.9, edge, CHAIN_HOT, p.id % 7)
     glowG(x, y, H, p.radius * 3.4, CHAIN, 0.35, 1.6)
     glowG(x, y, H, p.radius * 2.4, CHAIN_HOT, 0.4, 0.1, 1, 1, ctx.now * 5)
     light(ctx, x, y, 160, 0.6, CHAIN, 0.4)

@@ -6,6 +6,7 @@
  * working on top of the CSS backdrop.
  */
 import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from 'react'
+import { recoverFromChunkError } from '../lib/staleBuild'
 
 type RenderModule = typeof import('../render')
 
@@ -18,6 +19,8 @@ export function loadRender(): Promise<RenderModule | null> {
     .then((m) => (mod = m))
     .catch((e) => {
       console.error('[ui] render module failed to load', e)
+      pending = null
+      recoverFromChunkError(e)
       return null
     })
   return pending

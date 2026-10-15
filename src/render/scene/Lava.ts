@@ -1,6 +1,8 @@
 import * as THREE from 'three/webgpu'
 import { exp, float, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
+import type { Node } from 'three/webgpu'
+import { loadSurface, type SurfaceMaps } from './textures'
 import { gamePos, type WorldCtx } from './world'
 
 /**
@@ -14,8 +16,31 @@ export class Lava {
   readonly mesh: THREE.Mesh
   private material: THREE.MeshBasicNodeMaterial
 
-  constructor(ctx: WorldCtx, size = 16000) {
-    const { uTime: t, noise, field, tier } = ctx
+  private disposed = false
+
+  constructor(
+    private ctx: WorldCtx,
+    size = 16000,
+  ) {
+    this.material = this.buildMaterial(null)
+    const geo = new THREE.PlaneGeometry(size * S, size * S, 1, 1)
+    geo.rotateX(-Math.PI / 2)
+    this.mesh = new THREE.Mesh(geo, this.material)
+    this.mesh.name = 'Lava'
+    this.mesh.frustumCulled = false
+    this.mesh.renderOrder = -10
+    // authored cooled-crust texture (shared/lava_crust) replaces the flat crust tint
+    void loadSurface('shared', 'lava_crust', ctx.tier.anisotropy).then((m) => {
+      if (!m || this.disposed) return
+      const old = this.material
+      this.material = this.buildMaterial(m)
+      this.mesh.material = this.material
+      old.dispose()
+    })
+  }
+
+  private buildMaterial(crustMaps: SurfaceMaps | null): THREE.MeshBasicNodeMaterial {
+    const { uTime: t, noise, field, tier } = this.ctx
     const p = gamePos()
 
     // slow large-scale flow field and warp
@@ -42,7 +67,14 @@ export class Lava {
     // plates glow toward their rims, core stays cool and dark
     const plateEdge = smoothstep(0.15, 0.85, cA.a)
     const molten = saturate(heat.mul(heat).mul(heat).mul(1.3).add(shore.mul(0.3)))
-    const crust = mix(vec3(0.014, 0.004, 0.003), vec3(0.11, 0.02, 0.007), saturate(plateEdge.mul(0.45).add(molten.mul(0.6))))
+    let crust: Node<'vec3'> = mix(vec3(0.014, 0.004, 0.003), vec3(0.11, 0.02, 0.007), saturate(plateEdge.mul(0.45).add(molten.mul(0.6))))
+    if (crustMaps) {
+      // cooled basalt plates drifting with the flow, lit from within near their rims
+      const uvC = p.mul(1 / 640).add(warp.mul(0.35)).add(vec2(t.mul(0.007), t.mul(0.004)))
+      const alb = texture(crustMaps.albedo, uvC).rgb
+      const glowRim = saturate(plateEdge.mul(0.45).add(molten.mul(0.6)))
+      crust = alb.mul(vec3(0.16, 0.1, 0.085)).add(vec3(0.11, 0.02, 0.007).mul(glowRim))
+    }
     const hot = mix(vec3(1.25, 0.24, 0.035), vec3(3.4, 1.35, 0.32), saturate(cracks.mul(molten).mul(1.4).add(shore.mul(0.25))))
     const k = saturate(cracks.mul(0.95).add(molten.mul(0.28)))
     let col = mix(crust, hot, k)
@@ -62,24 +94,19 @@ export class Lava {
     col = mix(col, col.mul(0.28), far)
     col = min(col, vec3(12))
 
-    this.material = new THREE.MeshBasicNodeMaterial()
-    this.material.colorNode = col
-    this.material.name = 'Lava'
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.colorNode = col
+    m.name = 'Lava'
     if (tier.heatHaze) {
       // heat haze strength for the post pass: strongest along the shore
       const heatAmt = saturate(float(0.3).add(exp(max(sd, 0).div(-260)).mul(0.7))).mul(float(1).sub(far.mul(0.7)))
-      this.material.mrtNode = mrt({ heat: vec4(heatAmt, 0, 0, 1) })
+      m.mrtNode = mrt({ heat: vec4(heatAmt, 0, 0, 1) })
     }
-
-    const geo = new THREE.PlaneGeometry(size * S, size * S, 1, 1)
-    geo.rotateX(-Math.PI / 2)
-    this.mesh = new THREE.Mesh(geo, this.material)
-    this.mesh.name = 'Lava'
-    this.mesh.frustumCulled = false
-    this.mesh.renderOrder = -10
+    return m
   }
 
   dispose(): void {
+    this.disposed = true
     this.mesh.geometry.dispose()
     this.material.dispose()
   }

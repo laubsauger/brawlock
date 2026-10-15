@@ -152,7 +152,7 @@ function bumpNormal(h: F): V3 {
 
 /**
  * Shared fx on every warlock material: hit flash, lava burn licking up from
- * the hem, invulnerability shimmer, and the death burn-up (via opacity +
+ * the hem, invulnerability rim, and the death burn-up (via opacity +
  * alphaTest). Heights are model metres (0 feet .. 1.9 hood tip).
  */
 function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2): void {
@@ -178,8 +178,10 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
   em = em.add(vec3(0.6, 0.9, 1.4).mul(U.freeze.mul(fr.mul(1.2).add(0.05))))
   em = em.add(vec3(1.6, 2.2, 4.0).mul(U.xray.mul(fr.mul(2.5).add(0.25))))
   em = em.add(vec3(1.4, 1.4, 1.5).mul(U.flash))
-  const shimmer = sin(t.mul(9).add(heightNode.mul(40))).mul(0.5).add(0.5)
-  em = em.add(vec3(0.8, 1.2, 2.2).mul(U.invuln.mul(fr.mul(0.9).add(0.12)).mul(shimmer.mul(0.6).add(0.4))))
+  // invulnerable: subtle golden rim (falloff squared) with a slow breathing pulse;
+  // no fill, so robe and player colours stay readable
+  const breathe = sin(t.mul(2.4)).mul(0.25).add(0.75)
+  em = em.add(vec3(1.5, 1.05, 0.35).mul(U.invuln.mul(fr.mul(fr)).mul(breathe)))
   // death: burn up from the feet with a hot edge in the dissolve colour
   const dis = U.dissolve.mul(1.3)
   const v = h01.mul(0.7).add(flick.mul(0.3))

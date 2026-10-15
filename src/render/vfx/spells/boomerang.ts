@@ -1,18 +1,25 @@
 /**
  * Boomerang (column 1, Knockout; identity red-copper). spells.md §8.5.
  *
- * - windup / cast: motes into the hand, muzzle sparks
- * - flight: flat spinning three-armed glaive whose tips sit exactly on the
- *   collision radius (38), rotational smear, hot hub core, copper halo, a long
- *   heat trail that draws the curved out-and-back arc, sparks flung off the
- *   tips, floor light + shadow
- * - return mode: the predicted homing path back to the thrower is drawn as a
- *   faint dashed guide (team-tinted) so the return arc reads before it happens
- * - hits: kb-scaled burst plus slash streaks across the blade path;
- *   'projectileBounce' (pawn / pillar): ricochet sparks + clang flash
- * - catch (destroyed at the thrower): blade folds into the hand, implode ring
+ * A physical weapon, not a fire bolt: it must read apart from Fireball by
+ * shape and motion alone (grayscale test).
+ * - signature windup: the steel glaive itself forms in the hand, spinning up
+ * - flight: a solid three-pronged steel glaive (extruded mesh, lit metal that
+ *   catches the moonlight, red-copper glowing cutting edges) spinning fast and
+ *   flat, tips exactly on the collision radius (38); a faint spin-blur disc
+ *   and thin cutting-arc streaks behind each tip; metallic glints flashing
+ *   off the tips; a crisp flat red-copper ribbon tracing the curved path
+ *   (no flame, no glow ball); floor light + shadow
+ * - return mode: the predicted path back to the thrower as a dashed guide
+ * - hit: kb-scaled steel-on-flesh burst + slash streaks across the cut;
+ *   'projectileBounce' (pawn / pillar): clang (white-hot sparks, star glint,
+ *   ring) as it flips into return mode
+ * - catch: the glaive snaps into the hand, implode ring
  */
+import * as THREE from 'three/webgpu'
+import { float, length, positionGeometry, pow, smoothstep, varying, vec3 } from 'three/tsl'
 import type { SimEvent, SimState } from '../../../sim/types'
+import { S } from '../../coords'
 import { RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
 import { G_BLADE, G_SHOCK, PH, acquireKit, palFor, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
@@ -24,26 +31,154 @@ const o = { x: 0, y: 0, h: 0 }
 const dir = { x: 0, y: 0 }
 const last = new Map<number, { x: number; y: number }>()
 
-const TRAIL: TrailStyle = trailFrom(P, { life: 0.55, width: 48, widthTail: 0.25, intensity: 1.1, falloff: 1.5, noise: 0.35, spacing: 10, rim: 0.35 }, 0.4)
-const EDGE: TrailStyle = trailFrom(P, { life: 0.22, width: 10, widthTail: 0.2, intensity: 1.6, falloff: 2, noise: 0, spacing: 6, rim: 0 }, 0.8)
+/** crisp flat ribbon: even translucent copper band, bright copper edges */
+const RIBBON: TrailStyle = { ...trailFrom(P, { life: 0.6, width: 62, widthTail: 0.35, intensity: 0.5, falloff: 0.35, noise: 0, spacing: 8, rim: 0.85, flat: true }, 0.2), rimRGB: P.hot }
 
-/** signature charge-up: the glaive materializes in the hand, spinning up */
-function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
+// ---------------------------------------------------------------- glaive mesh
+
+const CAP = 24
+let glaive: THREE.InstancedMesh | null = null
+let nG = 0
+const mtx = new THREE.Matrix4()
+const pos = new THREE.Vector3()
+const quat = new THREE.Quaternion()
+const scl = new THREE.Vector3()
+const euler = new THREE.Euler()
+
+/** three hooked prongs around a hub ring, unit radius, flat on XZ */
+function glaiveGeometry(): THREE.BufferGeometry {
+  const shape = new THREE.Shape()
+  const N = 3
+  const SEG = 44
+  for (let k = 0; k < N * SEG; k++) {
+    const th = (k / (N * SEG)) * Math.PI * 2
+    const ph = (((th / ((Math.PI * 2) / N)) % 1) + 1) % 1
+    // long curved leading edge out to a hooked tip, then a sharp concave cut back
+    const f = ph < 0.8 ? Math.pow(ph / 0.8, 1.9) : Math.pow(1 - (ph - 0.8) / 0.2, 0.55)
+    const r = 0.3 + 0.7 * f
+    const x = Math.cos(th) * r
+    const y = Math.sin(th) * r
+    if (k === 0) shape.moveTo(x, y)
+    else shape.lineTo(x, y)
+  }
+  shape.closePath()
+  const hole = new THREE.Path()
+  hole.absarc(0, 0, 0.12, 0, Math.PI * 2, true)
+  shape.holes.push(hole)
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.02, bevelSegments: 2, curveSegments: 8 })
+  g.translate(0, 0, -0.03)
+  g.rotateX(-Math.PI / 2)
+  g.computeVertexNormals()
+  return g
+}
+
+function buildGlaive(ctx: VfxCtx): THREE.InstancedMesh {
+  const m = new THREE.MeshStandardNodeMaterial()
+  m.color = new THREE.Color(0x2b2d33)
+  m.metalness = 0.92
+  m.roughness = 0.22
+  // copper-hot cutting edges from the palette, a faint hub ring
+  const rg = varying(length(positionGeometry.xz))
+  const edge = smoothstep(0.7, 0.99, rg)
+  const hub = smoothstep(0.2, 0.12, rg)
+  m.emissiveNode = vec3(P.body[0], P.body[1], P.body[2]).mul(edge.mul(1.5)).add(vec3(P.hot[0], P.hot[1], P.hot[2]).mul(pow(edge, float(5)).mul(0.9))).add(vec3(P.edge[0], P.edge[1], P.edge[2]).mul(hub))
+  m.name = 'Boomerang-Glaive'
+  const mesh = new THREE.InstancedMesh(glaiveGeometry(), m, CAP)
+  mesh.count = 0
+  mesh.frustumCulled = false
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  mesh.name = 'vfxA-boomerang-glaive'
+  ctx.scene.add(mesh)
+  return mesh
+}
+
+function addGlaive(x: number, y: number, h: number, radius: number, spin: number, tilt: number): void {
+  if (!glaive || nG >= CAP) return
+  pos.set(x * S, h * S, -y * S)
+  euler.set(tilt, spin, 0, 'YXZ')
+  quat.setFromEuler(euler)
+  scl.setScalar(radius * S)
+  mtx.compose(pos, quat, scl)
+  glaive.setMatrixAt(nG++, mtx)
+  glaive.count = nG
+  glaive.instanceMatrix.needsUpdate = true
+}
+
+/** signature charge-up: the steel glaive forms in the hand, spinning up */
+function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
   const now = ctx.now
-  const r = 38 * (0.35 + 0.65 * w)
-  k.air.add(G_BLADE, o.x, o.y, o.h + 8, r, now * (6 + 22 * w), P.body[0], P.body[1], P.body[2], 0.4 + 0.9 * w, 0.5 + 0.5 * w, 3)
-  k.air.add(G_BLADE, o.x, o.y, o.h + 7, r * 1.05, now * (6 + 22 * w) - 0.4, P.edge[0], P.edge[1], P.edge[2], 0.3 * w, 1, 3)
-  void info
+  const r = 38 * (0.3 + 0.7 * w)
+  const spin = now * (6 + 24 * w)
+  addGlaive(o.x, o.y, o.h + 10, r, spin, 0.25)
+  k.air.add(G_BLADE, o.x, o.y, o.h + 9, r * 1.04, spin, P.body[0], P.body[1], P.body[2], 0.25 * w, 1, 3)
+}
+
+/** cutting-arc streaks behind each tip + metallic glints */
+function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: number, now: number, id: number): void {
+  // blur disc: faint smear of the three prongs + a thin rim on the tip circle
+  k.air.add(G_BLADE, x, y, h - 1, r * 1.02, spin, P.edge[0], P.edge[1], P.edge[2], 0.35, 1, 3)
+  k.air.add(G_SHOCK, x, y, h - 1, r, 0, P.body[0], P.body[1], P.body[2], 0.35, 0.97, 0.025)
+  for (let t = 0; t < 3; t++) {
+    // tips sit at the prong peaks (ph 0.8 of each third); a +y rotation by `spin` turns the mesh CCW in game space
+    const tip = (t / 3) * Math.PI * 2 + 0.8 * ((Math.PI * 2) / 3) + spin
+    k.stripBegin(true, 2.2, 0, 0)
+    for (let i = 0; i <= 6; i++) {
+      const a = tip - (i / 6) * 1.1
+      const f = 1 - i / 6
+      k.stripPoint(x + Math.cos(a) * r * 0.97, y + Math.sin(a) * r * 0.97, h + 1, 5 * f + 1, P.hot[0], P.hot[1], P.hot[2], 0.9 * f)
+    }
+    k.stripEnd()
+    // glint when a tip faces the key light (moon from the camera's left-back)
+    const g = Math.cos(tip - 2.4)
+    if (g > 0.93) {
+      const gx = x + Math.cos(tip) * r
+      const gy = y + Math.sin(tip) * r
+      const a = (g - 0.93) / 0.07
+      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 26 * S, 3.2, 0.3, 3 * a, 3 * a, 3.2 * a, 3)
+      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 26 * S, 3.2, 0.3 + Math.PI / 2, 3 * a, 3 * a, 3.2 * a, 3)
+    }
+  }
+  void now
+  void id
+}
+
+function clang(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
+  const ps = ctx.particles
+  const n = ps.budget(22)
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2
+    const sp = 500 + Math.random() * 800
+    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 300, 0.12 + Math.random() * 0.16, 5, 1, 4.2, 3.9, 3.4, -1500, 3, -0.16)
+  }
+  const nc = ps.budget(10)
+  for (let i = 0; i < nc; i++) {
+    const a = Math.random() * Math.PI * 2
+    const sp = 200 + Math.random() * 400
+    ps.spawn(x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, 150 + Math.random() * 200, 0.3 + Math.random() * 0.2, 7, 2, P.spark[0], P.spark[1], P.spark[2], -1500, 1.5, -0.06)
+  }
+  // star glint
+  k.pulse(G_SHOCK, true, x, y, h, 50, 70, 0.18, 0, 0, P.hot, 1.2, 0.3, 0.95, 0.08)
+  ctx.flash(x, y, h, 0.08, 130, 70, 2.2, 2.1, 2.0)
+  k.pulse(G_SHOCK, false, x, y, k.floor(x, y) + 1.5, 60, 60, 0.25, 0, 0, P.body, 0.8, 0.15, 0.95, 0.12)
+  ctx.shakeNear(x, y, 0.08)
 }
 
 const mod: SpellVfx = {
   spell: 'boomerang',
   init(ctx) {
     K = acquireKit(ctx)
+    glaive = buildGlaive(ctx)
   },
   // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
   windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
+    if (glaive) {
+      glaive.parent?.remove(glaive)
+      glaive.geometry.dispose()
+      ;(glaive.material as THREE.Material).dispose()
+      glaive.dispose()
+      glaive = null
+    }
     releaseKit(K)
     K = null
     last.clear()
@@ -64,7 +199,16 @@ const mod: SpellVfx = {
         const dx = e.x - info.x
         const dy = e.y - info.y
         const l = Math.hypot(dx, dy) || 1
-        k.muzzle(o.x, o.y, o.h, dx / l, dy / l, P, 1)
+        // a whip-crack release: thin sparks and a quick flash, no fireball muzzle
+        const ps = ctx.particles
+        const n = ps.budget(10)
+        for (let i = 0; i < n; i++) {
+          const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.4
+          const sp = 400 + Math.random() * 500
+          ps.spawn(o.x, o.y, o.h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * 150, 0.12, 5, 1, P.spark[0], P.spark[1], P.spark[2], -900, 4, -0.14)
+        }
+        ctx.flash(o.x, o.y, o.h, 0.08, 110, 50, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+        void l
         return
       }
       case 'damage': {
@@ -74,53 +218,41 @@ const mod: SpellVfx = {
         const from = last.get(a.data)
         k.hitDir(ctx.state, e.target, from ? from.x : e.x - 1, from ? from.y : e.y, e.x, e.y, dir)
         const h = (v?.h ?? 30) + 55
-        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P)
+        k.impact(e.x, e.y, h, e.kb, dir.x, dir.y, P, 0.85)
         // slash: bright streaks across the cut, perpendicular to the push
         const ps = ctx.particles
-        const n = ps.budget(10)
+        const n = ps.budget(12)
         for (let i = 0; i < n; i++) {
           const s = (Math.random() - 0.5) * 2
           const sp = 700 + Math.random() * 700
-          ps.spawn(e.x + dir.x * 10, e.y + dir.y * 10, h + (Math.random() - 0.5) * 30, -dir.y * sp * s, dir.x * sp * s, (Math.random() - 0.5) * 120, 0.12 + Math.random() * 0.08, 8, 1, P.hot[0], P.hot[1], P.hot[2], 0, 6, -0.16)
+          ps.spawn(e.x + dir.x * 10, e.y + dir.y * 10, h + (Math.random() - 0.5) * 30, -dir.y * sp * s, dir.x * sp * s, (Math.random() - 0.5) * 120, 0.12 + Math.random() * 0.08, 8, 1, 4.0, 3.8, 3.5, 0, 6, -0.16)
         }
         return true
       }
-      case 'projectileBounce': {
+      case 'projectileBounce':
         if (e.spell !== 'boomerang') return
-        const ps = ctx.particles
-        const n = ps.budget(18)
-        for (let i = 0; i < n; i++) {
-          const a = Math.random() * Math.PI * 2
-          const sp = 400 + Math.random() * 700
-          ps.spawn(e.x, e.y, PH, Math.cos(a) * sp, Math.sin(a) * sp, 80 + Math.random() * 260, 0.18 + Math.random() * 0.2, 6, 1, P.spark[0], P.spark[1], P.spark[2], -1400, 3, -0.12)
-        }
-        ctx.flash(e.x, e.y, PH, 0.12, 180, 110, P.hot[0], P.hot[1], P.hot[2])
-        k.pulse(G_SHOCK, false, e.x, e.y, k.floor(e.x, e.y) + 1.5, 60, 60, 0.25, 0, 0, P.body, 0.9, 0.15, 0.95, 0.12)
-        ctx.shakeNear(e.x, e.y, 0.08)
+        clang(k, ctx, e.x, e.y, PH)
         return
-      }
       case 'projectileHit': {
         if (e.spell !== 'boomerang') return
-        // caught by the thrower (or removed): fold into the hand
+        // caught by the thrower (or removed): snaps into the hand
         const pw = e.target === null ? nearestOwnerPawn(ctx.state, e.x, e.y) : null
         const info = pw !== null ? ctx.pawn(pw) : null
-        const fl = k.floor(e.x, e.y)
         if (info) {
           k.origin(info, o)
           const ps = ctx.particles
-          const n = ps.budget(16)
+          const n = ps.budget(12)
           for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2
-            const rr = 50 + Math.random() * 30
-            const life = 0.14 + Math.random() * 0.06
-            ps.spawn(o.x + Math.cos(a) * rr, o.y + Math.sin(a) * rr, o.h + (Math.random() - 0.5) * 30, (-Math.cos(a) * rr) / life, (-Math.sin(a) * rr) / life, 0, life, 7, 2, P.spark[0], P.spark[1], P.spark[2], 0, 0, -0.05)
+            const rr = 45 + Math.random() * 25
+            const life = 0.12 + Math.random() * 0.05
+            ps.spawn(o.x + Math.cos(a) * rr, o.y + Math.sin(a) * rr, o.h, (-Math.cos(a) * rr) / life, (-Math.sin(a) * rr) / life, 0, life, 6, 2, P.spark[0], P.spark[1], P.spark[2], 0, 0, -0.05)
           }
-          ctx.flash(o.x, o.y, o.h, 0.16, 140, 90, P.hot[0] * 0.8, P.hot[1] * 0.8, P.hot[2] * 0.8)
+          ctx.flash(o.x, o.y, o.h, 0.1, 110, 60, P.body[0], P.body[1], P.body[2])
           k.teamRGB(info.owner)
           ctx.ground.spawn(RING_IMPLODE, info.x, info.y, k.floor(info.x, info.y), 10, 70, 0.22, 6, k.team[0] * 1.6, k.team[1] * 1.6, k.team[2] * 1.6)
         } else {
-          ctx.flash(e.x, e.y, PH, 0.12, 160, 90, P.body[0], P.body[1], P.body[2])
-          k.pulse(G_SHOCK, false, e.x, e.y, fl + 1.5, 50, 50, 0.25, 0, 0, P.body, 0.8, 0.2, 0.95, 0.12)
+          clang(k, ctx, e.x, e.y, PH)
         }
         return
       }
@@ -135,6 +267,9 @@ const mod: SpellVfx = {
   frame(ctx) {
     const k = K
     const s = ctx.state
+    // the glaive instances are immediate-mode too: rebuilt every update
+    nG = 0
+    if (glaive) glaive.count = 0
     if (!k || !s) return
     for (const p of s.pawns) {
       if (!p.alive || !p.cast || p.cast.spell !== 'boomerang' || p.cast.started === false) continue
@@ -175,31 +310,23 @@ const mod: SpellVfx = {
     l.y = y
     const now = ctx.now
     const r = p.radius
-    const sp = Math.hypot(p.vx, p.vy)
-    const dx = sp > 1 ? p.vx / sp : 1
-    const dy = sp > 1 ? p.vy / sp : 0
-    const spin = now * 24 + p.id * 1.3
+    const spin = now * 30 + p.id * 1.3
     const returning = p.data.returning === 1
-    // blade: tips on the collision radius; hot hub on top
-    k.air.add(G_BLADE, x, y, PH, r, spin, P.body[0], P.body[1], P.body[2], 1.15, 0.9, 3)
-    k.air.add(G_BLADE, x, y, PH - 2, r * 1.05, spin - 0.35, P.edge[0], P.edge[1], P.edge[2], 0.45, 1.0, 3)
-    k.cores.add(x, y, PH, r * 0.3, dx, dy, 0, p.id, P.edge, P.body, P.hot)
-    k.glowAt(x, y, PH, r * 3.2, P.body[0] * 0.35, P.body[1] * 0.35, P.body[2] * 0.35, 1.6, 0.5)
-    ctx.glow.add(x, y, 220, 0.85, P.light[0], P.light[1], P.light[2])
+    // the steel glaive: tips on the collision radius, a slight bank so the top reads in 3D
+    addGlaive(x, y, PH, r, spin, 0.12)
+    spinFx(k, x, y, PH, r, spin, now, p.id)
+    ctx.glow.add(x, y, 170, 0.5, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
-    // the path (draws the out-and-back arc) + the tip arc of the leading blade
-    k.trailPoint(p.id * 4, x, y, PH, TRAIL, p.owner)
-    const tipA = spin + 0.2
-    k.trailPoint(p.id * 4 + 1, x + Math.cos(tipA) * r, y + Math.sin(tipA) * r, PH, EDGE)
-    // sparks flung off the spinning tips
+    k.trailPoint(p.id * 4, x, y, PH - 4, RIBBON)
+    // a few sparks thrown off the cutting edges
     const ps = ctx.particles
-    const n = ps.budget(ctx.dt * 60)
+    const n = ps.budget(ctx.dt * 30)
     for (let i = 0; i < n; i++) {
-      const a = spin + Math.floor(Math.random() * 3) * ((Math.PI * 2) / 3)
+      const a = spin + Math.floor(Math.random() * 3) * ((Math.PI * 2) / 3) + 0.8 * ((Math.PI * 2) / 3)
       const tx = Math.cos(a)
       const ty = Math.sin(a)
       const tv = 300 + Math.random() * 250
-      ps.spawn(x + tx * r, y + ty * r, PH, -ty * tv + p.vx * 0.3, tx * tv + p.vy * 0.3, 40 + Math.random() * 120, 0.2 + Math.random() * 0.2, 6, 1, P.spark[0], P.spark[1], P.spark[2], -900, 2.5, -0.08)
+      ps.spawn(x + tx * r, y + ty * r, PH, -ty * tv + p.vx * 0.3, tx * tv + p.vy * 0.3, 40 + Math.random() * 120, 0.14 + Math.random() * 0.12, 4, 1, 3.6, 3.2, 2.8, -900, 2.5, -0.1)
     }
     // return mode: dashed guide along the predicted homing path to the thrower
     if (returning) {

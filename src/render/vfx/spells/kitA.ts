@@ -845,6 +845,8 @@ export interface TrailStyle {
   rim: number
   /** lie flat on the ground plane instead of facing the camera */
   flat?: boolean
+  /** rim colour instead of the owner's team colour */
+  rimRGB?: RGB
 }
 
 const TRAIL_MAXP = 64
@@ -1226,7 +1228,11 @@ export class KitA {
       tr.start = 0
       tr.style = style
       this.trails.push(tr)
-      if (owner >= 0) {
+      if (style.rimRGB) {
+        tr.rimR = style.rimRGB[0]
+        tr.rimG = style.rimRGB[1]
+        tr.rimB = style.rimRGB[2]
+      } else if (owner >= 0) {
         this.teamRGB(owner)
         tr.rimR = this.team[0]
         tr.rimG = this.team[1]

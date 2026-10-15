@@ -103,7 +103,7 @@ function drawBolt(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
   const uy = p.vy / sp
   hexRgb(ctx.colorOf(p.owner), team)
   mixRgb(TOXIC, team, 0.3, edge)
-  drawCore(x, y, H, r * 0.75, edge, TOXIC_HOT, p.id % 7)
+  drawCore(x, y, H, r * 0.9, edge, TOXIC_HOT, p.id % 7)
   const ang = screenAngle(ctx, x, y, H, ux, uy)
   glowG(x, y, H, r * 4, TOXIC_DIM, 1.2, 1.4, 3, 1, ctx.now + p.id)
   glowG(x - ux * r * 1.5, y - uy * r * 1.5, H, r * 1.8, TOXIC, 0.6, 1.6, 0, 3.2, ang, 0.3)

@@ -128,7 +128,7 @@ registerSpellVfx({
     }
     glowG(x, y, fh + 70, 190 * (0.85 + 0.15 * power), FLAME, 0.22 * k, 1.5, 0, 1, 0, 0.8)
     glowG(x, y, fh + 90, 150, GOLD, 0.3 * k, 1.6, 3, 0.8, 0, 0.6)
-    drawCircle(x, y, fh + 1.4, 62, STYLE_RING, FLAME[0], FLAME[1], FLAME[2], 0.6 * intro, 0, 0, pawn.id, 0.25, 1.8, 0, a.since)
+    drawCircle(x, y, fh + 1.4, 62, STYLE_RING, FLAME[0], FLAME[1], FLAME[2], 0.6 * intro, 0, 0, pawn.id, 0.08, 1.8, 0, a.since)
     light(ctx, x, y, 200, (0.7 + 0.5 * flare) * k, FLAME, 0.45)
     // speed streaks once the bonus builds
     const sp = Math.hypot(pawn.vx, pawn.vy)
