@@ -17,6 +17,7 @@
  *   calling ui('fight') at the same moment plays it once. Cues issued right after unlock(),
  *   while the context is still resuming, are queued, not dropped.
  * - test(): the Settings "Test sound" button.
+ * - setMode('synth' | 'hybrid'): dev A/B of recordings vs pure synthesis (also ?audio=synth).
  *
  * Levels (default settings, offline-measured): menu / shop music about -19 LUFS, a busy
  * fight about -15 to -16 LUFS with peaks held near -3.5 dBFS by the master limiter.
@@ -55,7 +56,17 @@ export interface AudioApi {
    * a Fireball cast, an explosion) through the SFX path at the current volumes.
    */
   test(): void
+  /**
+   * Dev A/B toggle: 'synth' = procedural only, 'hybrid' = CC0 recordings layered in (the
+   * default; they lazy-load after the first gesture, the synth plays until they arrive).
+   * `?audio=synth` in the URL starts in synth mode.
+   */
+  setMode(mode: 'synth' | 'hybrid'): void
+  getMode(): 'synth' | 'hybrid'
 }
+
+/** Credits for every shipped recording (all CC0; credited as a courtesy). */
+export { AUDIO_CREDITS, type AudioCredit } from './assets'
 
 const UI_SFX: Record<UiSound, SfxId> = {
   hover: 'uiHover',
@@ -88,5 +99,11 @@ export const audio: AudioApi = {
   },
   test() {
     engine.test()
+  },
+  setMode(mode) {
+    engine.setMode(mode)
+  },
+  getMode() {
+    return engine.mode
   },
 }

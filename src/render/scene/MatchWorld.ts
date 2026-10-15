@@ -510,15 +510,15 @@ export class MatchWorld {
         for (const m of spellVfxModules()) {
           if (this.inited.has(m)) continue
           this.inited.add(m)
-          m.init?.(this.vfx)
+          this.guard(m, 'init', () => m.init?.(this.vfx))
         }
         // once per rendered frame, even when the clock is frozen: modules reset
         // their per-frame batches here (never key that on ctx.now changing)
-        for (const m of spellVfxModules()) m.beginFrame?.(this.vfx)
+        for (const m of spellVfxModules()) this.guard(m, 'beginFrame', () => m.beginFrame?.(this.vfx))
       }
       this.updateArena(curr, t, first, alpha)
       if (!frozen) this.consumeEvents(curr, t, first)
-      if (this.modulesOn) for (const m of spellVfxModules()) m.frame?.(this.vfx)
+      if (this.modulesOn) for (const m of spellVfxModules()) this.guard(m, 'frame', () => m.frame?.(this.vfx))
       this.updatePawns(prev, curr, alpha, t, dt)
       this.obstacles.setTheme(curr.arena.theme)
       this.obstacles.update(curr.obstacles, t, !first)
@@ -590,6 +590,41 @@ export class MatchWorld {
     this.billboards.commit()
     this.billboardsTop.commit()
     this.contact.commit()
+  }
+
+  /**
+   * A spell VFX module that throws must never freeze the whole match render
+   * (a Scourge kill once did). Log once per module and hook, skip the call.
+   */
+  private readonly vfxErrors = new Set<string>()
+  private guard<T>(m: SpellVfx, hook: string, fn: () => T): T | undefined {
+    try {
+      return fn()
+    } catch (err) {
+      const key = `${m.spell}:${hook}`
+      if (!this.vfxErrors.has(key)) {
+        this.vfxErrors.add(key)
+        console.error(`[vfx] module '${m.spell}' threw in ${hook}; skipping`, err)
+      }
+      return undefined
+    }
+  }
+
+  private builtinErrors = new Set<string>()
+
+  /**
+   * Last-resort guard for built-in per-frame work: one bad event / pawn /
+   * frame logs once per site and is skipped, so the view never freezes.
+   */
+  private safe(site: string, fn: () => void): void {
+    try {
+      fn()
+    } catch (err) {
+      if (!this.builtinErrors.has(site)) {
+        this.builtinErrors.add(site)
+        console.error(`[render] ${site} threw; skipping`, err)
+      }
+    }
   }
 
   private resetMatch(): void {
@@ -683,7 +718,7 @@ export class MatchWorld {
     for (const b of batches) {
       for (const e of b.events) this.frameEvents.push(e)
       this.currentTickEvents = b.events
-      for (const e of b.events) this.handleEvent(e, b.events, curr, t)
+      for (const e of b.events) this.safe(`event:${e.type}`, () => this.handleEvent(e, b.events, curr, t))
       this.currentTickEvents = []
       if (b.tick > this.lastEventTick) this.lastEventTick = b.tick
     }
@@ -706,7 +741,7 @@ export class MatchWorld {
     // spell VFX modules see every event; built-in VFX is skipped when claimed
     let claimed = false
     if (this.modulesOn) {
-      for (const m of spellVfxModules()) if (m.onEvent?.(e, this.vfx) === true) claimed = true
+      for (const m of spellVfxModules()) if (this.guard(m, 'onEvent', () => m.onEvent?.(e, this.vfx)) === true) claimed = true
       const sp = eventSpell(e)
       if (sp !== null && vfxForSpell(sp)) claimed = true
     }
@@ -967,7 +1002,7 @@ export class MatchWorld {
           }
         }
       }
-      m.drawProjectile(p, x, y, this.vfx)
+      this.guard(m, 'drawProjectile', () => m.drawProjectile?.(p, x, y, this.vfx))
     }
     for (const p of curr.pawns) {
       if (!p.alive || p.modifiers.length === 0) continue
@@ -975,7 +1010,7 @@ export class MatchWorld {
       if (!v) continue
       for (const mod of p.modifiers) {
         const m = vfxForModifier(mod.id)
-        if (m && m.drawModifier) m.drawModifier(p, mod, v.x, v.y, this.vfx)
+        if (m && m.drawModifier) this.guard(m, 'drawModifier', () => m.drawModifier?.(p, mod, v.x, v.y, this.vfx))
       }
     }
   }
@@ -1581,7 +1616,8 @@ export class MatchWorld {
         const left = curr.phaseTicksLeft
         v.wardTarget = left < 0 || left > 180 ? 1 : 0.35 + 0.65 * (left / 180)
       } else v.wardTarget = 0
-      v.update(p, this.sample, layer, t, dt)
+      const view = v
+      this.safe('pawn:update', () => view.update(p, this.sample, layer, t, dt))
       if (v.usesWarlock) {
         // cast glow colour = the spell's hue (sleeve runes, palm, crystal)
         let castHex: number | null = null
@@ -1591,11 +1627,13 @@ export class MatchWorld {
           this.spellCol.setRGB(sc[0] / m, sc[1] / m, sc[2] / m)
           castHex = this.spellCol.getHex()
         }
-        v.driveWarlock(p, pp, alpha, dt, this.frameEvents, castHex, this.claimedHits.has(p.id))
+        // driveWarlock catches character errors itself and falls back to the
+        // built-in body after repeated failures
+        view.driveWarlock(p, pp, alpha, dt, this.frameEvents, castHex, this.claimedHits.has(p.id))
       }
       v.seen = seen
       v.kbPoints = p.kbPoints
-      this.pawnAmbient(v, p, dt)
+      this.safe('pawn:ambient', () => this.pawnAmbient(view, p, dt))
     }
     for (const [id, v] of this.views) {
       if (v.seen === seen) continue

@@ -10,12 +10,14 @@ import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
+import { NetGraph } from './ui/NetGraph'
+import { startNetMonitor } from './ui/lib/netmonitor'
 import { InkFilters } from './ui/InkFilters'
 import { Toasts } from './ui/Toasts'
 import { undoRemap } from './ui/lib/remap'
 import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
-import { forcedMute, music } from './ui/lib/sound'
+import { forcedMute, forcedSynth, music } from './ui/lib/sound'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -23,10 +25,15 @@ const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'l
 /** Keep the audio mixer in step with settings (also covers the M hotkey). */
 function useAudioSettings() {
   useEffect(() => {
+    let mode = ''
     const apply = () => {
       const s = useGame.getState().settings
       try {
         audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted || forcedMute })
+        // sound style: saved choice, unless ?audio=synth forces synthesis for this session
+        const want = forcedSynth ? 'synth' : (s.soundStyle ?? 'hybrid')
+        if (want !== mode && want !== audio.getMode()) audio.setMode(want)
+        mode = want
       } catch {
         /* audio not ready */
       }
@@ -91,7 +98,7 @@ function useUiScale() {
   }, [])
 }
 
-/** The mute key (M by default) works anywhere, F2 toggles the perf overlay. Never while typing. */
+/** The mute key (M by default) works anywhere, F2 toggles the perf overlay, F3 the net graph. Never while typing. */
 function useGlobalKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -113,6 +120,9 @@ function useGlobalKeys() {
       else if (e.code === 'F2') {
         e.preventDefault()
         s.setSettings({ showPerf: !s.settings.showPerf })
+      } else if (e.code === 'F3') {
+        e.preventDefault()
+        s.setSettings({ netGraph: !s.settings.netGraph })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -126,6 +136,8 @@ export default function App() {
   useAudioSettings()
   useGlobalKeys()
   useUiScale()
+  // connection stats at 4 Hz for the HUD indicator, net graph and warnings
+  useEffect(() => startNetMonitor(), [])
 
   // menu music everywhere outside a match; the HUD drives shop / fight music
   useEffect(() => {
@@ -147,6 +159,7 @@ export default function App() {
       <SplashScreen />
       <Toasts />
       <PerfHud />
+      <NetGraph />
     </div>
   )
 }

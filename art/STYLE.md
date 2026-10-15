@@ -8,18 +8,21 @@ Premium dark-fantasy game inventory icon, as in modern AAA RPG/MOBA inventories.
 
 ## Color language (rim light / magic color)
 
+Spells use their own identity color from `src/render/vfx/palette.ts` (`SPELL_PALETTE`): the
+`accent` is the dominant rim / trail color of the icon and the `core` is the hot center, the same
+pair the in-game effect uses, so icon and effect read as one spell. Both hex values go into the
+prompt (see `art/tools/icons.py`, pass 2). Neighbors in the shop must differ in hue or value side by
+side; only Fireball (and Rush, Meteor as their palette says) may look like fire.
+
 | Group | Color |
 |---|---|
-| Starting kit + column 1 Knockout | fiery red-orange |
-| Column 2 Transport | arcane cyan-blue |
-| Column 3 Damage | molten orange-gold |
-| Column 4 Devastator | violet-magenta |
-| Column 5 Defense | radiant gold-white |
-| Column 6 Knockbackless | eldritch green |
-| Items | forged bronze and steel, subtle ember accents |
-| Masteries | engraved rune sigils on a dark stone or metal disc |
+| Spells, Redirector, Pact | palette accent + core (see above) |
+| Items without a palette entry | forged bronze and steel, subtle ember accents |
+| Masteries | engraved rune sigils on a dark stone-and-iron medallion (gold / cyan / crimson) |
 
-Starting kit and active items: Fireball and Scourge follow column 1 (red-orange; Scourge leans blood-red). Redirector and Pact are active items: forged metal with a red-orange magic accent.
+Pass 1 (2026-10-15) colored by shop column (column 1 red-orange, 2 cyan, 3 molten gold, 4 violet,
+5 gold-white, 6 green). Too many icons ended up the same fiery orange, so pass 2 (2026-10-16)
+switched to the per-spell palette; pass 1 variants are kept in `art/archive/icons/<id>/v1.png`.
 
 ## Readability
 

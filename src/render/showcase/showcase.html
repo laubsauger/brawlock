@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>brawlock showcase</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600..900&family=Metal+Mania&display=block" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,500&display=block" />
+    <style>
+      html, body, #root { height: 100%; margin: 0; overflow: hidden; background: #0b0604; }
+    </style>
+    <script>
+      // Showcase capture shim (dev only). Runs before any module:
+      // - virtual clock: once __vclock.engage() is called, performance.now() and
+      //   requestAnimationFrame stop following the wall clock; __vclock.step(ms)
+      //   advances time and runs exactly one batch of queued rAF callbacks, so every
+      //   captured frame is a fixed 1/60 s apart no matter how long it takes to render.
+      // - seeded Math.random: render-side particles are reproducible between takes.
+      // - ?ssaa=2 reports devicePixelRatio 2 at a 1x viewport: the canvas renders at
+      //   2x and the compositor's 2:1 downscale is a clean 2x2 supersample.
+      ;(function () {
+        var q = new URLSearchParams(location.search)
+        var seed = (Number(q.get('seed')) || 1337) >>> 0
+        Math.random = function () {
+          seed = (seed + 0x6d2b79f5) >>> 0
+          var t = seed
+          t = Math.imul(t ^ (t >>> 15), t | 1)
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+        var ssaa = Number(q.get('ssaa')) || 0
+        if (ssaa > 0) Object.defineProperty(window, 'devicePixelRatio', { get: function () { return ssaa }, configurable: true })
+        var perf = performance
+        var realNow = perf.now.bind(perf)
+        var realRaf = window.requestAnimationFrame.bind(window)
+        var realCaf = window.cancelAnimationFrame.bind(window)
+        var V = { on: false, now: 0, queue: new Map(), next: 1e9, frames: 0, errors: [] }
+        perf.now = function () { return V.on ? V.now : realNow() }
+        window.requestAnimationFrame = function (cb) {
+          if (!V.on) return realRaf(cb)
+          var id = V.next++
+          V.queue.set(id, cb)
+          return id
+        }
+        window.cancelAnimationFrame = function (id) {
+          if (id >= 1e9) V.queue.delete(id)
+          else realCaf(id)
+        }
+        window.__vclock = {
+          engage: function () {
+            if (V.on) return
+            V.now = realNow()
+            V.on = true
+          },
+          step: function (ms) {
+            V.now += ms
+            var cbs = Array.from(V.queue.values())
+            V.queue.clear()
+            for (var i = 0; i < cbs.length; i++) {
+              try { cbs[i](V.now) } catch (e) { V.errors.push(String(e && e.stack || e)) }
+            }
+            V.frames++
+            return cbs.length
+          },
+          get on() { return V.on },
+          get now() { return V.now },
+          get pending() { return V.queue.size },
+          get errors() { return V.errors },
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./showcase.tsx"></script>
+  </body>
+</html>

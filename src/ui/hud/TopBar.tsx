@@ -1,6 +1,5 @@
 import { useRef } from 'react'
 import { frame } from '../../game/frame'
-import { useGame } from '../../game/store'
 import type { Phase, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { usePolled, useTick } from '../lib/ticker'
@@ -83,7 +82,7 @@ export function PhasePlate() {
         <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
         <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
       </div>
-      <div ref={shrink} className="shrink-warn hud-text-shadow text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
+      <div ref={shrink} className="shrink-warn hud-backing hud-text-shadow mt-0.5 text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
     </div>
   )
 }
@@ -187,7 +186,7 @@ export function TopCenter() {
           <PhasePlate />
           <BroadcastSide p={b} side="right" local={b.id === local} />
         </div>
-        {winScore ? <span className="hud-text-shadow text-[0.75rem] leading-none font-semibold text-ash">First to {winScore}</span> : null}
+        {winScore ? <span className="hud-backing hud-text-shadow mt-0.5 text-[0.75rem] leading-tight font-semibold text-ash">First to {winScore}</span> : null}
       </div>
     )
   }
@@ -199,34 +198,7 @@ export function TopCenter() {
           <ScorePill key={p.id} p={p} local={p.id === local} />
         ))}
       </div>
-      {winScore ? <span className="hud-text-shadow text-[0.82rem] font-semibold text-ash">First to {winScore}</span> : null}
-    </div>
-  )
-}
-
-/** Own ping and loss for online roles. */
-export function NetReadout() {
-  const role = useGame((s) => s.lobby.role)
-  const ref = useRef<HTMLSpanElement>(null)
-  const dot = useRef<HTMLSpanElement>(null)
-  const last = useRef('')
-  const lastAt = useRef(0)
-  useTick((now) => {
-    if (role === 'offline' || !ref.current) return
-    if (now - lastAt.current < 250) return // 4 Hz is plenty
-    lastAt.current = now
-    const { rttMs, lossPct } = frame.net
-    const text = role === 'host' && rttMs <= 0 ? 'Host' : `${Math.round(rttMs)} ms${lossPct >= 0.5 ? `  ${lossPct.toFixed(0)}% loss` : ''}`
-    if (text === last.current) return
-    last.current = text
-    ref.current.textContent = text
-    if (dot.current) dot.current.style.background = rttMs < 90 && lossPct < 2 ? '#7fe39a' : rttMs < 160 && lossPct < 6 ? '#ffc548' : '#ff5a4a'
-  })
-  if (role === 'offline') return null
-  return (
-    <div className="hud-text-shadow flex items-center gap-2 text-[0.92rem] font-semibold text-bone/85" title="Round trip time to the host and packet loss">
-      <span ref={dot} className="h-2 w-2 rounded-full bg-heal" aria-hidden />
-      <span ref={ref} className="tabular" />
+      {winScore ? <span className="hud-backing hud-text-shadow text-[0.82rem] font-semibold text-ash">First to {winScore}</span> : null}
     </div>
   )
 }

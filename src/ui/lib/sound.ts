@@ -4,6 +4,15 @@ import { audio, type UiSound } from '../../audio'
  * `?mute` in the URL (dev and prod): the whole session stays silent without
  * changing saved settings, so automated tools and demos always load quietly.
  */
+/** `?audio=synth` forces synthesis-only sound for the session (the saved choice is untouched). */
+export const forcedSynth = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('audio') === 'synth'
+  } catch {
+    return false
+  }
+})()
+
 export const forcedMute = (() => {
   try {
     return new URLSearchParams(window.location.search).has('mute')

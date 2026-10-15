@@ -1,5 +1,6 @@
 /**
- * Wire protocol, M0 (host-authoritative state sync). JSON text frames.
+ * Wire protocol: host-authoritative state sync, with optional client prediction
+ * (predict.ts). JSON text frames.
  *
  * Reliable channel (ordered):
  *   client → host  hello   {name, version, key, profileId, color}   first message after connect
@@ -16,23 +17,32 @@
  *   host → client  error   {message}                  fatal (version mismatch, lobby full)
  *
  * Unreliable channel (unordered, no retransmit):
- *   client → host  input {match, inputs: InputFrame[]}   all unacked frames, oldest first (redundancy)
- *   host → client  pings {pings}                    per-player RTT in ms, ~1 Hz (lobby and match)
- *   host → client  snap  {match, n, iv, ack, ev, state}
+ *   client → host  input {match, inputs: InputFrame[], n?, s?}   all unacked frames, oldest first (redundancy)
+ *     n     input packet counter (uplink loss stats)
+ *     s     1 = stamped (prediction): the host applies each frame in the step from
+ *           frame.tick (held until then, applied at once when late). Absent: on arrival.
+ *   client → host  nstat {match, dl, sa, al, cp, ds}   ~4 Hz link report for the host's
+ *                  monitor: downlink loss %, snapshot age ms, input ack lag ms,
+ *                  prediction correction (game units), determinism check failures (null = n/a)
+ *   host → client  pings {pings, ul?}               per-player RTT in ms, ~1 Hz (lobby and match);
+ *                                                   ul = per-player uplink loss % seen by the host
+ *   host → client  snap  {match, n, iv, ack, ev, in?, state}
  *     n     snapshot counter (loss stats), iv snapshot interval in ticks
  *     ack   highest input seq the host applied for this client
  *     ev    events of the last EVENT_REDUNDANCY_TICKS ticks, so a lost snapshot never loses VFX/SFX
+ *     in    every input the host stepped since the previous snapshot (PlayerInput.tick = the
+ *           step's tick), so a client can re-simulate snapshot n-1 → n and compare hashes
  *     state full SimState with `events: []` (the client restores it from ev)
  *
  * Ping / pong live one layer down, in transport.ts ('#p<t>' / '#q<t>' frames on
  * the unreliable path), so every link measures RTT without app involvement.
  */
-import type { InputCommand, MatchSettings, PlayerId, PlayerSlot, SimState } from '../sim/types'
+import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { TickEvents } from '../game/frame'
 import type { MatchResult } from '../game/store'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -40,7 +50,10 @@ export const EVENT_REDUNDANCY_TICKS = 10
 export interface InputFrame {
   /** per-client sequence, starts at 1 for every match */
   seq: number
-  /** client's estimate of the host tick (informational in M0) */
+  /**
+   * Stamped packets (`s: 1`): the tick whose step applies this frame. Otherwise the
+   * client's estimate of the host tick (informational).
+   */
   tick: number
   cmds: InputCommand[]
 }
@@ -58,10 +71,19 @@ export type Msg =
       pings: Record<PlayerId, number>
     }
   | { t: 'ready'; ready: boolean }
-  | { t: 'pings'; pings: Record<PlayerId, number> }
+  | { t: 'pings'; pings: Record<PlayerId, number>; ul?: Record<PlayerId, number> }
   | { t: 'start'; match: number; seed: number; slots: PlayerSlot[]; settings: MatchSettings; localPlayer: PlayerId }
-  | { t: 'input'; match: number; inputs: InputFrame[] }
-  | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; state: SimState }
+  | { t: 'input'; match: number; inputs: InputFrame[]; n?: number; s?: 1 }
+  | {
+      t: 'nstat'
+      match: number
+      dl: number | null
+      sa: number | null
+      al: number | null
+      cp: number | null
+      ds: number | null
+    }
+  | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; in?: PlayerInput[]; state: SimState }
   | { t: 'end'; match: number; result: MatchResult }
   | { t: 'screen'; screen: 'lobby' }
   | { t: 'notice'; text: string }
@@ -77,6 +99,7 @@ const TYPES = new Set<Msg['t']>([
   'pings',
   'start',
   'input',
+  'nstat',
   'snap',
   'end',
   'screen',
@@ -107,10 +130,16 @@ export function decode(data: string): Msg | null {
 /**
  * Snapshot encoder that reuses one serialized state for every client (only
  * `ack` differs per client). `stateJson` must be JSON of the state with `events: []`,
- * `evJson` JSON of a TickEvents[].
+ * `evJson` JSON of a TickEvents[], `inJson` (optional) JSON of a PlayerInput[].
  */
-export function encodeSnap(match: number, n: number, iv: number, ack: number, evJson: string, stateJson: string): string {
-  return `{"t":"snap","match":${match},"n":${n},"iv":${iv},"ack":${ack},"ev":${evJson},"state":${stateJson}}`
+export function encodeSnap(match: number, n: number, iv: number, ack: number, evJson: string, stateJson: string, inJson?: string): string {
+  const inputs = inJson === undefined ? '' : `,"in":${inJson}`
+  return `{"t":"snap","match":${match},"n":${n},"iv":${iv},"ack":${ack},"ev":${evJson}${inputs},"state":${stateJson}}`
+}
+
+/** A reported link metric: finite, clamped to 0..1e6, else null. */
+export function sanitizeMetric(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(Math.max(v, 0), MAX_COORD) : null
 }
 
 /** JSON of a state without its events (they travel in `ev`). */

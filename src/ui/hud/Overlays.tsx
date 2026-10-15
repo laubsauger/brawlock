@@ -9,6 +9,7 @@ import { usePolled } from '../lib/ticker'
 import { hex, kbMultiplier, localView, TEAM_NAMES } from '../lib/view'
 import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
+import { useLinks } from '../lib/netmonitor'
 import { sfx } from '../lib/sound'
 
 /* ------------------------------------------------------------------------
@@ -232,6 +233,7 @@ export function Scoreboard() {
   const rows = usePolled(readBoard, (r) => JSON.stringify(r), 4)
   const role = useGame((s) => s.lobby.role)
   const pings = useGame((s) => s.lobby.pings)
+  const links = useLinks()
   const state = frame.curr
   const teamMode = state?.settings.teamMode
   const winScore = state?.settings.winScore
@@ -240,7 +242,7 @@ export function Scoreboard() {
     if (r.kind === 'bot') return <span className="text-sm text-ash">Bot</span>
     if (!r.connected) return <span className="text-sm text-[#ff9b8a]">Left</span>
     if (role === 'offline') return <span className="text-sm text-ash">–</span>
-    return <PingBars ms={pings?.[r.id]} host={r.id === 0} />
+    return <PingBars ms={pings?.[r.id]} host={r.id === 0} net={links.links[r.id]} warn={links.flagged.includes(r.id)} />
   }
   return (
     <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center p-4">

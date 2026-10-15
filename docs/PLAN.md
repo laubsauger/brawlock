@@ -176,6 +176,9 @@ Target: Dota-class responsiveness or better on a normal connection.
   - Optional host-advantage compensation: confirmed input delay for the host equals the median client delay.
 - **Fallback**: if cross-engine determinism ever fails in practice, the same `step(state, inputs)` sim supports classic state sync with own-pawn prediction and delta snapshots.
 - **Clock sync**: RTT probes on the unreliable channel; client keeps a smoothed tick offset.
+- **Prediction is the default** once verified (decided 2026-10-16): instant own-input reaction for every client; the classic path stays only as an escape hatch.
+- **Fairness**: host advantage is compensated (host input delay equalization and/or caster projectile fast-forward, both capped).
+- **Connection monitoring**: per-peer RTT, jitter, loss, snapshot age, channel mode, correction size, desync count and a quality grade; always-visible HUD indicator, a toggleable net graph, rate-limited warnings for your own link, and host-side per-player warnings in scoreboard and lobby.
 - **Room codes**: 5 letters without I/O (pattern from Pit of Carnage). The host registers PeerJS id `brawlock-<CODE>`; friends type the code or open `?room=CODE`.
 - **Topology limits**: P2P star (the host browser is the server). Roughly 10–20% of NATs need TURN (PeerJS provides free TURN; own TURN later). Host leaving ends the match in v1; host migration is post-v1.
 - **Reconnect**: rejoin by the same link within the abandon window; a bot holds the pawn meanwhile (original `bot_on_dc`).

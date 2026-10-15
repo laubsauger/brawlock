@@ -491,15 +491,41 @@ export class PawnView {
   }
 
   /** Per-frame update of the character warlock (no-op for the built-in body). */
-  driveWarlock(p: PawnState, prev: PawnState | undefined, alpha: number, dt: number, events: readonly SimEvent[], castColor: number | null, suppressHitFlash = false): void {
+  /**
+   * Per-frame update of the character warlock. If the character code throws
+   * repeatedly, this pawn falls back to the built-in placeholder body so the
+   * match keeps rendering (returns false when that happened).
+   */
+  driveWarlock(p: PawnState, prev: PawnState | undefined, alpha: number, dt: number, events: readonly SimEvent[], castColor: number | null, suppressHitFlash = false): boolean {
     const w = this.warlock
-    if (!w) return
-    w.setCastColor(castColor)
-    // a VFX module claimed this frame's hit on us: no material flash on top of its own
-    if (suppressHitFlash) w.hitFlash(false)
-    w.update(p, prev ?? null, alpha, dt, events)
-    if (suppressHitFlash) w.hitFlash(true)
+    if (!w) return true
+    try {
+      w.setCastColor(castColor)
+      // a VFX module claimed this frame's hit on us: no material flash on top of its own
+      if (suppressHitFlash) w.hitFlash(false)
+      w.update(p, prev ?? null, alpha, dt, events)
+      if (suppressHitFlash) w.hitFlash(true)
+      this.warlockFails = 0
+      return true
+    } catch (err) {
+      this.warlockFails++
+      if (this.warlockFails === 1) console.error('[render] warlock update threw', err)
+      if (this.warlockFails >= 3) {
+        console.error('[render] warlock keeps failing: falling back to the built-in body for this pawn')
+        try {
+          this.root.remove(w.object3d)
+          w.dispose()
+        } catch {
+          /* already broken */
+        }
+        this.warlock = null
+        this.tilt.visible = true
+      }
+      return false
+    }
   }
+
+  private warlockFails = 0
 
   /** Windup ground ring under the caster: progress 0..1, linear colour, alpha. */
   setCastRing(progress: number, color: THREE.Color, alpha: number): void {

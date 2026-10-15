@@ -239,6 +239,7 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       a.add(tweakParams, 'edgeWidth', 5, 200, 1)
       a.add(tweakParams, 'debugFaces', 0, 2, 1)
       a.add(tweakParams, 'sigils')
+      a.add(tweakParams, 'numberHalo')
     })
     return () => {
       disposed = true

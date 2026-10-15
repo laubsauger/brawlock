@@ -7,6 +7,8 @@ import { uniform } from 'three/tsl'
 export type TileMaterialMode = 'auto' | 'procedural' | 'textured'
 
 export const tweaks = {
+  /** thin dark outline + halo on floating combat numbers (off = glow only) */
+  numberHalo: true,
 
   /** 'auto' = authored PBR set when it exists, else procedural */
   tileMaterial: 'auto' as TileMaterialMode,
@@ -26,6 +28,12 @@ export const tweaks = {
 
 /** Inspector-friendly accessors (plain properties over the uniforms). */
 export const tweakParams = {
+  get numberHalo(): boolean {
+    return tweaks.numberHalo
+  },
+  set numberHalo(v: boolean) {
+    tweaks.numberHalo = v
+  },
 
   get tileMaterial(): TileMaterialMode {
     return tweaks.tileMaterial

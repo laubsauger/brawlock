@@ -188,7 +188,7 @@ function GoldCounter({ gold }: { gold: number }) {
       </span>
       {deltas.map((d) => (
         <span key={d.key} className={`gold-delta tabular text-lg ${d.n < 0 ? 'text-[#ff9b7a]' : 'text-heal'}`} aria-hidden>
-          {d.n > 0 ? `+${d.n}` : d.n}
+          {d.n > 0 ? `+${d.n}` : `−${-d.n}`}
         </span>
       ))}
     </span>

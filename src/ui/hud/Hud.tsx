@@ -8,7 +8,8 @@ import { music, sfx } from '../lib/sound'
 import { slotColor, slotName, TEAM_NAMES } from '../lib/view'
 import { announce, Banner, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
-import { NetReadout, TopCenter, displayRound } from './TopBar'
+import { TopCenter, displayRound } from './TopBar'
+import { ConnIndicator } from './ConnIndicator'
 import { Gold, ProtectChip, Vitals } from './Vitals'
 import { KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
@@ -204,7 +205,7 @@ function StatusLayer() {
     <>
       <div ref={vignette} className="low-hp-vignette" data-on="false" />
       <div ref={dead} className="absolute right-0 left-0 text-center" style={{ display: 'none', bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 10px)' }}>
-        <span className="hud-text-shadow text-lg font-semibold text-[#ffcfb8]">Knocked out. Watching the rest of the round.</span>
+        <span className="hud-backing hud-text-shadow text-lg font-semibold text-[#ffcfb8]">Knocked out. Watching the rest of the round.</span>
       </div>
     </>
   )
@@ -213,22 +214,25 @@ function StatusLayer() {
 /** Aiming in "on release" or "normal" cast mode: what is armed and how to fire or cancel it. */
 function AimHint() {
   const ref = useRef<HTMLDivElement>(null)
+  const text = useRef<HTMLSpanElement>(null)
   const last = useRef('')
   useTick(() => {
     const a = inputViz.aim
     const name = a ? displayName(a.spell) || 'Spell' : ''
     const t = !a ? '' : a.mode === 'normal' ? `${name}: left click to cast, right click or Esc to cancel` : `${name}: release the key to cast`
-    if (t === last.current || !ref.current) return
-    ref.current.textContent = last.current = t
+    if (t === last.current || !ref.current || !text.current) return
+    text.current.textContent = last.current = t
     ref.current.style.opacity = t ? '1' : '0'
   })
   return (
     <div
       ref={ref}
-      className="hud-text-shadow absolute right-0 left-0 text-center text-[1.1rem] font-semibold text-[#ffe2b0] transition-opacity duration-150"
+      className="absolute right-0 left-0 text-center transition-opacity duration-150"
       style={{ opacity: 0, bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 40px)' }}
       aria-live="polite"
-    />
+    >
+      <span ref={text} className="hud-backing hud-text-shadow text-[1.1rem] font-semibold text-[#ffe2b0]" />
+    </div>
   )
 }
 
@@ -263,7 +267,7 @@ function Hints() {
     </span>
   )
   return (
-    <div className="hud-text-shadow flex items-center gap-3 text-[0.82rem] text-ash">
+    <div className="hud-hints hud-backing hud-text-shadow flex items-center gap-3 py-1 text-[0.82rem] text-ash">
       {hint(bindLabel(binds, 'shop'), 'Shop')}
       {hint(bindLabel(binds, 'character'), 'Stats')}
       {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
@@ -302,8 +306,8 @@ export function Hud() {
         </div>
       </div>
 
-      <div className="hud-scale absolute top-2 left-3">
-        <NetReadout />
+      <div className="hud-scale absolute top-2 left-3 z-20">
+        <ConnIndicator />
       </div>
 
       <div className="hud-scale absolute top-2 right-3">

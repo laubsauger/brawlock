@@ -11,10 +11,10 @@ import { Profile } from './Profile'
 
 function MenuEntry({ title, sub, onClick, primary, expanded }: { title: string; sub: string; onClick: () => void; primary?: boolean; expanded?: boolean }) {
   return (
-    <Button variant={primary ? 'primary' : 'default'} className="menu-item" onClick={onClick} aria-expanded={expanded}>
+    <Button variant={primary ? 'primary' : 'default'} className={`menu-item ${primary ? 'py-[1.05rem]' : 'py-[0.6rem]'}`} onClick={onClick} aria-expanded={expanded}>
       <span className="flex flex-col items-start gap-0.5 leading-tight">
-        <span className="btn-label text-[1.22rem] tracking-[0.06em]">{title}</span>
-        <span className={`font-ui text-[0.9rem] font-medium tracking-normal ${primary ? 'text-[#f3c58c]' : 'text-[#b9a28b]'}`}>{sub}</span>
+        <span className={`btn-label tracking-[0.06em] ${primary ? 'text-[1.4rem]' : 'text-[1.08rem]'}`}>{title}</span>
+        <span className={`font-ui font-medium tracking-normal ${primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
       </span>
     </Button>
   )
@@ -142,13 +142,13 @@ export function MainMenu() {
           <MenuEntry title="Join game" sub="Type the host's room code" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
           <div className="mt-1 grid grid-cols-3 gap-2.5">
-            <Button className="px-2 text-[0.86rem] whitespace-nowrap" onClick={() => setProfileOpen(true)}>
+            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => setProfileOpen(true)}>
               Your record
             </Button>
-            <Button className="px-2 text-[0.86rem] whitespace-nowrap" onClick={() => toggle('settingsOpen', true)}>
+            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => toggle('settingsOpen', true)}>
               Settings
             </Button>
-            <Button className="px-2 text-[0.86rem] whitespace-nowrap" onClick={() => setScreen('credits')}>
+            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => setScreen('credits')}>
               Credits
             </Button>
           </div>

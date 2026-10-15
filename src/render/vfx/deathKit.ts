@@ -78,7 +78,7 @@ const rnd = Math.random
  * one's material dissolve runs (seconds after death), mirrored from the
  * character's deathTimeline so the spark band rides the burning edge.
  */
-export type DeathLook = 'ash' | 'lava' | 'fireball' | 'meteor' | 'lightning' | 'freeze' | 'gravity' | 'drain'
+export type DeathLook = 'ash' | 'lava' | 'fireball' | 'meteor' | 'lightning' | 'freeze' | 'gravity' | 'drain' | 'shadow' | 'fade'
 const DISSOLVE: Record<DeathLook, [number, number]> = {
   ash: [1.0, 1.9],
   lava: [1.2, 2.1],
@@ -88,6 +88,9 @@ const DISSOLVE: Record<DeathLook, [number, number]> = {
   freeze: [0.95, 1.15],
   gravity: [0.85, 1.1],
   drain: [1.0, 1.8],
+  // mirrors the character's 'shadow' (Scourge) and 'fade' (disconnect) dissolves
+  shadow: [0.5, 1.5],
+  fade: [0.1, 1.2],
 }
 
 // ---------------------------------------------------------------- tint
@@ -739,7 +742,8 @@ export function disintegrate(
 ): void {
   const K = kit(ctx)
   const kind = o.kind ?? 'ash'
-  const [d0, d1] = DISSOLVE[kind]
+  // an unknown look must never throw: this runs inside the render update
+  const [d0, d1] = DISSOLVE[kind] ?? DISSOLVE.ash
   const e = K.emitter(E_DISINT, x, y, h, d1 + 1.4)
   e.pawn = pawnId
   e.d0 = d0

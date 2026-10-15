@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { S } from '../coords'
+import { tweaks } from '../tweaks'
 
 /**
  * DOM overlay anchored to world positions (pooled elements, positions written
@@ -86,12 +87,14 @@ export interface PlateInput {
   local: boolean
 }
 
+/** thin dark outline for combat numbers (keeps them punchy, readable over lava) */
+const THIN_OUTLINE = '0 0 1px #000,1px 0 1px rgba(0,0,0,.9),-1px 0 1px rgba(0,0,0,.9),0 1px 1px rgba(0,0,0,.9),0 -1px 1px rgba(0,0,0,.9)'
 const OUTLINE = '-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 2px 0 #000,0 -2px 0 #000,2px 0 0 #000,-2px 0 0 #000'
 
 const css = `
 .bl-ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;contain:strict;font-family:Nunito,ui-rounded,system-ui,sans-serif}
 .bl-num{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;white-space:nowrap;letter-spacing:.01em;line-height:1;transform-origin:50% 80%}
-.bl-plate{position:absolute;left:0;top:0;width:120px;margin-left:-60px;will-change:transform,opacity;display:flex;flex-direction:column;align-items:center}
+.bl-plate{position:absolute;left:0;top:0;width:max-content;min-width:78px;padding:3px 7px 4px;border-radius:7px;background:rgba(12,7,7,.46);box-shadow:0 0 12px 5px rgba(12,7,7,.30);will-change:transform,opacity;display:flex;flex-direction:column;align-items:center}
 .bl-plate .nm{font-size:11px;font-weight:800;line-height:1.1;letter-spacing:.03em;margin-bottom:2px;text-shadow:0 0 2px #000,0 1px 1px #000,0 0 5px rgba(0,0,0,.9);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .bl-plate .bar{position:relative;width:78px;height:8px;background:#120b0b;box-shadow:0 0 0 1px #000,0 1px 4px rgba(0,0,0,.7);overflow:hidden}
 .bl-plate .trail,.bl-plate .fill{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
@@ -100,11 +103,11 @@ const css = `
 .bl-plate .ticks{position:absolute;inset:0}
 .bl-plate .kbrow{position:relative;width:78px;height:3px;margin-top:1px;background:#0d0808;box-shadow:0 0 0 1px #000}
 .bl-plate .kbf{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
-.bl-plate .mult{position:absolute;left:82px;top:-7px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap}
+.bl-plate .mult{position:absolute;left:84px;top:-8px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap;padding:0 3px;border-radius:3px;background:rgba(12,7,7,.5)}
 .bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
-.bl-plate.local .mult{left:90px}
+.bl-plate.local .mult{left:92px}
 .bl-call{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;font-size:26px;letter-spacing:.08em;white-space:nowrap;
-  color:#ffe2a8;text-shadow:0 0 3px #000,0 2px 0 #4a1000,0 0 14px rgba(255,110,20,.95),0 0 28px rgba(255,60,0,.6);text-transform:uppercase}
+  color:#ffe2a8;text-shadow:0 0 3px #000,0 2px 0 #4a1000,0 0 8px rgba(0,0,0,.65),0 0 14px rgba(255,110,20,.95),0 0 28px rgba(255,60,0,.6);text-transform:uppercase}
 `
 
 let styleInjected = false
@@ -248,7 +251,8 @@ export class WorldOverlay {
     }
     n.el.style.fontSize = `${Math.round(size)}px`
     n.el.style.color = color
-    n.el.style.textShadow = `${OUTLINE},0 0 ${Math.round(8 + k * 10)}px ${glow}`
+    const halo = tweaks.numberHalo ? `${THIN_OUTLINE},0 0 6px rgba(0,0,0,.55),` : ''
+    n.el.style.textShadow = `${halo}0 0 ${Math.round(8 + k * 10)}px ${glow}`
   }
 
   /** Short punchy text for big moments. Callers keep it rare. */
@@ -284,7 +288,7 @@ export class WorldOverlay {
         continue
       }
       if (p.el.style.display === 'none') p.el.style.display = ''
-      p.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 34).toFixed(1)}px,0)`
+      p.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 38).toFixed(1)}px,0) translate(-50%,0)`
       if (p.id !== inp.id) {
         p.id = inp.id
         p.trailFrac = 1

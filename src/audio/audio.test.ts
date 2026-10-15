@@ -8,6 +8,8 @@ import { MusicLayer } from './music'
 import { AmbienceLayer, edgeProximity } from './ambience'
 import { isLocationSafeAtLayer } from '../sim'
 import { createSynth, RECIPES, Voice, type SfxId } from './synth'
+import { HYBRID } from './hybrid'
+import { AUDIO_ASSETS, AUDIO_CREDITS } from './assets'
 import { asContext, MockAudioContext } from './mockContext'
 
 /** One sample of every SimEvent type. The mapped type makes this fail to compile when a type is added. */
@@ -233,6 +235,8 @@ describe('audio: no AudioContext (node, old browsers)', () => {
       audio.music('fight')
       audio.music('none')
       audio.test()
+      audio.setMode('synth')
+      audio.setMode('hybrid')
     }).not.toThrow()
   })
 })
@@ -426,3 +430,65 @@ describe('audio: lava ambience', () => {
     expect(m.leakingSources()).toEqual([])
   })
 })
+
+describe('audio: recordings (hybrid mode)', () => {
+  afterEach(() => {
+    delete (globalThis as { AudioContext?: unknown }).AudioContext
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('every asset a hybrid layer uses ships as Opus and AAC, and every shipped file is credited CC0', async () => {
+    // node's fs without node typings in the app tsconfig
+    const fs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as {
+      existsSync(p: URL): boolean
+      readdirSync(p: URL): string[]
+      statSync(p: URL): { size: number }
+    }
+    const dir = new URL('../../public/audio/', import.meta.url)
+    const file = (name: string) => new URL(name, dir)
+    for (const def of Object.values(HYBRID)) {
+      for (const layer of def!.layers) {
+        for (const id of layer.assets) {
+          expect(AUDIO_ASSETS[id], id).toBeDefined()
+          expect(fs.existsSync(file(`${id}.ogg`)), `${id}.ogg`).toBe(true)
+          expect(fs.existsSync(file(`${id}.m4a`)), `${id}.m4a`).toBe(true)
+        }
+      }
+    }
+    for (const [id, a] of Object.entries(AUDIO_ASSETS)) {
+      const credit = AUDIO_CREDITS[a.credit]
+      expect(credit?.license, id).toBe('CC0')
+      expect(credit.creator.length, id).toBeGreaterThan(0)
+      expect(credit.url, id).toMatch(/^https:\/\//)
+    }
+    // the shipped set stays small
+    let bytes = 0
+    for (const f of fs.readdirSync(dir)) bytes += fs.statSync(file(f)).size
+    expect(bytes).toBeLessThan(6e6)
+  })
+
+  it('plays pure synth until samples load, then layers recordings; synth mode turns them off', async () => {
+    vi.useFakeTimers()
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
+    vi.stubGlobal('fetch', async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }))
+    const e = new AudioEngine()
+    e.unlock()
+    const m = MockAudioContext.instances.at(-1)!
+    const decoded = () => m.sources().filter((n) => (n as unknown as { buffer?: { length: number } }).buffer?.length === Math.floor(m.sampleRate * 0.5))
+    const fire = { id: 'fireballCast' as const, gain: 1, pan: 0 }
+    e.play(fire)
+    expect(decoded()).toHaveLength(0) // fallback: nothing loaded yet
+    await e.samples.load(m as never, '/')
+    expect(e.samples.size).toBe(Object.keys(AUDIO_ASSETS).length)
+    e.play(fire)
+    expect(decoded().length).toBeGreaterThan(0)
+    const layered = decoded().length
+    e.setMode('synth')
+    e.play({ ...fire, delay: 0.5 })
+    expect(decoded().length).toBe(layered)
+    expect(e.mode).toBe('synth')
+    vi.runAllTimers()
+  })
+})
+

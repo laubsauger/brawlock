@@ -50,6 +50,16 @@ export interface Settings {
   uiScale: number
   /** bottom HUD cluster: centered like Dota, or tucked into the bottom-right corner */
   hudLayout: 'center' | 'right'
+  /** audio: recorded layers on top of synthesis, or synthesis only */
+  soundStyle: 'hybrid' | 'synth'
+  /** net graph overlay (also F3): per-link ping, jitter and loss sparklines */
+  netGraph: boolean
+  /**
+   * online netcode, read at every match start: 'predict' = client-side prediction
+   * (own inputs react at once), 'classic' = interpolated host snapshots (escape
+   * hatch). `?net=classic` / `?net=predict` in the URL overrides it.
+   */
+  netMode: 'predict' | 'classic'
 }
 
 export type NetRole = 'offline' | 'host' | 'client'
@@ -126,6 +136,9 @@ const defaultSettings: Settings = {
   castModeSlots: {},
   uiScale: 1,
   hudLayout: 'center',
+  soundStyle: 'hybrid',
+  netGraph: false,
+  netMode: 'predict',
 }
 
 function loadSettings(): Settings {

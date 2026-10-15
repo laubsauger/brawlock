@@ -4,7 +4,7 @@ import type { InputCommand, MatchSettings, PlayerInput, PlayerSlot, SimEvent, Si
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import { PROTOCOL_VERSION, decode, encode, type TickEvents } from './protocol'
-import { createSession, type MatchRecorder, type SessionDeps } from './session'
+import { createSession, type MatchRecorder, type NetMode, type SessionDeps } from './session'
 import type { NetFactory } from './transport'
 
 const SETTINGS: MatchSettings = {
@@ -57,6 +57,8 @@ const noSim: SimApi = {
 interface PeerOpts {
   color?: number | null
   createBot?: SessionDeps['createBot']
+  /** this suite pins the classic (snapshot interpolation) path; predict mode: session.predict.test.ts */
+  netMode?: NetMode
 }
 
 /** MatchRecorder fake: what this peer would write to its local stats. */
@@ -164,6 +166,7 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
     random: mulberry32(name.length),
     joinUrl: (code) => roomLink('http://test/', code),
     clientKey: () => key,
+    netMode: () => opts.netMode ?? 'classic',
   }
   return { session: createSession(deps), store, out, pending, stats: rec.r }
 }
@@ -442,5 +445,7 @@ describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () 
     expect(hr.ticks).toBeGreaterThan(0)
     expect(hr.winners.length).toBeGreaterThan(0)
     expect(client.stats.observed).toBeGreaterThan(100)
-  })
+    // a whole bot match runs under fake timers (deterministic outcome); only the real
+    // CPU time grows with machine load, so this test gets more than the default 5 s
+  }, 30000)
 })

@@ -13,6 +13,32 @@
 import { MusicLayer, type MusicTrack } from './music'
 import { AmbienceLayer, edgeProximity, type AmbienceKind } from './ambience'
 import { isLocationSafeAtLayer } from '../sim'
+import { AUDIO_ASSETS } from './assets'
+import { HYBRID, type SampleLayer } from './hybrid'
+import { SampleBank } from './samples'
+
+export type AudioMode = 'synth' | 'hybrid'
+
+/** Dev A/B: `?audio=synth` starts in synth-only mode. */
+function initialMode(): AudioMode {
+  try {
+    if (typeof location !== 'undefined' && /[?&]audio=synth\b/.test(location.search)) return 'synth'
+  } catch {
+    /* no location (tests, workers) */
+  }
+  return 'hybrid'
+}
+
+function baseUrl(): string {
+  try {
+    return import.meta.env?.BASE_URL ?? '/'
+  } catch {
+    return '/'
+  }
+}
+
+/** Seconds after unlock before samples load, so the splash and first sounds go first. */
+const SAMPLE_LOAD_DELAY = 1.2
 import { flightPath, newCueMemory, planEvents, type ListenerLike, type SoundCue } from './events'
 import { createSynth, RECIPES, Voice, type SfxId, type Synth } from './synth'
 import type { SimEvent } from '../sim/types'
@@ -260,6 +286,8 @@ export class AudioEngine {
   private current: MusicLayer | null = null
   private fading: MusicLayer[] = []
   private amb: AmbienceLayer | null = null
+  private modeNow: AudioMode = initialMode()
+  readonly samples = new SampleBank()
   private ambFading: AmbienceLayer[] = []
   private timer: ReturnType<typeof setInterval> | null = null
   private shrinks = 0
@@ -289,6 +317,39 @@ export class AudioEngine {
     this.applyVolumes(true)
     this.resume()
     this.applyMusic()
+    this.samples.onLoaded = () => this.refreshBeds()
+    if (this.modeNow === 'hybrid') setTimeout(() => this.loadSamples(), SAMPLE_LOAD_DELAY * 1000)
+  }
+
+  private loadSamples(): void {
+    if (this.g) void this.samples.load(this.g.ctx, baseUrl())
+  }
+
+  get mode(): AudioMode {
+    return this.modeNow
+  }
+
+  /** A/B: 'synth' = procedural only, 'hybrid' = recordings layered in (default). */
+  setMode(mode: AudioMode): void {
+    this.modeNow = mode
+    if (mode === 'hybrid') this.loadSamples()
+    this.refreshBeds()
+  }
+
+  /** Recorded lava beds under the procedural ambience (hybrid mode, once loaded). */
+  private refreshBeds(): void {
+    const amb = this.amb
+    if (!amb) return
+    if (this.modeNow !== 'hybrid') {
+      amb.setBeds([])
+      return
+    }
+    const bed = (id: 'bed_lava' | 'bed_bubbles' | 'bed_flow', gain: number) => {
+      const buffer = this.samples.get(id)
+      return buffer ? [{ buffer, gain, loopEnd: AUDIO_ASSETS[id].duration }] : []
+    }
+    // recorded beds are normalized to -24 LUFS; these gains make them an equal share of the bed
+    amb.setBeds(amb.kind === 'match' ? [...bed('bed_lava', 1.8), ...bed('bed_bubbles', 1.26)] : bed('bed_flow', 1.8))
   }
 
   /**
@@ -441,8 +502,19 @@ export class AudioEngine {
     if (total >= MAX_VOICES) return
 
     const t = now + 0.005 + (c.delay ?? 0)
+    // hybrid: the recordings for this sound that have loaded (none -> pure synth fallback)
+    const hyb = this.modeNow === 'hybrid' ? HYBRID[id] : undefined
+    const layers: { layer: SampleLayer; buffer: AudioBuffer; loopEnd: number }[] = []
+    if (hyb) {
+      for (const layer of hyb.layers) {
+        if (layer.minParam !== undefined && (c.param ?? 0) < layer.minParam) continue
+        const pick = this.samples.pick(layer.assets)
+        if (pick) layers.push({ layer, buffer: pick.buffer, loopEnd: AUDIO_ASSETS[pick.id].duration })
+      }
+    }
+    const hybridOn = layers.length > 0
     const out = g.ctx.createGain()
-    out.gain.value = c.gain * spec.level
+    out.gain.value = c.gain * spec.level * (hybridOn ? (hyb!.trim ?? 1) : 1)
     let tail: AudioNode = out
     let panner: StereoPannerNode | null = null
     if ((c.pan !== 0 || c.path) && typeof g.ctx.createStereoPanner === 'function') {
@@ -453,12 +525,21 @@ export class AudioEngine {
     }
     tail.connect(spec.bus === 'ui' ? g.ui : g.sfx)
     const param = id === 'uiCountdown' ? this.countdownStep(now) : (c.param ?? 0)
-    const v = new Voice(g.synth, out, t)
+    const synthMul = hybridOn ? (hyb!.synth ?? 1) : 1
+    let recipeOut: AudioNode = out
+    if (synthMul !== 1) {
+      const sg = g.ctx.createGain()
+      sg.gain.value = synthMul
+      sg.connect(out)
+      recipeOut = sg
+    }
+    const v = new Voice(g.synth, recipeOut, t)
     try {
-      RECIPES[id](v, param)
+      if (synthMul > 0) RECIPES[id](v, param)
     } catch {
       // a broken recipe must never take the game down
     }
+    for (const { layer, buffer, loopEnd } of layers) playLayer(g.ctx, v, out, layer, buffer, loopEnd, t, param)
     const dur = Math.max(0.05, v.stopAt - t)
     if (c.path && c.path.length > 1) {
       // a moving source: follow its flight (pan, distance) and bend its rate (Doppler)
@@ -547,6 +628,7 @@ export class AudioEngine {
     if (kind) {
       this.amb = new AmbienceLayer(g.synth, g.sfx, kind)
       this.amb.fadeTo(AMB_LEVEL, 3)
+      this.refreshBeds()
     }
   }
 
@@ -594,4 +676,60 @@ function softClipCurve(): Float32Array<ArrayBuffer> {
     c[i] = Math.sign(v) * (a < 0.9 ? a : 0.9 + 0.1 * Math.tanh((a - 0.9) / 0.1))
   }
   return c
+}
+
+/**
+ * One recorded layer inside a voice: a variant at a random rate, a random slice of a longer
+ * source, or a loop for the voice's whole length (registered for the voice's Doppler).
+ */
+export function playLayer(
+  ctx: BaseAudioContext,
+  v: Voice,
+  out: AudioNode,
+  l: SampleLayer,
+  buffer: AudioBuffer,
+  assetLength: number,
+  t: number,
+  param: number,
+): void {
+  const rnd = (r: readonly [number, number]) => r[0] + Math.random() * (r[1] - r[0])
+  const rate = l.rate ? rnd(l.rate) : 1
+  const src = ctx.createBufferSource()
+  src.buffer = buffer
+  src.playbackRate.value = rate
+  const g = ctx.createGain()
+  src.connect(g)
+  g.connect(out)
+  const at = t + (l.at ?? 0)
+  let end: number
+  if (l.loop) {
+    // the loop lasts as long as the synth voice (its param = flight seconds when synth is off)
+    end = Math.max(v.stopAt, at + (param > 0 ? param : 1))
+    // exact loop length from the manifest: AAC decodes with padding past it
+    const loopEnd = Math.min(buffer.duration, assetLength)
+    src.loop = true
+    src.loopStart = 0
+    src.loopEnd = loopEnd
+    g.gain.setValueAtTime(0, at)
+    g.gain.linearRampToValueAtTime(l.gain, at + 0.05)
+    g.gain.setValueAtTime(l.gain, Math.max(at + 0.05, end - 0.08))
+    g.gain.linearRampToValueAtTime(0, end)
+    src.start(at, Math.random() * loopEnd * 0.9)
+  } else if (l.slice) {
+    const len = rnd(l.slice)
+    const off = Math.random() * Math.max(0, buffer.duration - len * rate)
+    end = at + len
+    g.gain.setValueAtTime(0, at)
+    g.gain.linearRampToValueAtTime(l.gain, at + 0.005)
+    g.gain.setValueAtTime(l.gain, Math.max(at + 0.005, end - 0.03))
+    g.gain.linearRampToValueAtTime(0, end)
+    src.start(at, off)
+  } else {
+    end = at + buffer.duration / rate
+    g.gain.value = l.gain
+    src.start(at)
+  }
+  src.stop(end + 0.01)
+  v.buffers.push({ node: src, speed: rate })
+  if (end + 0.01 > v.stopAt) v.stopAt = end + 0.01
 }

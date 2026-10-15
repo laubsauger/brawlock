@@ -1,6 +1,8 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, type CSSProperties } from 'react'
 import * as THREE from 'three/webgpu'
+
+let updateErrorLogged = false
 import { useGame } from '../game/store'
 import { startMockDriver } from './dev/mockDriver'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
@@ -60,7 +62,12 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
   }, [fx])
 
   useFrame((state, dt) => {
-    worldRef.current?.update(Math.min(dt, 0.1), state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
+    try {
+      worldRef.current?.update(Math.min(dt, 0.1), state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
+    } catch (err) {
+      if (!updateErrorLogged) console.error('[render] menu world update threw', err)
+      updateErrorLogged = true
+    }
   })
   return null
 }

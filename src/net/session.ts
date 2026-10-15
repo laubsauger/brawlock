@@ -7,9 +7,18 @@
  *   Each tick: local input + remote inputs + bot commands → step → frame + audio
  *   → snapshot to clients (every tick, or every 2nd tick when large).
  * Client: own 60 Hz pulse; drains local input and sends every unacked frame
- *   (inputs.ts), plays snapshots through the jitter buffer (jitter.ts).
- * Both feed every played tick to the MatchRecorder, which writes local stats at
- * game over (game/stats.ts).
+ *   (inputs.ts). Two net modes (deps.netMode):
+ *   - 'predict' (default): full-world prediction (predict.ts). The client runs its
+ *     own copy of the sim about one RTT ahead of the newest snapshot, applies its
+ *     own inputs at once and stamps each frame with the tick it applied it in; the
+ *     host runs stamped frames in that tick when they arrive in time. Every snapshot
+ *     rolls the prediction back and re-simulates. Host fairness: the host's own
+ *     inputs run `hostDelay` ticks late (median client one-way latency, capped),
+ *     and the host sees its own predicted view, so it still feels instant.
+ *   - 'classic' (escape hatch, ?net=classic): plays snapshots through the jitter
+ *     buffer (jitter.ts) with an interpolation delay.
+ * Both feed every authoritative tick to the MatchRecorder, which writes local stats
+ * at game over (game/stats.ts). Link monitoring: netstats.ts.
  */
 import type { Bot } from '../bots'
 import type { Listener } from '../audio'
@@ -25,10 +34,23 @@ import {
   type SimEvent,
   type SimState,
 } from '../sim/types'
+import { cloneState, hashState } from '../sim/snapshot'
 import type { StartClock } from './clock'
 import { parseRoomCode } from './code'
 import { InputReceiver, InputSender } from './inputs'
 import { SnapshotBuffer } from './jitter'
+import {
+  GradeTracker,
+  LossTracker,
+  STATS_MS,
+  WindowMax,
+  DESYNC_HOLD_MS,
+  gradeOf,
+  type NetGradeEvent,
+  type NetStatsView,
+  type PeerNetStats,
+} from './netstats'
+import { LeadClock, Predictor, type LocalFrame } from './predict'
 import {
   EVENT_REDUNDANCY_TICKS,
   PROTOCOL_VERSION,
@@ -37,13 +59,17 @@ import {
   encodeSnap,
   sanitizeColor,
   sanitizeFrames,
+  sanitizeMetric,
   sanitizeName,
   sanitizeProfileId,
   stateJsonWithoutEvents,
+  type InputFrame,
   type Msg,
   type TickEvents,
 } from './protocol'
-import type { HostEndpoint, NetFactory, Transport } from './transport'
+import type { HostEndpoint, NetFactory, Transport, UnreliableMode } from './transport'
+
+export type NetMode = 'predict' | 'classic'
 
 // ---------------------------------------------------------------------------
 // Ports
@@ -107,6 +133,10 @@ export interface SessionDeps {
   joinUrl: (code: string) => string
   /** stable per browser tab, lets a reloaded client reclaim its pawn */
   clientKey: () => string
+  /** read at every match start; default 'predict' */
+  netMode?: () => NetMode
+  /** cap of the host fairness delay, ticks (default HOST_DELAY_CAP_TICKS; 0 disables it) */
+  hostDelayCapTicks?: number
 }
 
 export interface SessionApi {
@@ -131,6 +161,10 @@ export interface SessionApi {
   /** "Wants a rematch" flag, shown to everyone in lobby.ready. Reset when a match starts. */
   setReady(ready: boolean): void
   leave(): void
+  /** Link monitor rows, refreshed every STATS_MS (netstats.ts). null when not hosting or joined. */
+  netStats(): NetStatsView | null
+  /** Fires when a link's grade changes (with hysteresis). Returns unsubscribe. */
+  onNetGrade(cb: (e: NetGradeEvent) => void): () => void
 }
 
 export interface SessionDebug {
@@ -142,6 +176,18 @@ export interface SessionDebug {
   rttMs: number
   delayMs: number
   lossPct: number
+  /** net mode of the running match ('classic' for spectators), null without one */
+  netMode: NetMode | null
+  /** client prediction: predicted tick minus newest snapshot tick */
+  predictAhead: number
+  /** client prediction: ticks re-simulated by the last / the largest rollback */
+  resimTicks: number
+  maxResimTicks: number
+  /** client prediction: own frames the host applied after their stamp; margin ticks of the lead clock */
+  lateFrames: number
+  marginTicks: number
+  /** host fairness delay on the host's own inputs, ticks */
+  hostDelayTicks: number
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +227,20 @@ const LISTENER_HALF_WIDTH = 1200
 const MAX_QUEUED_CMDS = 256
 /** host broadcasts per-player pings this often */
 const PING_BROADCAST_MS = 1000
+/** stamped frames held on the host at most this far ahead of its tick */
+const MAX_HOLD_TICKS = 30
+const MAX_SCHED_FRAMES = 256
+/**
+ * Host fairness: the host's own inputs run this many ticks late at most. The delay
+ * follows the median client one-way latency (rtt / 2), re-evaluated every second
+ * and moved one tick at a time.
+ */
+export const HOST_DELAY_CAP_TICKS = 6
+const HOST_DELAY_EVAL_TICKS = 60
+/** client determinism check cadence (re-simulate one snapshot pair, compare hashes) */
+const CHECK_MS = 500
+/** the host is always the lobby's first slot */
+const HOST_PLAYER_ID = 0
 
 // ---------------------------------------------------------------------------
 
@@ -191,9 +251,28 @@ interface RemotePeer {
   key: string
   receiver: InputReceiver
   queued: InputCommand[]
+  /** stamped frames waiting for their tick, seq order (non-decreasing `at`) */
+  sched: { at: number; seq: number; cmds: InputCommand[] }[]
+  lastAt: number
+  /** client → host input packet loss */
+  upLoss: LossTracker
+  /** latest nstat report from this client, and when it came */
+  report: Extract<Msg, { t: 'nstat' }> | null
+  reportAt: number
+  desyncAt: number
   /** match id this peer received `start` for */
   matchId: number
   helloTimer: ReturnType<typeof setTimeout> | null
+}
+
+/** Host fairness: own inputs delayed by `delay` ticks, shown through a predictor. */
+interface HostFairness {
+  delay: number
+  seq: number
+  /** own frames not applied yet; tick = the step that applies it */
+  queue: LocalFrame[]
+  applied: number
+  pred: Predictor | null
 }
 
 interface HostMatch {
@@ -210,6 +289,11 @@ interface HostMatch {
   /** PlayerScore.connected changes, applied to the next tick's state */
   connectedPatch: Map<PlayerId, boolean>
   recent: TickEvents[]
+  /** inputs stepped since the last snapshot went out (snap.in) */
+  stepped: PlayerInput[]
+  /** host's own net mode at match start */
+  netMode: NetMode
+  fair: HostFairness
   snapN: number
   interval: number
   acc: number
@@ -228,6 +312,18 @@ interface ClientMatch {
   last: number
   lastStats: number
   stop: (() => void) | null
+  netMode: NetMode
+  /** predict mode with a pawn; null in classic mode and for spectators */
+  pred: Predictor | null
+  clock: LeadClock
+  /** input packet counter */
+  inN: number
+  /** first send time per unacked frame seq, for the ack lag */
+  sentAt: Map<number, number>
+  ackLagMs: number | null
+  corr: WindowMax
+  rebases: number
+  check: { prev: { n: number; state: SimState } | null; last: number; checks: number; desyncs: number; desyncAt: number }
 }
 
 function errMsg(e: unknown): string {
@@ -286,6 +382,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let cmatch: ClientMatch | null = null
   let welcomeDone: (() => void) | null = null
   let welcomeTimer: ReturnType<typeof setTimeout> | null = null
+  /** this client's uplink loss as the host measured it (pings.ul) */
+  let upLossSeen: number | null = null
+
+  // link monitor (both roles)
+  let statsTimer: ReturnType<typeof setInterval> | null = null
+  let statsView: NetStatsView | null = null
+  const grades = new Map<PlayerId, GradeTracker>()
+  const gradeCbs = new Set<(e: NetGradeEvent) => void>()
+  const netMode = (): NetMode => (deps.netMode?.() === 'classic' ? 'classic' : 'predict')
+  const hostDelayCap = deps.hostDelayCapTicks ?? HOST_DELAY_CAP_TICKS
 
   // -------------------------------------------------------------------------
   // shared helpers
@@ -334,7 +440,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const next: Record<PlayerId, number> = { [localPlayer]: 0 }
     for (const p of peers) if (p.playerId !== null) next[p.playerId] = Math.round(p.t.rtt)
     setPings(next)
-    const data = encode({ t: 'pings', pings })
+    const ul: Record<PlayerId, number> = {}
+    for (const p of peers) {
+      const v = p.playerId !== null ? p.upLoss.pct : null
+      if (v !== null) ul[p.playerId!] = Math.round(v * 10) / 10
+    }
+    const data = encode({ t: 'pings', pings, ul })
     for (const p of peers) if (p.playerId !== null) p.t.sendUnreliable(data)
   }
 
@@ -399,6 +510,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     noticeTimer = null
     if (pingTimer) clearInterval(pingTimer)
     pingTimer = null
+    if (statsTimer) clearInterval(statsTimer)
+    statsTimer = null
+    statsView = null
+    grades.clear()
+    upLossSeen = null
     ready = {}
     pings = {}
     rec?.abort()
@@ -446,6 +562,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       key: '',
       receiver: new InputReceiver(),
       queued: [],
+      sched: [],
+      lastAt: 0,
+      upLoss: new LossTracker(),
+      report: null,
+      reportAt: -1,
+      desyncAt: -Infinity,
       matchId: -1,
       helloTimer: null,
     }
@@ -471,6 +593,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!m) return
     if (m.t === 'hello') onHello(p, m)
     else if (m.t === 'input') onInput(p, m)
+    else if (m.t === 'nstat') onReport(p, m)
     else if (m.t === 'ready') {
       if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
     }
@@ -486,6 +609,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     p.matchId = m.id
     p.receiver = new InputReceiver()
     p.queued = []
+    p.sched = []
+    p.lastAt = 0
+    p.upLoss = new LossTracker()
+    p.report = null
+    p.reportAt = -1
     p.t.sendReliable(
       encode({
         t: 'start',
@@ -547,9 +675,47 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const id = p.playerId
     if (!mt || id === null || m.match !== mt.id || p.matchId !== mt.id) return
     if (!mt.humans.has(id) || mt.disconnected.has(id)) return
+    if (typeof m.n === 'number') p.upLoss.track(m.n)
     for (const f of p.receiver.accept(sanitizeFrames(m.inputs))) {
-      for (const c of f.cmds) if (p.queued.length < MAX_QUEUED_CMDS) p.queued.push(c)
+      if (m.s === 1) schedule(p, mt, f)
+      else for (const c of f.cmds) if (p.queued.length < MAX_QUEUED_CMDS) p.queued.push(c)
     }
+  }
+
+  /**
+   * A stamped frame runs in the step from its tick: held while early (up to
+   * MAX_HOLD_TICKS), applied in the next step when late. Never reordered.
+   */
+  function schedule(p: RemotePeer, mt: HostMatch, f: InputFrame): void {
+    const next = mt.state.tick
+    if (p.sched.length >= MAX_SCHED_FRAMES) {
+      for (const x of p.sched) x.at = next
+      p.lastAt = next
+    }
+    let at = Math.floor(f.tick)
+    if (!(at >= next)) at = next
+    if (at > next + MAX_HOLD_TICKS) at = next + MAX_HOLD_TICKS
+    if (at < p.lastAt) at = p.lastAt
+    p.lastAt = at
+    p.sched.push({ at, seq: f.seq, cmds: f.cmds })
+  }
+
+  function onReport(p: RemotePeer, m: Extract<Msg, { t: 'nstat' }>): void {
+    const mt = match
+    if (!mt || p.playerId === null || m.match !== mt.id || p.matchId !== mt.id) return
+    const r: Extract<Msg, { t: 'nstat' }> = {
+      t: 'nstat',
+      match: m.match,
+      dl: sanitizeMetric(m.dl),
+      sa: sanitizeMetric(m.sa),
+      al: sanitizeMetric(m.al),
+      cp: sanitizeMetric(m.cp),
+      ds: sanitizeMetric(m.ds),
+    }
+    const now = deps.now()
+    if (r.ds !== null && r.ds > (p.report?.ds ?? 0)) p.desyncAt = now
+    p.report = r
+    p.reportAt = now
   }
 
   function peerGone(p: RemotePeer, why: 'left' | 'disconnected'): void {
@@ -612,10 +778,30 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const tick = cur.tick
     const inputs: PlayerInput[] = []
     const local = deps.input.drain()
-    if (local.length && m.humans.has(localPlayer)) inputs.push({ player: localPlayer, tick, cmds: local })
+    const f = m.fair
+    if (local.length && m.humans.has(localPlayer)) {
+      if (f.pred) {
+        // fairness: runs `delay` ticks from now, already applied in the host's predicted view
+        const frame = { seq: ++f.seq, tick: f.pred.stampNext(), cmds: local }
+        f.queue.push(frame)
+        f.pred.local(frame)
+      } else inputs.push({ player: localPlayer, tick, cmds: local })
+    }
+    if (f.queue.length && f.queue[0].tick <= tick) {
+      const cmds: InputCommand[] = []
+      while (f.queue.length && f.queue[0].tick <= tick) {
+        const q = f.queue.shift()!
+        for (const c of q.cmds) cmds.push(c)
+        f.applied = q.seq
+      }
+      inputs.push({ player: localPlayer, tick, cmds })
+    }
     for (const p of peers) {
-      if (p.queued.length && p.playerId !== null && p.matchId === m.id) {
-        inputs.push({ player: p.playerId, tick, cmds: p.queued })
+      if (p.playerId === null || p.matchId !== m.id) continue
+      let cmds = p.queued
+      while (p.sched.length && p.sched[0].at <= tick) for (const c of p.sched.shift()!.cmds) cmds.push(c)
+      if (cmds.length) {
+        inputs.push({ player: p.playerId, tick, cmds })
         p.queued = []
       }
     }
@@ -640,17 +826,30 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
     deps.step(next, inputs)
     m.state = next
+    if (inputs.length) for (const i of inputs) m.stepped.push(i)
 
-    out.pushState(next, at)
     rec?.observe(next, next.events)
-    if (next.events.length) {
-      out.pushEvents(next.tick, next.events)
-      m.recent.push({ tick: next.tick, events: next.events })
+    if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
+    if (m.netMode === 'predict' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
+    if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
+    if (f.pred) {
+      // the host's view: its own delayed inputs predicted, display ticks `delay` ahead
+      f.pred.offer(next, f.applied, next.events.length ? [{ tick: next.tick, events: next.events }] : [])
+      const goal = next.tick + f.delay
+      f.pred.advance(goal, (display, events) => {
+        out.pushState(display, at + (display.tick - goal) * DT_MS)
+        out.pushEvents(display.tick, events)
+        deps.audio.playEvents(events, listenerFor(display, localPlayer))
+      })
+    } else {
+      out.pushState(next, at)
+      if (next.events.length) out.pushEvents(next.tick, next.events)
+      // every tick, even without events: audio re-aims projectile travel loops
+      deps.audio.playEvents(next.events, listenerFor(next, localPlayer))
     }
-    // every tick, even without events: audio re-aims projectile travel loops
-    deps.audio.playEvents(next.events, listenerFor(next, localPlayer))
     while (m.recent.length && m.recent[0].tick <= next.tick - EVENT_REDUNDANCY_TICKS) m.recent.shift()
     if (peers.length) sendSnapshots(m, next)
+    else m.stepped.length = 0
 
     if (m.endAt < 0 && next.phase === 'gameOver') {
       m.endAt = at + GAME_OVER_LINGER_MS
@@ -664,11 +863,34 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (stateJson.length > SNAP_BIG) m.interval = 2
     else if (stateJson.length < SNAP_SMALL) m.interval = 1
     const evJson = JSON.stringify(m.recent)
+    const inJson = JSON.stringify(m.stepped)
+    m.stepped.length = 0
     const n = ++m.snapN
     for (const p of peers) {
       if (p.playerId === null || p.matchId !== m.id) continue
-      p.t.sendUnreliable(encodeSnap(m.id, n, m.interval, p.receiver.lastSeq, evJson, stateJson))
+      // frames still waiting for their tick are not in this state
+      const ack = p.sched.length ? p.sched[0].seq - 1 : p.receiver.lastSeq
+      p.t.sendUnreliable(encodeSnap(m.id, n, m.interval, ack, evJson, stateJson, inJson))
     }
+  }
+
+  /**
+   * Fairness: the host's own inputs run as late as a typical client's reach the
+   * host (median one-way latency, capped). Set at match start (lobby probes know the
+   * RTT), then moved one tick per evaluation.
+   */
+  function updateHostDelay(m: HostMatch, jump = false): void {
+    const oneWay: number[] = []
+    for (const p of peers) {
+      const id = p.playerId
+      if (id === null || p.matchId !== m.id || !m.humans.has(id) || m.disconnected.has(id) || p.t.rtt <= 0) continue
+      oneWay.push(p.t.rtt / 2)
+    }
+    oneWay.sort((a, b) => a - b)
+    const mid = oneWay.length >> 1
+    const median = oneWay.length === 0 ? 0 : oneWay.length % 2 ? oneWay[mid] : (oneWay[mid - 1] + oneWay[mid]) / 2
+    const target = Math.min(hostDelayCap, Math.round(median / DT_MS))
+    m.fair.delay = jump ? target : m.fair.delay + Math.sign(target - m.fair.delay)
   }
 
   function finishMatch(m: HostMatch): void {
@@ -753,6 +975,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         break
       case 'pings':
         setPings(m.pings ?? {})
+        upLossSeen = sanitizeMetric(m.ul?.[localPlayer])
         break
       case 'start':
         clientStart(m)
@@ -760,8 +983,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       case 'snap': {
         const cm = cmatch
         if (!cm || m.match !== cm.id) return
+        const now = deps.now()
+        noteAck(cm, m.ack, now)
         cm.sender.ack(m.ack)
-        cm.buffer.push(m, deps.now())
+        cm.buffer.push(m, now)
+        cm.pred?.offer(m.state, m.ack, m.ev)
+        checkDeterminism(cm, m, now)
         break
       }
       case 'end':
@@ -796,6 +1023,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   function clientStart(m: Extract<Msg, { t: 'start' }>): void {
     stopClientMatch()
     const now = deps.now()
+    // spectators have nothing to predict: they watch the smooth delayed stream
+    const mode: NetMode = m.localPlayer >= 0 ? netMode() : 'classic'
     const cm: ClientMatch = {
       id: m.match,
       localPlayer: m.localPlayer,
@@ -805,6 +1034,15 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       last: now,
       lastStats: -Infinity,
       stop: null,
+      netMode: mode,
+      pred: mode === 'predict' ? new Predictor(m.localPlayer, deps.step, cloneState, deps.now) : null,
+      clock: new LeadClock(),
+      inN: 0,
+      sentAt: new Map(),
+      ackLagMs: null,
+      corr: new WindowMax(1000),
+      rebases: 0,
+      check: { prev: null, last: -Infinity, checks: 0, desyncs: 0, desyncAt: -Infinity },
     }
     cmatch = cm
     ready = {}
@@ -824,7 +1062,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       flushQueued = true
       queueMicrotask(() => {
         flushQueued = false
-        if (cmatch === cm) clientInputTick(cm, deps.now())
+        if (cmatch !== cm) return
+        if (cm.pred) predictInput(cm, deps.now(), false)
+        else clientInputTick(cm, deps.now())
       })
     })
     cm.stop = () => {
@@ -835,6 +1075,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function clientPulse(cm: ClientMatch, now: number): void {
     if (cmatch !== cm) return
+    if (cm.pred) {
+      predictPulse(cm, cm.pred, now)
+      return
+    }
     cm.acc += now - cm.last
     cm.last = now
     if (cm.acc > 100) cm.acc = 100
@@ -862,8 +1106,207 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (cm.localPlayer < 0 || !t) return
     const b = cm.buffer
     const est = b.latestTick < 0 ? 0 : b.latestTick + Math.round((now - b.latestAt + t.rtt / 2) / DT_MS)
-    cm.sender.add(est, cmds)
-    if (cm.sender.unacked) t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: cm.sender.frames() }))
+    const seq = cm.sender.add(est, cmds)
+    if (seq) cm.sentAt.set(seq, now)
+    if (cm.sender.unacked) t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: cm.sender.frames(), n: ++cm.inN }))
+  }
+
+  /**
+   * Predict mode, every pulse (~4 ms): drain input, apply the newest snapshot
+   * (rollback + re-sim), step the prediction to the lead clock's tick and hand every
+   * new predicted tick to render / audio. Authoritative ticks still go to the
+   * recorder through the jitter buffer.
+   */
+  function predictPulse(cm: ClientMatch, pred: Predictor, now: number): void {
+    cm.acc += now - cm.last
+    cm.last = now
+    if (cm.acc > 100) cm.acc = 100
+    let resend = false
+    while (cm.acc >= DT_MS) {
+      cm.acc -= DT_MS
+      resend = true
+    }
+    // a command issued between pulses waits ≤ 1 pulse, not a whole tick
+    predictInput(cm, now, resend)
+    const b = cm.buffer
+    const t = link
+    if (t && !Number.isNaN(b.baseMs)) {
+      cm.clock.feedLate(pred.stats.lateFrames, now)
+      cm.clock.update(now, b.baseMs, t.rtt, b.jitterMs)
+      pred.advance(Math.floor(cm.clock.tickAt(now)), (display, events) => {
+        out.pushState(display, cm.clock.timeOf(display.tick))
+        out.pushEvents(display.tick, events)
+        // once per displayed tick, even without events: audio re-aims travel loops
+        deps.audio.playEvents(events, listenerFor(display, cm.localPlayer))
+      })
+      if (pred.stats.rebases !== cm.rebases) {
+        cm.rebases = pred.stats.rebases
+        cm.corr.add(now, pred.stats.ownCorrection)
+      }
+    }
+    if (rec) b.pull(now, (state, _at, evs) => rec.observe(state, evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events)))
+    if (now - cm.lastStats >= NET_STATS_MS) {
+      cm.lastStats = now
+      out.setNet(link?.rtt ?? 0, b.lossPct)
+    }
+  }
+
+  /** Own commands: applied in the next predicted step, stamped with that tick, sent at once. */
+  function predictInput(cm: ClientMatch, now: number, resend: boolean): void {
+    const cmds = deps.input.drain()
+    const t = link
+    const pred = cm.pred
+    if (cm.localPlayer < 0 || !t || !pred) return
+    if (cmds.length) {
+      const tick = pred.stampNext()
+      const seq = cm.sender.add(tick, cmds)
+      pred.local({ seq, tick, cmds })
+      cm.sentAt.set(seq, now)
+    }
+    if (cm.sender.unacked && (cmds.length || resend)) {
+      t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: cm.sender.frames(), n: ++cm.inN, s: 1 }))
+    }
+  }
+
+  function noteAck(cm: ClientMatch, ack: number, now: number): void {
+    if (!cm.sentAt.size) return
+    for (const [seq, at] of cm.sentAt) {
+      if (seq > ack) continue
+      const lag = now - at
+      cm.ackLagMs = cm.ackLagMs === null ? lag : cm.ackLagMs * 0.8 + lag * 0.2
+      cm.sentAt.delete(seq)
+    }
+  }
+
+  /**
+   * ~2×/s: re-simulate the previous snapshot with the inputs the host stepped
+   * (snap.in) and compare state hashes. A mismatch means this engine's sim
+   * diverges from the host's (prediction would mispredict everything).
+   */
+  function checkDeterminism(cm: ClientMatch, m: Extract<Msg, { t: 'snap' }>, now: number): void {
+    const prev = cm.check.prev
+    if (prev && m.n < prev.n) return
+    cm.check.prev = { n: m.n, state: m.state }
+    if (!prev || m.n !== prev.n + 1 || !Array.isArray(m.in) || now - cm.check.last < CHECK_MS) return
+    const a = prev.state
+    const b = m.state
+    if (b.tick - a.tick < 1 || b.tick - a.tick > 4 || a.phase === 'gameOver') return
+    // the host patches `connected` between steps; such pairs cannot be replayed
+    for (let i = 0; i < b.scores.length; i++) if (a.scores[i]?.connected !== b.scores[i].connected) return
+    cm.check.last = now
+    try {
+      const s = cloneState(a)
+      while (s.tick < b.tick) {
+        const tick = s.tick
+        deps.step(s, m.in.filter((x) => x && x.tick === tick))
+      }
+      cm.check.checks++
+      if (hashState({ ...s, events: [] }) !== hashState({ ...b, events: [] })) {
+        if (cm.check.desyncs === 0) console.warn(`[session] determinism check failed at tick ${b.tick}`)
+        cm.check.desyncs++
+        cm.check.desyncAt = now
+      }
+    } catch (e) {
+      console.warn('[session] determinism check skipped', e)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // link monitor
+  // -------------------------------------------------------------------------
+
+  function channelOf(mode: UnreliableMode): PeerNetStats['channel'] {
+    return mode === 'raw' ? 'unreliable' : mode === 'reliable' ? 'reliable' : null
+  }
+
+  function worst(a: number | null, b: number | null): number | null {
+    return a === null ? b : b === null ? a : Math.max(a, b)
+  }
+
+  function graded(row: Omit<PeerNetStats, 'grade'>, recentDesync: boolean): PeerNetStats {
+    let tr = grades.get(row.playerId)
+    if (!tr) grades.set(row.playerId, (tr = new GradeTracker()))
+    const change = tr.update(gradeOf({ ...row, recentDesync }), row.playerId)
+    if (change) {
+      for (const cb of gradeCbs) {
+        try {
+          cb(change)
+        } catch (e) {
+          console.error('[session] net grade listener failed', e)
+        }
+      }
+    }
+    return { ...row, grade: tr.grade }
+  }
+
+  /** Every STATS_MS: rebuild the monitor view; a client also reports its side to the host. */
+  function updateNetStats(): void {
+    const now = deps.now()
+    if (role === 'host') {
+      const rows: PeerNetStats[] = []
+      for (const p of peers) {
+        if (p.playerId === null) continue
+        const inMatch = match !== null && p.matchId === match.id
+        const r = inMatch ? p.report : null
+        const since = r ? now - p.reportAt : null
+        rows.push(
+          graded(
+            {
+              playerId: p.playerId,
+              rttMs: p.t.rtt > 0 ? p.t.rtt : null,
+              jitterMs: p.t.rtt > 0 ? p.t.rttJitter : null,
+              lossPct: inMatch ? worst(p.upLoss.pct, r?.dl ?? null) : null,
+              // the client's report, or how overdue it is when the client went quiet
+              snapshotAgeMs: since === null ? null : since > 4 * STATS_MS ? since : r!.sa,
+              channel: channelOf(p.t.unreliableMode),
+              inputAckLagMs: r?.al ?? null,
+              correctionPx: r?.cp ?? null,
+              desyncs: r?.ds ?? null,
+            },
+            now - p.desyncAt < DESYNC_HOLD_MS,
+          ),
+        )
+      }
+      statsView = { role: 'host', peers: rows }
+    } else if (role === 'client' && link) {
+      const t = link
+      const cm = cmatch
+      const b = cm?.buffer
+      const fresh = b !== undefined && b.latestTick >= 0
+      const row = graded(
+        {
+          playerId: HOST_PLAYER_ID,
+          rttMs: t.rtt > 0 ? t.rtt : null,
+          jitterMs: t.rtt > 0 ? t.rttJitter : null,
+          lossPct: cm ? worst(fresh ? b!.lossPct : null, upLossSeen) : null,
+          snapshotAgeMs: fresh ? now - b!.latestAt : null,
+          channel: channelOf(t.unreliableMode),
+          inputAckLagMs: cm?.ackLagMs ?? null,
+          correctionPx: cm?.pred ? cm.corr.value(now) : null,
+          desyncs: cm && cm.check.checks + cm.check.desyncs > 0 ? cm.check.desyncs : null,
+        },
+        cm !== null && now - cm.check.desyncAt < DESYNC_HOLD_MS,
+      )
+      statsView = { role: 'client', peers: [row] }
+      if (cm) {
+        t.sendUnreliable(
+          encode({
+            t: 'nstat',
+            match: cm.id,
+            dl: fresh ? b!.lossPct : null,
+            sa: row.snapshotAgeMs,
+            al: row.inputAckLagMs,
+            cp: row.correctionPx,
+            ds: row.desyncs,
+          }),
+        )
+      }
+    }
+  }
+
+  function startStats(): void {
+    if (statsTimer) clearInterval(statsTimer)
+    statsTimer = setInterval(updateNetStats, STATS_MS)
   }
 
   // -------------------------------------------------------------------------
@@ -895,6 +1338,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       endpoint = ep
       ep.onConnection(acceptPeer)
       pingTimer = setInterval(updatePings, PING_BROADCAST_MS)
+      startStats()
       unsubScreen = ui.onScreen((s) => {
         if (role === 'host' && s === 'lobby' && !match) broadcast({ t: 'screen', screen: 'lobby' })
       })
@@ -941,6 +1385,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       link = t
       t.onMessage(onHostMessage)
+      startStats()
       t.onClose((reason) => {
         if (link !== t) return
         fail(reason === 'timeout' ? 'Lost connection to the host (timed out).' : 'Lost connection to the host.')
@@ -1040,6 +1485,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         disconnected: new Set(),
         connectedPatch: new Map(),
         recent: [],
+        stepped: [],
+        netMode: role === 'host' ? netMode() : 'classic',
+        fair: { delay: 0, seq: 0, queue: [], applied: 0, pred: null },
         snapN: 0,
         interval: 1,
         acc: 0,
@@ -1058,6 +1506,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       publishLobby()
       rec?.start({ localPlayer, slots: mSlots, settings: mSettings })
       for (const p of peers) if (p.playerId !== null) sendStart(p, m)
+      if (m.netMode === 'predict') updateHostDelay(m, true)
       deps.input.drain()
       out.reset()
       out.setLocalPlayer(localPlayer)
@@ -1127,8 +1576,20 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       ui.setScreen('menu')
     },
 
+    netStats() {
+      return statsView
+    },
+
+    onNetGrade(cb) {
+      gradeCbs.add(cb)
+      return () => {
+        gradeCbs.delete(cb)
+      }
+    },
+
     debug(): SessionDebug {
       const cm = cmatch
+      const pred = cm?.pred
       return {
         role,
         peers: peers.length,
@@ -1138,6 +1599,13 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         rttMs: link ? link.rtt : Math.max(0, ...peers.map((p) => p.t.rtt)),
         delayMs: cm?.buffer.delayMs ?? 0,
         lossPct: cm?.buffer.lossPct ?? 0,
+        netMode: match?.netMode ?? cm?.netMode ?? null,
+        predictAhead: pred && pred.tick >= 0 ? pred.tick - pred.base : 0,
+        resimTicks: pred?.stats.resimTicks ?? 0,
+        maxResimTicks: pred?.stats.maxResimTicks ?? 0,
+        lateFrames: pred?.stats.lateFrames ?? 0,
+        marginTicks: cm?.clock.marginTicks ?? 0,
+        hostDelayTicks: match?.fair.delay ?? 0,
       }
     },
   }

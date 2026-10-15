@@ -17,10 +17,12 @@ export class InputSender {
   private nextSeq = 1
   private pending: InputFrame[] = []
 
-  /** Queue one tick of commands. Empty ticks are not sent. */
-  add(tick: number, cmds: InputCommand[]): void {
-    if (cmds.length === 0) return
-    this.pending.push({ seq: this.nextSeq++, tick, cmds })
+  /** Queue one tick of commands. Empty ticks are not sent. Returns the frame's seq, 0 if empty. */
+  add(tick: number, cmds: InputCommand[]): number {
+    if (cmds.length === 0) return 0
+    const seq = this.nextSeq++
+    this.pending.push({ seq, tick, cmds })
+    return seq
   }
 
   /** Host applied everything up to `seq`. */

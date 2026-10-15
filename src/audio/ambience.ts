@@ -40,6 +40,8 @@ export class AmbienceLayer {
   private readonly edgePan: StereoPannerNode | null = null
   private nextBubble: number
   private stopAt = Infinity
+  private readonly rumbleGain: GainNode
+  private beds: { src: AudioBufferSourceNode; g: GainNode }[] = []
 
   constructor(synth: Synth, dest: AudioNode, kind: AmbienceKind) {
     const ctx = synth.ctx
@@ -70,6 +72,7 @@ export class AmbienceLayer {
     }
     // magma rumble with a slow swell
     const rumble = loop(synth.banks.brown, 'lowpass', this.def.rumbleHz, 0.7, 0.9)
+    this.rumbleGain = rumble.g
     this.lfo(0.06, 0.35, rumble.g.gain, t)
     // breathing hiss of hot air
     const hiss = loop(synth.banks.pink, 'bandpass', 2600, 0.6, this.def.hiss)
@@ -119,6 +122,40 @@ export class AmbienceLayer {
     this.stopAt = end
     for (const s of this.sources) s.stop(end)
     setTimeout(() => this.out.disconnect(), (seconds + 0.5) * 1000)
+  }
+
+  /**
+   * Recorded lava beds (hybrid mode) under the procedural bed, which then thins its own
+   * rumble so the total stays at the calibrated level. [] removes them (synth mode).
+   */
+  setBeds(beds: readonly { buffer: AudioBuffer; gain: number; loopEnd: number }[]): void {
+    const ctx = this.synth.ctx
+    const now = ctx.currentTime
+    for (const b of this.beds) {
+      b.g.gain.setTargetAtTime(0, now, 0.4)
+      b.src.stop(now + 2)
+      const i = this.sources.indexOf(b.src)
+      if (i >= 0) this.sources.splice(i, 1)
+    }
+    this.beds = []
+    if (this.stopAt !== Infinity) return
+    for (const bed of beds) {
+      const src = ctx.createBufferSource()
+      src.buffer = bed.buffer
+      src.loop = true
+      src.loopStart = 0
+      src.loopEnd = Math.min(bed.loopEnd, bed.buffer.duration)
+      src.playbackRate.value = 0.95 + Math.random() * 0.1
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0, now)
+      g.gain.setTargetAtTime(bed.gain, now, 1)
+      src.connect(g)
+      g.connect(this.out)
+      src.start(now, Math.random() * src.loopEnd * 0.9)
+      this.beds.push({ src, g })
+      this.sources.push(src)
+    }
+    this.rumbleGain.gain.setTargetAtTime(beds.length > 0 ? 0.45 : 0.9, now, 1)
   }
 
   /** Edge proximity 0 (safe) .. 1 (at the lava), and which side the lava is on (-1..1). */

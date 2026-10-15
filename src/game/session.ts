@@ -18,7 +18,7 @@ import { createBot } from '../bots'
 import { startClock } from '../net/clock'
 import { codeFromSearch } from '../net/code'
 import { joinUrlFor, peerNet } from '../net/peer'
-import { createSession, type MatchRecorder, type SessionApi } from '../net/session'
+import { createSession, type MatchRecorder, type NetMode, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
@@ -26,7 +26,8 @@ import { getProfile } from './profile'
 import { MatchTracker, recordMatch } from './stats'
 import { useGame } from './store'
 
-export type { SessionApi } from '../net/session'
+export type { SessionApi, NetMode } from '../net/session'
+export type { NetStatsView, PeerNetStats, NetGrade, NetGradeEvent, NetGradeReason } from '../net/netstats'
 export { PLAYER_COLORS, MAX_PLAYERS } from '../net/session'
 export { parseRoomCode, codeFromSearch, roomLink, CODE_LENGTH } from '../net/code'
 
@@ -55,6 +56,15 @@ function clientKey(): string {
 /** Room code from a `?room=CODE` invite link, or null. */
 export function roomCodeFromUrl(): string | null {
   return typeof location === 'undefined' ? null : codeFromSearch(location.search)
+}
+
+/** `?net=classic` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
+function netMode(): NetMode {
+  if (typeof location !== 'undefined') {
+    const v = new URLSearchParams(location.search).get('net')
+    if (v === 'classic' || v === 'predict') return v
+  }
+  return useGame.getState().settings.netMode === 'classic' ? 'classic' : 'predict'
 }
 
 /** Feeds game/stats.ts: one tracker per match, recorded at game over. */
@@ -114,6 +124,7 @@ const impl = createSession({
   random: Math.random,
   joinUrl: joinUrlFor,
   clientKey,
+  netMode,
 })
 
 export const session: SessionApi = {
@@ -130,9 +141,12 @@ export const session: SessionApi = {
   backToLobby: impl.backToLobby,
   setReady: impl.setReady,
   leave: impl.leave,
+  netStats: impl.netStats,
+  onNetGrade: impl.onNetGrade,
 }
 
-// dev-only probe for two-tab testing from the console: __session.debug()
+// dev-only probes for two-tab / two-browser testing from the console: __session.debug(),
+// __session.netStats(), __input.issue({kind: 'move', ...}), __frame.curr, __store.getState()
 if (import.meta.env.DEV && typeof window !== 'undefined') {
-  ;(window as unknown as { __session: typeof impl }).__session = impl
+  Object.assign(window, { __session: impl, __frame: frame, __input: input, __store: useGame })
 }

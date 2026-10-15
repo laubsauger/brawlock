@@ -50,4 +50,5 @@ else
   /Users/flo/.local/bin/codex exec --skip-git-repo-check -s workspace-write -C $OUTDIR - < $PROMPT > $LOGDIR/tex_${FLAT}_$C.log 2>&1
 fi
 RC=$?
+rmdir $OUTDIR/.$C.lock 2>/dev/null
 echo "$FLAT $C rc=$RC secs=$(( $(date +%s) - START )) $(ls -la $OUT 2>/dev/null | awk '{print $5}')"

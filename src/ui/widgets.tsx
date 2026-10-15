@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { hoverSfx, sfx } from './lib/sound'
 import type { UiSound } from '../audio'
+import { GRADE_BARS, GRADE_COLOR, peerTitle, type PeerNet } from './lib/netstats'
 
 type Variant = 'default' | 'primary' | 'danger' | 'ghost'
 type Size = 'sm' | 'md' | 'lg'
@@ -18,6 +19,7 @@ export function Button({
   const cls = [
     'btn',
     variant === 'primary' && 'btn-primary',
+    (variant === 'default' || variant === 'danger') && 'btn-secondary',
     variant === 'danger' && 'btn-danger',
     variant === 'ghost' && 'btn-ghost',
     size === 'sm' && 'btn-sm',
@@ -287,13 +289,19 @@ export function pingTone(ms: number): { bars: number; color: string } {
   return { bars: 1, color: '#ff6a55' }
 }
 
-/** Signal bars plus milliseconds. `ms` undefined = unknown (shows a dash). */
-export function PingBars({ ms, host }: { ms: number | undefined; host?: boolean }) {
+/**
+ * Signal bars plus milliseconds. `ms` undefined = unknown (shows a dash).
+ * With `net` (the link's stats), bars and color follow its grade and the
+ * tooltip lists jitter and loss; `warn` marks a link the host flagged.
+ */
+export function PingBars({ ms, host, net, warn }: { ms: number | undefined; host?: boolean; net?: PeerNet | null; warn?: boolean }) {
   if (host) return <span className="text-sm font-semibold text-ash">Host</span>
+  if (net) ms = net.rttMs ?? undefined
   if (ms == null) return <span className="text-sm text-ash">–</span>
-  const t = pingTone(ms)
+  const t = net ? { bars: GRADE_BARS[net.grade], color: GRADE_COLOR[net.grade] } : pingTone(ms)
   return (
-    <span className="inline-flex items-end gap-1.5" title={`${Math.round(ms)} ms round trip to the host`}>
+    <span className="inline-flex items-end gap-1.5" title={net ? peerTitle(net) : `${Math.round(ms)} ms round trip to the host`}>
+      {warn && <span className="self-center text-[0.8rem] font-semibold text-[#ffb08a]">Unstable</span>}
       <span className="inline-flex items-end gap-[2px]" aria-hidden>
         {[0, 1, 2, 3].map((i) => (
           <i key={i} className="block w-[3px] rounded-[1px]" style={{ height: 5 + i * 3, background: i < t.bars ? t.color : 'rgba(255,255,255,.14)' }} />

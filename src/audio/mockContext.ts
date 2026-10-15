@@ -136,6 +136,8 @@ export class MockAudioContext {
     return Object.assign(new MockSource(this, 'buffer'), {
       buffer: null as MockBuffer | null,
       loop: false,
+      loopStart: 0,
+      loopEnd: 0,
       playbackRate: new MockParam(1),
     })
   }
@@ -156,6 +158,10 @@ export class MockAudioContext {
   }
   createConvolver() {
     return Object.assign(new MockNode(this, 'convolver'), { buffer: null })
+  }
+  /** decodes any bytes into a 0.5 s buffer (enough for layering tests) */
+  decodeAudioData(_data: ArrayBuffer) {
+    return Promise.resolve(new MockBuffer(1, Math.floor(this.sampleRate * 0.5), this.sampleRate))
   }
   createBuffer(channels: number, length: number, rate: number) {
     if (!(length > 0)) throw new RangeError('createBuffer: length must be > 0')

@@ -338,12 +338,52 @@
     --core: 220, 46, 34;
   }
 
-  .btn-ghost { filter: none; color: #c4ae98; --label: linear-gradient(180deg, #e6d6c2, #b39a80); }
-  .btn-ghost::before, .btn-ghost::after { display: none; }
-  .btn-ghost:hover:not(:disabled) { filter: drop-shadow(0 0 8px rgba(255, 140, 50, 0.35)); }
+  .btn-ghost::after { display: none; }
 
   .btn-sm { --c: 6px; --ci: 5.4px; padding: 0.38rem 0.85rem; font-size: 0.82rem; }
   .btn-lg { --c: 12px; --ci: 11.4px; padding: 0.95rem 1.8rem; font-size: 1.12rem; }
+
+  /* Three tiers. Only the primary CTA gets the forged slab (above).
+   * Secondary (Button's default): no slab, a thin engraved iron outline over a
+   * dark translucent fill, muted label. Tertiary (.btn-ghost): no fill and a
+   * faint hairline. Both heat the outline to molten on hover only.
+   * The outline is a 1px ring: the chamfered octagon minus the octagon 1px
+   * inside it (evenodd), so the translucent fill never shows a plate through. */
+  .btn-secondary, .btn-ghost {
+    --ci: calc(var(--c) - 0.59px);
+    --ck: calc(var(--c) + 0.41px);
+    --rim-a: #75604c;
+    --rim-b: #2e231b;
+    --rim-c: #524030;
+    --label: linear-gradient(180deg, #e2d2bc 0%, #b39b80 100%);
+    color: #ccb69e;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+  }
+  .btn-secondary::before, .btn-ghost::before {
+    display: block;
+    clip-path: polygon(evenodd,
+      var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c), var(--c) 0,
+      var(--ck) 1px, calc(100% - var(--ck)) 1px, calc(100% - 1px) var(--ck), calc(100% - 1px) calc(100% - var(--ck)), calc(100% - var(--ck)) calc(100% - 1px), var(--ck) calc(100% - 1px), 1px calc(100% - var(--ck)), 1px var(--ck), var(--ck) 1px);
+    background:
+      linear-gradient(180deg, rgba(255, 220, 160, calc(var(--heat) * 0.8)), rgba(var(--core), calc(var(--heat) * 0.65)) 50%, rgba(var(--core), var(--heat))),
+      linear-gradient(180deg, var(--rim-a), var(--rim-b) 50%, var(--rim-c));
+  }
+  .btn-secondary::after {
+    inset: 1px;
+    background:
+      radial-gradient(110% 95% at 50% 135%, rgba(var(--core), calc(var(--heat) * 0.3)), transparent 70%),
+      linear-gradient(180deg, rgba(16, 11, 8, 0.6), rgba(9, 6, 5, 0.48));
+    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 214, 170, 0.06);
+  }
+  .btn-secondary:hover:not(:disabled), .btn-ghost:hover:not(:disabled) {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 7px rgba(var(--core), 0.4));
+  }
+  .btn-secondary.btn-danger { --rim-a: #8a5045; --rim-b: #361511; --rim-c: #5e261d; }
+  .btn-ghost {
+    --rim-a: rgba(160, 128, 96, 0.34);
+    --rim-b: rgba(70, 52, 40, 0.3);
+    --rim-c: rgba(120, 92, 66, 0.3);
+  }
 
   /* Main menu entries: large, left aligned, title over a quiet subtitle */
   .menu-item {
@@ -477,6 +517,7 @@
   .switch:focus-visible { box-shadow: 0 0 0 2px rgba(255, 200, 120, 0.9); }
   .switch:disabled { opacity: 0.5; cursor: var(--cursor-default, default); }
 
+  .col-head .kbd, .hud-hints .kbd { font-size: 1.02rem; font-weight: 800; color: #fff0d4; min-width: 1.55em; }
   .kbd {
     display: inline-grid;
     place-items: center;
@@ -576,6 +617,10 @@
    * ---------------------------------------------------------------------- */
   .hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
   .hud .interactive { pointer-events: auto; }
+  /* connection warning icon next to the HUD ping: a slow pulse, steady under reduced motion */
+  .net-alert { display: inline-flex; animation: net-alert 1.6s ease-in-out infinite; }
+  @keyframes net-alert { 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .net-alert { animation: none; } }
   /* HUD clusters scale with resolution and the UI scale setting (App sets --ui-scale) */
   .hud-scale { zoom: var(--ui-scale, 1); }
   /* bottom cluster sits flush on the screen edge: chamfered top corners only */
@@ -596,6 +641,16 @@
   .hud-text-shadow, .ink-sm { filter: url(#ink-sm); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.55); }
   .ink-md { filter: url(#ink-md); }
   .ink-lg { filter: url(#ink-lg); }
+  .ink-xl { filter: url(#ink-xl); }
+  /* small dense text over the arena: a soft rounded dark plate (blurred behind, cheap at this size) under the ink halo */
+  .hud-backing {
+    background: rgba(12, 7, 4, 0.6);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    border-radius: 6px;
+    padding: 0.1rem 0.55rem;
+    box-shadow: 0 0 0 1px rgba(255, 170, 100, 0.09), 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
 
   /* HP */
   .hp-frame {
@@ -669,15 +724,23 @@
     text-shadow: 0 1px 3px #000, 0 0 8px #000;
   }
   .slot.item .cd-text { font-size: 0.92rem; }
+  /* key cap tab in the top-left corner: big enough to read mid-fight, on a dark
+     plate with a thin rim so it holds up over bright icons, clear of the icon's center */
   .slot .hotkey {
-    position: absolute; left: 2px; top: 2px;
-    font: 700 0.64rem var(--font-ui);
-    color: #ffe2b0;
-    background: rgba(0, 0, 0, 0.65);
-    padding: 0 4px;
-    border-radius: 3px;
-    line-height: 1.3;
+    position: absolute; left: 0; top: 0;
+    min-width: 1.35em;
+    font: 800 0.84rem var(--font-ui);
+    letter-spacing: 0.02em;
+    text-align: center;
+    color: #fff3da;
+    text-shadow: 0 1px 1px #000, 0 0 3px rgba(0, 0, 0, 0.9);
+    background: linear-gradient(180deg, rgba(14, 9, 6, 0.9), rgba(4, 2, 1, 0.84));
+    box-shadow: inset 0 0 0 1px rgba(255, 190, 120, 0.3), 1px 1px 3px rgba(0, 0, 0, 0.6);
+    padding: 0 0.28em;
+    border-radius: 0 0 5px 0;
+    line-height: 1.32;
   }
+  .slot.item .hotkey { font-size: 0.78rem; border-radius: 0 0 4px 0; }
   .slot .pips { position: absolute; left: 3px; right: 3px; bottom: 2px; display: flex; gap: 1.5px; }
   .slot .pips i { flex: 1; height: 2.5px; border-radius: 1px; background: rgba(255, 255, 255, 0.15); }
   .slot .pips i[data-on="true"] { background: #ffc548; box-shadow: 0 0 4px rgba(255, 190, 70, 0.8); }
@@ -710,7 +773,7 @@
     color: #fff2d6;
     /* ink halo from the glyphs first, then the molten glow around it */
     text-shadow: 0 3px 0 #3b0a02;
-    filter: url(#ink-lg) drop-shadow(0 0 16px rgba(255, 110, 30, 0.5));
+    filter: url(#ink-xl) drop-shadow(0 0 16px rgba(255, 110, 30, 0.5));
   }
   .banner[data-tone="count"] .banner-title { font-size: clamp(6rem, 15vw, 12rem); color: #ffd77a; }
 
@@ -752,7 +815,7 @@
     background-clip: text;
     color: transparent;
     text-shadow: none;
-    filter: url(#ink-lg) drop-shadow(0 0 30px rgba(255, 100, 20, 0.8)) drop-shadow(0 4px 0 #3b0a02);
+    filter: url(#ink-xl) drop-shadow(0 4px 0 #3b0a02) drop-shadow(0 0 26px rgba(255, 100, 20, 0.7));
     display: inline-block;
     padding: 0 0.08em;
   }
@@ -762,7 +825,8 @@
     14% { opacity: 1; transform: scale(0.9) rotate(0); filter: blur(0); }
     22% { transform: scale(1.06); }
     30% { transform: scale(1); }
-    72% { opacity: 1; transform: scale(1.02); }
+    /* filter pinned here: without it the blur ramps up from 14% and FIGHT reads soft while it holds */
+    72% { opacity: 1; transform: scale(1.02); filter: blur(0); }
     100% { opacity: 0; transform: scale(1.5); filter: blur(6px); }
   }
   .banner[data-tone="fight"]::after {
@@ -782,9 +846,20 @@
     40% { opacity: 1; transform: translateY(-50%) scaleX(1); }
     100% { opacity: 0; transform: translateY(-50%) scaleX(1.1); }
   }
-  .banner[data-tone="win"] .banner-title { color: #fff1c9; text-shadow: 0 3px 0 #3b1a02; filter: url(#ink-lg) drop-shadow(0 0 18px rgba(255, 190, 70, 0.6)); }
-  .banner[data-tone="danger"] .banner-title { color: #ffd3c9; text-shadow: 0 3px 0 #2a0000; filter: url(#ink-lg) drop-shadow(0 0 16px rgba(220, 30, 30, 0.6)); }
-  .banner-sub { margin-top: 0.6rem; font-size: 1.35rem; font-weight: 600; color: #f6e3c6; filter: url(#ink-md); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
+  .banner[data-tone="win"] .banner-title { color: #fff1c9; text-shadow: 0 3px 0 #3b1a02; filter: url(#ink-xl) drop-shadow(0 0 18px rgba(255, 190, 70, 0.6)); }
+  .banner[data-tone="danger"] .banner-title { color: #ffd3c9; text-shadow: 0 3px 0 #2a0000; filter: url(#ink-xl) drop-shadow(0 0 16px rgba(220, 30, 30, 0.6)); }
+  .banner-sub {
+    display: inline-block;
+    margin-top: 0.6rem;
+    padding: 0.05rem 0.75rem;
+    border-radius: 7px;
+    background: rgba(12, 7, 4, 0.55);
+    font-size: 1.35rem; font-weight: 600; color: #f6e3c6;
+    filter: url(#ink-md);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  }
+  /* a soft dark pool behind every banner, so the halo is not the only thing between the digits and bright lava */
+  .banner { background: radial-gradient(closest-side, rgba(8, 4, 2, 0.5), rgba(8, 4, 2, 0.28) 55%, transparent); }
 
   /* Killfeed */
   .feed-row {
@@ -793,6 +868,10 @@
     font-weight: 600;
     font-size: 0.98rem;
     border-right: 2px solid rgba(255, 120, 40, 0.7);
+    border-radius: 6px 0 0 6px;
+    background: linear-gradient(90deg, rgba(10, 6, 4, 0.2), rgba(10, 6, 4, 0.66) 22%);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
     filter: url(#ink-sm);
     animation: feed-in 0.3s cubic-bezier(.2, .9, .3, 1) both;
   }
@@ -1037,10 +1116,18 @@
     100% { transform: none; }
   }
   .lvl-bars.big i { width: 10px; height: 5px; }
+  /* rises beside the counter (never over its digits) on a small dark plate */
   .gold-delta {
     position: absolute;
-    right: 0; top: -4px;
-    font-weight: 700;
+    left: 100%; top: 0.1em;
+    margin-left: 0.4rem;
+    padding: 0 0.35rem;
+    border-radius: 5px;
+    background: rgba(12, 7, 4, 0.72);
+    box-shadow: 0 0 0 1px rgba(255, 170, 100, 0.12);
+    filter: url(#ink-sm);
+    white-space: nowrap;
+    font-weight: 800;
     pointer-events: none;
     animation: gold-delta 1.1s ease-out forwards;
   }
@@ -1112,6 +1199,10 @@
     background: var(--grain), linear-gradient(180deg, rgba(40, 28, 20, 0.92), rgba(18, 11, 8, 0.94));
     box-shadow: inset 0 0 0 1px rgba(255, 190, 120, 0.35), 0 8px 24px rgba(0, 0, 0, 0.5);
     filter: none;
+  }
+  .toast-warn {
+    background: var(--grain), linear-gradient(180deg, rgba(58, 22, 14, 0.94), rgba(26, 9, 6, 0.95));
+    box-shadow: inset 0 0 0 1px rgba(255, 120, 70, 0.55), inset 3px 0 0 #ff8a3d, 0 8px 24px rgba(0, 0, 0, 0.5);
   }
 
   /* -------------------------------------------------------------------------

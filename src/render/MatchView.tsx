@@ -1,6 +1,8 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import * as THREE from 'three/webgpu'
+
+let updateErrorLogged = false
 import { useGame } from '../game/store'
 import { cameraRig } from './cameraRig'
 import { startMockDriver, globalSink } from './dev/mockDriver'
@@ -146,7 +148,13 @@ function MatchScene({ fx, quality, overlayEl }: { fx: number; quality: Parameter
     perfMark.start = performance.now()
     const w = worldRef.current
     if (!w) return
-    w.update(Math.min(dt, 0.1) * devTime.scale, state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
+    try {
+      w.update(Math.min(dt, 0.1) * devTime.scale, state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
+    } catch (err) {
+      // last resort: keep rendering (the render loop still draws this frame)
+      if (!updateErrorLogged) console.error('[render] world update threw', err)
+      updateErrorLogged = true
+    }
   })
 
   return null

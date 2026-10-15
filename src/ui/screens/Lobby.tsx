@@ -9,6 +9,8 @@ import { hex, TEAM_NAMES } from '../lib/view'
 import { sfx } from '../lib/sound'
 import { MatchOptions } from './MatchOptions'
 import { roomLink } from '../../net/code'
+import { useLinks } from '../lib/netmonitor'
+import type { PeerNet } from '../lib/netstats'
 
 const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
   dummy: 'Dummy',
@@ -52,6 +54,8 @@ function PlayerCard({
   teamMode,
   online,
   ping,
+  net,
+  unstable,
   ready,
   h2h,
 }: {
@@ -62,6 +66,10 @@ function PlayerCard({
   teamMode: TeamMode | undefined
   online: boolean
   ping: number | undefined
+  /** this player's link stats when known (host: every client; client: its own card) */
+  net?: PeerNet
+  /** host: this client's connection is bad right now */
+  unstable?: boolean
   ready: boolean
   h2h: ReturnType<typeof headToHead>
 }) {
@@ -82,6 +90,7 @@ function PlayerCard({
           {isHost && <Crown />}
           {isLocal && <span className="chip text-gold">You</span>}
           {ready && <span className="chip pop-in bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}
+          {unstable && slot.kind === 'human' && <span className="chip pop-in bg-[rgba(255,110,60,0.14)] text-[#ffb08a]">Unstable connection</span>}
         </div>
         <div className="flex items-center gap-3 text-sm text-ash">
           <span>{slot.kind === 'bot' ? `Bot, ${DIFFICULTY_LABEL[slot.difficulty ?? 'medium'].toLowerCase()}` : 'Human'}</span>
@@ -95,7 +104,7 @@ function PlayerCard({
         </div>
       </div>
 
-      {online && slot.kind === 'human' && <PingBars ms={ping} host={isHost} />}
+      {online && slot.kind === 'human' && <PingBars ms={ping} host={isHost} net={net} />}
 
       {teamMode === 'teams' &&
         (canEdit ? (
@@ -211,6 +220,7 @@ export function Lobby() {
   const online = lobby.role !== 'offline'
   const localReady = !!lobby.ready?.[lobby.localPlayer]
 
+  const links = useLinks()
   const canEdit = lobby.role !== 'client'
   const humans = lobby.slots.filter((s) => s.kind === 'human').length
   const status = statusLine(lobby, humans)
@@ -250,6 +260,8 @@ export function Lobby() {
                 teamMode={lobby.settings?.teamMode}
                 online={online}
                 ping={lobby.pings?.[s.id]}
+                net={links.links[s.id]}
+                unstable={links.flagged.includes(s.id)}
                 ready={!!lobby.ready?.[s.id]}
                 h2h={headToHead(encounters, s)}
               />

@@ -127,6 +127,16 @@ export class SnapshotBuffer {
     }
   }
 
+  /** Local arrival time of host tick 0 over the fastest recent path, ms. NaN before the first snapshot. */
+  get baseMs(): number {
+    return this.samples.length ? this.windowMin() : NaN
+  }
+
+  /** Mean deviation of snapshot arrivals from the fastest path, ms. */
+  get jitterMs(): number {
+    return this.jitter
+  }
+
   /** Fraction of snapshots lost recently, 0..100. */
   get lossPct(): number {
     if (this.maxN < 0) return 0

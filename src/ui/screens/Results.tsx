@@ -217,7 +217,7 @@ export function Results() {
         <Button size="lg" onClick={backToLobby}>
           Back to lobby
         </Button>
-        <Button size="lg" variant="danger" sound="back" onClick={leaveToMenu}>
+        <Button variant="ghost" sound="back" onClick={leaveToMenu}>
           Leave
         </Button>
       </div>

@@ -26,5 +26,6 @@ P
 START=$(date +%s)
 /Users/flo/.local/bin/codex exec -s workspace-write -C $OUTDIR - < $PROMPT > $LOGDIR/${ID}_$V.log 2>&1
 RC=$?
+rmdir $OUTDIR/.$V.lock 2>/dev/null
 END=$(date +%s)
 echo "$ID $V rc=$RC secs=$((END-START)) $(ls -la $OUTDIR/$V.png 2>/dev/null | awk '{print $5, $6, $7, $8}')"

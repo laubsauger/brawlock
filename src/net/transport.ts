@@ -31,6 +31,10 @@ export interface Transport {
   close(): void
   /** Smoothed round trip on the unreliable path, ms. 0 until the first pong. */
   readonly rtt: number
+  /** Latest RTT sample, ms. 0 until the first pong. */
+  readonly rttLast: number
+  /** Mean deviation of RTT samples from the smoothed RTT, ms. */
+  readonly rttJitter: number
   readonly unreliableMode: UnreliableMode
   readonly open: boolean
 }
@@ -62,6 +66,8 @@ export const LINK_TIMEOUT_MS = 12000
 
 export abstract class BaseTransport implements Transport {
   rtt = 0
+  rttLast = 0
+  rttJitter = 0
   unreliableMode: UnreliableMode = 'pending'
   open = true
 
@@ -143,7 +149,9 @@ export abstract class BaseTransport implements Transport {
       } else if (kind === 'q') {
         const sample = now - Number(rest)
         if (Number.isFinite(sample) && sample >= 0) {
+          if (this.rtt !== 0) this.rttJitter = this.rttJitter * 0.8 + Math.abs(sample - this.rtt) * 0.2
           this.rtt = this.rtt === 0 ? sample : this.rtt * 0.8 + sample * 0.2
+          this.rttLast = sample
         }
         if (viaRaw && this.unreliableMode !== 'raw') this.unreliableMode = 'raw'
       }

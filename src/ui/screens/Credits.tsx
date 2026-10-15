@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Button, Kbd } from '../widgets'
+import { AUDIO_CREDITS } from '../../audio'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -65,8 +66,25 @@ export function Credits() {
             <Credit who="Vite and Tailwind CSS" what="MIT License" />
           </Block>
 
-          <Block title="Art and audio">
-            <p className="text-ash">Models, textures, icons, sound and music will be credited here with their licenses as they arrive.</p>
+          <Block title="Audio">
+            <p className="text-ash">Recorded layers under the synthesized sound, all CC0 (public domain dedication) from Freesound.</p>
+            <ul className="well max-h-[320px] divide-y divide-[rgba(255,170,100,0.08)] overflow-y-auto px-3 py-1" aria-label="Audio credits">
+              {AUDIO_CREDITS.map((c) => (
+                <li key={c.url} className="flex items-baseline justify-between gap-3 py-1.5 text-[0.98rem]">
+                  <span className="min-w-0">
+                    <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-semibold break-words text-bone underline decoration-[rgba(255,170,100,0.35)] underline-offset-2 hover:text-gold">
+                      {c.title}
+                    </a>
+                    <span className="text-ash"> by {c.creator}</span>
+                  </span>
+                  <span className="chip shrink-0">{c.license}</span>
+                </li>
+              ))}
+            </ul>
+          </Block>
+
+          <Block title="Art">
+            <p className="text-ash">Models, textures, icons and key art will be credited here with their licenses as they arrive.</p>
           </Block>
 
           <Block title="Legal">

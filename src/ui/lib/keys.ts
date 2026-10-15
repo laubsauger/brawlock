@@ -150,8 +150,8 @@ export const PRESETS_ALT: Record<KeyPreset, BindMap> = {
   classic: { ...NO_KEYS, shop: 'KeyP' },
 }
 
-/** Keys that stay fixed: Esc opens the menu, F2 the perf overlay; F5 / F11 / F12 belong to the browser. */
-export const RESERVED_KEYS = new Set(['Escape', 'F2', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'ContextMenu'])
+/** Keys that stay fixed: Esc opens the menu, F2 the perf overlay, F3 the net graph; F5 / F11 / F12 belong to the browser. */
+export const RESERVED_KEYS = new Set(['Escape', 'F2', 'F3', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'ContextMenu'])
 
 export function resolveBinds(s: Pick<Settings, 'keyPreset' | 'keybinds' | 'keybindsAlt'>): Binds {
   const preset = PRESETS[s.keyPreset] ? s.keyPreset : 'dota'

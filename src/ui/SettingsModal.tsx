@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useGame, type CastMode, type Quality } from '../game/store'
 import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
 import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, resolveBinds, type BindAction } from './lib/keys'
-import { sfx } from './lib/sound'
+import { forcedSynth, sfx } from './lib/sound'
 import { assignKey, clearSecondary, resetSlotLayout } from './lib/remap'
 import { toggleFullscreen, useFullscreen } from './lib/fullscreen'
 import { slotDragProps } from './lib/slotDnd'
@@ -200,7 +200,7 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
             </div>
           ))}
           <span className="col-span-4 mt-2 text-[0.9rem] text-ash">
-            Fixed: <Kbd>Esc</Kbd> menu and cancel, <Kbd>F2</Kbd> performance overlay
+            Fixed: <Kbd>Esc</Kbd> menu and cancel, <Kbd>F2</Kbd> performance overlay, <Kbd>F3</Kbd> net graph
           </span>
         </div>
         <div className="mt-2 flex min-h-8 items-center justify-between gap-3">
@@ -278,6 +278,21 @@ export function SettingsModal() {
             <Slider label="Music volume" value={s.musicVolume} onChange={(musicVolume) => setSettings({ musicVolume })} />
           </div>
         </Row>
+        <Row
+          label="Sound style"
+          hint={forcedSynth ? 'Synth only for this session (?audio=synth in the address)' : s.soundStyle === 'synth' ? 'Every sound synthesized live' : 'Recorded layers (lava, fire, impacts) over the synthesized sounds'}
+        >
+          <Segmented
+            label="Sound style"
+            value={forcedSynth ? 'synth' : (s.soundStyle ?? 'hybrid')}
+            disabled={forcedSynth}
+            options={[
+              { value: 'hybrid', label: 'Hybrid' },
+              { value: 'synth', label: 'Synth only' },
+            ]}
+            onChange={(soundStyle) => setSettings({ soundStyle })}
+          />
+        </Row>
         <Row label="Check your sound" hint={s.muted ? 'Sound is muted. Unmute to hear the test.' : 'Plays a chime, a fireball and an explosion at these volumes'}>
           <Button
             size="sm"
@@ -329,6 +344,9 @@ export function SettingsModal() {
         </Row>
         <Row label="Performance overlay" hint="Frame rate, frame time, GPU time and ping. Also F2">
           <Switch label="Performance overlay" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />
+        </Row>
+        <Row label="Net graph" hint="Ping, jitter and packet loss per connection over the last 30 seconds. Also F3">
+          <Switch label="Net graph" checked={!!s.netGraph} onChange={(netGraph) => setSettings({ netGraph })} />
         </Row>
       </Section>
     </Modal>
