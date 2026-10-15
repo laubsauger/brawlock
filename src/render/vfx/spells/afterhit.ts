@@ -25,6 +25,7 @@
 import * as THREE from 'three/webgpu'
 import type { EntityId } from '../../../sim/types'
 import { S } from '../../coords'
+import { Billboards } from '../../scene/Billboards'
 import { BODY_H, BODY_R } from '../deathKit'
 import { SPELL_PALETTE, baseSpellId, getSpellColor, type RGB3 } from '../palette'
 import { registerSpellVfx, type VfxCtx } from '../registry'
@@ -131,6 +132,13 @@ function rate(ctx: VfxCtx, l: Linger, r: number, which: 'acc' | 'acc2' = 'acc'):
 
 // ---------------------------------------------------------------- lightning arcs
 
+/**
+ * Own per-frame streak batch for the arcs: the world's shared Billboards (160)
+ * fill up in busy fights (beams, flashes) and silently drop late adds.
+ */
+let arcs: Billboards | null = null
+let arcScene: THREE.Object3D | null = null
+
 const pa = new THREE.Vector3()
 const pb = new THREE.Vector3()
 const AX = new Float32Array(5)
@@ -143,7 +151,8 @@ function arc(ctx: VfxCtx, x: number, y: number, h: number, k: number, r: number,
   const a2 = a1 + (rnd() < 0.5 ? -1 : 1) * (0.9 + rnd() * 1.6)
   const h1 = h + 10 + rnd() * BODY_H * 0.85
   const h2 = Math.max(h + 6, Math.min(h + BODY_H, h1 + (rnd() - 0.5) * 70))
-  const rr = BODY_R * 0.95
+  // outside the robe (hem ~33 units): arcs inside the body are depth-hidden
+  const rr = BODY_R * 1.25
   const x1 = x + Math.cos(a1) * rr
   const y1 = y + Math.sin(a1) * rr
   const x2 = x + Math.cos(a2) * rr
@@ -152,7 +161,7 @@ function arc(ctx: VfxCtx, x: number, y: number, h: number, k: number, r: number,
     const f = i / 4
     const j = i === 0 || i === 4 ? 0 : 1
     // bulge outward from the body + jitter
-    const bulge = Math.sin(f * Math.PI) * 10
+    const bulge = Math.sin(f * Math.PI) * 16
     const am = a1 + (a2 - a1) * f
     AX[i] = x1 + (x2 - x1) * f + Math.cos(am) * bulge + (rnd() - 0.5) * 14 * j
     AY[i] = y1 + (y2 - y1) * f + Math.sin(am) * bulge + (rnd() - 0.5) * 14 * j
@@ -170,7 +179,7 @@ function arc(ctx: VfxCtx, x: number, y: number, h: number, k: number, r: number,
     pa.project(cam)
     pb.project(cam)
     const rot = Math.atan2(pb.y - pa.y, (pb.x - pa.x) * cam.aspect)
-    ctx.billboards.addStreak(mx, my, mz, w, Math.max(1, (len * 1.2) / w), rot, r * k, g * k, b * k, 2.4, 0)
+    arcs?.addStreak(mx, my, mz, w, Math.max(1, (len * 1.2) / w), rot, r * k, g * k, b * k, 2.4, 0)
   }
 }
 
@@ -194,7 +203,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
       const n = rate(ctx, l, 34 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
-        const rr = BODY_R * (0.7 + rnd() * 0.3)
+        const rr = BODY_R * (1.05 + rnd() * 0.25)
         ps.spawn(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, p.h + 15 + rnd() * BODY_H * 0.6, Math.cos(a) * 15, Math.sin(a) * 15, 110 + rnd() * 90, 0.22 + rnd() * 0.2, 9 + rnd() * 7, -3, 3.0, 1.0, 0.16, 120, 1.6, 4)
       }
       if (ctx.quality !== 'low') ctx.glow.add(p.x, p.y, 90, 0.35 * k, 1.0, 0.36, 0.06)
@@ -203,7 +212,6 @@ function tick(ctx: VfxCtx, l: Linger): void {
     case K_ARCS: {
       if (ctx.quality === 'low') break
       // crackle: arcs flicker on and off at random, denser right after the hit
-      if ((window as unknown as { __arcDbg?: number }).__arcDbg !== undefined) (window as unknown as { __arcDbg: number }).__arcDbg++
       if (rnd() < 0.35 + 0.5 * left) {
         const na = left > 0.5 && rnd() < 0.5 ? 2 : 1
         for (let i = 0; i < na; i++) arc(ctx, p.x, p.y, p.h, (2.2 + rnd() * 1.8) * Math.min(1.4, 0.6 + k * 0.5), c[0] * 0.8 + 0.7, c[1] * 0.8 + 0.8, c[2] * 0.8 + 1.0)
@@ -215,7 +223,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
       const n = rate(ctx, l, 18 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
-        const rr = BODY_R * (0.8 + rnd() * 0.3)
+        const rr = BODY_R * (1.1 + rnd() * 0.25)
         ps.spawn(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, p.h + rnd() * BODY_H * 0.9, Math.cos(a) * 25, Math.sin(a) * 25, 50 + rnd() * 60, 0.35 + rnd() * 0.3, 5 + rnd() * 3, 1, c[0] * 3, c[1] * 3, c[2] * 3, 30, 1, -0.06)
       }
       break
@@ -224,7 +232,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
       const n = rate(ctx, l, 20 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
-        const rr = BODY_R * (0.6 + rnd() * 0.5)
+        const rr = BODY_R * (1.05 + rnd() * 0.4)
         const hh = p.h + 10 + rnd() * BODY_H * 0.8
         // cold mist rolling off and sinking
         ctx.smoke.spawn(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, hh, Math.cos(a) * 20, Math.sin(a) * 20, -25, 0.9 + rnd() * 0.4, 14, 50, 0.42, 0.56, 0.68, -20, 1, 8)
@@ -239,7 +247,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
       const n = rate(ctx, l, 40 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
-        const rr = BODY_R * (0.5 + rnd() * 0.5)
+        const rr = BODY_R * (1.05 + rnd() * 0.3)
         const sx = p.x + Math.cos(a) * rr
         const sy = p.y + Math.sin(a) * rr
         const sh = p.h + 30 + rnd() * BODY_H * 0.6
@@ -274,7 +282,7 @@ function tick(ctx: VfxCtx, l: Linger): void {
       const n = rate(ctx, l, 22 * k)
       for (let i = 0; i < n; i++) {
         const a = rnd() * TAU
-        const rr = BODY_R * (0.8 + rnd() * 0.3)
+        const rr = BODY_R * (1.1 + rnd() * 0.25)
         const sp = 40 + rnd() * 80
         ps.spawn(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, p.h + 15 + rnd() * BODY_H * 0.8, Math.cos(a) * sp, Math.sin(a) * sp, 40 + rnd() * 90, 0.3 + rnd() * 0.25, 5 + rnd() * 3, 1, c[0] * 2.6, c[1] * 2.6, c[2] * 2.6, -200, 1.2, -0.05)
       }
@@ -285,10 +293,17 @@ function tick(ctx: VfxCtx, l: Linger): void {
 
 registerSpellVfx({
   spell: '__afterhit',
+  init(ctx) {
+    if (!arcs) {
+      arcs = new Billboards(64, false, ctx.world.field)
+      arcs.sprite.name = 'afterhit-arcs'
+      arcScene = ctx.scene
+      ctx.scene.add(arcs.sprite)
+    }
+  },
   onEvent(e, ctx) {
     if (e.type !== 'damage' || e.amount <= 0) return false
     const cause = ctx.damageCause(e)
-    console.warn('AFTERHIT-DBG', cause, e.target, e.amount, e.kb)
     if (!cause || cause === 'lava') return false
     const spell = baseSpellId(cause)
     if (optOut.has(spell)) return false
@@ -301,6 +316,7 @@ registerSpellVfx({
     return false
   },
   frame(ctx) {
+    arcs?.begin()
     const now = ctx.now
     for (const l of pool) {
       if (l.kind === 0) continue
@@ -310,8 +326,15 @@ registerSpellVfx({
       }
       tick(ctx, l)
     }
+    arcs?.commit()
   },
   dispose() {
     for (const l of pool) l.kind = 0
+    if (arcs) {
+      arcScene?.remove(arcs.sprite)
+      arcs.dispose()
+      arcs = null
+      arcScene = null
+    }
   },
 })

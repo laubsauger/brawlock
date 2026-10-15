@@ -57,6 +57,7 @@ import {
 import type { Node } from 'three/webgpu'
 import type { EntityId, SimEvent } from '../../sim/types'
 import { LAVA_H, S, TILE_TOP_H } from '../coords'
+import { Billboards } from '../scene/Billboards'
 import { RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from '../scene/GroundFx'
 import { asV4 } from '../scene/world'
 import { baseSpellId, getSpellColor, SPELL_PALETTE, type RGB3 } from './palette'
@@ -207,7 +208,8 @@ export const D_FROST = 5
 const DECALS = 48
 const RUNES = 96
 
-const ang01 = (q: Node<'vec2'>) => atan(q.y, q.x).div(TAU)
+// + epsilon: atan2(0, 0) is indeterminate (NaN on some backends)
+const ang01 = (q: Node<'vec2'>) => atan(q.y, q.x.add(1e-5)).div(TAU)
 
 /**
  * Floor decals for death leftovers: a dark layer (normal blend: charcoal,
@@ -247,7 +249,9 @@ class DeathDecals {
     const ageVert = w.uTime.sub(A0.w)
     const tnVert = ageVert.div(A1.y)
     const aliveVert = step(0, tnVert).mul(step(tnVert, 1))
-    const age = varying(ageVert)
+    // clamp: a negative age would turn the exp() cooling terms into Inf and
+    // Inf * 0 into NaN, which bloom smears across the whole screen
+    const age = max(varying(ageVert), 0)
     const tn = age.div(A1.y)
     const alive = step(0, tn).mul(step(tn, 1))
     const q = positionGeometry.xy
@@ -365,7 +369,8 @@ class DeathDecals {
     gm.depthWrite = false
     gm.blending = THREE.AdditiveBlending
     gm.positionNode = positionNode
-    const gcol = glowC.mul(inten).mul(fadeOut).mul(alive).mul(edgeCut)
+    // hard HDR cap per channel (no decal can ever blow the frame out)
+    const gcol = min(glowC.mul(inten).mul(fadeOut).mul(alive).mul(edgeCut), vec3(6))
     gm.colorNode = gcol
     gm.opacityNode = float(1)
     if (ctx.tier.heatHaze) gm.mrtNode = mrt({ heat: vec4(saturate(dot(gcol, vec3(0.15, 0.1, 0.05))), 0, 0, 1) })
@@ -463,15 +468,15 @@ class RuneSprites {
     const tnV = ageV.div(R1.w)
     const aliveV = step(0, tnV).mul(step(tnV, 1))
     const ph = R0.w.mul(13.7)
-    const sw = R3.w.mul(min(ageV.mul(1.5), 1))
+    const sw = R3.w.mul(clamp(ageV.mul(1.5), 0, 1))
     const swirl = vec3(cos(ageV.mul(2.6).add(ph)), 0, sin(ageV.mul(2.6).add(ph))).mul(sw)
     // rise eases out (soul drifting away), velocity decays with drag 1.2
-    const dragF = float(1).sub(exp(ageV.mul(-1.2))).div(1.2)
+    const dragF = float(1).sub(exp(max(ageV, 0).mul(-1.2))).div(1.2)
     const pos = R0.xyz.add(R1.xyz.mul(dragF)).add(swirl)
     const grow = smoothstep(0, 0.18, tnV).mul(float(1).add(tnV.mul(0.35)))
     const size = R2.w.mul(grow).mul(aliveV)
     // fragment-side clock via varying (see DeathDecals)
-    const age = varying(ageV)
+    const age = max(varying(ageV), 0)
     const tn = age.div(R1.w)
 
     // glyph: decode 3 strokes (grid indices 0..8) + ring flag
@@ -505,7 +510,7 @@ class RuneSprites {
     m.positionNode = pos
     m.scaleNode = vec2(size, size)
     m.rotationNode = R3.z.mul(ageV).add(ph)
-    m.colorNode = R2.xyz.mul(stroke.mul(1.7).add(halo)).mul(fade).mul(flick).mul(smoothstep(1.15, 0.85, length(p)))
+    m.colorNode = min(R2.xyz.mul(stroke.mul(1.7).add(halo)).mul(fade).mul(flick).mul(smoothstep(1.15, 0.85, length(p))), vec3(8))
     m.opacityNode = float(1)
     m.name = 'DeathRunes'
     this.material = m
@@ -608,15 +613,19 @@ const EMITTERS = 40
 class DeathKitPools {
   readonly decals: DeathDecals
   readonly runes: RuneSprites
+  /** own per-frame glow batch (the shared one fills up in busy fights) */
+  readonly bb: Billboards
   readonly em: Emitter[] = []
 
   constructor(readonly ctx: VfxCtx) {
     this.decals = new DeathDecals(ctx)
     this.runes = new RuneSprites(ctx)
+    this.bb = new Billboards(48, false, ctx.world.field)
+    this.bb.sprite.name = 'death-glow'
     for (let i = 0; i < EMITTERS; i++) {
       this.em.push({ type: E_NONE, pawn: -1, x: 0, y: 0, h: 0, dx: 0, dy: 0, t0: 0, t1: 0, d0: 0, d1: 0, k: 1, acc: 0, acc2: 0, acc3: 0, flags: 0, victim: [1, 1, 1], spell: [1, 1, 1], core: [1, 1, 1] })
     }
-    ctx.scene.add(this.decals.dark, this.decals.glow, this.runes.sprite)
+    ctx.scene.add(this.decals.dark, this.decals.glow, this.runes.sprite, this.bb.sprite)
   }
 
   emitter(type: number, x: number, y: number, h: number, dur: number): Emitter {
@@ -654,9 +663,10 @@ class DeathKitPools {
   }
 
   dispose(): void {
-    this.ctx.scene.remove(this.decals.dark, this.decals.glow, this.runes.sprite)
+    this.ctx.scene.remove(this.decals.dark, this.decals.glow, this.runes.sprite, this.bb.sprite)
     this.decals.dispose()
     this.runes.dispose()
+    this.bb.dispose()
   }
 }
 
@@ -755,7 +765,8 @@ function tickDisint(ctx: VfxCtx, K: DeathKitPools, e: Emitter, t: number): void 
     const n = emitN(ctx, e, (quiet ? 70 : 170) * e.k)
     for (let i = 0; i < n; i++) {
       const a = rnd() * TAU
-      const rr = BODY_R * (0.75 + rnd() * 0.45) * (1 - f * 0.35)
+      // just outside the remaining silhouette (inside it the body hides them)
+      const rr = BODY_R * (1.0 + rnd() * 0.35) * (1 - f * 0.25)
       const sp = 40 + rnd() * 90
       // spell-accent sparks on the edge, flung outward and up
       ps.spawn(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, bh + (rnd() - 0.5) * 10, Math.cos(a) * sp, Math.sin(a) * sp, 60 + rnd() * 160, 0.28 + rnd() * 0.3, 7 + rnd() * 4, 1.5, s[0] * 3.2, s[1] * 3.2, s[2] * 3.2, -120, 1.2, -0.06)
@@ -789,7 +800,7 @@ function tickDisint(ctx: VfxCtx, K: DeathKitPools, e: Emitter, t: number): void 
   }
 }
 
-function tickGhost(ctx: VfxCtx, e: Emitter, t: number): void {
+function tickGhost(K: DeathKitPools, e: Emitter, t: number): void {
   // tall fading afterimage where the soul left (teleport-out echo), victim colour
   const k = 1 - (t - e.t0) / Math.max(0.05, e.t1 - e.t0)
   if (k <= 0) return
@@ -797,8 +808,8 @@ function tickGhost(ctx: VfxCtx, e: Emitter, t: number): void {
   const s = e.spell
   const q = e.flags === 1 ? 0.45 : 1
   const kk = k * k * q
-  ctx.billboards.addStreak(e.x * S, (e.h + BODY_H * 0.55) * S, -e.y * S, 58 * S, 2.6 + (1 - k) * 1.2, Math.PI / 2, v[0] * 1.6 * kk, v[1] * 1.6 * kk, v[2] * 1.6 * kk, 1.5, 0)
-  ctx.billboards.add(e.x * S, (e.h + BODY_H * 0.9 + (1 - k) * 60) * S, -e.y * S, (30 + (1 - k) * 50) * S, s[0] * 1.4 * kk, s[1] * 1.4 * kk, s[2] * 1.4 * kk, 2.2)
+  K.bb.addStreak(e.x * S, (e.h + BODY_H * 0.55) * S, -e.y * S, 58 * S, 2.6 + (1 - k) * 1.2, Math.PI / 2, v[0] * 1.6 * kk, v[1] * 1.6 * kk, v[2] * 1.6 * kk, 1.5, 0)
+  K.bb.add(e.x * S, (e.h + BODY_H * 0.9 + (1 - k) * 60) * S, -e.y * S, (30 + (1 - k) * 50) * S, s[0] * 1.4 * kk, s[1] * 1.4 * kk, s[2] * 1.4 * kk, 2.2)
 }
 
 /**
@@ -968,7 +979,7 @@ export function xrayFlash(ctx: VfxCtx, x: number, y: number, h: number, tint: De
   setTint(e, tint)
 }
 
-function tickXray(ctx: VfxCtx, e: Emitter, t: number): void {
+function tickXray(ctx: VfxCtx, K: DeathKitPools, e: Emitter, t: number): void {
   const lt = t - e.t0
   const on = Math.sin(lt * 70) > -0.2 ? 1 : 0.15
   const k = (1 - lt / 0.38) * on
@@ -978,10 +989,10 @@ function tickXray(ctx: VfxCtx, e: Emitter, t: number): void {
   const X = e.x * S
   const Z = -e.y * S
   // spine + skull + ribcage glow as stacked streaks (reads as a skeleton flash at game zoom)
-  ctx.billboards.addStreak(X, (e.h + BODY_H * 0.5) * S, Z, 26 * S, 4.2, Math.PI / 2, c[0] * 2 * k, c[1] * 2 * k, c[2] * 2 * k, 1.4, 0)
-  ctx.billboards.add(X, (e.h + BODY_H * 0.9) * S, Z, 34 * S, c[0] * 2.4 * k, c[1] * 2.4 * k, c[2] * 2.4 * k, 2.2)
-  ctx.billboards.addStreak(X, (e.h + BODY_H * 0.62) * S, Z, 30 * S, 2.2, 0, s[0] * 2 * k, s[1] * 2 * k, s[2] * 2 * k, 1.6, 0)
-  ctx.billboards.add(X, (e.h + BODY_H * 0.5) * S, Z, 120 * S, s[0] * 0.9 * k, s[1] * 0.9 * k, s[2] * 0.9 * k, 2)
+  K.bb.addStreak(X, (e.h + BODY_H * 0.5) * S, Z, 26 * S, 4.2, Math.PI / 2, c[0] * 2 * k, c[1] * 2 * k, c[2] * 2 * k, 1.4, 0)
+  K.bb.add(X, (e.h + BODY_H * 0.9) * S, Z, 34 * S, c[0] * 2.4 * k, c[1] * 2.4 * k, c[2] * 2.4 * k, 2.2)
+  K.bb.addStreak(X, (e.h + BODY_H * 0.62) * S, Z, 30 * S, 2.2, 0, s[0] * 2 * k, s[1] * 2 * k, s[2] * 2 * k, 1.6, 0)
+  K.bb.add(X, (e.h + BODY_H * 0.5) * S, Z, 120 * S, s[0] * 0.9 * k, s[1] * 0.9 * k, s[2] * 0.9 * k, 2)
   ctx.glow.add(e.x, e.y, 200, 0.9 * k, s[0], s[1], s[2])
 }
 
@@ -1119,7 +1130,7 @@ function tickShadow(ctx: VfxCtx, e: Emitter, t: number): void {
   const s = e.spell
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
-    const rr = BODY_R * (0.8 + rnd() * 0.4)
+    const rr = BODY_R * (1.05 + rnd() * 0.35)
     const hh = e.h + rnd() * BODY_H
     // near-black wisps with a blood-dark tint, curling up off the silhouette edge
     const g = 0.01 + rnd() * 0.012
@@ -1227,6 +1238,7 @@ export function tickDeathKit(ctx: VfxCtx): void {
   if (!pools || pools.ctx !== ctx) return
   const K = pools
   const t = ctx.now
+  K.bb.begin()
   for (const e of K.em) {
     if (e.type === E_NONE) continue
     if (t > e.t1) {
@@ -1259,16 +1271,17 @@ export function tickDeathKit(ctx: VfxCtx): void {
         tickSmoke(ctx, e, t)
         break
       case E_XRAY:
-        tickXray(ctx, e, t)
+        tickXray(ctx, K, e, t)
         break
       case E_MIST:
         tickMist(ctx, e, t)
         break
       case E_GHOST:
-        tickGhost(ctx, e, t)
+        tickGhost(K, e, t)
         break
     }
   }
+  K.bb.commit()
 }
 
 /** Make sure the GPU pools exist for this world (deaths.ts init). */

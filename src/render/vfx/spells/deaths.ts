@@ -93,10 +93,19 @@ function lookFor(e: DeathEvent): DeathLook {
   return deathKindFor(e.cause, e.kb ?? 0) as DeathLook
 }
 
-/** Warm, coloured death flash (never a white-out), scaled by fx intensity. */
+/**
+ * Coloured death flash, never a white-out: local (radius / sprite size
+ * capped), short, every channel clamped, scaled by fx intensity, and at most
+ * FLASH_BUDGET per frame (simultaneous deaths share it instead of stacking).
+ */
+const FLASH_BUDGET = 2
+let flashesThisFrame = 0
 function flash(ctx: VfxCtx, x: number, y: number, h: number, c: readonly number[], k: number, radius = 300, size = 210, life = 0.35): void {
+  if (flashesThisFrame >= FLASH_BUDGET) return
+  flashesThisFrame++
   const f = (0.45 + 0.55 * ctx.fx) * k
-  ctx.flash(x, y, h, life, radius, size, c[0] * f, c[1] * f, c[2] * f)
+  const cap = (v: number) => Math.min(2.4, Math.max(0, v * f))
+  ctx.flash(x, y, h, Math.min(0.35, life), Math.min(320, radius), Math.min(220, size), cap(c[0]), cap(c[1]), cap(c[2]))
 }
 
 function drawDeath(ctx: VfxCtx, e: DeathEvent, dx: number, dy: number): void {
@@ -234,6 +243,7 @@ registerSpellVfx({
     return true
   },
   frame(ctx) {
+    flashesThisFrame = 0
     // drawn here, after every module saw the event (a spell module may claimDeath(e) it)
     for (let i = 0; i < nPending; i++) {
       const r = pending[i]

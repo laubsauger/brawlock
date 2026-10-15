@@ -16,7 +16,7 @@ import { Billboards } from './Billboards'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Environment } from './Environment'
 import { Lava } from './Lava'
-import { Obstacles } from './Obstacles'
+import { Obstacles } from './props'
 import { Particles } from './Particles'
 import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
@@ -477,7 +477,7 @@ export class MatchWorld {
       this.updatePawns(prev, curr, alpha, t, dt)
       this.obstacles.setTheme(curr.arena.theme)
       this.obstacles.update(curr.obstacles, t, !first)
-      for (const o of curr.obstacles) this.blobShadow(o.x, o.y, o.radius * 1.75, 0.95)
+      // pillars from ./props carry their own contact ring
       this.updateLocalHelpers(curr)
       this.projectiles.update(prev ? prev.projectiles : null, curr.projectiles, alpha, t, (owner) => this.colorOf(curr, owner), camera, aspect, this.modulesOn ? claimedProjectile : undefined)
       if (this.modulesOn) this.drawModules(prev, curr, alpha)
@@ -544,12 +544,6 @@ export class MatchWorld {
     this.billboards.commit()
     this.billboardsTop.commit()
     this.contact.commit()
-  }
-
-  /** Contact shadow disc on the floor at a game position (skipped over lava). */
-  private blobShadow(x: number, y: number, radius: number, strength = 0.62): void {
-    if (!isLocationSafe(x, y, this.arena.currentLayer)) return
-    this.contact.add(x * S, (TILE_TOP_H + 0.8) * S, -y * S, radius * S, strength)
   }
 
   private resetMatch(): void {

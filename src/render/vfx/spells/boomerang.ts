@@ -34,18 +34,18 @@ const last = new Map<number, { x: number; y: number }>()
 /** crisp flat ribbon: thin translucent copper band with brighter copper edges (no flame) */
 const RIBBON: TrailStyle = {
   life: 0.6,
-  width: 40,
+  width: 46,
   widthTail: 0.3,
-  head: [P.body[0] * 0.9, P.body[1] * 0.9, P.body[2] * 0.9],
+  head: [P.body[0] * 1.2, P.body[1] * 1.2, P.body[2] * 1.2],
   mid: [P.body[0] * 0.6, P.body[1] * 0.6, P.body[2] * 0.6],
   tail: P.edge,
-  intensity: 0.3,
+  intensity: 0.75,
   falloff: 0.35,
   noise: 0,
   spacing: 8,
   rim: 0.9,
   flat: true,
-  rimRGB: [P.body[0] * 2.2, P.body[1] * 2.2, P.body[2] * 2.2],
+  rimRGB: [P.body[0] * 3, P.body[1] * 3, P.body[2] * 3],
 }
 
 // ---------------------------------------------------------------- glaive mesh
@@ -88,14 +88,15 @@ function glaiveGeometry(): THREE.BufferGeometry {
 
 function buildGlaive(ctx: VfxCtx): THREE.InstancedMesh {
   const m = new THREE.MeshStandardNodeMaterial()
-  m.color = new THREE.Color(0x2b2d33)
-  m.metalness = 0.92
-  m.roughness = 0.22
+  // brushed steel: metal enough to catch the moonlight, not a black mirror (no env map)
+  m.color = new THREE.Color(0x5a5e68)
+  m.metalness = 0.7
+  m.roughness = 0.3
   // copper-hot cutting edges from the palette, a faint hub ring
   const rg = varying(length(positionGeometry.xz))
-  const edge = smoothstep(0.86, 0.995, rg)
+  const edge = smoothstep(0.8, 0.995, rg)
   const hub = smoothstep(0.2, 0.12, rg)
-  m.emissiveNode = vec3(P.body[0], P.body[1], P.body[2]).mul(edge.mul(1.2)).add(vec3(P.hot[0], P.hot[1], P.hot[2]).mul(pow(edge, float(5)).mul(0.9))).add(vec3(P.edge[0], P.edge[1], P.edge[2]).mul(hub))
+  m.emissiveNode = vec3(P.body[0], P.body[1], P.body[2]).mul(edge.mul(2.6)).add(vec3(P.hot[0], P.hot[1], P.hot[2]).mul(pow(edge, float(4)).mul(1.4))).add(vec3(P.edge[0], P.edge[1], P.edge[2]).mul(hub))
   m.name = 'Boomerang-Glaive'
   const mesh = new THREE.InstancedMesh(glaiveGeometry(), m, CAP)
   mesh.count = 0
@@ -127,32 +128,32 @@ function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, _id: number, _tx
   k.air.add(G_BLADE, o.x, o.y, o.h + 9, r * 1.04, spin, P.body[0], P.body[1], P.body[2], 0.25 * w, 1, 3)
 }
 
-/** cutting-arc streaks behind each tip + metallic glints */
-function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: number, now: number, id: number): void {
-  // spin-blur: only a thin rim on the tip circle (the steel stays dark and solid)
-  k.air.add(G_SHOCK, x, y, h - 1, r, 0, P.body[0], P.body[1], P.body[2], 0.22, 0.97, 0.025)
+/** spin sweep: a bright motion-blur arc behind each tip on the tip circle, rim, glints */
+function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: number, fl: number): void {
+  // motion-blur rim on the tip circle + a ground glint ring under the blade
+  k.air.add(G_SHOCK, x, y, h - 1, r, 0, P.body[0], P.body[1], P.body[2], 0.75, 0.97, 0.03)
+  k.ground.add(G_SHOCK, x, y, fl + 1.5, r * 0.95, 0, P.body[0], P.body[1], P.body[2], 0.45, 0.9, 0.06)
   for (let t = 0; t < 3; t++) {
     // tips sit at the prong peaks (ph 0.8 of each third); a +y rotation by `spin` turns the mesh CCW in game space
     const tip = (t / 3) * Math.PI * 2 + 0.8 * ((Math.PI * 2) / 3) + spin
-    k.stripBegin(true, 2.2, 0, 0)
-    for (let i = 0; i <= 6; i++) {
-      const a = tip - (i / 6) * 1.1
-      const f = 1 - i / 6
-      k.stripPoint(x + Math.cos(a) * r * 0.97, y + Math.sin(a) * r * 0.97, h + 1, 5 * f + 1, P.hot[0], P.hot[1], P.hot[2], 0.9 * f)
+    // sweep: bright at the tip, fading over ~100 degrees behind it (a third of a turn = one blade gap)
+    k.stripBegin(true, 1.6, 0, 0)
+    for (let i = 0; i <= 10; i++) {
+      const a = tip - (i / 10) * 1.75
+      const f = 1 - i / 10
+      k.stripPoint(x + Math.cos(a) * r * 0.93, y + Math.sin(a) * r * 0.93, h + 1, 4 + 9 * f, P.hot[0] * 0.5 + P.body[0] * 0.8, P.hot[1] * 0.5 + P.body[1] * 0.8, P.hot[2] * 0.5 + P.body[2] * 0.8, 1.5 * f * f)
     }
     k.stripEnd()
     // glint when a tip faces the key light (moon from the camera's left-back)
     const g = Math.cos(tip - 2.4)
-    if (g > 0.93) {
+    if (g > 0.9) {
       const gx = x + Math.cos(tip) * r
       const gy = y + Math.sin(tip) * r
-      const a = (g - 0.93) / 0.07
-      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 26 * S, 3.2, 0.3, 3 * a, 3 * a, 3.2 * a, 3)
-      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 26 * S, 3.2, 0.3 + Math.PI / 2, 3 * a, 3 * a, 3.2 * a, 3)
+      const a = (g - 0.9) / 0.1
+      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 34 * S, 3.4, 0.3, 3.2 * a, 3.1 * a, 3.2 * a, 3)
+      k.bb.addStreak(gx * S, (h + 3) * S, -gy * S, 34 * S, 3.4, 0.3 + Math.PI / 2, 3.2 * a, 3.1 * a, 3.2 * a, 3)
     }
   }
-  void now
-  void id
 }
 
 function clang(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
@@ -327,8 +328,8 @@ const mod: SpellVfx = {
     const returning = p.data.returning === 1
     // the steel glaive: tips on the collision radius, a slight bank so the top reads in 3D
     addGlaive(x, y, PH, r, spin, 0.12)
-    spinFx(k, x, y, PH, r, spin, now, p.id)
-    ctx.glow.add(x, y, 170, 0.5, P.light[0], P.light[1], P.light[2])
+    spinFx(k, x, y, PH, r, spin, k.floor(x, y))
+    ctx.glow.add(x, y, 190, 0.85, P.light[0], P.light[1], P.light[2])
     ctx.projectileShadow(x, y, PH, r)
     k.trailPoint(p.id * 4, x, y, PH - 4, RIBBON)
     // a few sparks thrown off the cutting edges

@@ -38,16 +38,19 @@ function skirt(part: Part, R: () => number, r: number, n: number, dMin: number, 
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + (R() - 0.5) * (TAU / n) * 0.9
     const d = r * (dMin + R() * (dMax - dMin))
-    const s = sMin + R() * (sMax - sMin)
-    rock(part, Math.cos(a) * d, s * 0.12, Math.sin(a) * d, s, seed + i * 31, { squash: 0.55 + R() * 0.25, rough: 0.32, ao: 0.85 })
+    const s = (sMin + R() * (sMax - sMin)) * 1.35
+    rock(part, Math.cos(a) * d, s * 0.22, Math.sin(a) * d, s, seed + i * 31, { squash: 0.72 + R() * 0.25, rough: 0.3, ao: 0.85 })
   }
 }
 
 /** Jagged break profile around a ring (game units above the ring's y). */
 function breakProfile(seed: number, rr: number, tilt: number, jag: number) {
   const dir = rng(seed)() * TAU
-  const edge = (a: number) => tilt * rr * Math.cos(a - dir) + jag * fbm3(Math.cos(a) * 1.6 + seed, Math.sin(a) * 1.6, seed * 0.1, seed, 3) * 2.2
-  const cap = (a: number, rho: number) => edge(a) * (0.35 + 0.65 * rho) + jag * 0.5 * fbm3(Math.cos(a) * rho * 3, Math.sin(a) * rho * 3, seed + 3, seed + 7, 2) - (1 - rho) * jag * 0.25
+  // a tilted fracture plane, jagged at the rim, rough but flat-ish inside
+  const plane = (a: number, rho: number) => tilt * rr * Math.cos(a - dir) * rho
+  const jagAt = (a: number) => jag * fbm3(Math.cos(a) * 1.6 + seed, Math.sin(a) * 1.6, seed * 0.1, seed, 3) * 2.2
+  const edge = (a: number) => plane(a, 1) + jagAt(a)
+  const cap = (a: number, rho: number) => plane(a, rho) + jagAt(a) * rho * rho + jag * 0.35 * fbm3(Math.cos(a) * rho * 3, Math.sin(a) * rho * 3, seed + 3, seed + 7, 2)
   const span = Math.abs(tilt * rr) + jag * 1.2
   return { edge, cap, span }
 }
@@ -477,13 +480,13 @@ function menhir(core: Part, top: Part | null, o: { x: number; z: number; w: numb
   const prof = [
     [SINK, 1.0],
     [0, 1.0],
-    [0.2, 0.98],
-    [0.42, 0.95],
-    [0.62, 0.9],
-    [0.78, 0.82],
-    [0.88, 0.7],
-    [0.95, 0.5],
-    [1.0, 0.18],
+    [0.2, 0.99],
+    [0.42, 0.97],
+    [0.62, 0.93],
+    [0.78, 0.86],
+    [0.88, 0.75],
+    [0.95, 0.56],
+    [1.0, 0.22],
   ]
   const ring = (t: number, m: number): Ring => {
     const y = t <= 0 ? t : t * o.h
@@ -544,8 +547,8 @@ function overgrown(variant: number, r: number, seed: number): PillarShape {
   const jitter = 0.92 + R() * 0.16
   if (v === 0) {
     // big mossy menhir
-    const h = 235 * jitter
-    menhir(core, c1, { x: 0, z: 0, w: r * 0.9, d: r * 0.66, h, rot: R() * TAU, lean: [(R() - 0.5) * 0.1, (R() - 0.5) * 0.1], split: 0.7, seed })
+    const h = 180 * jitter
+    menhir(core, c1, { x: 0, z: 0, w: r * 0.92, d: r * 0.72, h, rot: R() * TAU, lean: [(R() - 0.5) * 0.1, (R() - 0.5) * 0.1], split: 0.7, seed })
     chunks.push({ x: 0, y: h * 0.85, z: 0, size: r * 0.6 })
     chunks.push({ x: 0, y: h * 0.85, z: 0, size: r * 0.5 })
     const a = R() * TAU
@@ -557,12 +560,12 @@ function overgrown(variant: number, r: number, seed: number): PillarShape {
     const rot = R() * TAU
     const ca = Math.cos(rot)
     const sa = Math.sin(rot)
-    const h = 205 * jitter
+    const h = 170 * jitter
     for (const s of [-1, 1]) {
-      const bx = ca * s * r * 0.42
-      const bz = sa * s * r * 0.42
-      const lean = -0.17
-      menhir(core, null, { x: bx, z: bz, w: r * 0.4, d: r * 0.28, h: h * (s > 0 ? 1 : 0.94), rot: rot + Math.PI / 2, lean: [ca * s * lean * 0.9, sa * s * lean * 0.9], seed: seed + s * 7, n: 3 })
+      const bx = ca * s * r * 0.56
+      const bz = sa * s * r * 0.56
+      const lean = -0.1
+      menhir(core, null, { x: bx, z: bz, w: r * 0.46, d: r * 0.34, h: h * (s > 0 ? 1 : 0.94), rot: rot + Math.PI / 2, lean: [ca * s * lean, sa * s * lean], seed: seed + s * 7, n: 3 })
     }
     // lintel resting across the touching tops
     rock(c1, 0, h * 0.93, 0, r * 0.42, seed + 21, { detail: 1, squash: 0.42, rough: 0.2, rotY: -rot, flat: -0.6 })
@@ -575,9 +578,9 @@ function overgrown(variant: number, r: number, seed: number): PillarShape {
     const rs = r * 0.6
     plinth(core, [{ w: r * 0.88, y0: SINK, y1: 22 }], seed)
     moulding(core, rs, 22, seed)
-    const yb = 180 * jitter
+    const yb = 150 * jitter
     const b0 = breakProfile(seed + 1, rs, 0.3, 8)
-    shaft(core, rs, [26, 80, 130, yb - b0.span - 3, yb], seed, { brk: b0, flutes: 12 })
+    shaft(core, rs, [26, 70, 110, yb - b0.span - 3, yb], seed, { brk: b0, flutes: 12 })
     const b1 = breakProfile(seed + 2, rs, 0.6, 9)
     shaft(c1, rs * 0.99, [yb - b0.span - 1, yb + 12, yb + 40], seed, { brk: b1, bottom: true, flutes: 12 })
     chunks.push({ x: 0, y: yb + 25, z: 0, size: rs })
@@ -616,9 +619,9 @@ function overgrown(variant: number, r: number, seed: number): PillarShape {
     skirt(rub, R, r, 8, 0.9, 1.15, 4, 10, seed)
   } else {
     // carved stele with glowing spiral runes
-    const h = 245 * jitter
-    const rot = R() * TAU
-    menhir(core, c1, { x: 0, z: 0, w: r * 0.92, d: r * 0.42, h, rot, n: 4.5, split: 0.76, seed, band: [0.2, 0.62] })
+    const h = 190 * jitter
+    // rot 0: the slab's thin axis is local z (the shader carves the +-z faces)
+    menhir(core, c1, { x: 0, z: 0, w: r * 0.94, d: r * 0.5, h, rot: 0, n: 4.5, split: 0.76, seed, band: [0.2, 0.62] })
     chunks.push({ x: 0, y: h * 0.88, z: 0, size: r * 0.5 })
     chunks.push({ x: 0, y: h * 0.88, z: 0, size: r * 0.4 })
     height = h

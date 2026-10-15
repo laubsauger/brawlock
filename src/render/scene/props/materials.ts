@@ -62,8 +62,8 @@ interface LookDef {
 
 const LOOKS: Record<Look, LookDef> = {
   temple: { set: ['temple', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 150, tint: [1.02, 0.97, 0.9], fallback: [0.26, 0.24, 0.22], moss: 0.4, glow: [3.2, 1.05, 0.22], rune: [2.6, 0.95, 0.25], veins: 0 },
-  volcanic: { set: ['volcanic', 'tile_side'], detail: ['shared', 'lava_crust'], texScale: 120, tint: [0.62, 0.58, 0.6], fallback: [0.06, 0.055, 0.058], moss: 0.0, glow: [3.4, 0.9, 0.12], rune: [0, 0, 0], veins: 1 },
-  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [0.95, 0.97, 0.9], fallback: [0.15, 0.15, 0.13], moss: 1.0, glow: [0.35, 2.6, 0.9], rune: [0.3, 2.2, 0.9], veins: 0 },
+  volcanic: { set: ['volcanic', 'tile_side'], detail: ['shared', 'lava_crust'], texScale: 120, tint: [1.25, 1.18, 1.2], fallback: [0.06, 0.055, 0.058], moss: 0.0, glow: [3.4, 0.9, 0.12], rune: [0, 0, 0], veins: 1 },
+  overgrown: { set: ['overgrown', 'tile_side'], detail: ['shared', 'ground_moss'], texScale: 130, tint: [1.05, 1.07, 1.0], fallback: [0.15, 0.15, 0.13], moss: 1.0, glow: [0.2, 2.2, 0.7], rune: [0.15, 1.6, 0.5], veins: 0 },
 }
 
 const MOSS_TINT = vec3(0.8, 0.95, 0.62)
@@ -91,7 +91,7 @@ function tri(tex: THREE.Texture, p: Node<'vec3'>, n: Node<'vec3'>, scale: number
 }
 
 /** Procedural rune glyph strokes in a carved band cell (u in cells, v 0..1). Returns 0..1 line mask. */
-function runeGlyph(u: Node<'float'>, v: Node<'float'>, seed: number): Node<'float'> {
+function runeGlyph(u: Node<'float'>, v: Node<'float'>, seed: number, frame = true): Node<'float'> {
   const cell = floor(u)
   const fx = fract(u)
   const h = fract(sin(cell.mul(91.7).add(seed * 13.1)).mul(43758.5453))
@@ -101,7 +101,7 @@ function runeGlyph(u: Node<'float'>, v: Node<'float'>, seed: number): Node<'floa
   const gy = v.sub(0.5).mul(1.6)
   const gx = fx.sub(0.5)
   // frame lines top and bottom
-  const frameL = line(abs(v.sub(0.08)).mul(1.4)).add(line(abs(v.sub(0.92)).mul(1.4)))
+  const frameL = frame ? line(abs(v.sub(0.08)).mul(1.4)).add(line(abs(v.sub(0.92)).mul(1.4))) : float(0)
   // stroke set chosen by hash
   const vert = line(abs(gx)).mul(step(0.35, h))
   const diamond = line(abs(abs(gx).add(abs(gy)).sub(0.32))).mul(step(h2, 0.45))
@@ -227,7 +227,7 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   // leaving a flat red front between two specular edges
   const keyDir = vec3(-0.75, 0.0, 0.66)
   const wrap = saturate(dot(normalWorld, keyDir).mul(0.55).add(0.45))
-  const fill = vec3(0.05, 0.065, 0.11).add(vec3(0.2, 0.24, 0.34).mul(wrap.mul(wrap)).mul(side))
+  const fill = vec3(0.08, 0.1, 0.16).add(vec3(0.4, 0.46, 0.62).mul(wrap.mul(wrap)).mul(side))
 
   // ---- occlusion: baked cavities, darker toward the floor (sits IN the light)
   const floorAO = mix(float(0.5), float(1), smoothstep(-6, 55, p.y))
@@ -240,24 +240,38 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   let em: Node<'vec3'> = glow.mul(crack.mul(dmg.mul(1.6).add(0.35)).mul(pulse)).add(alb.mul(fill))
   // crack faces glow faintly around the line (heat bleeding into the stone)
   em = em.add(glow.mul(0.12).mul(float(1).sub(smoothstep(0, crackW.mul(3), crackField)).mul(spread).mul(dmg)))
+  let dbgVein: Node<'float'> | null = null
   if (L.veins > 0) {
     // thin ember veins in crevices and near the floor (heat from below), never slits
     const vf = tri(noise, p.add(vec3(13, 71, 29)), n, 1 / 230).b
-    const vein = float(1).sub(smoothstep(0.012, 0.03, vf))
-    const where = saturate(smoothstep(0.8, 0.45, cav).add(smoothstep(95, 0, p.y).mul(0.85)).add(nz.b.sub(0.7).mul(2)))
+    const vein = float(1).sub(smoothstep(0.02, 0.055, vf))
+    const where = saturate(smoothstep(0.8, 0.45, cav).add(smoothstep(130, 10, p.y).mul(0.9)).add(nz.b.sub(0.7).mul(2)))
     const vk = vein.mul(where).mul(float(1).sub(isWood))
     em = em.add(glow.mul(vk.mul(dmg.mul(0.8).add(0.45))).mul(pulse))
     alb = alb.mul(float(1).sub(vk.mul(0.6)))
-    // ember bloom into the lowest crust
-    em = em.add(glow.mul(0.05).mul(exp(p.y.div(-14))))
+    // ember warmth seeping into the lowest crust (clamped: buried vertices must not blow up)
+    em = em.add(glow.mul(0.018).mul(exp(max(p.y, 0).div(-9))))
+    if ((globalThis as { __propDebug?: string }).__propDebug === 'vein') dbgVein = vk
   }
   if (L.rune[0] + L.rune[1] > 0) {
     const bv = band.y
     const inBand = step(0, bv).mul(step(bv, 1))
-    const g = runeGlyph(band.x, bv, look === 'temple' ? 1 : 2).mul(inBand)
-    em = em.add(vec3(...L.rune).mul(g.mul(dmg.mul(1.1).add(0.05))).mul(pulse))
-    alb = alb.mul(float(1).sub(g.mul(0.5)))
+    // overgrown steles carve only their two broad faces (slab thin axis = local z)
+    const faces = look === 'overgrown' ? smoothstep(0.55, 0.8, abs(normalGeometry.z)) : float(1)
+    const g = runeGlyph(band.x, bv, look === 'temple' ? 1 : 2, look === 'temple').mul(inBand).mul(faces)
+    // engraved first; only a faint ember glow that warms a little with damage
+    em = em.add(vec3(...L.rune).mul(g.mul(dmg.mul(0.3).add(0.06))).mul(pulse))
+    alb = alb.mul(float(1).sub(g.mul(0.6)))
     height = height.sub(g.mul(0.5))
+  }
+  // obsidian: no env map in the scene, so fake its reflection: cool night sky
+  // above, lava glow below, weighted by fresnel; facets flash as they turn
+  {
+    const vdir = positionView.negate().normalize()
+    const fr = pow(float(1).sub(saturate(dot(normalView, vdir))), 3).mul(0.85).add(0.15)
+    const ny = normalWorld.y
+    const env = mix(vec3(0.5, 0.16, 0.05), vec3(0.09, 0.11, 0.2), smoothstep(-0.4, 0.5, ny))
+    em = em.add(env.mul(fr).mul(isGlass))
   }
   // hit flash: hot white-orange wash
   em = em.add(vec3(1.3, 0.9, 0.6).mul(uHit.mul(0.55)))
@@ -265,8 +279,19 @@ function buildStone(look: Look, maps: SurfaceMaps | null, detail: SurfaceMaps | 
   const m = new THREE.MeshStandardNodeMaterial()
   m.name = `Prop_${look}`
   m.colorNode = alb
+  // dev look-dev switch (props dev page ?dbg=noem|alb|em)
+  const dbg = (globalThis as { __propDebug?: string }).__propDebug
+  if (dbg === 'noem') em = vec3(0)
+  else if (dbg === 'alb') {
+    em = alb
+    m.colorNode = vec3(0)
+  } else if (dbg === 'em') m.colorNode = vec3(0)
+  else if (dbg === 'vein' && dbgVein) {
+    em = vec3(dbgVein)
+    m.colorNode = vec3(0)
+  }
   // stone never gets glossy grazing highlights (those read as hollow edges); glass may
-  m.roughnessNode = saturate(max(rough, mix(float(0.62), float(0.1), isGlass)).add(crack.mul(0.15)))
+  m.roughnessNode = saturate(max(rough, mix(float(look === 'volcanic' ? 0.5 : 0.62), float(0.1), isGlass)).add(crack.mul(0.15)))
   m.metalnessNode = float(0)
   m.normalNode = bumpMap(height.sub(crack.mul(0.8)), float(look === 'volcanic' ? 1.1 : 1.4))
   m.emissiveNode = em
@@ -281,7 +306,7 @@ function buildCrystal(look: Look): THREE.MeshStandardNodeMaterial {
   const uHit = uniform(0).onObjectUpdate(objNum('propHit', 0))
   const uDmg = uniform(0).onObjectUpdate(objNum('propDmg', 0))
   const p = positionGeometry
-  const col = look === 'volcanic' ? vec3(3.0, 0.8, 0.15) : vec3(0.35, 2.6, 0.95)
+  const col = look === 'volcanic' ? vec3(3.0, 0.8, 0.15) : vec3(0.1, 1.5, 0.42)
   const vdir = positionView.negate().normalize()
   const facing = saturate(dot(normalView, vdir))
   const fres = pow(float(1).sub(facing), 2)

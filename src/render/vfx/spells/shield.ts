@@ -8,7 +8,7 @@
  * the new heading, and when ownership is stolen the lattice flashes the shielder's team colour.
  */
 import * as THREE from 'three/webgpu'
-import { abs, dot, exp, float, max, mix, mod, mrt, normalView, positionGeometry, positionView, pow, saturate, select, sin, smoothstep, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, dot, exp, float, max, min, mix, mod, mrt, normalView, positionGeometry, positionView, pow, saturate, select, sin, smoothstep, vec2, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
@@ -83,7 +83,8 @@ function domeMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
     const cells = exp(d.mul(-9)).mul(exp(age.mul(-4.5))).mul(cellFill.mul(0.6).add(lattice))
     return ring.add(cells.mul(1.4)).mul(step01(age))
   }
-  const rip = hit(A1).add(hit(A2))
+  // capped: a burst of hits (reflects, blocked Lightning) can never flood the dome white
+  const rip = min(hit(A1).add(hit(A2)), float(1.1))
   const base = smoothstep(0.0, 0.1, p.y)
   const gold = vec3(...GOLD)
   const white = vec3(...GOLD_WHITE)
@@ -166,6 +167,23 @@ registerSpellVfx({
         } else {
           pop(ctx, info.x, info.y, info.h, bubbles.get(e.pawn)?.R ?? 220)
         }
+        return
+      }
+      case 'beam': {
+        // Lightning stopped by this bubble: a local, short ripple where it struck (Lightning's
+        // own module draws the bolt and its spark; nothing here is screen-wide)
+        if (!e.blocked || e.target === null) return
+        const b = bubbles.get(e.target)
+        const info = ctx.pawn(e.target)
+        if (!b || !info) return
+        const dx = e.fromX - info.x
+        const dy = e.fromY - info.y
+        const l = Math.hypot(dx, dy) || 1
+        const tmp = b.h0
+        b.h0 = b.h1
+        b.h1 = tmp
+        hv.set(dx / l, 0.3, -dy / l).normalize()
+        b.h1.set(hv.x, hv.y, hv.z, ctx.now)
         return
       }
       case 'shieldReflect': {

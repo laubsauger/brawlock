@@ -33,6 +33,7 @@ import { MatchWorld } from '../../MatchWorld'
 import { PropObstacles, createObstacleVisual, type ObstacleVisual } from '..'
 
 const params = new URLSearchParams(location.search)
+if (params.get('dbg')) (globalThis as { __propDebug?: string }).__propDebug = params.get('dbg') ?? undefined
 const q = (params.get('q') as Quality | null) ?? 'high'
 useGame.getState().setSettings({ quality: q })
 const mode = params.get('mode') ?? 'sheet'

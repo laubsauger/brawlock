@@ -1,9 +1,10 @@
 /**
  * Dev-only death / after-hit lab driver (VFX workstream C). Never imported by the game.
- * Runs the REAL sim with three players: P0 killer, P1 victim, P2 bystander (keeps the round
- * alive). Every cycle the victim is revived at its anchor and killed by the chosen cause,
- * through the real sim path where one exists (Fireball / Scourge casts, lava burn, pillar
- * explosion, disconnect) and receiveDamage(cause) for every other spell id.
+ * Runs the REAL sim: P0 killer, P1..Pn victims (n = 1..4, all dying in the same tick for
+ * stacking tests), a bystander (keeps the round alive). Every cycle the victims are revived
+ * at their anchors and killed by the chosen cause, through the real sim path where one exists
+ * (Fireball / Scourge casts, lava burn, pillar explosion, disconnect) and receiveDamage(cause)
+ * for every other spell id.
  */
 import { frame, pushEvents, pushState, resetFrame } from '../../../../game/frame'
 import { DEFAULT_SETTINGS, cloneState, createMatch, step } from '../../../../sim'
@@ -15,24 +16,35 @@ import { devTime } from '../../../stats'
 
 export const ALL_CAUSES = ['fireball', 'lava', 'scourge', 'obstacle', 'disconnect', 'homing', 'lightning', 'snowball', 'gravity', 'thrust', 'drain', 'meteor'] as const
 
-const SLOTS: PlayerSlot[] = [
-  { id: 0, name: 'Killer', color: 0xff5a36, team: 0, kind: 'human' },
-  { id: 1, name: 'Victim', color: 0x3fa9ff, team: 1, kind: 'bot', difficulty: 'medium' },
-  { id: 2, name: 'Bystander', color: 0x5fd35a, team: 2, kind: 'bot', difficulty: 'medium' },
+const VICTIM_COLORS = [0x3fa9ff, 0xc86bff, 0xffd23f, 0x3fe0d0]
+/** victim offsets from the cause anchor (a tight cluster: worst case for stacking) */
+const OFFS = [
+  { x: 0, y: 0 },
+  { x: 30, y: 120 },
+  { x: 120, y: -50 },
+  { x: -20, y: -130 },
 ]
 
 export interface DeathLabOptions {
   causes: string[]
   every: number
-  /** after-hit mode: hit (not kill) the victim with `causes` instead */
+  /** after-hit mode: hit (not kill) the victims with `causes` instead */
   hit: boolean
   victimColor?: number
+  /** victims dying together, 1..4 */
+  n?: number
 }
 
 export const labState = { label: '', deathTick: -1, hitTick: -1, tick: 0 }
 
 export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void): () => void {
-  const slots = SLOTS.map((s, i) => (i === 1 && o.victimColor !== undefined ? { ...s, color: o.victimColor } : s))
+  const n = Math.max(1, Math.min(4, o.n ?? 1))
+  const slots: PlayerSlot[] = [{ id: 0, name: 'Killer', color: 0xff5a36, team: 0, kind: 'human' }]
+  for (let i = 0; i < n; i++) {
+    const color = i === 0 && o.victimColor !== undefined ? o.victimColor : VICTIM_COLORS[i]
+    slots.push({ id: i + 1, name: n === 1 ? 'Victim' : `Victim ${i + 1}`, color, team: i + 1, kind: 'bot', difficulty: 'medium' })
+  }
+  slots.push({ id: n + 1, name: 'Bystander', color: 0x5fd35a, team: n + 1, kind: 'bot', difficulty: 'medium' })
   const settings = { ...DEFAULT_SETTINGS, shopSeconds: 1, winScore: 99 }
   const state: SimState = createMatch(settings, slots, 4242)
   resetFrame()
@@ -42,21 +54,22 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
   let cycle = -1
   let killed = false
   let cause = o.causes[0]
+  const isVictim = (owner: number) => owner >= 1 && owner <= n
 
   const pawnOf = (owner: number) => state.pawns.find((p) => p.owner === owner)!
+  const victims = () => state.pawns.filter((p) => isVictim(p.owner))
   const anchor = (c: string) => (c === 'lava' ? { x: 1620, y: -120 } : c === 'scourge' ? { x: -170, y: 0 } : { x: 160, y: 0 })
 
   const setup = () => {
     cause = o.causes[cycle % o.causes.length]
     const k = pawnOf(0)
-    const v = pawnOf(1)
-    const b = pawnOf(2)
+    const b = pawnOf(n + 1)
     const a = anchor(cause)
     k.x = cause === 'lava' ? 1180 : -300
     k.y = 0
     b.x = -200
     b.y = -800
-    for (const p of [k, v, b]) {
+    for (const p of state.pawns) {
       p.alive = true
       p.hp = p.maxHp
       p.vx = p.vy = p.walkVx = p.walkVy = 0
@@ -65,67 +78,68 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       p.lavaTicks = 0
       p.cooldowns = p.cooldowns.map(() => 0)
     }
-    v.x = a.x
-    v.y = a.y
-    v.facing = Math.PI
-    k.facing = Math.atan2(v.y - k.y, v.x - k.x)
+    victims().forEach((v, i) => {
+      if (cause === 'scourge') {
+        // ring around the killer, inside the Scourge radius (250)
+        const ang = (i / n) * Math.PI * 2
+        v.x = k.x + Math.cos(ang) * 130
+        v.y = k.y + Math.sin(ang) * 130
+      } else {
+        v.x = a.x + OFFS[i].x
+        v.y = a.y + OFFS[i].y
+      }
+      v.facing = Math.atan2(k.y - v.y, k.x - v.x)
+    })
+    const v0 = pawnOf(1)
+    k.facing = Math.atan2(v0.y - k.y, v0.x - k.x)
     state.obstacles = []
     devCamera.focus = { x: (a.x + k.x) / 2 + 60, y: a.y }
     killed = false
-    labState.label = `${o.hit ? 'after-hit' : 'death'}: ${cause}`
+    labState.label = `${o.hit ? 'after-hit' : 'death'}: ${cause}${n > 1 ? ` x${n}` : ''}`
     onLabel(labState.label)
   }
 
   /** casts go in as inputs; direct sim calls run AFTER step() (step clears the event list) */
   let post: (() => void) | null = null
   const act = (inputs: PlayerInput[], T: number) => {
-    const v = pawnOf(1)
-    const k = pawnOf(0)
     if (killed || T < 0.4) return
     killed = true
-    post = () => direct(v, k)
-    switch (cause) {
-      case 'fireball':
-      case 'scourge':
-      case 'lava':
-        post = null
-    }
-    if (!o.hit) v.hp = 1.5
-    switch (cause) {
-      case 'fireball':
-        inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: v.x, y: v.y }] })
-        return
-      case 'scourge':
-        inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: k.x, y: k.y }] })
-        return
-      case 'lava':
-        // victim already stands on lava; the burn kills it (or keeps burning it in hit mode)
-        if (o.hit) v.hp = v.maxHp
-        return
+    const k = pawnOf(0)
+    if (!o.hit) for (const v of victims()) v.hp = 1.5
+    if (cause === 'fireball' && n === 1) {
+      const v = pawnOf(1)
+      inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: v.x, y: v.y }] })
+    } else if (cause === 'scourge') {
+      inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: k.x, y: k.y }] })
+    } else if (cause === 'lava') {
+      // victims stand on lava: the burn kills them (or keeps burning in hit mode)
+      if (o.hit) for (const v of victims()) v.hp = v.maxHp
+    } else {
+      post = () => direct(k)
     }
   }
 
-  const direct = (v: PawnState, k: PawnState) => {
+  const direct = (k: PawnState) => {
     const kill = !o.hit
-    switch (cause) {
-      case 'obstacle': {
-        const ob = { id: state.nextEntityId++, x: v.x - 140, y: v.y + 30, radius: 45, hp: 1, variant: 0 }
-        state.obstacles.push(ob)
-        damageObstacle(state, ob, 10)
-        return
-      }
-      case 'disconnect':
+    if (cause === 'obstacle') {
+      const v = pawnOf(1)
+      const ob = { id: state.nextEntityId++, x: v.x - 140, y: v.y + 30, radius: 45, hp: 1, variant: 0 }
+      state.obstacles.push(ob)
+      damageObstacle(state, ob, 10)
+      return
+    }
+    for (const v of victims()) {
+      if (cause === 'disconnect') {
         killPawn(state, v, null, 'disconnect', 0)
-        return
-      default: {
-        const dx = v.x - k.x
-        const dy = v.y - k.y
-        const d = Math.hypot(dx, dy) || 1
-        // context event so render can attribute the hit like a real projectile / beam
-        if (cause === 'lightning') state.events.push({ type: 'beam', spell: 'lightning', owner: 0, fromX: k.x, fromY: k.y, toX: v.x, toY: v.y, target: v.id, blocked: false })
-        else state.events.push({ type: 'projectileHit', id: -1, spell: cause, x: v.x - (dx / d) * 30, y: v.y - (dy / d) * 30, target: v.id })
-        receiveDamage(state, v, { amount: kill ? 999 : 35, cause, source: 0, normal: { x: dx / d, y: dy / d } })
+        continue
       }
+      const dx = v.x - k.x
+      const dy = v.y - k.y
+      const d = Math.hypot(dx, dy) || 1
+      // context event so render can attribute the hit like a real projectile / beam
+      if (cause === 'lightning') state.events.push({ type: 'beam', spell: 'lightning', owner: 0, fromX: k.x, fromY: k.y, toX: v.x, toY: v.y, target: v.id, blocked: false })
+      else state.events.push({ type: 'projectileHit', id: -1, spell: cause, x: v.x - (dx / d) * 30, y: v.y - (dy / d) * 30, target: v.id })
+      receiveDamage(state, v, { amount: kill ? 999 : 35, cause, source: 0, normal: { x: dx / d, y: dy / d } })
     }
   }
 
@@ -152,7 +166,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
         }
         act(inputs, T - c * o.every)
         // keep the killer and bystander alive and topped up
-        for (const p of state.pawns) if (p.owner !== 1) p.hp = p.maxHp
+        for (const p of state.pawns) if (!isVictim(p.owner)) p.hp = p.maxHp
       }
       step(state, inputs)
       if (post) {
@@ -160,8 +174,8 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
         post = null
       }
       for (const e of state.events) {
-        if (e.type === 'death' && e.owner === 1) labState.deathTick = state.tick
-        if (e.type === 'damage' && state.pawns.find((p) => p.id === e.target)?.owner === 1) labState.hitTick = state.tick
+        if (e.type === 'death' && isVictim(e.owner)) labState.deathTick = state.tick
+        if (e.type === 'damage' && isVictim(state.pawns.find((p) => p.id === e.target)?.owner ?? -1)) labState.hitTick = state.tick
       }
       labState.tick = state.tick
       pushEvents(state.tick, state.events.slice())

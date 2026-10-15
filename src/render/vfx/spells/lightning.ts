@@ -220,10 +220,11 @@ const mod: SpellVfx = {
         ctx.shakeNear(x0, y0, 0.12)
         const fl = k.floor(x1, y1)
         if (e.blocked) {
-          // tink: glancing sparks back toward the caster, small bright ring
-          ctx.flash(x1, y1, h1, 0.1, 150, 90, P.hot[0], P.hot[1], P.hot[2])
-          crackleSparks(ctx, x1, y1, h1, 22, 900, -ux, -uy, 1.0)
-          k.pulse(G_SHOCK, true, x1, y1, h1, 55, 55, 0.22, 0, 0, P.hot, 1.2, 0.2, 0.9, 0.12)
+          // tink on the bubble surface: small, short, electric blue (never a white-out);
+          // glancing sparks back toward the caster
+          ctx.flash(x1, y1, h1, 0.07, 90, 55, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
+          crackleSparks(ctx, x1, y1, h1, 18, 800, -ux, -uy, 0.9)
+          k.pulse(G_SHOCK, true, x1, y1, h1, 34, 48, 0.16, 0, 0, P.body, 1.0, 0.2, 0.9, 0.12)
         } else if (e.target === null) {
           // full range: the bolt frays into a crackle
           crackleSparks(ctx, x1, y1, h1, 14, 500)
