@@ -12,7 +12,28 @@
 import type { SpellId } from '../types'
 
 /** Buyable in the shop (sim + tests + VFX done). Spell, active item and passive item ids. */
-export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>(['fireball', 'scourge', 'teleport'])
+export const RELEASED_SPELLS: ReadonlySet<SpellId> = new Set<SpellId>([
+  'fireball',
+  'scourge',
+  'teleport',
+  // column 4-6 spells whose VFX passed review (2026-10-15)
+  'meteor',
+  'snowball',
+  'windwalk',
+  'shield',
+  'rush',
+  'alteration',
+  'gravity',
+  'warpzone',
+  'magnetize',
+  // passive stat items (no VFX needed)
+  'ring_of_health',
+  'cursed_ring',
+  'cape',
+  'armor',
+  'boots',
+  'pocket_watch',
+])
 
 export interface SpellDef {
   id: SpellId

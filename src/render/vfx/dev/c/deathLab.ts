@@ -9,7 +9,7 @@ import { frame, pushEvents, pushState, resetFrame } from '../../../../game/frame
 import { DEFAULT_SETTINGS, cloneState, createMatch, step } from '../../../../sim'
 import { damageObstacle, killPawn, receiveDamage } from '../../../../sim/combat'
 import { FIREBALL_SLOT, SCOURGE_SLOT } from '../../../../sim/config'
-import { DT, TICK_HZ, type PlayerInput, type PlayerSlot, type SimState } from '../../../../sim/types'
+import { DT, TICK_HZ, type PawnState, type PlayerInput, type PlayerSlot, type SimState } from '../../../../sim/types'
 import { devCamera } from '../../../cameraRig'
 import { devTime } from '../../../stats'
 
@@ -76,13 +76,21 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
     onLabel(labState.label)
   }
 
+  /** casts go in as inputs; direct sim calls run AFTER step() (step clears the event list) */
+  let post: (() => void) | null = null
   const act = (inputs: PlayerInput[], T: number) => {
     const v = pawnOf(1)
     const k = pawnOf(0)
     if (killed || T < 0.4) return
     killed = true
+    post = () => direct(v, k)
+    switch (cause) {
+      case 'fireball':
+      case 'scourge':
+      case 'lava':
+        post = null
+    }
     if (!o.hit) v.hp = 1.5
-    const kill = !o.hit
     switch (cause) {
       case 'fireball':
         inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: v.x, y: v.y }] })
@@ -94,6 +102,12 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
         // victim already stands on lava; the burn kills it (or keeps burning it in hit mode)
         if (o.hit) v.hp = v.maxHp
         return
+    }
+  }
+
+  const direct = (v: PawnState, k: PawnState) => {
+    const kill = !o.hit
+    switch (cause) {
       case 'obstacle': {
         const ob = { id: state.nextEntityId++, x: v.x - 140, y: v.y + 30, radius: 45, hp: 1, variant: 0 }
         state.obstacles.push(ob)
@@ -141,6 +155,10 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
         for (const p of state.pawns) if (p.owner !== 1) p.hp = p.maxHp
       }
       step(state, inputs)
+      if (post) {
+        post()
+        post = null
+      }
       for (const e of state.events) {
         if (e.type === 'death' && e.owner === 1) labState.deathTick = state.tick
         if (e.type === 'damage' && state.pawns.find((p) => p.id === e.target)?.owner === 1) labState.hitTick = state.tick

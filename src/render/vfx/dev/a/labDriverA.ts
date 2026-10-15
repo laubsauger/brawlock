@@ -117,7 +117,8 @@ const SCRIPTS: Record<string, Step[]> = {
     [8, (l) => cast(l, 0, 'lightning', at(3).x, at(3).y), 'lightning -> blocked by bubble'],
     [70, (l) => put(l, 0, -180, -20), 'fireball, then lightning detonates it'],
     [2, (l) => cast(l, 0, 'fireball', at(2).x, at(2).y)],
-    [14, (l) => cast(l, 0, 'lightning', at(2).x, at(2).y)],
+    // after the fireball has left the hand (a new order would cancel its cast point)
+    [22, (l) => cast(l, 0, 'lightning', at(2).x, at(2).y)],
     [80, () => {}],
   ],
   homing: [
@@ -144,7 +145,8 @@ const SCRIPTS: Record<string, Step[]> = {
     [90, () => {}],
   ],
   cluster: [
-    [10, (l) => cast(l, 0, 'cluster', at(1).x, at(1).y), 'cluster -> A'],
+    [10, (l) => put(l, 0, -200, -20), 'cluster: caster in range (672)'],
+    [4, (l) => cast(l, 0, 'cluster', at(1).x, at(1).y), 'cluster -> A'],
     [90, (l) => cast(l, 0, 'cluster', -100, -460), 'cluster -> miss'],
     [90, () => {}],
   ],
