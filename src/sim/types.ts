@@ -262,7 +262,23 @@ export type SimEvent =
   | { type: 'heal'; target: EntityId; amount: number; x: number; y: number }
   | { type: 'teleport'; pawn: EntityId; fromX: number; fromY: number; toX: number; toY: number }
   | { type: 'explosion'; x: number; y: number; radius: number; spell: SpellId }
-  | { type: 'death'; pawn: EntityId; owner: PlayerId; killer: PlayerId | null }
+  | {
+      type: 'death'
+      pawn: EntityId
+      owner: PlayerId
+      killer: PlayerId | null
+      /**
+       * what dealt the lethal instance: a spell id ('fireball', 'splitter', 'meteor', ...), 'lava',
+       * 'obstacle' (pillar explosion) or 'disconnect' (leaver removed). Always set by the sim;
+       * optional only so hand-made mock events stay valid.
+       */
+      cause?: string
+      /** knockback speed of the lethal hit (0 for lava / DoT / disconnect) */
+      kb?: number
+      /** where the pawn died */
+      x?: number
+      y?: number
+    }
   | { type: 'obstacleDestroyed'; id: EntityId; x: number; y: number }
   | { type: 'arenaShrink'; layer: number }
   | { type: 'phase'; phase: Phase; round: number }

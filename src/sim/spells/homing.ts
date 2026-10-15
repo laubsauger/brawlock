@@ -90,7 +90,7 @@ export const homingProjectile: ProjectileBehavior = {
       if (o.pawn.owner === p.owner) {
         // self-detonation
         state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: p.data.selfRadius, spell: 'homing' })
-        damageArea(state, p.owner, p.x, p.y, p.data.selfRadius, { amountMin: 0, amountMax: p.data.damage, knockbackFactor: p.data.selfKb })
+        damageArea(state, p.owner, p.x, p.y, p.data.selfRadius, { amountMin: 0, amountMax: p.data.damage, knockbackFactor: p.data.selfKb, cause: 'homing' })
         const caster = ownerPawn(state, p)
         if (caster && caster.alive) {
           const burnout = hasModifier(caster, 'thrust')
@@ -100,7 +100,7 @@ export const homingProjectile: ProjectileBehavior = {
           })
         }
       } else {
-        receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny } })
+        receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, cause: 'homing' })
       }
     } else if (o.kind === 'obstacle') {
       damageObstacle(state, o.obstacle, p.data.damage)

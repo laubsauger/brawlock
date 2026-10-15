@@ -77,7 +77,7 @@ export const gravityProjectile: ProjectileBehavior = {
       for (const pawn of state.pawns) {
         if (!pawn.alive || !isEnemy(state, p.owner, pawn.owner)) continue
         const d2 = (pawn.x - p.x) * (pawn.x - p.x) + (pawn.y - p.y) * (pawn.y - p.y)
-        if (d2 <= r2) receiveDamage(state, pawn, { amount: d.dps * (d.dpsPeriod / 60), source: p.owner })
+        if (d2 <= r2) receiveDamage(state, pawn, { amount: d.dps * (d.dpsPeriod / 60), source: p.owner, cause: 'gravity' })
       }
     }
   },

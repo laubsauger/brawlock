@@ -38,7 +38,7 @@ describe('passive items (systems.md §3.1): levels replace, stacking is additive
     grant(s, 1, 'cursed_ring', 1)
     expect(p1.kbFactor).toBeCloseTo(0.63, 12)
     place(p1, 0, 0)
-    receiveDamage(s, p1, { amount: 70, source: 0, normal: { x: 1, y: 0 } })
+    receiveDamage(s, p1, { cause: 'test', amount: 70, source: 0, normal: { x: 1, y: 0 } })
     expect(p1.vx).toBeCloseTo(749 * 0.63, 6)
   })
 

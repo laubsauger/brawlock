@@ -176,7 +176,7 @@ describe('teams', () => {
     runUntil(s, (st) => st.phase === 'fight')
     setPlayerConnected(s, 2, false)
     step(s, [])
-    expect(s.events).toContainEqual({ type: 'death', pawn: pawn(s, 2).id, owner: 2, killer: null })
+    expect(s.events.find((e) => e.type === 'death')).toMatchObject({ pawn: pawn(s, 2).id, owner: 2, killer: null, cause: 'disconnect', kb: 0 })
     expect(s.phase).toBe('fight') // two players still alive
   })
 })

@@ -70,7 +70,7 @@ export const snowballProjectile: ProjectileBehavior = {
   onDestroy(state, p) {
     const d = p.data
     state.events.push({ type: 'explosion', x: p.x, y: p.y, radius: d.explosion, spell: 'snowball' })
-    damageArea(state, p.owner, p.x, p.y, d.explosion, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb })
+    damageArea(state, p.owner, p.x, p.y, d.explosion, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb, cause: 'snowball' })
   },
 }
 
@@ -78,6 +78,6 @@ export const snowballProjectile: ProjectileBehavior = {
 export const snowballModifier: ModifierBehavior = {
   temporary: true,
   onRemove(state, pawn, mod, expired) {
-    if (expired && pawn.alive) receiveDamage(state, pawn, { amount: mod.data.damage, source: mod.source })
+    if (expired && pawn.alive) receiveDamage(state, pawn, { amount: mod.data.damage, source: mod.source, cause: 'snowball' })
   },
 }

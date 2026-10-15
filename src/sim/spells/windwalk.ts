@@ -55,7 +55,7 @@ export const windwalkModifier: ModifierBehavior = {
       thrustHitPawn(state, pawn, thrust, enemy, hit.nx, hit.ny, 1)
     }
     state.events.push({ type: 'spellHit', spell: 'windwalk', pawn: pawn.id, target: enemy.id, x: hit.x, y: hit.y })
-    receiveDamage(state, enemy, { amount: mod.data.damage, source: pawn.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: kb })
+    receiveDamage(state, enemy, { amount: mod.data.damage, source: pawn.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: kb, cause: 'windwalk' })
     removeModifier(state, pawn, mod)
   },
   onRemove(_s, pawn) {

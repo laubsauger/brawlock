@@ -112,14 +112,14 @@ describe('Rush (spells.md §8.21)', () => {
     place(p1, 0, 0)
     castNow(s, 1, grant(s, 1, 'rush'), 0, 0)
     expect(p1.moveSpeed).toBe(245)
-    receiveDamage(s, p1, { amount: 70, source: 0, normal: { x: 1, y: 0 } })
+    receiveDamage(s, p1, { cause: 'test', amount: 70, source: 0, normal: { x: 1, y: 0 } })
     const dmg = of(s.events, 'damage').at(-1)!
     expect(dmg.amount).toBe(35)
     expect(dmg.absorbed).toBe(35)
     expect(dmg.kb).toBeCloseTo(knockbackSpeed(70, 70, 1, 1, 1), 9) // knockback from the full 70
     expect(p1.kbPoints).toBe(70) // DP gain not reduced
     expect(p1.moveSpeed).toBeCloseTo(245 + 1.5 * 35, 9)
-    receiveDamage(s, p1, { amount: 70, source: 0 })
+    receiveDamage(s, p1, { cause: 'test', amount: 70, source: 0 })
     expect(of(s.events, 'damage').at(-1)!.absorbed).toBe(15) // cap 50 at Lv1
   })
 
@@ -127,7 +127,7 @@ describe('Rush (spells.md §8.21)', () => {
     const s = fight()
     const p1 = pawn(s, 1)
     castNow(s, 1, grant(s, 1, 'rush'), 0, 0)
-    receiveDamage(s, p1, { amount: 25, source: null })
+    receiveDamage(s, p1, { cause: 'test', amount: 25, source: null })
     expect(of(s.events, 'damage').at(-1)).toMatchObject({ amount: 25 })
   })
 })

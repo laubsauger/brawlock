@@ -119,7 +119,7 @@ export const linkModifier: ModifierBehavior = {
         d.dpsTimer -= 1
         if (d.dpsTimer <= 0) {
           d.dpsTimer += d.dpsPeriod
-          receiveDamage(state, pawnTarget, { amount: d.dps * (d.dpsPeriod / 60), source: caster.owner })
+          receiveDamage(state, pawnTarget, { amount: d.dps * (d.dpsPeriod / 60), source: caster.owner, cause: 'link' })
         }
       }
     } else {

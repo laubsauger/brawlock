@@ -85,7 +85,7 @@ export const boomerangProjectile: ProjectileBehavior = {
   onCollide(state, p, hit) {
     const o = hit.other
     if (o.kind === 'pawn') {
-      receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: p.data.kb })
+      receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: p.data.kb, cause: 'boomerang' })
     }
     if (o.kind === 'pawn' || o.kind === 'obstacle') {
       const other = o.kind === 'pawn' ? o.pawn : o.obstacle

@@ -69,7 +69,7 @@ export const meteorProjectile: ProjectileBehavior = {
       p.vy = 0
       d.z = GAME_Z
       state.events.push({ type: 'explosion', x: d.tx, y: d.ty, radius: d.radius, spell: 'meteor' })
-      damageArea(state, p.owner, d.tx, d.ty, d.radius, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb })
+      damageArea(state, p.owner, d.tx, d.ty, d.radius, { amountMin: d.damageMin, amountMax: d.damageMax, knockbackFactor: d.kb, cause: 'meteor' })
       killProjectile(state, p)
     }
   },

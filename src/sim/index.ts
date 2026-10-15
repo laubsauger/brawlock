@@ -157,7 +157,7 @@ function connectionTick(state: SimState): void {
     const active = isActive(state, pawn.owner)
     if (pawn.alive && !active) {
       pawn.lastHitter = null
-      killPawn(state, pawn, null)
+      killPawn(state, pawn, null, 'disconnect')
     } else if (!pawn.alive && active && state.phase === 'shop') {
       // nobody can die in the shop phase, so a dead active pawn here just (re)joined
       respawnPawn(state, pawn)

@@ -21,6 +21,7 @@ export const scourgeSpell: SpellBehavior = {
       amount: damage,
       kbFactorMin: attr(def, 'kb_factor_min', level),
       kbFactorMax: attr(def, 'kb_factor_max', level),
+      cause: 'scourge',
     })
     const cost = level === 1 ? damage : attr(def, 'self_cost', level)
     caster.hp = Math.max(1, caster.hp - cost)

@@ -116,9 +116,9 @@ export function bounceOff(state: SimState, p: ProjectileState, hit: CollisionHit
  * `other:receiveDamage(...)` on whatever a projectile touched: pawns take damage and knockback,
  * projectiles are destroyed (unless they ignore damage), obstacles lose HP.
  */
-export function damageHitBody(state: SimState, proj: ProjectileState, hit: CollisionHit, info: DamageInfo): void {
+export function damageHitBody(state: SimState, proj: ProjectileState, hit: CollisionHit, info: Omit<DamageInfo, 'cause'>): void {
   const o = hit.other
-  if (o.kind === 'pawn') receiveDamage(state, o.pawn, info)
+  if (o.kind === 'pawn') receiveDamage(state, o.pawn, { ...info, cause: proj.spell })
   else if (o.kind === 'projectile') damageProjectile(state, o.proj, proj.id)
   else damageObstacle(state, o.obstacle, info.amount)
 }

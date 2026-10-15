@@ -50,7 +50,7 @@ describe('cast canceling', () => {
     const p0 = pawn(s, 0)
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
     p0.hp = 5
-    receiveDamage(s, p0, { amount: 10, source: 1 })
+    receiveDamage(s, p0, { cause: 'test', amount: 10, source: 1 })
     expect(of(s.events, 'castCancel')).toHaveLength(1)
     expect(p0.cast).toBeNull()
   })

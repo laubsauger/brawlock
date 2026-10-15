@@ -16,6 +16,8 @@ import type { ObstacleState, PawnState, PlayerId, ProjectileState, SimState, Vec
 
 export interface DamageInfo {
   amount: number
+  /** spell id of the damage instance, or 'lava' / 'obstacle' (reported as the death cause) */
+  cause: string
   /** player credited for the hit (lifesteal, damage stat, last hitter). null = lava etc. */
   source: PlayerId | null
   /** unit hit normal (pointing away from the hitter). Absent = no knockback, DP still gained. */
@@ -87,7 +89,7 @@ export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo
   else state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb })
   const life = pawn.hp - amount
   if (life > 1) pawn.hp = life
-  else killPawn(state, pawn, info.source ?? pawn.lastHitter)
+  else killPawn(state, pawn, info.source ?? pawn.lastHitter, info.cause, kb)
   return amount
 }
 
@@ -104,8 +106,10 @@ export function heal(state: SimState, pawn: PawnState, amount: number, dpFactor 
  * Pawn:die. `killer` = lethal source, else last hitter (lava kills credit whoever hit last).
  * Self kills and sourceless deaths get no credit.
  */
-export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | null): void {
+export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | null, cause: string, kb = 0): void {
   if (!pawn.alive) return
+  const x = pawn.x
+  const y = pawn.y
   cancelCast(state, pawn)
   pawn.hp = 0
   pawn.alive = false
@@ -127,11 +131,13 @@ export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | nu
       k.gold += state.settings.killGold
     }
   }
-  state.events.push({ type: 'death', pawn: pawn.id, owner: pawn.owner, killer: credit })
+  state.events.push({ type: 'death', pawn: pawn.id, owner: pawn.owner, killer: credit, cause, kb, x, y })
   onKill(state, pawn, credit)
 }
 
 export interface AreaDamage {
+  /** spell id reported as the death cause */
+  cause: string
   /** flat amount, or linear from amountMin at the edge to amountMax at the centre */
   amount?: number
   amountMin?: number
@@ -171,7 +177,7 @@ export function damageArea(
       const t = 1 - d / radius
       kf = (1 - t) * dmg.kbFactorMin + t * dmg.kbFactorMax
     }
-    receiveDamage(state, pawn, { amount, source: owner, normal, knockbackFactor: kf })
+    receiveDamage(state, pawn, { amount, source: owner, normal, knockbackFactor: kf, cause: dmg.cause })
     hits++
   }
   return hits
@@ -210,6 +216,6 @@ export function damageObstacle(state: SimState, ob: ObstacleState, amount: numbe
     if (!(d < OBSTACLE_EXPLODE_RADIUS)) continue
     const normal = d > 0 ? { x: dx / d, y: dy / d } : { x: 1, y: 0 }
     const amount = OBSTACLE_EXPLODE_DMG_MIN + OBSTACLE_EXPLODE_DMG_GAIN * (1 - d / OBSTACLE_EXPLODE_RADIUS)
-    receiveDamage(state, pawn, { amount, source: null, normal })
+    receiveDamage(state, pawn, { amount, source: null, normal, cause: 'obstacle' })
   }
 }

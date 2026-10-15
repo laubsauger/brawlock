@@ -66,10 +66,11 @@ export const lightningSpell: SpellBehavior = {
           amountMin: 0,
           amountMax: (2 / 3) * (damage + 70),
           knockbackFactor: attr(def, 'fb_knockback_factor', level),
+          cause: 'lightning',
         })
       } else if (winner.cc.acceptDamage) {
         if (r.kind === 'pawn') {
-          receiveDamage(state, r.pawn, { amount: damage, source: caster.owner, normal: { x: a.dx, y: a.dy }, knockbackFactor: attr(def, 'knockback_factor', level) })
+          receiveDamage(state, r.pawn, { amount: damage, source: caster.owner, normal: { x: a.dx, y: a.dy }, knockbackFactor: attr(def, 'knockback_factor', level), cause: 'lightning' })
         } else if (r.kind === 'projectile') damageProjectile(state, r.proj, null)
         else damageObstacle(state, r.obstacle, damage)
       } else {

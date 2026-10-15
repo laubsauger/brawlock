@@ -267,7 +267,7 @@ describe('Deathmatch (systems.md §7.3)', () => {
     const p1 = pawn(s, 1)
     run(s, 120) // spawn invulnerability
     p1.hp = 10
-    receiveDamage(s, p1, { amount: 20, source: 0 })
+    receiveDamage(s, p1, { cause: 'test', amount: 20, source: 0 })
     expect(p1.alive).toBe(false)
     expect(s.scores.map((x) => x.score)).toEqual([1, 0])
     expect(s.phase).toBe('fight') // a kill does not end the round
@@ -286,10 +286,10 @@ describe('Deathmatch (systems.md §7.3)', () => {
     place(p1, 3000, 0)
     runUntil(s, () => !p1.alive)
     expect(s.scores.map((x) => x.score)).toEqual([0, 0])
-    receiveDamage(s, pawn(s, 0), { amount: 0.5, source: 1 })
+    receiveDamage(s, pawn(s, 0), { cause: 'test', amount: 0.5, source: 1 })
     const p0 = pawn(s, 0)
     p0.hp = 1.5
-    receiveDamage(s, p0, { amount: 1, source: null })
+    receiveDamage(s, p0, { cause: 'test', amount: 1, source: null })
     // p0 died to "lava" with p1 as last hitter: p1 scores
     expect(s.scores.map((x) => x.score)).toEqual([0, 1])
     expect(s.phase).toBe('fight')

@@ -19,6 +19,6 @@ export function lavaTick(state: SimState): void {
       continue
     }
     pawn.lavaTicks += 1
-    if (burn) receiveDamage(state, pawn, { amount, source: null, kbVulnerability: LAVA_KB_POINT_FACTOR })
+    if (burn) receiveDamage(state, pawn, { amount, source: null, kbVulnerability: LAVA_KB_POINT_FACTOR, cause: 'lava' })
   }
 }

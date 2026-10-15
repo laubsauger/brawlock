@@ -59,7 +59,7 @@ export const rechargeProjectile: ProjectileBehavior = {
       return
     }
     if (o.kind === 'pawn') {
-      receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: p.data.kb })
+      receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: p.data.kb, cause: 'recharge' })
       p.data.hitPawn = 1
       spawnProjectile(state, p.owner, 'recharge', hit.x, hit.y, 0, 0, 0, {
         lifetime: null,

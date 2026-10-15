@@ -92,7 +92,7 @@ export const drainProjectile: ProjectileBehavior = {
     const target = o.pawn
     const d = p.data
     if (isEnemy(state, p.owner, target.owner)) {
-      receiveDamage(state, target, { amount: d.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: d.kb })
+      receiveDamage(state, target, { amount: d.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: d.kb, cause: 'drain' })
       addModifier(state, target, MOD_DRAIN_SLOW, ticks(debuffDuration(state, target, p.owner, d.buff)), p.owner, { speed: -d.speedChange })
       spawnProjectile(state, p.owner, 'drain', hit.x, hit.y, 0, 0, 0, {
         lifetime: null,

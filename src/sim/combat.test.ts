@@ -50,7 +50,7 @@ describe('damage pipeline (spells.md §4.1)', () => {
     toCombat(s)
     const p1 = pawn(s, 1)
     place(p1, 0, 0)
-    const dealt = receiveDamage(s, p1, { amount: 70, source: 0, normal: { x: 0, y: 1 } })
+    const dealt = receiveDamage(s, p1, { cause: 'test', amount: 70, source: 0, normal: { x: 0, y: 1 } })
     expect(dealt).toBe(70)
     expect(p1.kbPoints).toBe(70)
     expect(p1.vy).toBeCloseTo(749, 6)
@@ -65,14 +65,14 @@ describe('damage pipeline (spells.md §4.1)', () => {
     const s = newMatch()
     const p1 = pawn(s, 1)
     expect(s.phase).toBe('shop')
-    expect(receiveDamage(s, p1, { amount: 500, source: 0, normal: { x: 1, y: 0 } })).toBe(0)
+    expect(receiveDamage(s, p1, { cause: 'test', amount: 500, source: 0, normal: { x: 1, y: 0 } })).toBe(0)
     runUntil(s, (st) => st.phase === 'fight')
     expect(p1.invulnerable).toBe(true)
-    expect(receiveDamage(s, p1, { amount: 500, source: 0, normal: { x: 1, y: 0 } })).toBe(0)
+    expect(receiveDamage(s, p1, { cause: 'test', amount: 500, source: 0, normal: { x: 1, y: 0 } })).toBe(0)
     expect(p1.hp).toBe(1000)
     run(s, 120) // 2 s
     expect(p1.invulnerable).toBe(false)
-    expect(receiveDamage(s, p1, { amount: 100, source: 0 })).toBe(100)
+    expect(receiveDamage(s, p1, { cause: 'test', amount: 100, source: 0 })).toBe(100)
   })
 
   test('damage and knockback multipliers come from the lobby settings', () => {
@@ -80,7 +80,7 @@ describe('damage pipeline (spells.md §4.1)', () => {
     toCombat(s)
     const p1 = pawn(s, 1)
     place(p1, 0, 0)
-    receiveDamage(s, p1, { amount: 35, source: 0, normal: { x: 1, y: 0 } })
+    receiveDamage(s, p1, { cause: 'test', amount: 35, source: 0, normal: { x: 1, y: 0 } })
     expect(p1.hp).toBe(930)
     expect(p1.vx).toBeCloseTo(749 / 2, 6)
   })
@@ -92,7 +92,7 @@ describe('damage pipeline (spells.md §4.1)', () => {
     const p0 = pawn(s, 0)
     p0.hp = 500
     p0.kbPoints = 100
-    receiveDamage(s, pawn(s, 1), { amount: 100, source: 0, normal: { x: 1, y: 0 } })
+    receiveDamage(s, pawn(s, 1), { cause: 'test', amount: 100, source: 0, normal: { x: 1, y: 0 } })
     expect(p0.hp).toBeCloseTo(509, 9)
     expect(p0.kbPoints).toBeCloseTo(95.5, 9)
   })
@@ -102,7 +102,7 @@ describe('damage pipeline (spells.md §4.1)', () => {
     toCombat(s)
     const p1 = pawn(s, 1)
     p1.hp = 51
-    receiveDamage(s, p1, { amount: 50, source: 0 })
+    receiveDamage(s, p1, { cause: 'test', amount: 50, source: 0 })
     expect(p1.alive).toBe(false)
   })
 })
@@ -131,7 +131,7 @@ describe('lava (systems.md §5.2)', () => {
     const p1 = pawn(s, 1)
     place(p0, 0, 0)
     place(p1, 2600, 0)
-    receiveDamage(s, p1, { amount: 10, source: 0, normal: { x: 1, y: 0 } })
+    receiveDamage(s, p1, { cause: 'test', amount: 10, source: 0, normal: { x: 1, y: 0 } })
     const gold = s.scores[0].gold
     const events = runUntil(s, () => !p1.alive)
     expect(deathOf(events)).toMatchObject({ type: 'death', owner: 1, killer: 0 })

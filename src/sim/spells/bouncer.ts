@@ -94,7 +94,7 @@ export const bouncerProjectile: ProjectileBehavior = {
     const target = o.pawn
     if (target.id === d.prevHit) return
     if (isEnemy(state, p.owner, target.owner)) {
-      receiveDamage(state, target, { amount: d.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: d.kb })
+      receiveDamage(state, target, { amount: d.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, knockbackFactor: d.kb, cause: 'bouncer' })
       d.damage *= d.decay
       d.hits += 1
     }
