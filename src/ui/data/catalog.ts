@@ -1,4 +1,7 @@
 /**
+ * Descriptions say what a spell does, never its numbers: the ability card
+ * shows those from the sim table for the level in question.
+ *
  * Shop catalog for display. Numbers (costs, levels, cooldowns, max levels,
  * what is implemented) come from the sim's spell table, so the shop can never
  * disagree with what a purchase does. This file adds only presentation:
@@ -60,10 +63,10 @@ export const ITEM_HUE = '#e9d3b0'
 export const MASTERY_HUE = '#ffb36b'
 
 const DESC: Record<string, string> = {
-  fireball: 'Your starting bolt. Straight, fast, reliable. Each upgrade adds 7 damage.',
-  scourge: 'After a short windup, blast everyone around you. Costs you 100 HP but never kills you. Stop (S) cancels the windup.',
-  redirector: 'Steer your nearest projectile toward the cursor and extend its flight. You take 30% more knockback for 8 seconds.',
-  pact: 'Your next damaging spell within 5 seconds hits 50% harder, then you are slowed for 6 seconds.',
+  fireball: 'Your starting bolt. Straight, fast, reliable. Every upgrade adds damage.',
+  scourge: 'After a short windup, blast everyone around you. It costs you some health but never kills you. Stop cancels the windup.',
+  redirector: 'Steer your nearest projectile toward the cursor and extend its flight. You take more knockback for a while afterwards.',
+  pact: 'Your next damaging spell soon after hits harder, then you are slowed for a while.',
   ring_of_health: 'More maximum health.',
   cursed_ring: 'More health and less knockback, but debuffs on you last longer.',
   cape: 'Faster health regeneration.',
@@ -73,11 +76,11 @@ const DESC: Record<string, string> = {
   boomerang: 'A curved blade that flies out and arcs back to you, cutting through other projectiles.',
   lightning: 'An instant strike along a line that hits the first thing in its path. Sets off your own Fireballs.',
   homing: 'A seeker that hunts the nearest enemy. Touch it yourself to detonate it for a burst of speed.',
-  twin: 'Two bolts swing out on mirrored arcs and meet at the target point.',
+  twin: 'A pair of bolts swing out on mirrored arcs and meet at the target point.',
   teleport: 'Blink to the cursor. You keep most of your momentum, so pick the landing.',
   thrust: 'Dash at the target and slam into whoever you meet. The faster you go, the harder it hits.',
   swap: 'A quick bolt that trades places with the first warlock or pillar it touches.',
-  cluster: 'Four small fireballs in a fan. Less push each, more chances to land.',
+  cluster: 'A fan of small fireballs. Less push each, more chances to land.',
   drain: 'Turns toward the nearest warlock. Saps enemies and sends health back to you.',
   bouncer: 'Ricochets between nearby warlocks, weaker with every enemy it hits.',
   recharge: 'Grows stronger with every consecutive hit; the returning orb resets its cooldown.',

@@ -967,6 +967,37 @@
     box-shadow: inset 0 0 0 1px rgba(90, 40, 0, 0.5);
     vertical-align: -0.08em;
   }
+  /* Ability hover card (hud/AbilityCard.tsx): fixed width, so content never reflows the page;
+     the media slot for a future preview would sit above the header at full width */
+  .ability-card {
+    --c: 10px;
+    width: 300px;
+    padding: 0.8rem 0.9rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    --panel-bg: rgba(20, 12, 9, 0.94);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 0 0 2px color-mix(in srgb, var(--hue, #ffb36b) 30%, transparent), 0 10px 30px rgba(0, 0, 0, 0.55);
+    animation: ability-card-in 0.12s ease-out both;
+  }
+  /* opacity only: the card's position is an inline transform an animated transform would override */
+  @keyframes ability-card-in { from { opacity: 0; } }
+  .ability-card-head { display: flex; gap: 0.7rem; align-items: center; min-width: 0; }
+  .ability-card-name { font-family: var(--font-display); font-weight: 700; font-size: 1.08rem; letter-spacing: 0.04em; line-height: 1.15; }
+  .ability-card-stats {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    row-gap: 0.12rem;
+    font-size: 0.88rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  .ability-card-stats dt { color: #b9a28b; min-width: 0; }
+  .ability-card-stats dd { text-align: right; font-weight: 700; color: #f3e3cc; white-space: nowrap; }
+  .ability-card-desc { font-size: 0.9rem; line-height: 1.35; color: #e6d3b8; }
+  .ability-card-action { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 700; border-top: 1px solid rgba(255, 170, 100, 0.12); padding-top: 0.45rem; }
   .lvl-bars { display: flex; gap: 2px; }
   .lvl-bars i { width: 7px; height: 4px; border-radius: 1px; background: rgba(255, 255, 255, 0.14); }
   .lvl-bars i[data-on="true"] { background: #ffc548; }
@@ -992,9 +1023,6 @@
   .dock { pointer-events: none; }
   .dock > * { pointer-events: auto; }
   .dock-panel { flex: 0 1 auto; min-height: 0; max-height: 100%; }
-  /* fixed heights: hovering never resizes the panel or toggles a scrollbar in the tile area */
-  .spell-detail { height: 204px; flex: none; overflow-y: auto; scrollbar-gutter: stable; }
-  .gear-detail { height: 236px; flex: none; overflow-y: auto; scrollbar-gutter: stable; }
   .dock-panel .overflow-y-auto, .dock-panel .spell-grid { scrollbar-gutter: stable; }
   @container (max-width: 520px) {
     .spell-detail-row { flex-direction: column; gap: 0.6rem; }

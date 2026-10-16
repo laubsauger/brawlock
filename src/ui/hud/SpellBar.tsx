@@ -7,6 +7,7 @@ import { displayName, isPassive, itemDef, knownCooldown, SPELL_MAX_LEVEL, statsS
 import { slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled, useTick } from '../lib/ticker'
 import { localView } from '../lib/view'
+import { abilityCardProps } from './AbilityCard'
 
 export const SPELL_SLOTS = 6
 export const ITEM_SLOTS = 6
@@ -95,12 +96,15 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       data-empty={!info.spell}
       data-passive={passive}
       {...slotDragProps(index, !!info.spell)}
+      {...(info.spell ? abilityCardProps(() => ({ kind: isItem ? 'item' : 'spell', id: info.spell!, context: 'hud', slot: index, side: 'top' })) : null)}
       onClick={(e) => startSlotCapture(index, e.currentTarget)}
-      title={
+      aria-label={
         passive
           ? `${name} (passive), level ${info.level}: ${statsSummary(info.spell!, info.level)}. Always on; drag to move it.`
           : `${info.spell ? `${name}${maxLevel > 1 ? `, level ${info.level}` : ''}` : isItem ? 'Empty item slot' : 'Empty spell slot'}. Drag onto another slot to swap keys, or click and press a key.`
       }
+      // empty slots keep the native hint; filled ones get the ability card
+      title={info.spell ? undefined : `${isItem ? 'Empty item slot' : 'Empty spell slot'}. Drag onto another slot to swap keys, or click and press a key.`}
     >
       {info.spell && (
         <div className="icon">

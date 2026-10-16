@@ -3,6 +3,7 @@ import { useGame } from '../../game/store'
 import { Hud, WaitingVeil } from '../hud/Hud'
 import { Shop } from '../hud/Shop'
 import { CharacterSheet, EscMenu, Scoreboard } from '../hud/Overlays'
+import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
 
 /**
  * Match screen: the HUD and panels float above the match scene. The scene
@@ -26,6 +27,7 @@ export function Match() {
       s.toggle('characterOpen', false)
       s.toggle('scoreboardOpen', false)
       s.toggle('paused', false)
+      hideAbilityCard()
     },
     [],
   )
@@ -39,6 +41,7 @@ export function Match() {
       {paused && <EscMenu />}
       {/* last: "Entering the arena" covers the auto-opened shop too */}
       <WaitingVeil />
+      <AbilityCardHost />
     </div>
   )
 }
