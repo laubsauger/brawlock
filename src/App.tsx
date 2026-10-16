@@ -30,7 +30,7 @@ function useAudioSettings() {
     const apply = () => {
       const s = useGame.getState().settings
       try {
-        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, muted: s.muted || forcedMute })
+        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, muted: s.muted || forcedMute })
         // sound style: saved choice, unless ?audio=synth forces synthesis for this session
         const want = forcedSynth ? 'synth' : (s.soundStyle ?? 'hybrid')
         if (want !== mode && want !== audio.getMode()) audio.setMode(want)

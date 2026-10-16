@@ -41,6 +41,7 @@ export interface Settings {
   masterVolume: number
   sfxVolume: number
   musicVolume: number
+  ambienceVolume: number
   muted: boolean
   playerName: string
   showPerf: boolean
@@ -139,6 +140,7 @@ const defaultSettings: Settings = {
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.6,
+  ambienceVolume: 1,
   muted: false,
   playerName: 'Warlock',
   showPerf: false,

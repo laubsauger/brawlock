@@ -1087,22 +1087,29 @@ const splitterCast: Recipe = (v) => {
   click(v, 0, 0.3, 3000)
 }
 
-/** Splitter main bolt / spawner in flight: a throbbing low hum. p = seconds */
+/**
+ * Splitter main bolt / spawner in flight: a soft throbbing low hum. p = seconds.
+ * Smooth (sine) pulsing on a darker band: the old square-gated 700 Hz band chopped
+ * into a beeping alarm.
+ */
 const splitterTravel: Recipe = (v, p) => {
   const { env, dur } = loopEnv(v, p)
-  const am = tremolo(v, 0, dur, 12, 0.8, env, 'square')
-  const o = v.osc('sawtooth', 110, 0, dur, v.filter('bandpass', 700, 3, v.gain(0.3, am)))
-  v.osc('sine', 3, 0, dur, v.gain(8, o.frequency))
-  v.noise('pink', 0, dur, v.filter('bandpass', 1500, 2, v.gain(0.3, env)))
+  const am = tremolo(v, 0, dur, 7, 0.4, env)
+  const o = v.osc('sawtooth', 110, 0, dur, v.filter('bandpass', 420, 1.4, v.gain(0.3, am)))
+  v.osc('sine', 3, 0, dur, v.gain(6, o.frequency))
+  v.noise('pink', 0, dur, v.filter('bandpass', 900, 1.2, v.gain(0.18, env)))
 }
 
-/** A Splitter child bolt: a quick zip as it leaves the spawner. p = seconds */
-const childZip: Recipe = (v, p) => {
-  const dur = clamp(p || 0.5, 0.1, 2)
+/**
+ * A Splitter child bolt: a short airy zip as it leaves the spawner. No held tone: the old
+ * one sustained a 900 Hz triangle for the whole flight, and a swarm of children beeped.
+ */
+const childZip: Recipe = (v) => {
+  whoosh(v, 0, 0.14, 2600, 1100, 1.1, 0.3, 'pink')
   const g = v.gain(0, v.out)
-  const o = v.osc('triangle', 1800 * v.vary(0.1), 0, dur, g)
-  v.glide(o.frequency, 0, 1800, 900, Math.min(dur, 0.15))
-  v.ahr(g.gain, 0, 0.003, 0.2, Math.max(0, dur - 0.1), 0.08)
+  const o = v.osc('triangle', 1300 * v.vary(0.1), 0, 0.1, g)
+  v.glide(o.frequency, 0, 1300, 500, 0.08)
+  v.ad(g.gain, 0, 0.003, 0.07, 0.07)
 }
 
 /** Snowball thrown: a soft whump and a packed-snow crunch. */

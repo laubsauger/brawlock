@@ -46,7 +46,7 @@ export interface Listener {
 export interface AudioApi {
   /** Create / resume the AudioContext. Call from a user gesture. Safe to call repeatedly. */
   unlock(): void
-  setVolumes(v: { master: number; sfx: number; music: number; muted: boolean }): void
+  setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; muted: boolean }): void
   /** Play SFX for sim events from one tick. */
   playEvents(events: SimEvent[], listener: Listener): void
   ui(sound: UiSound): void

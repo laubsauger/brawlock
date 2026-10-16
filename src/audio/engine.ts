@@ -135,7 +135,7 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
   meteorImpact: { max: 2, level: 0.98, bus: 'sfx' },
   splitterCast: { max: 3, level: 1.11, bus: 'sfx' },
   splitterTravel: { max: 4, level: 1.1, bus: 'sfx' },
-  childZip: { max: 8, level: 0.27, bus: 'sfx' },
+  childZip: { max: 4, level: 0.27, bus: 'sfx' },
   snowCast: { max: 2, level: 2.33, bus: 'sfx' },
   snowRoll: { max: 3, level: 0.29, bus: 'sfx' },
   snowGrab: { max: 3, level: 1.14, bus: 'sfx' },
@@ -178,6 +178,8 @@ export interface Volumes {
   master: number
   sfx: number
   music: number
+  /** lava ambience, independent of effects (default 1) */
+  ambience?: number
   muted: boolean
 }
 
@@ -201,15 +203,19 @@ export interface Graph {
   sfx: GainNode
   ui: GainNode
   music: GainNode
+  /** lava ambience bus (own volume slider), beside sfx */
+  amb: GainNode
 }
 
 /** Bus gains for the user's volume settings (pure; shared with offline level checks). */
-export function busGains(v: Volumes): { master: number; sfx: number; ui: number; music: number } {
+export function busGains(v: Volumes): { master: number; sfx: number; ui: number; music: number; amb: number } {
   return {
     master: v.muted ? 0 : curve(v.master),
     sfx: curve(v.sfx) * SFX_LEVEL,
     ui: curve(v.sfx) * UI_LEVEL,
     music: curve(v.music) * MUSIC_LEVEL,
+    // same calibration as the sfx bus it used to share
+    amb: curve(v.ambience ?? 1) * SFX_LEVEL,
   }
 }
 
@@ -217,6 +223,7 @@ export function busGains(v: Volumes): { master: number; sfx: number; ui: number;
  * The bus graph on any context (live, or offline for level checks):
  *
  *   voices ─▶ sfx ─┬───────────────▶ master ─▶ glue comp ─▶ limiter ─▶ soft clip ─▶ out
+ *   lava ───▶ amb ─┤                    ▲
  *                  └▶ send ─▶ reverb ─┘ ▲
  *   ui ────────────────────────────────┘ │
  *   music layers ─▶ music ─┬─────────────┘
@@ -257,6 +264,9 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   sfxSend.gain.value = SFX_REVERB_SEND
   sfx.connect(sfxSend)
   sfxSend.connect(reverb)
+  const amb = ctx.createGain()
+  amb.connect(master)
+  amb.connect(sfxSend)
   const ui = ctx.createGain()
   ui.connect(master)
   const music = ctx.createGain()
@@ -265,7 +275,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   musicSend.gain.value = MUSIC_REVERB_SEND
   music.connect(musicSend)
   musicSend.connect(reverb)
-  return { ctx, synth, master, sfx, ui, music }
+  return { ctx, synth, master, sfx, ui, music, amb }
 }
 
 export class AudioEngine {
@@ -395,6 +405,7 @@ export class AudioEngine {
     set(g.sfx.gain, b.sfx)
     set(g.ui.gain, b.ui)
     set(g.music.gain, b.music)
+    set(g.amb.gain, b.amb)
   }
 
   playEvents(events: readonly SimEvent[], listener: ListenerLike): void {
@@ -626,7 +637,7 @@ export class AudioEngine {
       this.amb = null
     }
     if (kind) {
-      this.amb = new AmbienceLayer(g.synth, g.sfx, kind)
+      this.amb = new AmbienceLayer(g.synth, g.amb, kind)
       this.amb.fadeTo(AMB_LEVEL, 3)
       this.refreshBeds()
     }

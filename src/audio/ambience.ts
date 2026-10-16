@@ -26,8 +26,8 @@ interface AmbDef {
 }
 
 const DEFS: Record<AmbienceKind, AmbDef> = {
-  match: { level: 1, rumbleHz: 140, hiss: 0.25, crackle: 0.5, bubbles: 6, edge: true },
-  menu: { level: 0.78, rumbleHz: 100, hiss: 0.12, crackle: 0.25, bubbles: 2.5, edge: false },
+  match: { level: 0.65, rumbleHz: 140, hiss: 0.25, crackle: 0.5, bubbles: 6, edge: true },
+  menu: { level: 0.55, rumbleHz: 100, hiss: 0.12, crackle: 0.25, bubbles: 2.5, edge: false },
 }
 
 export class AmbienceLayer {

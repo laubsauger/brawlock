@@ -299,6 +299,11 @@ export function SettingsModal() {
             <Slider label="Music volume" value={s.musicVolume} onChange={(musicVolume) => setSettings({ musicVolume })} />
           </div>
         </Row>
+        <Row label="Ambience" hint="The lava bed: rumble, bubbling and sizzle">
+          <div className="w-56">
+            <Slider label="Ambience volume" value={s.ambienceVolume} onChange={(ambienceVolume) => setSettings({ ambienceVolume })} />
+          </div>
+        </Row>
         <Row
           label="Sound style"
           hint={forcedSynth ? 'Synth only for this session (?audio=synth in the address)' : s.soundStyle === 'synth' ? 'Every sound synthesized live' : 'Recorded layers (lava, fire, impacts) over the synthesized sounds'}

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SimEvent } from '../sim/types'
 import { audio } from './index'
-import { AudioEngine, VOICES } from './engine'
+import { AudioEngine, VOICES, busGains } from './engine'
 import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
 import { PROJECTILE_BEHAVIORS, SPELL_BEHAVIORS } from '../sim/spells'
 import { MusicLayer } from './music'
@@ -139,6 +139,16 @@ describe('audio: event mapping', () => {
     const scourge = planEvents([SAMPLES.castStart], LISTENER)[0]
     const cut = planEvents([{ type: 'castCancel', pawn: 1, spell: 'scourge', slot: 7, started: true }], LISTENER)[0]
     expect(cut.stopKey).toBe(scourge.key)
+  })
+
+  it('the ambience slider moves only the lava bed, not effects or music', () => {
+    // players turn the lava bed down without losing spell sounds; unset keeps the old calibration
+    const base = busGains({ master: 1, sfx: 1, music: 1, muted: false })
+    const quiet = busGains({ master: 1, sfx: 1, music: 1, ambience: 0, muted: false })
+    expect(base.amb).toBe(base.sfx)
+    expect(quiet.amb).toBe(0)
+    expect(quiet.sfx).toBe(base.sfx)
+    expect(quiet.music).toBe(base.music)
   })
 
   it('Scourge escalates with level: the starting-kit L1 is modest, the full blast is reserved for L3', () => {
