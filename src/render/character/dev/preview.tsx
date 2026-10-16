@@ -5,6 +5,7 @@
  * the match does: PawnState + prev + alpha + per-tick SimEvents.
  * Params: ?style=procedural  ?staff=gnarled|iron|bone  ?view=game|close  ?n=10  ?mode=circle|line|idle
  *         ?splash (show the key art for comparison)  ?nopost  ?turntable
+ *         ?tier=low|high|ultra (emulates the match tiers: bloom, shadows, dpr)  ?ground=tiles  ?wlook=void
  * window.__wp exposes the controls for scripted screenshots.
  */
 import * as THREE from 'three/webgpu'
@@ -70,7 +71,10 @@ function newPawn(id: number): PawnState {
 
 async function main() {
   const renderer = new THREE.WebGPURenderer({ antialias: true })
-  renderer.setPixelRatio(Math.min(2, devicePixelRatio))
+  // ?tier emulates the match quality tiers (render/quality.ts): Low = no post /
+  // bloom / shadows at 0.75 dpr, High = bloom 0.6 + 2048 shadows, Ultra = bloom 0.7 + 4096
+  const tier = params.get('tier') as 'low' | 'high' | 'ultra' | null
+  renderer.setPixelRatio(tier === 'low' ? 0.75 : tier === 'ultra' ? Math.min(3, devicePixelRatio) : Math.min(2, devicePixelRatio))
   renderer.setSize(innerWidth, innerHeight)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.05
@@ -88,8 +92,8 @@ async function main() {
   scene.add(new THREE.HemisphereLight(0x221c3a, 0xff4a12, 0.85))
   const moon = new THREE.DirectionalLight(0x9fb2ff, 1.7)
   moon.position.set(-0.42, 0.86, 0.3).multiplyScalar(20)
-  moon.castShadow = true
-  moon.shadow.mapSize.set(2048, 2048)
+  moon.castShadow = tier !== 'low'
+  moon.shadow.mapSize.set(tier === 'ultra' ? 4096 : 2048, tier === 'ultra' ? 4096 : 2048)
   const sc = moon.shadow.camera as THREE.OrthographicCamera
   sc.left = sc.bottom = -8
   sc.right = sc.top = 8
@@ -109,7 +113,22 @@ async function main() {
   studio.visible = params.has('studio')
   scene.add(studio)
 
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 96).rotateX(-Math.PI / 2), new THREE.MeshStandardNodeMaterial({ color: 0x17141a, roughness: 0.85 }))
+  const groundMat = new THREE.MeshStandardNodeMaterial({ color: 0x17141a, roughness: 0.85 })
+  if (params.get('ground') === 'tiles') {
+    // the match's temple tile top (192 units = 1.92 m per tile) for honest value contrast
+    const tl = new THREE.TextureLoader()
+    const map = tl.load('/textures/temple/tile_top_albedo.webp')
+    const nrm = tl.load('/textures/temple/tile_top_normal.webp')
+    map.colorSpace = THREE.SRGBColorSpace
+    for (const t of [map, nrm]) {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.repeat.set(60 / 1.92, 60 / 1.92)
+    }
+    groundMat.color.setHex(0xffffff)
+    groundMat.map = map
+    groundMat.normalMap = nrm
+  }
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 96).rotateX(-Math.PI / 2), groundMat)
   ground.receiveShadow = true
   scene.add(ground)
   const grid = new THREE.GridHelper(30, 60, 0x3a2f3a, 0x241d26)
@@ -118,14 +137,14 @@ async function main() {
   grid.position.y = 0.002
   scene.add(grid)
 
-  const post = !params.has('nopost')
+  const post = !params.has('nopost') && tier !== 'low'
   const pipeline = new THREE.RenderPipeline(renderer)
   {
     const sp = pass(scene, camera)
     const col = sp.getTextureNode('output')
     // same bloom as the match (RenderLoop, High tier): strength 0.6, radius 0.4, threshold 1, smoothWidth 0.6
     if (post) {
-      const b = bloom(col, 0.6, 0.4, 1.0)
+      const b = bloom(col, tier === 'ultra' ? 0.7 : 0.6, 0.4, 1.0)
       b.smoothWidth.value = 0.6
       pipeline.outputNode = col.add(b)
     } else pipeline.outputNode = col
@@ -147,6 +166,7 @@ async function main() {
     warlockParams.staffVariant = staffParam
   }
   if (params.get('style')) warlockParams.style = params.get('style') as WarlockStyle
+  if (params.get('wlook') === 'void') warlockParams.look = 'void'
 
   const actors: Actor[] = []
   const spawn = (i: number): Actor => {
@@ -397,6 +417,52 @@ async function main() {
     /** clipping debug colours (red = must be covered, green = legit through the split) */
     debugClip(on?: boolean) {
       clothParams.debugClip.value = (on ?? clothParams.debugClip.value < 0.5) ? 1 : 0
+    },
+    /** material look: 'readable' (default) | 'void' (the earlier near-black robe) */
+    look(v: 'readable' | 'void') {
+      warlockParams.look = v
+    },
+    /**
+     * Readability lineup: 4 warlocks in a row in PLAYER_COLORS 0..3, facing
+     * toward the camera / right / away / left, all idle, running in place or
+     * holding a windup; camera = the match's gameplay camera (60 deg pitch,
+     * 1100 units, 70 deg hfov on 4:3) over the group.
+     */
+    lineup(state: 'idle' | 'run' | 'cast') {
+      ctl.count(4)
+      const colors = [0xff3b30, 0x2e7bff, 0x14e0c8, 0xa24bff]
+      const facings = [-Math.PI / 2, 0, Math.PI / 2, Math.PI]
+      actors.forEach((a, i) => {
+        const p = a.pawn
+        p.x = (i - 1.5) * 260
+        p.y = 0
+        p.vx = p.vy = p.walkVx = p.walkVy = 0
+        p.facing = facings[i]
+        p.cast = null
+        p.alive = true
+        a.mode = state === 'run' ? 'treadmill' : 'idle'
+        a.w.setColor(colors[i])
+        a.prev = structuredClone(p)
+      })
+      ctl.step(0.6)
+      if (state === 'cast') {
+        for (const a of actors) {
+          const p = a.pawn
+          const ticks = 54
+          p.cast = { slot: 0, spell: 'fireball', ticksLeft: ticks, x: p.x + Math.cos(p.facing) * 500, y: p.y + Math.sin(p.facing) * 500, started: true }
+          a.pending.push({ type: 'castStart', pawn: p.id, spell: 'fireball', ticks })
+        }
+        ctl.step(0.6)
+      } else ctl.step(0.6)
+      const pitch = (60 * Math.PI) / 180
+      const d = 11
+      camera.fov = 2 * Math.atan(Math.tan((35 * Math.PI) / 180) / (4 / 3)) * (180 / Math.PI)
+      camera.updateProjectionMatrix()
+      const ahead = d * 0.1
+      camera.position.set(0, Math.sin(pitch) * d, Math.cos(pitch) * d - ahead)
+      controls.target.set(0, 0, -ahead)
+      controls.update()
+      lastTarget.copy(hero().holder.position)
     },
     /** camera presets around the hero for captures (front / side / back / gameplay angle zoomed) */
     cam(preset: 'front' | 'side' | 'back' | 'game' | 'gameFar') {

@@ -19,6 +19,7 @@ import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
 import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type Pal, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
+import { LivePool } from './livePool'
 
 /**
  * Bouncer's identity is a light pure yellow (palette). At mid luminance without much bloom
@@ -72,17 +73,10 @@ interface Arc {
   seed: number
   s: number
 }
-const arcs: Arc[] = []
-let nArc = 0
-for (let i = 0; i < 16; i++) arcs.push({ x0: 0, y0: 0, x1: 0, y1: 0, born: -10, life: 0.15, seed: 0, s: 1 })
+const arcs = new LivePool<Arc>(16, () => ({ x0: 0, y0: 0, x1: 0, y1: 0, born: -10, life: 0.15, seed: 0, s: 1 }), (a, b) => a.born < b.born)
 
 function addArc(now: number, x0: number, y0: number, x1: number, y1: number, life: number, s: number): void {
-  let a: Arc
-  if (nArc < arcs.length) a = arcs[nArc++]
-  else {
-    a = arcs[0]
-    for (const c of arcs) if (c.born < a.born) a = c
-  }
+  const a = arcs.acquire()
   a.x0 = x0
   a.y0 = y0
   a.x1 = x1
@@ -94,16 +88,13 @@ function addArc(now: number, x0: number, y0: number, x1: number, y1: number, lif
 }
 
 function drawArcs(k: KitA, now: number): void {
-  let w = 0
-  for (let i = 0; i < nArc; i++) {
-    const a = arcs[i]
+  arcs.sweep((a) => now - a.born <= a.life)
+  for (let i = 0; i < arcs.n; i++) {
+    const a = arcs.items[i]
     const age = now - a.born
-    if (age > a.life) continue
-    arcs[w++] = a
     const f = 1 - age / a.life
     k.bolt(a.x0, a.y0, PH, a.x1, a.y1, PH - 6, a.seed + Math.floor(age * 40), 12, 4 + 3 * a.s, P.body, P.hot, (1.2 + 1.2 * a.s) * f, 1, 16, 26, 0.3)
   }
-  nArc = w
 }
 
 function strength(id: number, dmg: number): number {
@@ -183,7 +174,7 @@ const mod: SpellVfx = {
     K = null
     first.clear()
     lastPos.clear()
-    nArc = 0
+    arcs.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -294,7 +285,7 @@ const mod: SpellVfx = {
       k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
       signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
     }
-    if (nArc > 0) {
+    if (arcs.n > 0) {
       k.begin()
       drawArcs(k, ctx.now)
     }

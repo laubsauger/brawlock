@@ -12,7 +12,10 @@ import {
   PAWN_MOVE_SPEED,
   SCOURGE_SLOT,
   SLOT_COUNT,
+  SPAWN_EDGE_MARGIN,
+  SPAWN_MIN_RADIUS,
 } from './config'
+import { layerRadius } from './arena'
 import { PI, cos, sin, wrapAngle } from './math'
 import { removeAllModifiers } from './modifiers'
 import { activePlayers, teamOf } from './teams'
@@ -55,9 +58,12 @@ export function createPawn(state: SimState, owner: PlayerId): PawnState {
 }
 
 /**
- * Original Mode:getRespawnLocation with the v1 fix: player count = ACTIVE players.
+ * Original Mode:getRespawnLocation with two v1 fixes (PLAN §2):
  *   angle  = 2pi / activeTeams * activeTeamIndex + 0.2 * (indexInTeam - (teamSize - 1) / 2)
- *   radius = (13 + players) * 100 - 600
+ *   radius = (13 + players) * 100 - 600, players = ACTIVE players,
+ *            capped to SPAWN_EDGE_MARGIN inside the current platform (floor SPAWN_MIN_RADIUS).
+ * The cap only bites in the shop phase with 4+ players (layer-14 platform); fight spawns are the
+ * original formula exactly.
  */
 export function spawnPosition(state: SimState, player: PlayerId): Vec2 & { angle: number } {
   const ids = activePlayers(state)
@@ -68,7 +74,8 @@ export function spawnPosition(state: SimState, player: PlayerId): Vec2 & { angle
   const indexInTeam = Math.max(0, members.indexOf(player))
   const teamCount = Math.max(1, teams.length)
   const angle = ((2 * PI) / teamCount) * teamIndex + 0.2 * (indexInTeam - (members.length - 1) / 2)
-  const radius = (ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * ids.length) * ARENA_RADIUS_PER_LAYER - ARENA_SPAWN_INSET
+  const formula = (ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * ids.length) * ARENA_RADIUS_PER_LAYER - ARENA_SPAWN_INSET
+  const radius = Math.max(SPAWN_MIN_RADIUS, Math.min(formula, layerRadius(state.arena.layer) - SPAWN_EDGE_MARGIN))
   return { x: radius * cos(angle), y: radius * sin(angle), angle }
 }
 

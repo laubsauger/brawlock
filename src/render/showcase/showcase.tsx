@@ -48,8 +48,9 @@ void document.fonts.ready.then(async () => {
 
 const MS = 1000 / VIDEO_FPS
 
+/** the match world is up: renderer initialised and its world overlay mounted (works in dev and in a static build) */
 function worldUp(): boolean {
-  return !!(window as unknown as Record<string, unknown>).__brawlockWorld && renderStats.backend !== ''
+  return renderStats.backend !== '' && !!document.querySelector('.bl-ov')
 }
 
 window.__showcase = {

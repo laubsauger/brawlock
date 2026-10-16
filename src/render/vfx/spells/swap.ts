@@ -16,6 +16,7 @@ import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { G_SWIRL, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, type KitA, type Pal, type RGB, type TrailStyle } from './kitA'
+import { LivePool } from './livePool'
 
 const P: Pal = palFor('swap')
 /** the partner / edge hue: the transport column's arcane cyan */
@@ -34,18 +35,11 @@ interface Ghost {
   side: number
   c: RGB
 }
-const ghosts: Ghost[] = []
-let nGhost = 0
-for (let i = 0; i < 12; i++) ghosts.push({ fx: 0, fy: 0, tx: 0, ty: 0, born: -10, side: 1, c: P.body })
+const ghosts = new LivePool<Ghost>(12, () => ({ fx: 0, fy: 0, tx: 0, ty: 0, born: -10, side: 1, c: P.body }), (a, b) => a.born < b.born)
 const GHOST_LIFE = 0.55
 
 function addGhost(fx: number, fy: number, tx: number, ty: number, side: number, c: RGB, now: number): void {
-  let g: Ghost
-  if (nGhost < ghosts.length) g = ghosts[nGhost++]
-  else {
-    g = ghosts[0]
-    for (const q of ghosts) if (q.born < g.born) g = q
-  }
+  const g = ghosts.acquire()
   g.fx = fx
   g.fy = fy
   g.tx = tx
@@ -56,12 +50,10 @@ function addGhost(fx: number, fy: number, tx: number, ty: number, side: number, 
 }
 
 function drawGhosts(k: KitA, now: number): void {
-  let w = 0
-  for (let i = 0; i < nGhost; i++) {
-    const g = ghosts[i]
+  ghosts.sweep((g) => now - g.born <= GHOST_LIFE)
+  for (let i = 0; i < ghosts.n; i++) {
+    const g = ghosts.items[i]
     const age = now - g.born
-    if (age > GHOST_LIFE) continue
-    ghosts[w++] = g
     const dx = g.tx - g.fx
     const dy = g.ty - g.fy
     const len = Math.hypot(dx, dy) || 1
@@ -82,7 +74,6 @@ function drawGhosts(k: KitA, now: number): void {
     }
     k.stripEnd()
   }
-  nGhost = w
 }
 
 /** swirl collapsing into a spot (the pawn leaving) */
@@ -126,7 +117,7 @@ const mod: SpellVfx = {
   dispose() {
     releaseKit(K)
     K = null
-    nGhost = 0
+    ghosts.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -172,7 +163,7 @@ const mod: SpellVfx = {
 
   frame(ctx) {
     const k = K
-    if (!k || nGhost === 0) return
+    if (!k || ghosts.n === 0) return
     k.begin()
     drawGhosts(k, ctx.now)
   },

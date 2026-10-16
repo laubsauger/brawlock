@@ -106,12 +106,23 @@ export class Arena {
   private dirty = false
   private tmpM = new THREE.Matrix4()
   /** authored PBR maps for the current theme, null = procedural */
+  /**
+   * Authored texture sets per theme (null until loaded / absent). The textured
+   * material is built ONCE; a theme change only swaps the texture node values,
+   * so new rounds never recompile the tile shader (that was a ~100 ms hitch).
+   */
+  private themeMaps: ({ top: SurfaceMaps; side: SurfaceMaps | null } | null)[] = [null, null, null]
   private maps: { top: SurfaceMaps; side: SurfaceMaps | null } | null = null
+  /** texture nodes of the textured material, by map slot, for value swaps */
+  private texNodes: { node: { value: THREE.Texture }; slot: TexSlot }[] = []
+  /** luminance POM (no authored height) was baked into the current material */
+  private builtLumHeight = false
 
   constructor(private ctx: WorldCtx) {
     this.group.name = 'Arena'
     this.material = this.buildMaterial()
     this.setTheme(0)
+    this.loadAllThemes()
   }
 
   get currentLayer(): number {
@@ -127,22 +138,41 @@ export class Arena {
     this.uStoneB.value.copy(th.b)
     this.uRune.value.copy(th.rune)
     this.uRough.value = th.rough
-    // drop-in texture sets: swap the material when (if) they load
-    const dir = THEME_DIRS[t]
+    if (this.themeMaps[t]) this.applyThemeMaps()
+  }
+
+  /** Load every theme's texture set up front (first call only). */
+  private loadAllThemes(): void {
     const aniso = this.ctx.tier.anisotropy
-    void Promise.all([loadSurface(dir, 'tile_top', aniso), loadSurface(dir, 'tile_side', aniso)]).then(([top, side]) => {
-      if (this.theme !== t || this.disposed) return
-      const next = top ? { top, side } : null
-      if (next === null && this.maps === null) return
+    THEME_DIRS.forEach((dir, t) => {
+      void Promise.all([loadSurface(dir, 'tile_top', aniso), loadSurface(dir, 'tile_side', aniso)]).then(([top, side]) => {
+        if (this.disposed || !top) return
+        this.themeMaps[t] = { top, side }
+        if (t === this.theme) this.applyThemeMaps()
+      })
+    })
+  }
+
+  /** Point the textured material at the current theme's maps (builds it on first use). */
+  private applyThemeMaps(): void {
+    const next = this.themeMaps[this.theme]
+    if (!next) return
+    const needsHeightMode = next.top.height === null
+    if (this.maps === null || needsHeightMode !== this.builtLumHeight) {
+      // first textured build (or a height-mode change): one compile, at load
       this.maps = next
       this.rebuildMaterial()
-    })
+      return
+    }
+    this.maps = next
+    for (const { node, slot } of this.texNodes) node.value = mapFor(next, slot)
   }
 
   private disposed = false
 
   private rebuildMaterial(): void {
     const old = this.material
+    this.texNodes = []
     this.material = this.buildMaterial()
     for (const m of this.meshes.values()) m.mesh.material = this.material
     old.dispose()
@@ -190,10 +220,24 @@ export class Arena {
       }
     }
     for (const e of this.tiles.values()) e.ring = tileExists(e.gx, e.gy, L - 1) ? 0 : 1
+    const grew = L > this.layer && this.layer > 0
     this.layer = L
-    this.ctx.field.setLayer(L)
+    if (grow && grew) {
+      // growing: keep the lava (shore glow, under-platform darkening) on the
+      // old outline until the new ring has risen, or the lava under the
+      // still-submerged tiles reads as a flat dark slab
+      let last = 0
+      for (const e of this.tiles.values()) last = Math.max(last, e.addedAt)
+      this.pendingField = { layer: L, at: last + RISE_DUR * 0.6 }
+    } else {
+      this.pendingField = null
+      this.ctx.field.setLayer(L)
+    }
     this.dirty = true
   }
+
+  /** deferred SDF switch while a grown ring is still rising */
+  private pendingField: { layer: number; at: number } | null = null
 
   /** Round-start shockwave from a game-space origin. */
   shock(x: number, y: number, now: number, strength = 1): void {
@@ -203,6 +247,10 @@ export class Arena {
   private tweakVersion = tweaks.version
 
   update(now: number): void {
+    if (this.pendingField && now >= this.pendingField.at) {
+      this.ctx.field.setLayer(this.pendingField.layer)
+      this.pendingField = null
+    }
     if (this.tweakVersion !== tweaks.version) {
       this.tweakVersion = tweaks.version
       this.rebuildMaterial()
@@ -220,10 +268,10 @@ export class Arena {
     if (m) return m
     const geo = buildTileGeometry(mask)
     const attr = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-    attr.setUsage(THREE.DynamicDrawUsage)
+    attr.setUsage(THREE.StaticDrawUsage)
     geo.setAttribute('aTile', attr)
     const mesh = new THREE.InstancedMesh(geo, this.material, CAPACITY)
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
     mesh.frustumCulled = false
     mesh.receiveShadow = this.ctx.tier.shadowMap > 0
     mesh.count = 0
@@ -352,7 +400,18 @@ export class Arena {
     // clamp, don't gate: the SDF (30-unit texels) reads slightly positive over
     // the outermost units of an edge tile -- exactly the bevel. Gating with
     // step(sd, 0) switched the lava light off right at the rim (black band).
-    const sdIn = min(sd, 0)
+    // tiles in transit stand where the SDF already (removed) or still (regrown:
+    // the field switch waits for the last ring) says lava: read them as an
+    // inner tile near the shore. Unclamped, every shore term fired at full
+    // strength across the whole slab and ACES turned it cream-white (the
+    // shrink / regrow whiteout). A live tile's own centre is always >= ~96
+    // units inside the edge, so a centre that reads as lava means a stale SDF.
+    // Sampled per vertex (tile centre is constant per instance).
+    const sdC = varying(field.sample(vec2(centre.x, centre.z.negate()).div(S)))
+    const stale = smoothstep(-50, -15, sdC).mul(float(1).sub(isRemV))
+    const riseTV = varying(riseT)
+    const transit = max(isRemV, max(stale, float(1).sub(riseTV)))
+    const sdIn = mix(min(sd, 0), min(sd, W.mul(-2)), transit)
     const nearLava = exp(sdIn.div(W))
     const edgeHeat = exp(sdIn.div(W.mul(0.5))).mul(float(1).sub(isSide))
     // tile walls glow where they meet lava; interior seams stay a dim ember line
@@ -377,11 +436,17 @@ export class Arena {
     em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(mix(float(0.08), float(1.1), outerWall)))))
     em = em.add(vec3(1.9, 0.42, 0.06).mul(sideHeat))
     // telegraph: the doomed ring heats from within, cracks first, then the slab
-    const teleP = tele.mul(pulse.mul(0.7).add(0.3))
+    // removed tiles carry the telegraph's crimson on (the cue players learned)
+    // and cool as they sink, instead of jumping to a new flat colour
+    const teleP = max(tele.mul(pulse.mul(0.7).add(0.3)), isRemV.mul(float(1).sub(sinkTV)).mul(0.6))
     em = em.add(vec3(0.16, 0.008, 0.003).mul(teleP).mul(isTop.mul(0.7).add(0.3)))
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
-    const hotCol = mix(vec3(3.2, 0.9, 0.16), vec3(1.6, 0.08, 0.02), sinkTV)
-    em = em.add(hotCol.mul(isRemV).mul(float(1).sub(sinkTV.mul(0.5))))
+    // removed tiles: the telegraph's faint crimson body glow (its hot cracks carry
+    // on above), cooling as they sink. The old (3.2, 0.9, 0.16) tone-mapped to
+    // cream-white for 0.2-0.4 s on every shrink; even 0.4 red over the moonlit
+    // stone read salmon-pink.
+    const hotCol = mix(vec3(0.2, 0.014, 0.005), vec3(0.06, 0.004, 0.002), sinkTV)
+    em = em.add(hotCol.mul(isRemV).mul(float(1).sub(sinkTV.mul(0.6))))
     // round-start pulse: pale arcane white-gold ring, evaluated PER FRAGMENT so
     // it sweeps as a smooth band (a per-tile value lit whole tiles as squares)
     const shAgeF = tF.sub(sh.z)
@@ -389,6 +454,13 @@ export class Arena {
     const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
     const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
     em = em.add(vec3(0.5, 0.48, 0.62).mul(waveF.mul(0.16)).mul(isTop))
+    // hard ceiling on tiles in transit (hue kept): bloom must never saturate a
+    // whole slab; thin hot cracks still read
+    const emMax = max(em.r, max(em.g, em.b))
+    em = mix(em, em.mul(min(float(1), float(1.8).div(max(emMax, 0.001)))), transit)
+    // sinking slabs: dark basalt with an ember cast, never pale (QA: white shards)
+    const sinkDark = isRemV.mul(sinkTV.mul(0.25).add(0.75))
+    const sinkTint = vec3(0.28, 0.17, 0.14)
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = 'Tiles'
@@ -405,35 +477,39 @@ export class Arena {
       const base = gp.div(TILE_SIZE * 2)
       const uvTop = vec2(base.x.mul(cs).sub(base.y.mul(sn)), base.x.mul(sn).add(base.y.mul(cs))).add(seed.mul(7.31))
       const uvSide = vec2(gp.x.add(gp.y).div(TILE_SIZE), h.div(TILE_SIZE)).add(seed.mul(3.1))
-      const top = maps.top
-      const side = maps.side ?? maps.top
+      // every texture() here is recorded so a theme change can swap its value
+      const tex = (slot: TexSlot, uvn: Node<'vec2'>) => {
+        const node = texture(mapFor(maps, slot), uvn)
+        this.texNodes.push({ node: node as unknown as { value: THREE.Texture }, slot })
+        return node
+      }
       // parallax occlusion on tile tops (High+): view ray marched through the
       // height map (authored height, else albedo luminance as a stand-in)
       let uvTopP: Node<'vec2'> = uvTop
+      this.builtLumHeight = maps.top.height === null
       if (this.ctx.tier.ao) {
         const V = cameraPosition.sub(positionWorld).normalize()
         // world -> game (y flipped) -> per-tile rotated uv axes
         const vg = vec2(V.x, V.z.negate())
         const vUv = vec2(vg.x.mul(cs).sub(vg.y.mul(sn)), vg.x.mul(sn).add(vg.y.mul(cs)))
-        const hTex = top.height ?? top.albedo
-        const useLum = top.height === null
-        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), hTex, useLum, 0.008, 8)
+        const hSlot: TexSlot = this.builtLumHeight ? 'top.albedo' : 'top.height'
+        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), (u) => tex(hSlot, u), this.builtLumHeight, 0.008, 8)
       }
       // POM only on the flat tops: on the 45 degree bevel the horizontal-surface
       // march stretched and darkened the albedo (the dark band under the rim)
       const uvT = mix(mix(uvTop, uvTopP, isTop), uvSide, isSide)
-      const alb = mix(texture(top.albedo, uvT).rgb, texture(side.albedo, uvT).rgb, isSide)
-      const orm = mix(texture(top.orm, uvT).rgb, texture(side.orm, uvT).rgb, isSide)
+      const alb = mix(tex('top.albedo', uvT).rgb, tex('side.albedo', uvT).rgb, isSide)
+      const orm = mix(tex('top.orm', uvT).rgb, tex('side.orm', uvT).rgb, isSide)
       const tint = n.r.mul(0.3).add(0.85)
       let col = alb.mul(tint).mul(orm.r)
       col = col.mul(float(1).sub(rune.mul(0.45)))
       col = col.mul(mix(float(1), float(0.65), smoothstep(0.9, 1.0, edge).mul(isTop)))
-      m.colorNode = mix(col, col.mul(0.4), isRemV.mul(sinkTV))
+      m.colorNode = mix(col, col.mul(sinkTint), sinkDark)
       // the top maps are sampled in a per-tile rotated frame: rotate the
       // tangent-space normal back by -rot so it agrees with the mesh uv frame
-      const nTop = texture(top.normal, uvT).xyz.mul(2).sub(1)
+      const nTop = tex('top.normal', uvT).xyz.mul(2).sub(1)
       const nTopR = vec3(nTop.x.mul(cs).add(nTop.y.mul(sn)), nTop.y.mul(cs).sub(nTop.x.mul(sn)), nTop.z)
-      const nSide = texture(side.normal, uvT).xyz.mul(2).sub(1)
+      const nSide = tex('side.normal', uvT).xyz.mul(2).sub(1)
       const nTS = mix(nTopR, nSide, isSide).mul(0.5).add(0.5)
       // calm relief: tops at ~40 % of the authored strength, walls a bit more
       const nScale = mix(float(0.45), float(0.8), isSide)
@@ -443,7 +519,7 @@ export class Arena {
       m.roughnessNode = select(orm.g.lessThan(0.22), float(0.38), max(orm.g, 0.66))
       m.metalnessNode = orm.b.mul(0.3)
     } else {
-      m.colorNode = mix(stone, stone.mul(0.4), isRemV.mul(sinkTV))
+      m.colorNode = mix(stone, stone.mul(sinkTint), sinkDark)
       // relief: grain + chips + cut cracks and glyphs
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
       m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(0.5))
@@ -475,11 +551,11 @@ export class Arena {
  * the last two layers. Gradients are taken outside the loop (textureGrad), so
  * the loop is valid non-uniform control flow in WGSL.
  */
-function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, heightTex: THREE.Texture, luminance: boolean, scale: number, steps: number): Node<'vec2'> {
+function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, sampleH: (u: Node<'vec2'>) => ReturnType<typeof texture>, luminance: boolean, scale: number, steps: number): Node<'vec2'> {
   const gx = dFdx(uv0)
   const gy = dFdy(uv0)
   const depthAt = (u: Node<'vec2'>) => {
-    const t = texture(heightTex, u).grad(gx, gy)
+    const t = sampleH(u).grad(gx, gy) as unknown as Node<'vec4'>
     const h = luminance ? dot(t.rgb, vec3(0.3, 0.55, 0.15)).mul(1.6).clamp(0, 1) : t.r
     return float(1).sub(h)
   }
@@ -502,4 +578,27 @@ function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, heightTex: THREE.Texture
     const w = saturate(after.div(after.sub(before).add(1e-4)))
     return mix(uvc, prev, w)
   })() as unknown as Node<'vec2'>
+}
+
+type TexSlot = 'top.albedo' | 'top.orm' | 'top.normal' | 'top.height' | 'side.albedo' | 'side.orm' | 'side.normal'
+
+/** texture for a map slot of a theme set (side falls back to top, height to albedo) */
+function mapFor(m: { top: SurfaceMaps; side: SurfaceMaps | null }, slot: TexSlot): THREE.Texture {
+  const side = m.side ?? m.top
+  switch (slot) {
+    case 'top.albedo':
+      return m.top.albedo
+    case 'top.orm':
+      return m.top.orm
+    case 'top.normal':
+      return m.top.normal
+    case 'top.height':
+      return m.top.height ?? m.top.albedo
+    case 'side.albedo':
+      return side.albedo
+    case 'side.orm':
+      return side.orm
+    case 'side.normal':
+      return side.normal
+  }
 }

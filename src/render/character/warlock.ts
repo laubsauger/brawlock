@@ -7,7 +7,7 @@ import type { WarlockAsset } from './asset'
 import { CC0_SCALE, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
-import { applyBuild, startLevelUp, tickLevelUp } from './progression'
+import { applyBuild, newBuildCache, startLevelUp, tickLevelUp } from './progression'
 import { clothParams } from './materials'
 import type { CastArm, DeathKind, WarlockHandle } from './types'
 import { CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
@@ -136,7 +136,7 @@ export class CC0Warlock implements WarlockHandle {
   private castFrom: CastFrom = 'palm'
   private castColorOverride: number | null = null
   private footprint: THREE.Object3D | null = null
-  private buildSig = ''
+  private build = newBuildCache()
   private hitFlashOn = true
 
   // motion state
@@ -183,9 +183,7 @@ export class CC0Warlock implements WarlockHandle {
 
   // scratch
   private v3 = new THREE.Vector3()
-  private inv = new THREE.Matrix4()
   private axis = new THREE.Vector3()
-  private qa = new THREE.Quaternion()
   private qb = new THREE.Quaternion()
   private qt = new THREE.Quaternion()
   private vel = { x: 0, z: 0 }
@@ -279,22 +277,28 @@ export class CC0Warlock implements WarlockHandle {
     return this.hands
   }
 
+  /** world position of a node under the model: model-space matrix (this frame) x the model's world matrix */
+  private worldPos(o: THREE.Object3D, out: THREE.Vector3): THREE.Vector3 {
+    this.model.updateWorldMatrix(true, false)
+    return out.setFromMatrixPosition(this.modelMatrixOf(o)).applyMatrix4(this.model.matrixWorld)
+  }
+
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
     if (this.castFrom === 'staff' && this.staffMesh) return this.staffTip.getWorldPosition(out)
     if (this.hands === 'both') {
-      this.palm.l.getWorldPosition(out)
-      return out.add(this.palm.r.getWorldPosition(this.v3)).multiplyScalar(0.5)
+      this.worldPos(this.palm.l, out)
+      return out.add(this.worldPos(this.palm.r, this.v3)).multiplyScalar(0.5)
     }
-    return (this.hands === 'right' ? this.palm.r : this.palm.l).getWorldPosition(out)
+    return this.worldPos(this.hands === 'right' ? this.palm.r : this.palm.l, out)
   }
 
   castArm(out: CastArm, hand?: 'left' | 'right'): CastArm {
     const l = (hand ?? (this.hands === 'right' ? 'right' : 'left')) === 'left'
     const b = this.bone
-    ;(l ? b.upperarm_l : b.upperarm_r).getWorldPosition(out.shoulder)
-    ;(l ? b.lowerarm_l : b.lowerarm_r).getWorldPosition(out.elbow)
-    ;(l ? b.hand_l : b.hand_r).getWorldPosition(out.wrist)
-    ;(l ? this.palm.l : this.palm.r).getWorldPosition(out.palm)
+    this.worldPos(l ? b.upperarm_l : b.upperarm_r, out.shoulder)
+    this.worldPos(l ? b.lowerarm_l : b.lowerarm_r, out.elbow)
+    this.worldPos(l ? b.hand_l : b.hand_r, out.wrist)
+    this.worldPos(l ? this.palm.l : this.palm.r, out.palm)
     out.dir.subVectors(out.palm, out.wrist).normalize()
     return out
   }
@@ -636,7 +640,7 @@ export class CC0Warlock implements WarlockHandle {
     this.t += dt
     const g = this.gpu
     this.footprint = syncFootprint(this.object3d, this.footprint)
-    this.buildSig = applyBuild(p, g, this.buildSig)
+    applyBuild(p, g, this.build)
     tickLevelUp(g, dt)
     for (let i = 0; i < events.length; i++) this.onEvent(events[i], p)
     if (!p.alive && !this.dead) this.die(p.lavaTicks > 0 ? 'lava' : 'ash', p.vx - p.walkVx, p.vy - p.walkVy)
@@ -767,7 +771,18 @@ export class CC0Warlock implements WarlockHandle {
     for (const b of this.touched) b.quaternion.copy(this.savedQ.get(b)!)
     this.touched.length = 0
     const animate = this.dead ? this.deathTimeline(dt) : true
-    if (animate) this.anim.update(dt)
+    // detail 2 (offscreen): the skeleton advances at ~15 Hz with the summed dt
+    this.animAcc += dt
+    if (animate && (this.detail < 2 || this.animAcc >= 1 / 15)) {
+      this.anim.update(this.animAcc)
+      this.animAcc = 0
+    } else if (!animate) this.animAcc = 0
+    // detail >= 1 (far / offscreen): secondary motion (cloth springs, front
+    // envelope, capsules) every other frame with the summed dt
+    this.secAcc += dt
+    this.secTick = this.detail === 0 || (this.frameNo & 1) === 0
+    const secDt = this.secTick ? this.secAcc : 0
+    if (this.secTick) this.secAcc = 0
 
     // ---- torso twist: coil the casting shoulder back on windup, drive it through on release
     {
@@ -819,11 +834,17 @@ export class CC0Warlock implements WarlockHandle {
       } else this.tilt.quaternion.identity()
     }
 
-    this.model.updateMatrixWorld(true)
+    if (this.detail >= 2) {
+      // offscreen: nothing visible depends on pose offsets, capsules or cloth
+      this.frameNo++
+      this.fxTick(p, dt)
+      return
+    }
     // ---- stance layered on the clips: hunched, powerful shoulders, arms held a
-    // little away from the robe (wider top-down silhouette), torso twist on casts
+    // little away from the robe (wider top-down silhouette), torso twist on casts.
+    // Rotations work in model space on local quaternions (no matrix updates);
+    // one model.updateMatrixWorld follows.
     {
-      this.model.getWorldQuaternion(this.qa)
       const upright = !this.dead && !this.tumbling
       const castL = this.castPhase !== 'none' ? 1 : 0
       this.stanceK += ((upright ? 1 : 0) - this.stanceK) * damp(6, dt)
@@ -848,16 +869,20 @@ export class CC0Warlock implements WarlockHandle {
       const ch = g.castCharge
       const rt = this.releaseT
       const live = !this.dead && !this.tumbling
-      const target = {
-        overhead: live && cat === 'aoe' && ph === 'windup' ? Math.pow(Math.max(ch, 0.25), 0.6) : 0,
-        cross: live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0,
-        flare: live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0,
-        beam: live && cat === 'beam' && ph !== 'none' ? 1 : 0,
-        ground: live && cat === 'ground' && (ph === 'release' || ph === 'backswing') ? Math.max(0, 1 - Math.max(0, rt - 0.2) / 0.35) : 0,
-        sky: live && cat === 'sky' && ph === 'windup' ? ch : 0,
-      }
+      const tOverhead = live && cat === 'aoe' && ph === 'windup' ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
+      const tCross = live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0
+      const tFlare = live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0
+      const tBeam = live && cat === 'beam' && ph !== 'none' ? 1 : 0
+      const tGround = live && cat === 'ground' && (ph === 'release' || ph === 'backswing') ? Math.max(0, 1 - Math.max(0, rt - 0.2) / 0.35) : 0
+      const tSky = live && cat === 'sky' && ph === 'windup' ? ch : 0
       const rate = ph === 'release' ? 28 : 12
-      for (const key of Object.keys(P) as (keyof typeof P)[]) P[key] += (target[key] - P[key]) * damp(rate, dt)
+      const kk = damp(rate, dt)
+      P.overhead += (tOverhead - P.overhead) * kk
+      P.cross += (tCross - P.cross) * kk
+      P.flare += (tFlare - P.flare) * kk
+      P.beam += (tBeam - P.beam) * kk
+      P.ground += (tGround - P.ground) * kk
+      P.sky += (tSky - P.sky) * kk
       const useL = this.hands !== 'right' ? this.castArmK : 0
       const useR = this.hands !== 'left' ? this.castArmK : 0
       if (k > 1e-3) {
@@ -898,44 +923,35 @@ export class CC0Warlock implements WarlockHandle {
       if (P.sky > 1e-3) this.rotBone('upperarm_r', Z, -0.4 * P.sky)
     }
 
-    // ---- bones -> capsules (model metres)
-    this.inv.copy(this.model.matrixWorld).invert()
-    const b = this.bone
-    const at = (name: string, out: THREE.Vector3) => out.setFromMatrixPosition(b[name].matrixWorld).applyMatrix4(this.inv)
-    at('thigh_l', g.hipL)
-    at('calf_l', g.kneeL)
-    at('foot_l', g.footL)
-    at('thigh_r', g.hipR)
-    at('calf_r', g.kneeR)
-    at('foot_r', g.footR)
-    at('pelvis', g.pelvis)
-    at('spine_03', g.chest)
-    at('upperarm_l', g.armL0)
-    at('lowerarm_l', g.armL1)
-    at('upperarm_r', g.armR0)
-    at('lowerarm_r', g.armR1)
-    g.eyes.setFromMatrixPosition(this.eyeSocket.matrixWorld).applyMatrix4(this.inv)
-    this.updateFrontEnvelope(dt)
+    // ---- bones -> capsules (model metres), from local matrices of just these
+    // chains: the renderer does the one full matrix update of the hierarchy
+    this.frameNo++
+    this.boneModelPos('thigh_l', g.hipL)
+    this.boneModelPos('calf_l', g.kneeL)
+    this.boneModelPos('foot_l', g.footL)
+    this.boneModelPos('thigh_r', g.hipR)
+    this.boneModelPos('calf_r', g.kneeR)
+    this.boneModelPos('foot_r', g.footR)
+    this.boneModelPos('pelvis', g.pelvis)
+    this.boneModelPos('spine_03', g.chest)
+    this.boneModelPos('upperarm_l', g.armL0)
+    this.boneModelPos('lowerarm_l', g.armL1)
+    this.boneModelPos('upperarm_r', g.armR0)
+    this.boneModelPos('lowerarm_r', g.armR1)
+    g.eyes.setFromMatrixPosition(this.modelMatrixOf(this.eyeSocket))
+    if (this.secTick) this.updateFrontEnvelope(secDt)
 
     // ---- cloth springs: world velocity -> model local
     {
       const c = Math.cos(this.yaw)
       const s = Math.sin(this.yaw)
-      const toLocal = (gx: number, gy: number, out: { x: number; z: number }) => {
-        const wx = gx * S
-        const wz = -gy * S
-        out.x = (wx * c - wz * s) / CC0_SCALE.xz
-        out.z = (wx * s + wz * c) / CC0_SCALE.xz
-      }
-      toLocal(p.vx, p.vy, this.vel)
-      toLocal(dvx, dvy, this.dvel)
-      for (const sp of [this.coat, this.cape]) {
-        // the body turned under the cloth: it keeps most of its world heading
-        sp.rotate(-dYaw * 0.75)
-        // sudden velocity change: cloth keeps going (impulses, stops, knockback)
-        sp.vx -= this.dvel.x * sp.couple
-        sp.vz -= this.dvel.z * sp.couple
-        sp.step(dt, this.vel.x, this.vel.z)
+      this.toLocalVel(p.vx, p.vy, c, s, this.vel)
+      this.toLocalVel(dvx, dvy, c, s, this.dvel)
+      this.accYaw += dYaw
+      if (this.secTick) {
+        this.stepSpring(this.coat, this.accYaw, secDt)
+        this.stepSpring(this.cape, this.accYaw, secDt)
+        this.accYaw = 0
       }
       g.swayCoat.set(this.coat.x, 0, this.coat.z)
       g.swayCape.set(this.cape.x, 0, this.cape.z)
@@ -949,7 +965,11 @@ export class CC0Warlock implements WarlockHandle {
     // ---- staff: follows the right hand, stays upright-ish, leans out from the robe
     if (this.staffMesh) this.placeStaff()
 
-    // ---- fx
+    this.fxTick(p, dt)
+  }
+
+  private fxTick(p: PawnState, dt: number): void {
+    const g = this.gpu
     g.flash = Math.max(0, g.flash - dt / 0.2)
     if (!this.dead) {
       g.burn += ((p.alive && p.lavaTicks > 0 ? 1 : 0) - g.burn) * damp(8, dt)
@@ -957,6 +977,20 @@ export class CC0Warlock implements WarlockHandle {
     }
     g.runeBoost += ((this.victory ? 2.4 : 1) - g.runeBoost) * damp(3, dt)
   }
+
+  /**
+   * Level of detail, set by the owner each frame or when it changes:
+   * 0 = full (default), 1 = far (secondary motion at half rate),
+   * 2 = offscreen (skeleton at ~15 Hz, no pose layer / capsules / cloth).
+   */
+  setDetail(level: 0 | 1 | 2): void {
+    this.detail = level
+  }
+  private detail: 0 | 1 | 2 = 0
+  private animAcc = 0
+  private secAcc = 0
+  private secTick = true
+  private accYaw = 0
 
   private stanceK = 1
   private lastFacing = 0
@@ -970,10 +1004,12 @@ export class CC0Warlock implements WarlockHandle {
   private touched: THREE.Bone[] = []
 
   /**
-   * Rotate a bone about a model-space axis (after the clips; needs fresh world
-   * matrices). The clip value is saved and put back before the next mixer
-   * update: the mixer only writes bones whose value changed, so an offset left
-   * in place would accumulate every frame (time frozen, held poses).
+   * Rotate a bone about a model-space axis, after the clips. The bone's parent
+   * orientation in model space comes from multiplying the local quaternions down
+   * its chain (no matrix updates; ancestors rotated earlier this frame count).
+   * The clip value is saved and put back before the next mixer update: the
+   * mixer only writes bones whose value changed, so an offset left in place
+   * would accumulate every frame (time frozen, held poses).
    */
   private rotBone(name: string, axisModel: THREE.Vector3, angle: number): void {
     const bone = this.bone[name]
@@ -983,10 +1019,63 @@ export class CC0Warlock implements WarlockHandle {
       q.copy(bone.quaternion)
       this.touched.push(bone)
     }
-    bone.parent!.getWorldQuaternion(this.qb)
-    this.axis.copy(axisModel).applyQuaternion(this.qa).applyQuaternion(this.qb.invert()).normalize()
+    this.modelQuat(bone.parent!, this.qb)
+    this.axis.copy(axisModel).applyQuaternion(this.qb.invert()).normalize()
     bone.quaternion.premultiply(this.qt.setFromAxisAngle(this.axis, angle))
-    bone.updateMatrixWorld(true)
+  }
+
+  /** ancestors of a node below the model, root first (cached) */
+  private chains = new Map<THREE.Object3D, THREE.Object3D[]>()
+  private chainOf(o: THREE.Object3D): THREE.Object3D[] {
+    let c = this.chains.get(o)
+    if (!c) {
+      c = []
+      for (let n: THREE.Object3D | null = o; n && n !== this.model; n = n.parent) c.unshift(n)
+      this.chains.set(o, c)
+    }
+    return c
+  }
+
+  /** orientation of a node in model space from the local quaternions */
+  private modelQuat(o: THREE.Object3D, out: THREE.Quaternion): THREE.Quaternion {
+    out.identity()
+    const c = this.chainOf(o)
+    for (let i = 0; i < c.length; i++) out.multiply(c[i].quaternion)
+    return out
+  }
+
+  /** per-frame model-space matrices of the few nodes the cloth / sockets need (memoized) */
+  private mm = new Map<THREE.Object3D, { m: THREE.Matrix4; f: number }>()
+  private frameNo = 0
+  private modelMatrixOf(o: THREE.Object3D): THREE.Matrix4 {
+    let e = this.mm.get(o)
+    if (!e) this.mm.set(o, (e = { m: new THREE.Matrix4(), f: -1 }))
+    if (e.f === this.frameNo) return e.m
+    e.m.compose(o.position, o.quaternion, o.scale)
+    if (o.parent && o.parent !== this.model) e.m.premultiply(this.modelMatrixOf(o.parent))
+    e.f = this.frameNo
+    return e.m
+  }
+
+  private boneModelPos(name: string, out: THREE.Vector3): THREE.Vector3 {
+    return out.setFromMatrixPosition(this.modelMatrixOf(this.bone[name]))
+  }
+
+  /** world (game) velocity -> model-local metres / s (no allocation) */
+  private toLocalVel(gx: number, gy: number, c: number, s: number, out: { x: number; z: number }): void {
+    const wx = gx * S
+    const wz = -gy * S
+    out.x = (wx * c - wz * s) / CC0_SCALE.xz
+    out.z = (wx * s + wz * c) / CC0_SCALE.xz
+  }
+
+  private stepSpring(sp: HemSpring, dYaw: number, dt: number): void {
+    // the body turned under the cloth: it keeps most of its world heading
+    sp.rotate(-dYaw * 0.75)
+    // sudden velocity change: cloth keeps going (impulses, stops, knockback)
+    sp.vx -= this.dvel.x * sp.couple
+    sp.vz -= this.dvel.z * sp.couple
+    sp.step(dt, this.vel.x, this.vel.z)
   }
 
   private envVel = [0, 0, 0, 0]
@@ -1041,7 +1130,7 @@ export class CC0Warlock implements WarlockHandle {
   private placeStaff(): void {
     const m = this.staffMesh!
     // grip point in model-local metres (staff is a child of the model)
-    this.grip.setFromMatrixPosition(this.bone.hand_r.matrixWorld).applyMatrix4(this.inv)
+    this.grip.setFromMatrixPosition(this.modelMatrixOf(this.bone.hand_r))
     const pelvis = this.gpu.pelvis
     // outward from the body axis, upright, a little forward
     const ox = this.grip.x - pelvis.x

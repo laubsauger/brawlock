@@ -35,13 +35,20 @@ const DT_MS = 1000 / TICK_HZ
 
 /** Prediction never runs more than this many ticks past the newest snapshot (caps re-sim cost). */
 export const MAX_AHEAD_TICKS = 20
+/**
+ * A snapshot that confirms the prediction (only own frames, at their stamps) skips
+ * the rollback; one happens at least this often anyway, so a wrong "confirmed" can
+ * never drift for longer.
+ */
+export const FORCE_REBASE_TICKS = 30
 /** visual error offsets beyond this (game units) snap instead of sliding */
 export const SNAP_DIST = 250
 /** offset multiplier per displayed tick: ~10 % left after 100 ms */
 const OFFSET_DECAY = 0.68
 const OFFSET_EPS = 0.25
-/** event matching tolerance between timelines, ticks */
+/** event matching tolerance between timelines: ticks, and game units for events with a position */
 const FUZZ = 3
+const MATCH_DIST = 160
 /** played as authoritative only (banners, killfeed, score) */
 const AUTHORITATIVE_EVENTS = new Set<SimEvent['type']>(['death', 'roundWin', 'gameOver', 'phase'])
 
@@ -57,8 +64,9 @@ export interface PredictorStats {
   resimTicks: number
   /** largest re-sim so far */
   maxResimTicks: number
-  /** wall ms of the last rebase (clone + re-sim), when a clock is given */
+  /** wall ms of the last rebase (clone + re-sim) and the largest, when a clock is given */
   resimMs: number
+  maxResimMs: number
   /** visual correction of the own pawn by the last rebase, game units */
   ownCorrection: number
   /** largest correction of any entity by the last rebase (snaps excluded), game units */
@@ -68,6 +76,8 @@ export interface PredictorStats {
   /** own frames the host applied later than their stamp (input arrived late) */
   lateFrames: number
   rebases: number
+  /** snapshots that confirmed the prediction, no rollback needed */
+  confirms: number
 }
 
 type Step = (state: SimState, inputs: PlayerInput[]) => void
@@ -90,15 +100,19 @@ export class Predictor {
   private late: SimEvent[] = []
   private authTick = -1
   private shownTick = -1
+  /** base tick of the last real rollback */
+  private rebasedAt = -Infinity
   readonly stats: PredictorStats = {
     resimTicks: 0,
     maxResimTicks: 0,
     resimMs: 0,
+    maxResimMs: 0,
     ownCorrection: 0,
     anyCorrection: 0,
     snaps: 0,
     lateFrames: 0,
     rebases: 0,
+    confirms: 0,
   }
 
   constructor(
@@ -128,12 +142,27 @@ export class Predictor {
     this.frames.push(frame)
   }
 
+  /** Own commands stamped for the step from `tick`, in seq order (what the prediction applied there). */
+  ownAt(tick: number): InputCommand[] {
+    const out: InputCommand[] = []
+    for (const f of this.frames) if (f.tick === tick) for (const c of f.cmds) out.push(c)
+    return out
+  }
+
+  /** An own frame stamped before `tick` is not in a state that includes frames ≤ `ack`. */
+  lateBefore(tick: number, ack: number): boolean {
+    return this.frames.some((f) => f.tick < tick && f.seq > ack)
+  }
+
   /**
    * An authoritative state for `state.tick` that includes every own frame with
    * seq ≤ `ack`. Older than the current base: only its events are used. The state is
    * cloned when applied, never mutated. `events` = authoritative events by tick.
+   * `confirms`: the caller vouches that the authority stepped nothing since the
+   * previous offered state but this predictor's own frames, each at its stamp, so
+   * the predicted timeline already holds `state` and the rollback is skipped.
    */
-  offer(state: SimState, ack: number, events: readonly TickEvents[] = []): void {
+  offer(state: SimState, ack: number, events: readonly TickEvents[] = [], confirms = false): void {
     // authoritative events: the ones no predicted timeline played yet (remote casts
     // revealed by this snapshot, match flow) play late, with the next displayed tick
     for (const e of events) {
@@ -143,6 +172,13 @@ export class Predictor {
     }
     if (state.tick <= this.baseTick) return
     if (this.pending && state.tick <= this.pending.state.tick) return
+    const sim = this.sim
+    if (confirms && !this.pending && sim && state.tick <= sim.tick && state.tick - this.rebasedAt < FORCE_REBASE_TICKS) {
+      this.baseTick = state.tick
+      this.frames = this.frames.filter((f) => f.seq > ack)
+      this.stats.confirms++
+      return
+    }
     this.pending = { state, ack }
   }
 
@@ -181,6 +217,7 @@ export class Predictor {
     const old = this.sim
     const fresh = this.clone(state)
     this.baseTick = fresh.tick
+    this.rebasedAt = fresh.tick
     // keep what the authoritative stream can still match (it carries the last few ticks)
     this.ledger.beginPass(Math.max(Math.min(fresh.tick, this.authTick), fresh.tick - EVENT_REDUNDANCY_TICKS) - FUZZ - 1)
     // never re-simulate past the old prediction: display ticks only go forward
@@ -198,6 +235,7 @@ export class Predictor {
     else this.offsets.clear()
     this.sim = fresh
     this.stats.resimMs = this.clock() - t0
+    if (this.stats.resimMs > this.stats.maxResimMs) this.stats.maxResimMs = this.stats.resimMs
   }
 
   /** Own commands for the step from `state.tick`, in seq order. */
@@ -291,8 +329,17 @@ export class Predictor {
  * tick first) and each played event is matched at most once, so per-tick series
  * (lava damage) stay one-to-one. Unmatched events are new: recorded and returned.
  */
+interface Played {
+  key: string
+  /** where it happened (NaN = no position) */
+  x: number
+  y: number
+  pass: number
+  auth: boolean
+}
+
 export class EventLedger {
-  private played = new Map<number, { key: string; pass: number; auth: boolean }[]>()
+  private played = new Map<number, Played[]>()
   private pass = 0
 
   /** A new predicted timeline (after a rollback). Forgets ticks < `keepFrom`. */
@@ -310,16 +357,17 @@ export class EventLedger {
     for (const e of events) {
       if (skip?.has(e.type)) continue
       const k = eventKey(e)
-      if (this.match(t, k, auth)) continue
+      const [x, y] = eventPos(e)
+      if (this.match(t, k, x, y, auth)) continue
       let list = this.played.get(t)
       if (!list) this.played.set(t, (list = []))
-      list.push({ key: k, pass: auth ? -1 : this.pass, auth })
+      list.push({ key: k, x, y, pass: auth ? -1 : this.pass, auth })
       out.push(e)
     }
     return out
   }
 
-  private match(t: number, key: string, auth: boolean): boolean {
+  private match(t: number, key: string, x: number, y: number, auth: boolean): boolean {
     for (let i = 0; i <= 2 * FUZZ; i++) {
       const d = i === 0 ? 0 : i % 2 ? -((i + 1) >> 1) : i >> 1
       const list = this.played.get(t + d)
@@ -327,6 +375,8 @@ export class EventLedger {
       for (const e of list) {
         if (e.key !== key) continue
         if (auth ? e.auth : e.pass === this.pass) continue
+        // the same kind of event somewhere else is another event (two explosions)
+        if ((e.x - x) * (e.x - x) + (e.y - y) * (e.y - y) > MATCH_DIST * MATCH_DIST) continue
         if (auth) e.auth = true
         else e.pass = this.pass
         return true
@@ -337,29 +387,44 @@ export class EventLedger {
 }
 
 /**
- * Fields that vary with small prediction errors (positions, amounts) or with
- * entity id allocation order (projectile ids) are not part of an event's identity.
+ * An event's identity across timelines. Fields that vary with small prediction
+ * errors (positions: compared by distance instead, knockback) or with entity id
+ * allocation order (projectile ids) are left out. A beam is its caster's cast:
+ * where it stopped is the outcome, so a mispredicted hit and the real miss are
+ * one bolt, not two. Damage amounts are rounded.
  */
-const UNSTABLE_FIELDS = new Set(['x', 'y', 'fromX', 'fromY', 'toX', 'toY', 'amount', 'kb', 'absorbed', 'ticks', 'radius', 'projectile', 'other'])
+const UNSTABLE_FIELDS = new Set(['x', 'y', 'fromX', 'fromY', 'toX', 'toY', 'kb', 'absorbed', 'ticks', 'radius', 'projectile', 'other'])
+const OUTCOME_FIELDS: Partial<Record<SimEvent['type'], ReadonlySet<string>>> = { beam: new Set(['target', 'blocked']) }
 
 export function eventKey(e: SimEvent): string {
   const o = e as unknown as Record<string, unknown>
   const projectileId = e.type.startsWith('projectile')
+  const outcome = OUTCOME_FIELDS[e.type]
   let k: string = e.type
   for (const f of Object.keys(o).sort()) {
-    if (f === 'type' || UNSTABLE_FIELDS.has(f) || (projectileId && f === 'id')) continue
+    if (f === 'type' || UNSTABLE_FIELDS.has(f) || (projectileId && f === 'id') || outcome?.has(f)) continue
     const v = o[f]
-    k += '|' + f + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v))
+    k += '|' + f + '=' + (typeof v === 'object' ? JSON.stringify(v) : f === 'amount' && typeof v === 'number' ? Math.round(v) : String(v))
   }
   return k
+}
+
+/** Where an event happened, NaN when it has no position. */
+function eventPos(e: SimEvent): [number, number] {
+  const o = e as unknown as Record<string, unknown>
+  const x = typeof o.x === 'number' ? o.x : typeof o.fromX === 'number' ? o.fromX : NaN
+  const y = typeof o.y === 'number' ? o.y : typeof o.fromY === 'number' ? o.fromY : NaN
+  return [x, y]
 }
 
 /**
  * Maps local time to the predicted tick. Target: the host tick an input sent now
  * would arrive at (base + RTT), plus a margin so it arrives before its stamp.
  * `baseMs` = local arrival time of host tick 0 over the fastest path (the jitter
- * buffer's estimate). The mapping is steered (speed-up ≤ 10 %, slow-down ≤ 5 %)
- * and only snaps forward, so predicted time never runs backwards.
+ * buffer's estimate). The mapping is steered (speed-up ≤ 10 %, slow-down ≤ 5 %,
+ * 15 % when more than 4 ticks ahead) and only snaps forward, so predicted time
+ * never runs backwards. The jitter term is capped (a tab stall is not jitter; late
+ * frames widen the margin instead) and so is the whole lead, below MAX_AHEAD_TICKS.
  */
 export class LeadClock {
   /** local ms at which predicted tick 0 would be due */
@@ -367,21 +432,27 @@ export class LeadClock {
   private last = NaN
   /** margin ticks on top of RTT; grows when own frames arrive late at the host */
   marginTicks = 1
+  /** lead the last update aimed for, ms */
+  leadMs = 0
   private calmSince = 0
   private lastLate = 0
 
   static readonly SNAP_MS = 4 * DT_MS
   static readonly MAX_MARGIN_TICKS = 8
+  static readonly MAX_JITTER_MS = 25
+  static readonly MAX_LEAD_MS = (MAX_AHEAD_TICKS - 2) * DT_MS
 
   /** Steer toward the target for `now`. `jitterMs` = arrival jitter estimate. */
   update(now: number, baseMs: number, rttMs: number, jitterMs: number): void {
-    const leadMs = rttMs + this.marginTicks * DT_MS + 2 * jitterMs
+    const jitter = Math.min(jitterMs, LeadClock.MAX_JITTER_MS)
+    const leadMs = Math.min(rttMs + this.marginTicks * DT_MS + 2 * jitter, LeadClock.MAX_LEAD_MS)
+    this.leadMs = leadMs
     const target = baseMs - leadMs
     const dt = Number.isNaN(this.last) ? 0 : Math.max(0, now - this.last)
     this.last = now
     const d = target - this.offset
     if (Number.isNaN(d) || d < -LeadClock.SNAP_MS) this.offset = target
-    else this.offset += clamp(d, -dt * 0.1, dt * 0.05)
+    else this.offset += clamp(d, -dt * 0.1, dt * (d > LeadClock.SNAP_MS ? 0.15 : 0.05))
   }
 
   /** Late frames counted so far (Predictor.stats.lateFrames): widen the margin, narrow it after calm. */

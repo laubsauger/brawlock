@@ -48,7 +48,7 @@ export const SPELL_PALETTE: Record<string, SpellPalette> = {
   splitter: { core: 0xffc0f8, accent: 0xe153db, note: 'magenta, bright' },
   snowball: { core: 0xf0fbff, accent: 0x7ad0f9, note: 'ice blue, light' },
   // column 5
-  shield: { core: 0xfff8de, accent: 0xedd7a3, note: 'gold-white, pale' },
+  shield: { core: 0xfff8de, accent: 0xfff4dc, note: 'gold-white, palest (tritan-safe vs Bouncer yellow)' },
   rush: { core: 0xfff0a8, accent: 0xfc9206, note: 'flame orange-gold, lighter/yellower than lava' },
   alteration: { core: 0xffffff, accent: 0xaeafa6, note: 'silver glass, warm grey (vs cool Windwalk)' },
   gravity: { core: 0xb48cff, accent: 0x15092d, note: 'black-violet lensing, darkest' },

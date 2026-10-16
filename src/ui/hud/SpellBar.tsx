@@ -30,6 +30,7 @@ const slotsKey = (s: SlotInfo[]) => s.map((x) => `${x.spell ?? '-'}:${x.level}`)
 function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLabel: string }) {
   const root = useRef<HTMLDivElement>(null)
   const text = useRef<HTMLDivElement>(null)
+  const sweep = useRef<HTMLDivElement>(null)
   const total = useRef(0)
   const last = useRef({ cd: -1, casting: false, label: '' })
 
@@ -60,7 +61,8 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       const cooling = cd > 0
       el.dataset.cooling = String(cooling)
       if (cooling) {
-        el.style.setProperty('--cd', String(Math.min(1, cd / Math.max(1, total.current))))
+        // on the .cd leaf, not the slot: a per-tick write on the slot restyled its whole subtree
+        sweep.current?.style.setProperty('--cd', String(Math.min(1, cd / Math.max(1, total.current))))
         const secs = cd / TICK_HZ
         const label = secs >= 1 ? String(Math.ceil(secs)) : secs.toFixed(1)
         if (label !== prev.label && text.current) {
@@ -105,7 +107,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
           <Sigil id={info.spell} size={isItem ? 31 : 42} />
         </div>
       )}
-      <div className="cd" />
+      <div ref={sweep} className="cd" />
       <div ref={text} className="cd-text" />
       {passive ? <span className="passive-tag">Passive</span> : keyLabel && <span className="hotkey">{keyLabel}</span>}
       {info.spell && maxLevel > 1 && (

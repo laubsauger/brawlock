@@ -487,18 +487,22 @@ const scourgeWindup: Recipe = (v, p) => {
   burst(v, { noise: 'crackle', freq: 4000, q: 1, attack: d * 0.9, decay: 0.08, gain: 0.6 })
 }
 
-/** Scourge release: blast, a dark magical clang and a shockwave rushing outward. */
-const scourgeBlast: Recipe = (v) => {
-  const drv = v.drive(v.out, 2.6, 0.4)
+/**
+ * Scourge release: blast, a dark magical clang and a shockwave rushing outward.
+ * p = spell level 1..3: L1 is a tight pop, L3 the full blast (shorter, drier, softer layers below it).
+ */
+const scourgeBlast: Recipe = (v, p) => {
+  const k = clamp(((p || 1) - 1) / 2, 0, 1)
+  const drv = v.drive(v.out, 1.8 + 0.8 * k, 0.4)
   click(v, 0, 0.6, 2200)
-  thump(v, 0, 120, 30, 0.6, 0.45, drv)
-  burst(v, { noise: 'brown', type: 'lowpass', freq: 4000, to: 200, q: 0.7, attack: 0.002, decay: 0.7, gain: 0.3 })
-  burst(v, { noise: 'pink', freq: 1800, to: 400, q: 0.9, attack: 0.002, decay: 0.3, gain: 3 })
+  thump(v, 0, 120, 30, 0.4 + 0.2 * k, 0.3 + 0.15 * k, drv)
+  burst(v, { noise: 'brown', type: 'lowpass', freq: 4000, to: 200, q: 0.7, attack: 0.002, decay: 0.4 + 0.3 * k, gain: 0.3 })
+  burst(v, { noise: 'pink', freq: 1800, to: 400, q: 0.9, attack: 0.002, decay: 0.2 + 0.1 * k, gain: 1.8 + 1.2 * k })
   burst(v, { freq: 1400, q: 0.6, attack: 0.0005, decay: 0.05, gain: 1.1 })
-  clang(v, 0, 196, 0.9, 0.22, { ratio: 1.41, index: 4, partials: [1, 2.76, 5.4] })
-  whoosh(v, 0.02, 0.5, 2500, 3200, 0.9, 1.2, 'pink')
-  burst(v, { at: 0.03, noise: 'crackle', freq: 3000, q: 0.8, attack: 0.02, decay: 0.45, gain: 1.3 })
-  tail(v, 0.02, 0.8, 150, 0.2)
+  clang(v, 0, 196, 0.5 + 0.4 * k, 0.12 + 0.1 * k, { ratio: 1.41, index: 4, partials: [1, 2.76, 5.4] })
+  whoosh(v, 0.02, 0.3 + 0.2 * k, 2500, 3200, 0.9, 0.5 + 0.7 * k, 'pink')
+  burst(v, { at: 0.03, noise: 'crackle', freq: 3000, q: 0.8, attack: 0.02, decay: 0.25 + 0.2 * k, gain: 0.6 + 0.7 * k })
+  tail(v, 0.02, 0.5 + 0.3 * k, 150, 0.12 + 0.08 * k)
 }
 
 /** Teleport out: a buzzy FM zap that drops away, with a swoosh. */
@@ -644,18 +648,22 @@ const castSnuff: Recipe = (v) => {
   burst(v, { noise: 'crackle', freq: 3500, q: 1, attack: 0.005, decay: 0.07, gain: 0.35 })
 }
 
-/** Lightning: crack, buzzy FM through a closing resonant filter, sparks, a thunder tail. */
+/** Lightning strike: a hard crack with sizzle and boom, then echoes and a thunder roll (not a zap sweep). */
 const beamZap: Recipe = (v) => {
-  click(v, 0, 0.8, 2200)
-  const g = v.gain(0, v.out)
-  const lp = v.filter('lowpass', 4000, 6, v.drive(g, 2, 0.5))
-  v.glide(lp.frequency, 0, 4000, 700, 0.25)
-  const car = v.osc('sawtooth', 112, 0, 0.3, lp)
-  v.osc('square', 47, 0, 0.3, v.gain(75, car.frequency))
-  v.ad(g.gain, 0, 0.002, 0.5, 0.27)
-  burst(v, { noise: 'crackle', freq: 3000, q: 1, decay: 0.25, gain: 0.7 })
-  burst(v, { type: 'highpass', freq: 7000, attack: 0.005, decay: 0.38, gain: 0.15 })
-  tail(v, 0.02, 0.5, 300, 0.35)
+  // the crack: a near-instant broadband snap, driven hard
+  const drv = v.drive(v.out, 2.4, 0.5)
+  click(v, 0, 1.2, 1800)
+  burst(v, { type: 'highpass', freq: 1200, attack: 0.0005, decay: 0.06, gain: 2.2, dest: drv })
+  burst(v, { freq: 2600, q: 0.7, attack: 0.0005, decay: 0.12, gain: 1.4 })
+  // electric sizzle riding the bolt, and a low boom under the snap
+  burst(v, { noise: 'crackle', freq: 4200, q: 0.9, attack: 0.002, decay: 0.22, gain: 0.8 })
+  thump(v, 0, 140, 45, 0.25, 0.35, drv)
+  // echoes: the crack thrown back off the arena, darker and softer each time
+  for (const [at, gain, hz] of [[0.11, 0.45, 1800], [0.24, 0.28, 1100], [0.41, 0.16, 700]]) {
+    burst(v, { at, type: 'lowpass', freq: hz, attack: 0.002, decay: 0.12, gain })
+  }
+  // thunder rolling out under the echoes
+  burst(v, { at: 0.04, noise: 'brown', type: 'lowpass', freq: 500, to: 120, q: 0.8, attack: 0.03, decay: 0.9, gain: 0.5 })
 }
 
 /** A beam or bolt stopped by a shield: bright metallic tink. */

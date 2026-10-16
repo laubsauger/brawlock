@@ -3,16 +3,17 @@ import { eventsSince, frame } from '../../game/frame'
 import { useGame } from '../../game/store'
 import type { Phase, SimEvent, SimState } from '../../sim/types'
 import { TEAM_DRAW, TICK_HZ } from '../../sim'
-import { useTick } from '../lib/ticker'
+import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
-import { slotColor, slotName, TEAM_NAMES } from '../lib/view'
+import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
 import { TopCenter, displayRound } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { Gold, ProtectChip, Vitals } from './Vitals'
-import { KeyCaps } from '../widgets'
+import { Button, KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
+import { matchRenderReady } from '../renderBridge'
 import { resetSlotLayout } from '../lib/remap'
 import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { inputViz } from '../../game/input'
@@ -51,9 +52,9 @@ function useDirector() {
     if (s.gameOverSeen) return
     s.gameOverSeen = true
     const local = frame.localPlayer
-    const names = winners.map((id) => slotName(state, id))
+    const who = winnersText(state.slots, winners, state.settings.teamMode)
     const won = winners.includes(local)
-    announce.hold(winners.length === 0 ? 'Draw' : won ? 'Victory' : 'Defeat', names.length ? `${names.join(' and ')} ${names.length > 1 ? 'win' : 'wins'} the match` : '', won ? 'win' : 'danger')
+    announce.hold(winners.length === 0 ? 'Draw' : won ? 'Victory' : 'Defeat', who ? `${who.text} ${who.plural ? 'win' : 'wins'} the match` : '', won ? 'win' : 'danger')
     sfx(won ? 'ready' : 'back')
     music('none')
     useGame.getState().toggle('shopOpen', false)
@@ -80,8 +81,8 @@ function useDirector() {
         case 'death': {
           const hit = s.hits.get(e.pawn)
           s.hits.delete(e.pawn)
-          const victim = { name: slotName(state, e.owner), color: slotColor(state, e.owner) }
-          const killer = e.killer != null && e.killer !== e.owner ? { name: slotName(state, e.killer), color: slotColor(state, e.killer) } : null
+          const victim = { name: slotName(state, e.owner), color: slotColor(state, e.owner), glyph: slotGlyph(state, e.owner) }
+          const killer = e.killer != null && e.killer !== e.owner ? { name: slotName(state, e.killer), color: slotColor(state, e.killer), glyph: slotGlyph(state, e.killer) } : null
           announce.kill({
             killer,
             victim,
@@ -102,7 +103,7 @@ function useDirector() {
           const mine = e.players.includes(local)
           const round = displayRound(state)
           const sub =
-            e.players.length === 1 ? `${slotName(state, e.players[0])} takes round ${round}` : `${TEAM_NAMES[e.team] ?? 'Team ' + (e.team + 1)} team takes round ${round}`
+            e.players.length === 1 ? `${slotName(state, e.players[0])} takes round ${round}` : `${teamName(e.team)} team takes round ${round}`
           announce.banner(mine ? 'Round won' : 'Round lost', sub, mine ? 'win' : 'danger', 2600)
           sfx(mine ? 'ready' : 'back')
           break
@@ -236,18 +237,26 @@ function AimHint() {
   )
 }
 
-/** Shown until the first state arrives (session starting, or waiting for the host). */
-function WaitingVeil() {
+/** Longest the veil waits for the scene to finish warming once the first state is in. */
+const VEIL_RENDER_WAIT_MS = 6000
+
+/**
+ * Shown until the first state arrives (session starting, or waiting for the
+ * host) and the match scene is warm (a client that joined late may still be
+ * compiling). Sits above the docks: the shop opens under it, not over it.
+ */
+export function WaitingVeil() {
   const ref = useRef<HTMLDivElement>(null)
   const shown = useRef(true)
-  useTick(() => {
-    const has = !!frame.curr
+  const t0 = useRef(performance.now())
+  useTick((now) => {
+    const has = !!frame.curr && (matchRenderReady() || now - t0.current > VEIL_RENDER_WAIT_MS)
     if (has === !shown.current) return
     shown.current = !has
     if (ref.current) ref.current.style.opacity = has ? '0' : '1'
   })
   return (
-    <div ref={ref} className="absolute inset-0 grid place-items-center bg-obsidian/80 transition-opacity duration-500" style={{ pointerEvents: 'none' }}>
+    <div ref={ref} className="absolute inset-0 z-[45] grid place-items-center bg-obsidian/80 transition-opacity duration-500" style={{ pointerEvents: 'none' }}>
       <div className="flex flex-col items-center gap-4">
         <Wordmark size="md" />
         <span className="text-[1.05rem] font-semibold text-[#e6d3b8]">Entering the arena…</span>
@@ -256,36 +265,30 @@ function WaitingVeil() {
   )
 }
 
+/**
+ * Key legend, bottom left: secondary info, so it stays small and quiet and
+ * never competes with the spell bar. Fades further after the first round
+ * (the keys are learned by then). Settings > Interface can hide it.
+ */
 function Hints() {
   const binds = useBinds()
-  const fullscreen = useFullscreen()
   // any spell / item key moved from the preset (HUD drag, shop drag, Settings)
   const slotCustom = useGame((s) => [...Object.keys(s.settings.keybinds ?? {}), ...Object.keys(s.settings.keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k)))
+  const faded = usePolled(() => (frame.curr ? displayRound(frame.curr) > 1 : false), String, 2)
   const hint = (key: string, label: string) => (
     <span className="flex items-center gap-1">
       <KeyCaps label={key} /> {label}
     </span>
   )
   return (
-    <div className="hud-hints hud-backing hud-text-shadow flex items-center gap-3 py-1 text-[0.82rem] text-ash">
+    <div className="hud-hints hud-backing flex items-center gap-2 px-1.5 py-0.5 text-[0.7rem] leading-none whitespace-nowrap text-ash/80" data-faded={faded}>
       {hint(bindLabel(binds, 'shop'), 'Shop')}
       {hint(bindLabel(binds, 'character'), 'Stats')}
       {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
       {hint(slotKeyLabel(binds, 6), 'Fireball')}
       {hint(bindLabel(binds, 'stop'), 'Stop')}
-      <button
-        type="button"
-        className="interactive flex items-center gap-1 rounded px-1.5 text-[0.82rem] text-ash hover:text-bone"
-        onClick={() => void toggleFullscreen()}
-        title="Fullscreen (Alt+Enter)"
-      >
-        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
-          <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" strokeWidth="1.6" />
-        </svg>
-        {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-      </button>
       {slotCustom && (
-        <button type="button" className="interactive rounded px-1.5 text-[0.82rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => resetSlotLayout()}>
+        <button type="button" className="interactive rounded px-1 text-[0.7rem] text-[#ffcf9a]/85 underline-offset-2 hover:underline" onClick={() => resetSlotLayout()}>
           Reset key layout
         </button>
       )}
@@ -293,9 +296,36 @@ function Hints() {
   )
 }
 
+/** Small icon-only fullscreen toggle, top-right corner: tertiary, quiet until hovered. */
+function FullscreenButton() {
+  const fullscreen = useFullscreen()
+  const label = fullscreen ? 'Exit fullscreen (Alt+Enter)' : 'Fullscreen (Alt+Enter)'
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      sound={null}
+      className="hud-fs interactive px-1.5"
+      onClick={() => void toggleFullscreen()}
+      title={label}
+      aria-label={label}
+      data-testid="hud-fullscreen"
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+        {fullscreen ? (
+          <path d="M6 2v4H2M10 2v4h4M14 10h-4v4M2 10h4v4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        ) : (
+          <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        )}
+      </svg>
+    </Button>
+  )
+}
+
 export function Hud() {
   useDirector()
   const hudLayout = useGame((s) => s.settings.hudLayout ?? 'center')
+  const showHints = useGame((s) => s.settings.showHints ?? true)
   return (
     <div className="hud select-none">
       <StatusLayer />
@@ -310,7 +340,9 @@ export function Hud() {
         <ConnIndicator />
       </div>
 
-      <div className="hud-scale absolute top-2 right-3">
+      {/* top-right corner: fullscreen toggle, kill feed under it */}
+      <div className="hud-scale absolute top-2 right-3 flex flex-col items-end gap-1.5">
+        <FullscreenButton />
         <Killfeed />
       </div>
 
@@ -334,11 +366,12 @@ export function Hud() {
         </div>
       </div>
 
-      <div className="hud-scale absolute bottom-2 left-3 hidden xl:block">
-        <Hints />
-      </div>
+      {showHints && (
+        <div className="hud-scale absolute bottom-2 left-3 hidden xl:block">
+          <Hints />
+        </div>
+      )}
 
-      <WaitingVeil />
     </div>
   )
 }

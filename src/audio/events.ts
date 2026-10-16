@@ -238,6 +238,10 @@ const cue = (id: SfxId, sp: { pan: number; gain: number }, gain = 1, extra: Part
 
 const CENTRE = { pan: 0, gain: 1 }
 
+/** Scourge is in everyone's starting kit and heard every round: L1 stays modest, the full blast is the L3 escalation. */
+const SCOURGE_GAIN = [0.7, 0.85, 1]
+const scourgeLevel = (level?: number) => Math.max(1, Math.min(3, level ?? 1))
+
 const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   cast: (e, c) => {
     const ss = SPELL_SOUNDS[e.spell] ?? { cast: 'castGeneric' }
@@ -249,7 +253,7 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const p = c.pawnPos(e.pawn)
     const sp = p ? c.at(p.x, p.y) : CENTRE
     const key = windupKey(e.pawn)
-    if (e.spell === 'scourge') return [cue('scourgeWindup', sp, 1, { param: Math.max(0.2, e.ticks / 60), key })]
+    if (e.spell === 'scourge') return [cue('scourgeWindup', sp, SCOURGE_GAIN[scourgeLevel(e.level) - 1], { param: Math.max(0.2, e.ticks / 60), key })]
     // short cast points get an inhale, so a cancelled (fake) cast is heard as inhale + snuff
     if (e.ticks >= 6) return [cue('castInhale', sp, 0.7, { param: e.ticks / 60, key })]
     return []
@@ -314,7 +318,10 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   teleport: (e, c) => [cue('teleportOut', c.at(e.fromX, e.fromY)), cue('teleportIn', c.at(e.toX, e.toY), 1, { delay: 0.03 })],
   explosion: (e, c) => {
     const sp = c.at(e.x, e.y)
-    if (e.spell === 'scourge') return [cue('scourgeBlast', sp)]
+    if (e.spell === 'scourge') {
+      const level = scourgeLevel(e.level)
+      return [cue('scourgeBlast', sp, SCOURGE_GAIN[level - 1], { param: level })]
+    }
     if (e.spell === 'obstacle') return [cue('explosion', sp, 1, { param: 1.4 })]
     if (e.spell === 'homing') return [cue('arcaneBurst', sp, 1.1)]
     if (e.spell === 'meteor') return [cue('meteorImpact', sp)]

@@ -5,7 +5,8 @@
  *         &hit (after-hit mode: damage instead of kill)  &q=low|medium|high|ultra  &fx=0..1
  *         &slow=0.3  &zoom=500..1500  &vc=<victim colour hex, e.g. ff6fb5>  &n=1..4 (victims dying together)  &cancel=0.5 (stop the killer's windup after 0.5 s)
  *         &off=<module spell ids> (unregister modules, e.g. off=scourge to see the built-in)
- *         &hidecharge (hide PawnView's built-in Scourge charge decal)  &lvl=1..3 (killer's Scourge level)
+ *         &hidecharge (hide PawnView's built-in Scourge charge decal)  &lvl=1..3 (Scourge level)  &allcast (victims cast Scourge too)
+ *         &match8 | &match8=cb (8-bot match, standard / colourblind palette; probe __labC.fightT())
  * Console: __labC.since() = sim seconds since the victim's last death (screenshot timing),
  *          __labC.devTime.scale = 0 freezes everything (render clock too).
  */
@@ -17,6 +18,7 @@ import { MatchView, renderStats } from '../../../index'
 import { cameraZoomParam } from '../../../cameraRig'
 import { devTime } from '../../../stats'
 import { ALL_CAUSES, labState, startDeathLab } from './deathLab'
+import { matchState, startMatchLab } from './matchLab'
 import { registerSpellVfx, spellVfxModules, type SpellVfx } from '../../registry'
 
 const params = new URLSearchParams(location.search)
@@ -65,6 +67,7 @@ if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(param
   since: () => (labState.deathTick < 0 ? -1 : (labState.tick - labState.deathTick) / 60),
   sinceHit: () => (labState.hitTick < 0 ? -1 : (labState.tick - labState.hitTick) / 60),
   probe,
+  fightT: () => matchState.fightT,
   sinceCast: () => (labState.castTick < 0 ? -1 : (labState.tick - labState.castTick) / 60),
 }
 
@@ -75,7 +78,8 @@ function Lab() {
     const c = params.get('cause') ?? 'all'
     const causes = c === 'all' ? [...ALL_CAUSES] : c.split(',')
     const vc = params.get('vc')
-    const stop = startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined }, setLabel)
+    // &match8[=cb]: 8 bots fighting, standard or colourblind slot palette (palette review)
+    const stop = params.has('match8') ? startMatchLab({ n: Number(params.get('n') ?? 8), cb: params.get('match8') === 'cb', seed: Number(params.get('seed') ?? 7) }) : startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined, allCast: params.has('allcast') }, setLabel)
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0
     const id = setInterval(() => {
       const s = renderStats

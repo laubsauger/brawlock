@@ -11,7 +11,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
  *   w     0 at the attachment .. 1 at the free hem (how much the spring moves it)
  *   L     pendulum length to the attachment (m), keeps the hem length when it swings
  *   kind  0 coat, 1 tabard, 2 cape, 3 mantle, 4 sleeve, 5 medallion (rigid), 6 chest panel (rigid),
- *         7 waist sash (rigid), 8 underlayer (hip wrap + loose trouser legs, rigid on the leg bones)
+ *         7 waist sash (rigid), 8 underlayer (hip wrap + loose trouser legs, rigid on the leg bones),
+ *         9 hood void + eyes (rigid on the Head bone; side = 1 marks the eyes)
  *   side  +1 left, -1 right, 0 centre (casting-arm sleeve glow)
  * `aDim` = (row width m, piece length m) lets the shader place trims and runes
  * in metres from normalized uv (u across, v from the attachment to the hem).
@@ -26,7 +27,7 @@ export function setCalfRadiusHint(r: number): void {
 /** coat hem half-width (rig metres, before CC0_SCALE) */
 export const HEM_RX_M = 0.44
 
-export const KIND = { coat: 0, tabard: 1, cape: 2, mantle: 3, sleeve: 4, medallion: 5, panel: 6, sash: 7, under: 8 } as const
+export const KIND = { coat: 0, tabard: 1, cape: 2, mantle: 3, sleeve: 4, medallion: 5, panel: 6, sash: 7, under: 8, void: 9 } as const
 
 export interface RigRest {
   /** rest-pose position of a bone (model space) */

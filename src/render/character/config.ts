@@ -1,6 +1,17 @@
+import { uniform } from 'three/tsl'
 import type { StaffVariant } from './geometry'
 
 export type WarlockStyle = 'cc0' | 'procedural'
+/**
+ * Material look of the cc0 warlock (live switch, no rebuild):
+ *   readable  dark-but-not-black robe tinted by the player colour, mid-value
+ *             player-colour trims, top / rim fill so folds, pose and facing read
+ *             at the gameplay camera on every tier (default)
+ *   void      the earlier near-black robe with thin neon trims (kept as a variant)
+ */
+export type WarlockLook = 'readable' | 'void'
+/** 1 = readable, 0 = void; read by every warlock material */
+export const lookUniform = uniform(1)
 /** Where spells visually originate: the casting palm (default) or the staff crystal. */
 export type CastFrom = 'palm' | 'staff'
 
@@ -25,6 +36,12 @@ export const warlockParams = {
   _staff: false,
   _staffVariant: 'gnarled' as StaffVariant,
   _castFrom: 'palm' as CastFrom,
+  get look(): WarlockLook {
+    return lookUniform.value > 0.5 ? 'readable' : 'void'
+  },
+  set look(v: WarlockLook) {
+    lookUniform.value = v === 'void' ? 0 : 1
+  },
   /** debug: collision circle (r 30) and a Fireball-sized sphere (r 25) beside every warlock */
   debugFootprint: false,
   version: 0,

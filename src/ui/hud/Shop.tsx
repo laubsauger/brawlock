@@ -676,11 +676,12 @@ export function Shop() {
               const defs = SPELLS.filter((s) => s.column === c)
               return (
                 <div key={col.name} className="flex min-w-0 flex-col gap-0.5" aria-label={`${col.name} column`}>
-                  <div className="col-head mb-0.5 flex items-center justify-between gap-1 rounded pt-1" title={`${col.hint}. Drop an owned spell here to swap keys.`} {...slotDropProps(c)}>
+                  {/* key first, then the column it casts: "Q Knockout", never read as the next column's key */}
+                  <div className="col-head mb-0.5 flex items-center gap-1.5 rounded pt-1" title={`${col.hint}. Drop an owned spell here to swap keys.`} {...slotDropProps(c)}>
+                    <Kbd>{slotKeyLabel(binds, c)}</Kbd>
                     <span className="truncate text-[0.98rem] font-bold" style={{ color: col.hue }}>
                       {col.name}
                     </span>
-                    <Kbd>{slotKeyLabel(binds, c)}</Kbd>
                   </div>
                   {defs.map((def, r) => {
                     const o = spellOffer(def, owned, v.gold, v.open)

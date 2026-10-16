@@ -52,4 +52,10 @@ export const devTime = { scale: 1 }
  * (throughput, so it includes CPU encode if that is the bottleneck).
  * Set by the active render loop; null when no WebGPU canvas is mounted.
  */
-export const perfProbe: { bench: ((frames?: number) => Promise<number>) | null } = { bench: null }
+export const perfProbe: {
+  bench: ((frames?: number) => Promise<number>) | null
+  /** CPU-only bench: world update + render submit, N frames back to back (ms/frame) */
+  benchCpu: ((frames?: number) => number) | null
+  /** set by the match scene: one world update step (dt seconds) */
+  worldStep: ((dt: number) => void) | null
+} = { bench: null, benchCpu: null, worldStep: null }

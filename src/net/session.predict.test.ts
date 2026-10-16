@@ -6,12 +6,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MatchResult, Screen } from '../game/store'
 import { createBot } from '../bots'
-import { createMatch, hashState, step } from '../sim'
+import { FIREBALL_SLOT, createMatch, hashState, step } from '../sim'
 import type { InputCommand, MatchSettings, PlayerInput, SimEvent, SimState } from '../sim/types'
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import type { NetGradeEvent } from './netstats'
-import { MAX_AHEAD_TICKS } from './predict'
+import { MAX_AHEAD_TICKS, eventKey } from './predict'
 import { createSession, type NetMode, type SessionDeps } from './session'
 import type { NetFactory } from './transport'
 
@@ -38,6 +38,7 @@ interface PeerOpts {
   netMode?: NetMode
   hostDelayCapTicks?: number
   step?: SessionDeps['step']
+  createMatch?: SessionDeps['createMatch']
   bots?: boolean
 }
 
@@ -67,6 +68,13 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
   /** authoritative states the recorder saw */
   const auth: SimState[] = []
   const events: SimEvent[] = []
+  /** what audio got, and pushEvents batches game/frame.ts would drop (tick already logged) */
+  const heard: SimEvent[] = []
+  /** every pushed / heard event with the tick of the batch it came in */
+  const pushedLog: { tick: number; e: SimEvent }[] = []
+  const heardLog: { tick: number; e: SimEvent }[] = []
+  const pushedTicks = new Set<number>()
+  const droppedBatches: { tick: number; events: SimEvent[] }[] = []
   const results: MatchResult[] = []
   const queue: InputCommand[] = []
   const listeners = new Set<(c: InputCommand) => void>()
@@ -101,13 +109,22 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
       reset: () => {
         shown.length = 0
         events.length = 0
+        pushedTicks.clear()
       },
       setLocalPlayer: () => {},
       pushState: (state) => {
         shown.push({ state, wall: performance.now() })
       },
-      pushEvents: (_tick, evs) => {
+      pushEvents: (tick, evs) => {
+        // game/frame.ts semantics: empty batches are ignored, a second batch for a tick is dropped
+        if (evs.length === 0) return
+        if (pushedTicks.has(tick)) {
+          droppedBatches.push({ tick, events: evs })
+          return
+        }
+        pushedTicks.add(tick)
         events.push(...evs)
+        for (const e of evs) pushedLog.push({ tick, e })
       },
       setNet: () => {},
     },
@@ -118,8 +135,14 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
         return () => listeners.delete(cb)
       },
     },
-    audio: { playEvents: () => {} },
-    createMatch,
+    audio: {
+      playEvents: (evs, listener) => {
+        heard.push(...evs)
+        const tick = (listener.state as SimState | undefined)?.tick ?? -1
+        for (const e of evs) heardLog.push({ tick, e })
+      },
+    },
+    createMatch: opts.createMatch ?? createMatch,
     step: (s: SimState, inputs: PlayerInput[]) => {
       steps.n++
       baseStep(s, inputs)
@@ -146,7 +169,7 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
     queue.push(c)
     for (const cb of listeners) cb(c)
   }
-  return { session: createSession(deps), store, shown, auth, events, results, issue, steps }
+  return { session: createSession(deps), store, shown, auth, events, heard, pushedLog, heardLog, droppedBatches, results, issue, steps }
 }
 
 async function pair(link: LinkOptions, hostOpts: PeerOpts = {}, clientOpts: PeerOpts = {}) {
@@ -545,4 +568,189 @@ describe('link monitor', () => {
     host.session.leave()
     client.session.leave()
   })
+})
+
+// ---------------------------------------------------------------------------
+// event delivery
+// ---------------------------------------------------------------------------
+
+const WATCHED = new Set<SimEvent['type']>(['beam', 'explosion', 'death', 'damage'])
+
+/** Lightning in slot 0 for every pawn (host only builds the match). */
+function lightningMatch(settings: MatchSettings, slots: Parameters<typeof createMatch>[1], seed: number): SimState {
+  const s = createMatch(settings, slots, seed)
+  for (const p of s.pawns) {
+    p.slots[0] = 'lightning'
+    p.levels[0] = 1
+  }
+  return s
+}
+
+/** Cooldowns zeroed every tick, on host and client alike (the sim stays deterministic). */
+const spamStep = (s: SimState, inputs: PlayerInput[]) => {
+  step(s, inputs)
+  for (const p of s.pawns) p.cooldowns.fill(0)
+}
+
+interface Delivery {
+  auth: number
+  drops: { tick: number; e: SimEvent }[]
+  dups: number
+  dupList: { tick: number; e: SimEvent }[]
+  phantoms: number
+  phantomList: { tick: number; e: SimEvent }[]
+  byType: Record<string, number>
+}
+
+/**
+ * One-to-one match of authoritative events against what a peer delivered: same
+ * identity (eventKey), within 160 units, delivered at most 5 ticks before and
+ * `late` ticks after the authoritative tick (late events ride a later batch).
+ * An unmatched delivery is a duplicate when it is a second copy of an
+ * authoritative event (same identity, within 40 units of it, in its window), a
+ * phantom (a mispredicted event the authority never had) otherwise.
+ */
+function delivery(authStates: SimState[], got: { tick: number; e: SimEvent }[], upTo: number, late: number): Delivery {
+  const auth: { tick: number; e: SimEvent; key: string }[] = []
+  for (const s of authStates) {
+    if (s.tick > upTo) continue
+    for (const e of s.events) if (WATCHED.has(e.type)) auth.push({ tick: s.tick, e, key: eventKey(e) })
+  }
+  const shown = got.filter((g) => WATCHED.has(g.e.type) && g.tick <= upTo + late).map((g) => ({ ...g, key: eventKey(g.e), used: false }))
+  const pos = (e: SimEvent): [number, number] => {
+    const o = e as unknown as Record<string, number>
+    return [o.x ?? o.fromX ?? NaN, o.y ?? o.fromY ?? NaN]
+  }
+  const near = (a: SimEvent, b: SimEvent) => {
+    const [ax, ay] = pos(a)
+    const [bx, by] = pos(b)
+    return !(Math.hypot(ax - bx, ay - by) > 160)
+  }
+  // a copy of the same event also ends where the original ended (a beam aimed elsewhere is another cast)
+  const same = (a: SimEvent, b: SimEvent) => {
+    if (!near(a, b)) return false
+    if (a.type !== 'beam' || b.type !== 'beam') return true
+    return Math.hypot(a.toX - b.toX, a.toY - b.toY) <= 160
+  }
+  const drops: Delivery['drops'] = []
+  const byType: Record<string, number> = {}
+  for (const a of auth) {
+    byType[a.e.type] = (byType[a.e.type] ?? 0) + 1
+    const m = shown.find((g) => !g.used && g.key === a.key && g.tick >= a.tick - 5 && g.tick <= a.tick + late && near(g.e, a.e))
+    if (m) m.used = true
+    else drops.push({ tick: a.tick, e: a.e })
+  }
+  let dups = 0
+  let phantoms = 0
+  const dupList: Delivery['dupList'] = []
+  const phantomList: Delivery['phantomList'] = []
+  const copyOf = (g: (typeof shown)[number]) =>
+    auth.some((a) => {
+      if (a.key !== g.key || g.tick < a.tick - 5 || g.tick > a.tick + late || !same(g.e, a.e)) return false
+      const [ax, ay] = pos(a.e)
+      const [gx, gy] = pos(g.e)
+      return !(Math.hypot(ax - gx, ay - gy) > 40)
+    })
+  for (const g of shown) {
+    // past the cutoff its authoritative twin is not in the list
+    if (g.used || g.tick > upTo) continue
+    if (copyOf(g)) {
+      dups++
+      dupList.push({ tick: g.tick, e: g.e })
+    } else {
+      phantoms++
+      phantomList.push({ tick: g.tick, e: g.e })
+    }
+  }
+  return { auth: auth.length, drops, dups, dupList, phantoms, phantomList, byType }
+}
+
+describe('event delivery (beam, explosion, death, damage)', () => {
+  /**
+   * Why: a one-tick event (Lightning's beam) has no second chance. Whatever the
+   * link does, every authoritative event caused by the local player, the remote
+   * player and a bot must reach render (pushEvents) and audio exactly once on
+   * both peers: never dropped by a rollback, never doubled by a re-simulation.
+   */
+  it.each([
+    ['RTT 0', { latencyMs: 0, jitterMs: 0, loss: 0.1, seed: 21 }],
+    ['RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 22 }],
+    ['RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 23 }],
+  ] as [string, LinkOptions][])(
+    'every event reaches pushEvents and audio exactly once at %s with 10 %% loss',
+    async (label, link) => {
+      for (const mode of ['predict', 'classic'] as NetMode[]) {
+        const common = { netMode: mode, step: spamStep, bots: true }
+        const { host, client } = await pair(link, { ...common, createMatch: lightningMatch }, common)
+        // hits hurt: deaths and new rounds happen during the run
+        host.session.updateSettings({ shopSeconds: 1, winScore: 50, dmgMultiplier: 3, kbMultiplier: 1.6 })
+        host.session.addBot('hard')
+        host.session.startMatch()
+        await vi.advanceTimersByTimeAsync(1500)
+        // both humans cast Lightning (slot 0) at the bot and at each other, and walk
+        for (let i = 0; i < 60; i++) {
+          const s = lastShown(client)
+          const bot = pawnOf(s, 2)
+          const me = pawnOf(s, 1)
+          const other = pawnOf(s, 0)
+          if (i % 5 === 4) client.issue({ kind: 'cast', slot: FIREBALL_SLOT, x: bot.x, y: bot.y })
+          else if (i % 3 === 0) client.issue({ kind: 'cast', slot: 0, x: bot.x, y: bot.y })
+          else if (i % 3 === 1) client.issue({ kind: 'cast', slot: 0, x: other.x, y: other.y })
+          else client.issue({ kind: 'move', x: me.x * 0.7 + 60, y: me.y * 0.7 - 40 })
+          const hs = lastShown(host)
+          const hb = pawnOf(hs, 2)
+          const hme = pawnOf(hs, 0)
+          const hc = pawnOf(hs, 1)
+          if (i % 5 === 2) host.issue({ kind: 'cast', slot: FIREBALL_SLOT, x: hc.x, y: hc.y })
+          else if (i % 3 === 1) host.issue({ kind: 'cast', slot: 0, x: hb.x, y: hb.y })
+          else if (i % 3 === 2) host.issue({ kind: 'cast', slot: 0, x: hc.x, y: hc.y })
+          else host.issue({ kind: 'move', x: hme.x * 0.7 - 50, y: hme.y * 0.7 + 30 })
+          await vi.advanceTimersByTimeAsync(230 + (i % 4) * 40)
+        }
+        await vi.advanceTimersByTimeAsync(2000)
+        const upTo = host.auth[host.auth.length - 1].tick - 90
+        const late = 40
+        const report: string[] = []
+        for (const [who, p] of [
+          ['host', host],
+          ['client', client],
+        ] as const) {
+          for (const [chan, log] of [
+            ['pushEvents', p.pushedLog],
+            ['audio', p.heardLog],
+          ] as const) {
+            const d = delivery(host.auth, log, upTo, late)
+            report.push(`${who}/${chan}: ${d.auth} auth ${JSON.stringify(d.byType)}, drops ${d.drops.length}, dups ${d.dups}, phantoms (mispredicted) ${d.phantoms}`)
+            if (d.drops.length) console.log(`[delivery ${label} ${mode}] ${who}/${chan} dropped`, JSON.stringify(d.drops.slice(0, 5)))
+            if (d.dups) {
+              // (context for a failure: deliveries and authority around each duplicate)
+              const nearby = log.filter((g) => d.dupList.some((x) => Math.abs(x.tick - g.tick) <= 45 && g.e.type === x.e.type))
+              const authNear = host.auth.filter((st) => d.dupList.some((x) => Math.abs(x.tick - st.tick) <= 45)).flatMap((st) => st.events.filter((e) => d.dupList.some((x) => x.e.type === e.type)).map((e) => ({ tick: st.tick, e })))
+              console.log(`[delivery ${label} ${mode}] ${who}/${chan} dups`, JSON.stringify(d.dupList), '\n delivered near:', JSON.stringify(nearby), '\n auth near:', JSON.stringify(authNear))
+            }
+            expect(d.auth).toBeGreaterThan(0)
+            expect(d.drops).toEqual([])
+            expect(d.dups).toBe(0)
+            // classic shows the authority verbatim; prediction may show a few events the
+            // authority never had (a remote player cancelled a cast or dodged out of lava
+            // inside the prediction window; this test cancels casts on purpose), never many
+            if (mode === 'classic') expect(d.phantoms).toBe(0)
+            else expect(d.phantoms).toBeLessThanOrEqual(Math.max(3, 0.05 * d.auth))
+            if (d.phantoms) console.log(`[delivery ${label} ${mode}] ${who}/${chan} phantoms`, JSON.stringify(d.phantomList).slice(0, 400))
+          }
+          expect(p.droppedBatches).toEqual([])
+        }
+        // every kind of watched event happened, caused by both humans and the bot
+        const all = host.auth.flatMap((s) => s.events)
+        const sources = new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : e.type === 'damage' && e.source !== null ? [e.source] : [])))
+        expect([...sources].sort()).toEqual([0, 1, 2])
+        expect(new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : []))).size).toBeGreaterThanOrEqual(2)
+        for (const t of ['damage', 'death'] as const) expect(all.some((e) => e.type === t)).toBe(true)
+        console.log(`[delivery ${label} ${mode}] ${report.join(' | ')}`)
+        host.session.leave()
+        client.session.leave()
+      }
+    },
+    60000,
+  )
 })

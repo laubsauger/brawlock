@@ -3,7 +3,7 @@
  * builders and the reusable "spell camera" (caster close-up -> flight -> impact).
  */
 import { COLUMNS } from '../../../ui/data/catalog'
-import { FLOOR, Follow, SAFE, clamp01, ease, ease5, fitPose, lerp, orbit, type CamPose, type FrameBox, type V3 } from '../cam'
+import { FLOOR, Follow, SAFE, clamp01, ease, ease5, fitPose, lerp, orbit, project, type CamPose, type FrameBox, type V3 } from '../cam'
 import { COLORS, type PlayerDef } from '../simShot'
 import type { CamCtx, LowerThird } from '../types'
 
@@ -209,6 +209,36 @@ export interface StageOpts {
   /** widen the fit (1 = tight to the safe area) */
   margin?: number
   lift?: number
+  /**
+   * keep the lava rim behind the action in frame when the platform edge lies within this
+   * many units beyond the action (seen from the camera); 0 = off. Default 900.
+   */
+  backdrop?: number
+  /**
+   * readability floor: warlocks stay at least this many pixels tall (1080p). When the whole
+   * action does not fit at that size, the framing holds this distance and gently pans with
+   * the action instead (leading it by a second). Default 72.
+   */
+  minPx?: number
+  /** video seconds this framing is used for (push / dolly run over [t0, t1]); default the whole shot */
+  t0?: number
+  t1?: number
+}
+
+/** caldera rim radius the cameras must stay inside (dressing: max(1300, platform) + 620, minus its outcrops) */
+export function rimRadius(c: CamCtx): number {
+  const layer = c.sim.state.arena.layer
+  const R = Math.max(1300, Math.max(0, layer - 1) * 100)
+  return R + 620 - 230
+}
+
+/** Hard cuts between cameras inside one continuous take: [[from video s, camera], ...] */
+export function cuts(list: [number, (c: CamCtx) => CamPose][]): (c: CamCtx) => CamPose {
+  return (c) => {
+    let cam = list[0][1]
+    for (const [t, f] of list) if (c.vt >= t) cam = f
+    return cam(c)
+  }
 }
 
 /**
@@ -217,8 +247,12 @@ export interface StageOpts {
  * fall), seen from a fixed angle, with only a slow push-in / lateral dolly.
  */
 export function stage(o: StageOpts = {}): (c: CamCtx) => CamPose {
+  let cache: { key: unknown; fit: { pose: CamPose; yaw: number; dist: number; maxDist: number }; follow: Follow } | null = null
   return (c) => {
-    const fit = mem(c, 'stageFit', () => {
+    if (!cache || cache.key !== c.mem) cache = { key: c.mem, fit: computeFit(), follow: new Follow(1.1) }
+    const fit = cache.fit
+    const follow = cache.follow
+    function computeFit(): { pose: CamPose; yaw: number; dist: number; maxDist: number } {
       const a = c.action
       const pts: V3[] = []
       for (const sm of a.samples) {
@@ -236,14 +270,105 @@ export function stage(o: StageOpts = {}): (c: CamCtx) => CamPose {
         const line = A && B ? (Math.atan2(B.y - A.y, B.x - A.x) * 180) / Math.PI : 0
         yaw = line + (o.yaw ?? 0)
       }
+      const bd = o.backdrop ?? 900
+      if (bd > 0 && pts.length > 0) {
+        // the lava band behind the action (as seen from the camera) makes the backdrop
+        let mx = 0
+        let my = 0
+        for (const p of pts) {
+          mx += p.x
+          my += p.y
+        }
+        mx /= pts.length
+        my /= pts.length
+        const a = (yaw * Math.PI) / 180
+        const fx = -Math.sin(a)
+        const fy = Math.cos(a)
+        let far = 0
+        for (const p of pts) far = Math.max(far, (p.x - mx) * fx + (p.y - my) * fy)
+        for (let d = far; d < far + bd; d += 20) {
+          if (!c.sim.safe(mx + fx * d, my + fy * d)) {
+            pts.push({ x: mx + fx * (d + 260), y: my + fy * (d + 260), h: 0 })
+            break
+          }
+        }
+      }
       const m = o.margin ?? 1
       const box = o.box ?? SAFE
-      const fitted = fitPose(pts, o.pitch ?? 46, yaw, o.fov ?? 38, 16 / 9, { left: box.left / m, right: box.right / m, bottom: box.bottom / m, top: box.top / m }, o.lift ?? 40)
-      return { pose: fitted, yaw, dist: Math.hypot(fitted.x - fitted.tx, fitted.y - fitted.ty, fitted.h - fitted.th) }
-    })
-    const T = ease5(clamp01(c.vt / c.dur))
-    const d = fit.dist * (1 + (o.push ?? 0.07) * (1 - T))
+      const frame = { left: box.left / m, right: box.right / m, bottom: box.bottom / m, top: box.top / m }
+      // the camera must stay inside the caldera rim (cliffs ring the platform 620 out from
+      // the largest platform the world has seen) or it films the inside of a cliff
+      const rim = rimRadius(c)
+      const inside = (p: CamPose) => Math.hypot(p.x, p.y) < rim || p.h > 2700
+      let fitted = fitPose(pts, o.pitch ?? 46, yaw, o.fov ?? 38, 16 / 9, frame, o.lift ?? 40)
+      if (!inside(fitted)) {
+        for (const dy of [12, -12, 24, -24, 36, -36, 50, -50, 65, -65, 80, -80, 100, -100, 125, -125, 150, -150, 180]) {
+          const alt = fitPose(pts, o.pitch ?? 46, yaw + dy, o.fov ?? 38, 16 / 9, frame, o.lift ?? 40)
+          if (inside(alt)) {
+            fitted = alt
+            yaw += dy
+            break
+          }
+        }
+      }
+      const dist = Math.hypot(fitted.x - fitted.tx, fitted.y - fitted.ty, fitted.h - fitted.th)
+      // largest distance at which a warlock (~130 units tall) still reads at minPx
+      const px = (d: number) => {
+        const pose = orbit(fitted.tx, fitted.ty, fitted.th, d, o.pitch ?? 46, yaw, o.fov ?? 38)
+        const a0 = project(pose, 16 / 9, fitted.tx, fitted.ty, FLOOR)
+        const a1 = project(pose, 16 / 9, fitted.tx, fitted.ty, FLOOR + 130)
+        return ((a1.y - a0.y) / 2) * 1080
+      }
+      let lo = 200
+      let hi = 12000
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2
+        if (px(mid) >= (o.minPx ?? 72)) lo = mid
+        else hi = mid
+      }
+      return { pose: fitted, yaw, dist, maxDist: lo }
+    }
+    const T = ease5(clamp01((c.vt - (o.t0 ?? 0)) / ((o.t1 ?? c.dur) - (o.t0 ?? 0))))
     const yaw = fit.yaw + (o.dolly ?? 0) * (T - 0.5)
-    return orbit(fit.pose.tx, fit.pose.ty, fit.pose.th, d, o.pitch ?? 46, yaw, o.fov ?? 38)
+    const rim = rimRadius(c)
+    /** dolly in along the view ray until the camera is inside the caldera rim */
+    const keepInside = (tx: number, ty: number, th: number, d: number): CamPose => {
+      let pose = orbit(tx, ty, th, d, o.pitch ?? 46, yaw, o.fov ?? 38)
+      if (Math.hypot(pose.x, pose.y) < rim || pose.h > 2700) return pose
+      let lo = 150
+      let hi = d
+      for (let i = 0; i < 30; i++) {
+        const mid = (lo + hi) / 2
+        const q = orbit(tx, ty, th, mid, o.pitch ?? 46, yaw, o.fov ?? 38)
+        if (Math.hypot(q.x, q.y) < rim) lo = mid
+        else hi = mid
+      }
+      pose = orbit(tx, ty, th, lo, o.pitch ?? 46, yaw, o.fov ?? 38)
+      return pose
+    }
+    if (fit.dist <= fit.maxDist) {
+      const d = fit.dist * (1 + (o.push ?? 0.07) * (1 - T))
+      return keepInside(fit.pose.tx, fit.pose.ty, fit.pose.th, d)
+    }
+    // too big to hold at a readable size: gentle pan with the action, leading it by a second
+    let mx = 0
+    let my = 0
+    let n = 0
+    for (const sm of c.action.samples) {
+      if (sm.st < c.st - 0.4 || sm.st > c.st + 1.0) continue
+      if (sm.what === 'proj' && sm.spell && o.exclude?.includes(sm.spell)) continue
+      if (sm.what === 'pawn' && o.excludeOwners?.includes(sm.owner)) continue
+      mx += sm.x
+      my += sm.y
+      n++
+    }
+    const f = follow
+    if (n > 0) f.update({ x: mx / n, y: my / n, h: fit.pose.th }, c.dt)
+    else f.update({ x: fit.pose.tx, y: fit.pose.ty, h: fit.pose.th }, c.dt)
+    // the pan target sits a bit farther from the camera than the centroid: action above the lower third
+    const a = (yaw * Math.PI) / 180
+    const lead = fit.maxDist * 0.06
+    const d = fit.maxDist * (1 + (o.push ?? 0.07) * 0.5 * (1 - T))
+    return keepInside(f.x - Math.sin(a) * lead, f.y + Math.cos(a) * lead, fit.pose.th, d)
   }
 }

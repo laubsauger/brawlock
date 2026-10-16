@@ -122,6 +122,10 @@ export function startRound(state: SimState): void {
   state.projectiles = []
   state.obstacles = state.obstacles.filter((o) => o.ticksLeft === undefined) // temp actors (Rockpillar)
   for (const sc of state.scores) sc.damageThisRound = 0
+  // the fight platform exists before anyone spawns on it (spawn radius is capped to it; the
+  // original respawned first, which made no difference there because it never capped)
+  state.arena.layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
+  state.arena.nextShrinkTick = state.tick + ticks(SHRINK_PERIOD)
   for (const pawn of state.pawns) {
     if (!isActive(state, pawn.owner)) {
       pawn.alive = false
@@ -130,8 +134,6 @@ export function startRound(state: SimState): void {
     removeTemporaryModifiers(state, pawn)
     spawnInvulnerable(state, pawn)
   }
-  state.arena.layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
-  state.arena.nextShrinkTick = state.tick + ticks(SHRINK_PERIOD)
   emitPhase(state)
 }
 

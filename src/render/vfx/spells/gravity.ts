@@ -23,7 +23,7 @@ import { asV4 } from '../../scene/world'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, implode,
-  kitAdopt, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, projShadow, screenAngle, tierCap, flashT, levelOfThing, tierOfLevel,
+  kitAdopt, kitBegin, kitInit, markRange, kitRelease, light, originOf, pal, palMix, projShadow, screenAngle, tierCap, flashT, levelOfThing, tierOfLevel,
 } from './kitB'
 
 const SPELL = 'gravity'
@@ -51,7 +51,7 @@ class Lens {
   constructor(private capacity: number) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.p = mk()
@@ -114,8 +114,8 @@ class Lens {
     this.n++
     this.object.count = this.n
     this.object.visible = true
-    this.p.needsUpdate = true
-    this.l.needsUpdate = true
+    markRange(this.p, this.n)
+    markRange(this.l, this.n)
   }
 
   dispose(): void {

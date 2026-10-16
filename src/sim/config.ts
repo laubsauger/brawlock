@@ -51,6 +51,15 @@ export const ARENA_RADIUS_PER_LAYER = 100
 export const ARENA_BASE_LAYER = 13
 export const ARENA_LAYER_PER_PLAYER = 1
 export const ARENA_SPAWN_INSET = 600
+/**
+ * v1 fix (PLAN §2): spawns stay at least this far inside the edge of the platform that exists
+ * when they happen. The original formula is sized for the fight platform and put warlocks in
+ * the lava of the layer-14 shop platform from 6 players up. Original fight spawns already sit
+ * 300..500 inside their platform, so the cap never moves them.
+ */
+export const SPAWN_EDGE_MARGIN = 300
+/** floor for the capped spawn ring so spawns never collapse onto each other */
+export const SPAWN_MIN_RADIUS = 300
 /** platform layer during the shop phase (13 + 1) */
 export const ARENA_SHOP_LAYER = ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER
 export const SHRINK_PERIOD = 10

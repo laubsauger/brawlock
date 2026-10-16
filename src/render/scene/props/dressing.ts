@@ -12,6 +12,7 @@ import {
   normalView,
   normalWorld,
   positionGeometry,
+  positionLocal,
   positionView,
   positionWorld,
   pow,
@@ -384,7 +385,16 @@ interface Uniforms {
   mossAmt: U1
   crystal: U3
   fall: U1
+  /** radial offset (game units) from the build radius to the current platform: vertex stage only */
+  shift: U1
 }
+
+/**
+ * The rim is built once; a different platform radius slides every vertex
+ * along its own radial direction (instancing is applied before positionNode,
+ * so instanced spires move as wholes). No rebuild, no upload, no hitch.
+ */
+const radial = (u: Uniforms): Node<'vec3'> => positionLocal.add(vec3(positionLocal.x, 0, positionLocal.z).normalize().mul(u.shift))
 
 function rockMaterial(u: Uniforms, rockMaps: SurfaceMaps | null, mossMaps: SurfaceMaps | null, basalt: SurfaceMaps | null): THREE.MeshStandardNodeMaterial {
   const noise = getNoiseTexture()
@@ -432,6 +442,7 @@ function rockMaterial(u: Uniforms, rockMaps: SurfaceMaps | null, mossMaps: Surfa
   em = em.add(vec3(2.4, 0.55, 0.07).mul(water.mul(0.9).add(fis.mul(0.6))))
   const m = new THREE.MeshStandardNodeMaterial()
   m.name = 'RimRock'
+  m.positionNode = radial(u)
   m.colorNode = alb
   m.roughnessNode = saturate(max(rough, float(0.6)))
   m.metalnessNode = float(0)
@@ -447,6 +458,7 @@ function crystalMaterial(u: Uniforms): THREE.MeshStandardNodeMaterial {
   const pulse = sin(time.mul(1.3).add(p.x.mul(0.004)).add(p.z.mul(0.006))).mul(0.18).add(0.82)
   const m = new THREE.MeshStandardNodeMaterial()
   m.name = 'RimCrystal'
+  m.positionNode = radial(u)
   m.colorNode = u.crystal.mul(0.02)
   m.roughnessNode = float(0.15)
   m.metalnessNode = float(0)
@@ -468,6 +480,7 @@ function fallMaterial(u: Uniforms): THREE.MeshBasicNodeMaterial {
   const col = mix(vec3(0.9, 0.12, 0.015), vec3(2.6, 0.85, 0.14), heat)
   const m = new THREE.MeshBasicNodeMaterial()
   m.name = 'LavaFall'
+  m.positionNode = radial(u)
   m.colorNode = col.mul(heat.add(0.15)).mul(u.fall)
   m.side = THREE.DoubleSide
   return m
@@ -522,7 +535,7 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
   world.scale.setScalar(S)
   object3d.add(world)
 
-  const u: Uniforms = { rock: makeU3(), moss: makeU3(), mossAmt: makeU1(), crystal: makeU3(), fall: makeU1() }
+  const u: Uniforms = { rock: makeU3(), moss: makeU3(), mossAmt: makeU1(), crystal: makeU3(), fall: makeU1(), shift: makeU1() }
   const mats: DressMats = { rock: rockMaterial(u, null, null, null), crystal: crystalMaterial(u), fall: fallMaterial(u), volcano: volcanoMaterial(), sky: skyMaterial() }
   const spireGeos = [spireGeometry(3), spireGeometry(11), spireGeometry(29)]
   const archGeo = archGeometry(5)
@@ -546,16 +559,11 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
   sky.name = 'sky'
   world.add(volcano, sky)
 
-  let built: THREE.Object3D[] = []
+  const built: THREE.Object3D[] = []
   const builtGeos: THREE.BufferGeometry[] = []
-  let radius = -1
+  const buildRadius = opts.platformRadius
 
   const build = (R: number) => {
-    for (const o of built) world.remove(o)
-    for (const g of builtGeos) g.dispose()
-    built = []
-    builtGeos.length = 0
-    radius = R
     const rim = rimShape(R, 1234)
     const Rc = rim.Rc
     const cliffGeo = cliffGeometry(rim)
@@ -778,7 +786,7 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
     },
     setTheme,
     setPlatformRadius(r: number) {
-      if (Math.abs(r - radius) > 1) build(r)
+      u.shift.value = r - buildRadius
     },
     dispose() {
       disposed = true
@@ -795,7 +803,8 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
 /**
  * Drop-in replacement for scene/Environment (same public surface: group,
  * setTheme, dispose). The rim follows the largest platform seen this match
- * (ctx.field.layer), checked on the per-frame setTheme call.
+ * (ctx.field.layer), checked on the per-frame setTheme call; following it is a
+ * uniform change (radial shift), never a rebuild.
  */
 export class PropEnvironment {
   readonly group = new THREE.Group()

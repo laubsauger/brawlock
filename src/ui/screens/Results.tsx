@@ -5,7 +5,7 @@ import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
 import { Button, Crown, Kbd } from '../widgets'
 import { backToLobby, leaveToMenu, rematch, setReady } from '../flow'
-import { hex } from '../lib/view'
+import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
 import { isTypingTarget } from '../lib/keys'
 
@@ -14,6 +14,8 @@ interface Row {
   name: string
   color: string
   kind: 'human' | 'bot'
+  /** bots: difficulty tag */
+  difficulty?: string
   score: number
   kills: number
   deaths: number
@@ -39,8 +41,10 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
       return {
         id: slot.id,
         name: slot.name,
-        color: hex(slot.color),
+        // team modes: everyone wears the team colour, as in the match
+        color: playerColor(slot, rec?.teamMode),
         kind: slot.kind,
+        difficulty: slot.kind === 'bot' ? slot.difficulty : undefined,
         score: sc?.score ?? 0,
         kills: sc?.kills ?? 0,
         deaths: sc?.deaths ?? 0,
@@ -104,13 +108,16 @@ export function Results() {
   const draw = result.winners.length === 0
   const title = draw ? 'Draw' : !inMatch ? 'Match over' : won ? 'Victory' : 'Defeat'
   const winnerNames = rows.filter((r) => r.winner).map((r) => r.name)
+  const who = winnersText(result.slots, result.winners, rec?.teamMode)
   const top2 = rows.slice(0, 2)
   const line =
     draw
       ? 'Nobody took the match.'
       : rows.length === 2
         ? `${winnerNames[0]} takes it ${top2[0].score}–${top2[1].score}`
-        : `${winnerNames.join(' and ')} ${winnerNames.length > 1 ? 'win' : 'wins'}`
+        : who
+          ? `${who.text} ${who.plural ? 'win' : 'wins'}`
+          : ''
   const roundsMode = rec ? rec.gameMode === 'rounds' : true
   const secs = result.ticks ? result.ticks / TICK_HZ : rec?.durationSec
   const online = role !== 'offline'
@@ -175,6 +182,7 @@ export function Results() {
                     <span className="truncate font-bold">{r.name}</span>
                     {r.winner && <Crown title="Winner" />}
                     {r.id === local && <span className="chip text-gold">You</span>}
+                    {r.difficulty && <span className="chip text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
                   </span>
                 </td>
                 <td className="py-2.5 text-right text-[1.2rem] font-bold text-gold">

@@ -28,11 +28,26 @@ const tmp: RGB3 = [0, 0, 0]
 /** accent band brightness (linear luminance): visible but below the team trims */
 const ACCENT_LUMA = 0.32
 
-/** Writes the pawn's build into the GPU state; returns a signature to skip unchanged builds. */
-export function applyBuild(p: PawnState, gpu: WarlockGpu, lastSig: string): string {
-  let sig = ''
-  for (let i = 0; i < p.slots.length; i++) sig += `${p.slots[i] ?? '-'}:${p.levels[i] ?? 0},`
-  if (sig === lastSig) return sig
+/** Last applied build per warlock (compared element-wise, no per-frame allocation). */
+export interface BuildCache {
+  slots: (string | null)[]
+  levels: number[]
+}
+
+export function newBuildCache(): BuildCache {
+  return { slots: [], levels: [] }
+}
+
+/** Writes the pawn's build into the GPU state when it changed since the cache. */
+export function applyBuild(p: PawnState, gpu: WarlockGpu, cache: BuildCache): void {
+  let same = cache.slots.length === p.slots.length
+  for (let i = 0; same && i < p.slots.length; i++) same = cache.slots[i] === p.slots[i] && cache.levels[i] === (p.levels[i] ?? 0)
+  if (same) return
+  cache.slots.length = cache.levels.length = p.slots.length
+  for (let i = 0; i < p.slots.length; i++) {
+    cache.slots[i] = p.slots[i]
+    cache.levels[i] = p.levels[i] ?? 0
+  }
   for (const c of gpu.accents) c.setRGB(0, 0, 0)
   let total = 0
   for (let i = 0; i < p.slots.length; i++) {
@@ -53,7 +68,6 @@ export function applyBuild(p: PawnState, gpu: WarlockGpu, lastSig: string): stri
   let step = 0
   for (const t of POWER_STEPS) if (total >= t) step++
   gpu.power = step / POWER_STEPS.length
-  return sig
 }
 
 /** Starts the level-up burst (colour default: player colour). */

@@ -9,8 +9,9 @@ import { chooseName, NAME_MAX } from '../lib/name'
 type Tab = 'matches' | 'rivals' | 'board'
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  // opaque plate: the 3D backdrop must not bleed through the numbers
   return (
-    <div className="well flex flex-col px-4 py-3">
+    <div className="well flex flex-col bg-[rgba(18,11,8,0.92)] px-4 py-3">
       <span className="text-[0.9rem] font-semibold text-ash">{label}</span>
       <span className="tabular text-[1.7rem] leading-tight font-bold">{value}</span>
       {sub && <span className="text-[0.85rem] text-ash">{sub}</span>}
@@ -217,7 +218,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
         <Tile label="Against bots" value={c ? `${c.vsBots.wins}–${c.vsBots.games - c.vsBots.wins}` : '–'} sub={c ? pct(c.vsBots.wins, c.vsBots.games) : undefined} />
       </div>
 
-      <section className="panel flex min-h-0 flex-1 flex-col p-5">
+      <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5">
         <div className="mb-3 flex gap-1" role="tablist">
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>

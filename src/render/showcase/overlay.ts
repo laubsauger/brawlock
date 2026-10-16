@@ -10,6 +10,7 @@
 import { SPELL_PALETTE, baseSpellId } from '../vfx/palette'
 import { clamp01, easeOut, ease } from './cam'
 import type { LowerThird, OverlaySpec } from './types'
+import splashUrl from '../../../art/brand/splash.png'
 
 const CSS = `
 .sc-ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;font-family:"Barlow Semi Condensed",system-ui,sans-serif;color:#f2e4cf;-webkit-font-smoothing:antialiased}
@@ -31,6 +32,11 @@ const CSS = `
 .sc-end img{width:980px;filter:drop-shadow(0 0 70px rgba(255,90,20,.35))}
 .sc-end-l1{margin-top:34px;font-family:"Cinzel",serif;font-weight:700;font-size:36px;letter-spacing:.16em;color:#ffe2b8}
 .sc-end-l2{margin-top:16px;font-weight:600;font-size:22px;letter-spacing:.42em;text-transform:uppercase;color:#c9b39a}
+.sc-brand{position:absolute;inset:0;overflow:hidden;background:#000}
+.sc-brand-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 46%}
+.sc-brand-shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 38%,rgba(4,2,1,.55) 100%),linear-gradient(180deg,rgba(3,2,6,.55) 0%,rgba(3,2,6,.12) 34%,rgba(0,0,0,0) 55%)}
+.sc-brand-mark{position:absolute;left:50%;top:21%;width:1040px;transform-origin:50% 50%}
+.sc-brand-flash{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,#ffd9a0 0%,#ff7a2a 35%,#5a1204 75%,#000 100%);mix-blend-mode:screen}
 .sc-noplates .bl-plate{display:none!important}
 .sc-nonums .bl-num,.sc-nonums .bl-call{display:none!important}
 `
@@ -96,6 +102,10 @@ export class ShowcaseOverlay {
   private end: HTMLElement
   private endImg: HTMLImageElement
   private host: HTMLElement
+  private brand: HTMLElement
+  private brandArt: HTMLImageElement
+  private brandMark: HTMLImageElement
+  private brandFlash: HTMLElement
 
   constructor(parent: HTMLElement, host: HTMLElement) {
     this.host = host
@@ -124,13 +134,20 @@ export class ShowcaseOverlay {
     this.endImg.src = LOGO
     el('div', 'sc-end-l1', this.end).textContent = 'Knock rival warlocks into the lava'
     el('div', 'sc-end-l2', this.end).textContent = 'In-engine footage · WebGPU · Ultra'
+    this.brand = el('div', 'sc-brand', this.root)
+    this.brandArt = el('img', 'sc-brand-art', this.brand) as HTMLImageElement
+    this.brandArt.src = splashUrl
+    el('div', 'sc-brand-shade', this.brand)
+    this.brandMark = el('img', 'sc-brand-mark', this.brand) as HTMLImageElement
+    this.brandMark.src = LOGO
+    this.brandFlash = el('div', 'sc-brand-flash', this.brand)
     this.fade = el('div', 'sc-fade', this.root)
     this.update(null, 0, 1)
   }
 
   /** images decoded (wait before the first captured frame) */
   async ready(): Promise<void> {
-    await Promise.all([this.logo, this.heroImg, this.endImg].map((i) => i.decode().catch(() => {})))
+    await Promise.all([this.logo, this.heroImg, this.endImg, this.brandArt, this.brandMark].map((i) => i.decode().catch(() => {})))
   }
 
   private setLower(l: LowerThird, vt: number, dur: number): void {
@@ -179,9 +196,11 @@ export class ShowcaseOverlay {
     // corner logo
     const heroOn = !!spec.hero && vt >= spec.hero.at && vt <= (spec.hero.until ?? dur)
     const endOn = !!spec.end && vt >= spec.end.at
-    this.logo.style.display = spec.logo === false || heroOn || endOn ? 'none' : 'block'
+    this.logo.style.display = spec.logo === false || heroOn || endOn || !!spec.brand ? 'none' : 'block'
     // lower third
-    if (spec.lower) this.setLower(spec.lower, vt, dur)
+    const lowers = spec.lower ? (Array.isArray(spec.lower) ? spec.lower : [spec.lower]) : []
+    const cur = lowers.find((l) => vt >= (l.at ?? 0.25) && vt <= (l.until ?? dur - 0.3))
+    if (cur) this.setLower(cur, vt, dur)
     else this.lower.style.display = 'none'
     // chapter card
     const c = spec.card
@@ -216,6 +235,26 @@ export class ShowcaseOverlay {
       this.tag.style.opacity = String(k2 * (1 - out))
       this.tag.style.transform = `translateY(${(1 - k2) * 12}px)`
     } else this.hero.style.display = 'none'
+    // branded intro: splash art with a slow push-in, the wordmark lands with an ember glow,
+    // then a warm flash burns to black (the cold open fades up from black)
+    const b = spec.brand
+    if (b) {
+      this.brand.style.display = 'block'
+      const t = vt - b.at
+      const kb = t / Math.max(0.1, dur - b.at)
+      this.brandArt.style.transform = `scale(${(1.0 + 0.07 * ease(kb)).toFixed(4)})`
+      this.brandArt.style.filter = `brightness(${(0.82 + 0.18 * easeOut(clamp01(t / 1.2))).toFixed(3)})`
+      const land = b.mark ?? 1.5
+      const km = easeOut(clamp01((t - land) / 0.55))
+      const glow = Math.max(0, 1 - Math.abs(t - land - 0.45) / 0.6)
+      this.brandMark.style.opacity = String(km)
+      this.brandMark.style.transform = `translate(-50%, -50%) scale(${(1.16 - 0.16 * km).toFixed(4)})`
+      this.brandMark.style.filter = `blur(${((1 - km) * 10).toFixed(2)}px) drop-shadow(0 6px 26px rgba(0,0,0,.85)) drop-shadow(0 0 ${Math.round(40 + 70 * glow)}px rgba(255,${Math.round(110 + 60 * glow)},40,${(0.35 + 0.45 * glow).toFixed(2)}))`
+      const out = b.out ?? dur - 0.9
+      const flash = Math.max(0, 1 - Math.abs(t - out) / 0.22)
+      this.brandFlash.style.opacity = String((flash * 0.55).toFixed(3))
+      this.brandFlash.style.display = flash > 0.001 ? 'block' : 'none'
+    } else this.brand.style.display = 'none'
     // end card
     if (endOn && spec.end) {
       this.end.style.display = 'flex'

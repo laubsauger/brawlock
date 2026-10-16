@@ -1,9 +1,11 @@
 import { useRef } from 'react'
 import { frame } from '../../game/frame'
+import { useGame } from '../../game/store'
 import type { Phase, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { usePolled, useTick } from '../lib/ticker'
-import { hex } from '../lib/view'
+import { playerColor, playerGlyph, teamColor, teamName } from '../lib/view'
+import { colorblindPalette } from '../../game/playerPalette'
 
 const PHASE_LABEL: Record<Phase, string> = {
   warmup: 'Get ready',
@@ -91,15 +93,20 @@ interface StripPlayer {
   id: number
   name: string
   color: string
+  /** shape next to the name (colourblind palette only) */
+  glyph: string
   team: number
 }
 
+/** In team modes every player wears the team colour (same as the banners and the arena), in FFA their own. */
 function readPlayers(): StripPlayer[] {
   const s = frame.curr
   if (!s) return []
+  const mode = s.settings.teamMode
+  const cb = colorblindPalette()
   return [...s.slots]
     .sort((a: PlayerSlot, b: PlayerSlot) => a.team - b.team || a.id - b.id)
-    .map((p) => ({ id: p.id, name: p.name, color: hex(p.color), team: p.team }))
+    .map((p) => ({ id: p.id, name: p.name, color: playerColor(p, mode), glyph: playerGlyph(p, mode, cb), team: p.team }))
 }
 
 /** Live score + alive state for one player, written from the shared rAF. */
@@ -137,7 +144,10 @@ function ScorePill({ p, local }: { p: StripPlayer; local: boolean }) {
       style={local ? { boxShadow: `inset 0 0 0 1px ${p.color}aa, 0 6px 24px rgba(0,0,0,.45)` } : undefined}
     >
       <span className="h-5 w-1.5 rounded-sm" style={{ background: p.color, boxShadow: `0 0 8px ${p.color}` }} aria-hidden />
-      <span className="max-w-[8.5rem] truncate text-[0.95rem] font-semibold">{p.name}</span>
+      <span className="max-w-[8.5rem] truncate text-[0.95rem] font-semibold">
+        {p.glyph && <span className="mr-1" style={{ color: p.color }} aria-hidden>{p.glyph}</span>}
+        {p.name}
+      </span>
       <span ref={score} className="tabular inline-block text-[1.1rem] font-bold text-gold">
         0
       </span>
@@ -157,7 +167,10 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
     >
       <span className="w-1.5" style={{ background: p.color, boxShadow: `0 0 12px ${p.color}` }} aria-hidden />
       <span className={`flex min-w-[8rem] max-w-[13rem] flex-col justify-center px-2.5 ${side === 'right' ? 'items-end text-right' : ''}`}>
-        <span className="hud-text-shadow truncate text-[0.95rem] leading-tight font-bold">{p.name}</span>
+        <span className="hud-text-shadow truncate text-[0.95rem] leading-tight font-bold">
+          {p.glyph && <span className="mr-1" aria-hidden>{p.glyph}</span>}
+          {p.name}
+        </span>
         {local && <span className="text-[0.68rem] leading-none font-semibold text-gold">You</span>}
       </span>
       <span ref={score} className="tabular hud-text-shadow grid w-10 place-items-center bg-black/35 text-[1.4rem] font-bold text-[#fff1d6]">
@@ -167,7 +180,31 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
   )
 }
 
-const playersKey = (ps: StripPlayer[]) => ps.map((p) => `${p.id}:${p.name}:${p.color}:${p.team}`).join('|')
+const playersKey = (ps: StripPlayer[]) => ps.map((p) => `${p.id}:${p.name}:${p.color}:${p.glyph}:${p.team}`).join('|')
+
+/** Players grouped by team, in team order (readPlayers already sorts by team). */
+function teamsOf(ps: StripPlayer[]): [number, StripPlayer[]][] {
+  const groups = new Map<number, StripPlayer[]>()
+  for (const p of ps) groups.set(p.team, [...(groups.get(p.team) ?? []), p])
+  return [...groups]
+}
+
+/** One team in the score strip: a team-colour frame with the team's name, its players' pills inside. */
+function TeamGroup({ team, players, local }: { team: number; players: StripPlayer[]; local: number }) {
+  const color = teamColor(team)
+  return (
+    <div className="flex max-w-full items-stretch overflow-hidden rounded-[6px]" style={{ boxShadow: `inset 0 0 0 1.5px ${color}cc, 0 6px 24px rgba(0,0,0,.45)` }} aria-label={`${teamName(team)} team`}>
+      <span className="hud-text-shadow flex items-center px-2 text-[0.78rem] font-bold tracking-wide uppercase" style={{ background: `${color}55`, color: '#fff3e0' }}>
+        {teamName(team)}
+      </span>
+      <div className="flex flex-wrap gap-0.5 p-0.5">
+        {players.map((p) => (
+          <ScorePill key={p.id} p={p} local={p.id === local} />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /**
  * Top of the HUD, broadcast style. 1v1: both players flank the round clock
@@ -177,6 +214,10 @@ export function TopCenter() {
   const players = usePolled(readPlayers, playersKey, 2)
   const local = frame.localPlayer
   const winScore = frame.curr?.settings.winScore
+  const teamMode = frame.curr?.settings.teamMode
+  // with the shop open the strip wraps to rows rather than run under the right dock
+  const shopOpen = useGame((s) => s.shopOpen)
+  const stripStyle = shopOpen ? { maxWidth: 'var(--strip-max-w)' } : undefined
   if (players.length === 2) {
     const [a, b] = players[1].id === local ? [players[1], players[0]] : players
     return (
@@ -193,11 +234,19 @@ export function TopCenter() {
   return (
     <div className="flex flex-col items-center gap-1">
       <PhasePlate />
-      <div className="flex flex-wrap justify-center gap-1" aria-label="Scores">
-        {players.map((p) => (
-          <ScorePill key={p.id} p={p} local={p.id === local} />
-        ))}
-      </div>
+      {teamMode && teamMode !== 'ffa' ? (
+        <div className="flex flex-wrap justify-center gap-2" style={stripStyle} aria-label="Scores">
+          {teamsOf(players).map(([team, ps]) => (
+            <TeamGroup key={team} team={team} players={ps} local={local} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap justify-center gap-1" style={stripStyle} aria-label="Scores">
+          {players.map((p) => (
+            <ScorePill key={p.id} p={p} local={p.id === local} />
+          ))}
+        </div>
+      )}
       {winScore ? <span className="hud-backing hud-text-shadow text-[0.82rem] font-semibold text-ash">First to {winScore}</span> : null}
     </div>
   )

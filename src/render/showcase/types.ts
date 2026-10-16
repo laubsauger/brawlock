@@ -44,7 +44,8 @@ export interface LowerThird {
 }
 
 export interface OverlaySpec {
-  lower?: LowerThird
+  /** one lower third, or a sequence (each with its own at / until) */
+  lower?: LowerThird | LowerThird[]
   /** chapter card (column title) centred high, brief */
   card?: { title: string; sub?: string; color: string; at: number; until: number }
   /** seconds of fade from / to black at the shot edges */
@@ -56,6 +57,8 @@ export interface OverlaySpec {
   hero?: { at: number; until?: number; tagline?: string }
   /** end card */
   end?: { at: number }
+  /** branded intro over the splash art: wordmark lands at `mark` s, flash-out at `out` s (shot time) */
+  brand?: { at: number; mark?: number; out?: number }
   /** world overlay nameplates / combat numbers (default true / true) */
   plates?: boolean
   nums?: boolean

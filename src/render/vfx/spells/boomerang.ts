@@ -58,6 +58,8 @@ const pos = new THREE.Vector3()
 const quat = new THREE.Quaternion()
 const scl = new THREE.Vector3()
 const euler = new THREE.Euler()
+/** reused upload range of the glaive instance matrices */
+const glaiveRange = { start: 0, count: 0 }
 
 /** three hooked prongs around a hub ring, unit radius, flat on XZ */
 function glaiveGeometry(): THREE.BufferGeometry {
@@ -101,7 +103,8 @@ function buildGlaive(ctx: VfxCtx): THREE.InstancedMesh {
   const mesh = new THREE.InstancedMesh(glaiveGeometry(), m, CAP)
   mesh.count = 0
   mesh.frustumCulled = false
-  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  // static + ranged uploads (a dynamic attribute is re-uploaded in full every frame on WebGPU)
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
   mesh.name = 'vfxA-boomerang-glaive'
   ctx.scene.add(mesh)
   return mesh
@@ -116,7 +119,11 @@ function addGlaive(x: number, y: number, h: number, radius: number, spin: number
   mtx.compose(pos, quat, scl)
   glaive.setMatrixAt(nG++, mtx)
   glaive.count = nG
-  glaive.instanceMatrix.needsUpdate = true
+  const im = glaive.instanceMatrix
+  im.updateRanges.length = 0
+  im.updateRanges.push(glaiveRange)
+  glaiveRange.count = nG * 16
+  im.needsUpdate = true
 }
 
 /** signature charge-up: the steel glaive forms in the hand, spinning up */

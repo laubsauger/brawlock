@@ -18,6 +18,13 @@ export interface SurfaceMaps {
 
 export const THEME_DIRS = ['temple', 'volcanic', 'overgrown'] as const
 
+/**
+ * Loaded textures waiting for their GPU upload. A world drains this a couple
+ * per frame (renderer.initTexture) so uploads + mip generation never land in
+ * one frame on first use (a theme's set uploading at once cost ~200 ms).
+ */
+export const pendingUploads: THREE.Texture[] = []
+
 const cache = new Map<string, Promise<SurfaceMaps | null>>()
 const loader = new THREE.TextureLoader()
 
@@ -48,6 +55,7 @@ function load(u: string, srgb: boolean, anisotropy: number): Promise<THREE.Textu
         t.generateMipmaps = true
         t.minFilter = THREE.LinearMipmapLinearFilter
         t.needsUpdate = true
+        pendingUploads.push(t)
         resolve(t)
       },
       undefined,

@@ -16,9 +16,9 @@ export class ContactShadows {
 
   constructor(private capacity = 48) {
     this.a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-    this.a.setUsage(THREE.DynamicDrawUsage)
+    this.a.setUsage(THREE.StaticDrawUsage)
     this.b = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
-    this.b.setUsage(THREE.DynamicDrawUsage)
+    this.b.setUsage(THREE.StaticDrawUsage)
     const A = asV4(instancedBufferAttribute(this.a))
     const B = instancedBufferAttribute(this.b) as unknown as Node<'float'>
     const q = positionGeometry.xy

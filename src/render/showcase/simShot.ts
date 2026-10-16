@@ -55,12 +55,14 @@ export interface SimShotSpec {
   level?: number
   /** everyone (bots) gets these spells at `level` */
   kit?: string[]
+  /** per-player spells (granted after `kit`, before any fast-forward) */
+  kits?: Record<number, string[]>
   teamMode?: 'ffa' | 'teams'
   /** runs once when the shot clock starts (fight running, pawns placed) */
   setup?(s: ShotSim): void
   /** [sim seconds, action] in any order */
   script?: [number, (s: ShotSim) => void][]
-  /** every sim tick before the step */
+  /** every sim tick before the step (fast-forward included) */
   tick?(s: ShotSim): void
 }
 
@@ -136,6 +138,7 @@ export class ShotSim {
       p.modifiers = p.modifiers.filter((m) => m.id !== 'spawnInvulnerable')
     }
     if (spec.kit) for (const p of state.pawns) if (p.owner !== BYSTANDER_ID) for (const sp of spec.kit) this.grant(p.owner, sp)
+    if (spec.kits) for (const [owner, list] of Object.entries(spec.kits)) for (const sp of list) this.grant(Number(owner), sp)
     for (const sc of state.scores) sc.gold = 999
     if (spec.ffwd && spec.ffwd > 0) {
       const n = Math.round(spec.ffwd * TICK_HZ)
@@ -292,8 +295,9 @@ export class ShotSim {
         this.cues[this.cueIdx][1](this)
         this.cueIdx++
       }
-      this.spec.tick?.(this)
     }
+    // tick hooks also run while fast-forwarding, so a fast-forwarded shot replays the same match
+    this.spec.tick?.(this)
     for (const b of this.bots) {
       const c = b.think(s)
       if (c.length > 0) this.inputs.push({ player: b.player, tick: s.tick, cmds: c })

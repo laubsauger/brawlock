@@ -5,7 +5,8 @@ import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
 import { cameraRig, devCamera, moveMarkers } from '../cameraRig'
-import { warlockParams, warlockReady, type CastArm } from '../character'
+import { renderPrefs } from '../prefs'
+import { createWarlock, warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
 import type { TierConfig } from '../quality'
@@ -16,12 +17,14 @@ import { Billboards } from './Billboards'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava } from './Lava'
 import { Environment, Obstacles } from './props'
+import { pendingUploads } from './textures'
 import { Particles } from './Particles'
 import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
 import { Scorches } from './Scorches'
 import { KEY_LIGHT_DIR, createWorldCtx, type WorldCtx } from './world'
 import { spellPalette } from '../vfx/palette'
+import { colorForPawn, slotColorOf } from '../teamColors'
 import { spellVfxModules, vfxForModifier, vfxForSpell, type AfterHitKind, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../vfx/registry'
 import '../vfx/spells'
 import { toWorld } from '../coords'
@@ -46,6 +49,8 @@ export interface MatchWorldOptions {
   mode: 'match' | 'menu'
   /** effective quality tier name (for VFX modules) */
   quality?: Quality
+  /** the canvas renderer: staged texture uploads and material pre-warm */
+  renderer?: THREE.WebGPURenderer
 }
 
 /** offline single-player pause (the session stops stepping; render freezes too) */
@@ -218,6 +223,8 @@ export class MatchWorld {
       cam.bottom = -ext
       cam.near = 1
       cam.far = 70
+      // refreshed every Nth frame (tier.shadowEvery), see updateShadowCadence
+      sh.autoUpdate = opts.tier.shadowEvery <= 1
       // tight bias: shadows must start AT the feet / pillar base (no peter-panning)
       sh.bias = -0.00015
       sh.normalBias = 0.004
@@ -227,7 +234,7 @@ export class MatchWorld {
     this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.projectiles.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
-      this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
+      this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, nameColor: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
     }
     postState.sdf = ctx.field.texture
     postState.hurt = 0
@@ -235,6 +242,80 @@ export class MatchWorld {
     if (opts.mode === 'match') cameraRig.reset()
     this.modulesOn = opts.mode === 'match'
     this.vfx = this.buildVfxCtx()
+  }
+
+  // ---------------------------------------------------------------- uploads
+
+  private shadowFrame = 0
+
+  /**
+   * Prewarm (lobby / behind the loading overlay): one warlock per style sits
+   * under the lava so its materials, skinning and shadow variants compile,
+   * and pending texture uploads drain at once instead of one per frame.
+   * Ends automatically when a real match state arrives.
+   */
+  private prewarmOn = false
+  private prewarmGroup: THREE.Group | null = null
+  private prewarmWarlocks: { dispose(): void }[] = []
+  private prewarmState: unknown = null
+
+  setPrewarm(on: boolean): void {
+    if (on === this.prewarmOn) return
+    this.prewarmOn = on
+    if (on) {
+      this.prewarmState = this.opts.source.buf.curr
+      const g = new THREE.Group()
+      g.name = 'prewarm'
+      for (const style of ['cc0', 'procedural'] as const) {
+        try {
+          const w = createWarlock({ color: 0x888888, style, ctx: this.ctx })
+          w.object3d.position.set(style === 'cc0' ? -0.6 : 0.6, -3, 0)
+          g.add(w.object3d)
+          this.prewarmWarlocks.push(w)
+        } catch {
+          /* character not available: nothing to warm */
+        }
+      }
+      this.root.add(g)
+      this.prewarmGroup = g
+    } else this.endPrewarm()
+  }
+
+  private endPrewarm(): void {
+    this.prewarmOn = false
+    if (this.prewarmGroup) this.root.remove(this.prewarmGroup)
+    this.prewarmGroup = null
+    for (const w of this.prewarmWarlocks) w.dispose()
+    this.prewarmWarlocks = []
+  }
+
+  /** true when no texture uploads are pending (prewarm readiness) */
+  get uploadsDone(): boolean {
+    return pendingUploads.length === 0
+  }
+
+  /** Re-render the key-light shadow map every tier.shadowEvery frames. */
+  private updateShadowCadence(): void {
+    const every = this.opts.tier.shadowEvery
+    if (every <= 1 || !this.moon.castShadow) return
+    this.shadowFrame = (this.shadowFrame + 1) % every
+    if (this.shadowFrame === 0) this.moon.shadow.needsUpdate = true
+  }
+
+  /** Upload pending textures: one per frame live, all at once while prewarming. */
+  private drainUploads(): void {
+    const r = this.opts.renderer
+    if (!r) return
+    // hidden prewarm: drain everything now; live: one upload per frame
+    const n = this.prewarmOn ? pendingUploads.length : 1
+    for (let i = 0; i < n && pendingUploads.length > 0; i++) {
+      const tex = pendingUploads.shift()!
+      try {
+        r.initTexture(tex)
+      } catch {
+        /* renderer not ready / disposed: it will upload on first use */
+      }
+    }
   }
 
   private buildVfxCtx(): VfxCtx {
@@ -472,6 +553,16 @@ export class MatchWorld {
     this.clock += dt
     const t = this.clock
     this.ctx.uTime.value = t
+    // VFX modules init as soon as the world exists (also with no match state
+    // yet, e.g. a prewarmed lobby view), so their materials compile early
+    if (this.modulesOn) {
+      for (const m of spellVfxModules()) {
+        if (this.inited.has(m)) continue
+        this.inited.add(m)
+        this.lastCamera = camera
+        this.guard(m, 'init', () => m.init?.(this.vfx))
+      }
+    }
     this.ctx.glow.begin()
     this.billboards.begin()
     this.billboardsTop.begin()
@@ -481,6 +572,10 @@ export class MatchWorld {
     const buf = src.buf
     let curr = buf.curr
 
+    // a state pushed after prewarm began (not a stale one left from an
+    // earlier match) means the match started: drop the warm-up warlocks
+    if (curr && this.prewarmGroup && curr !== this.prewarmState && (curr.phase === 'shop' || curr.phase === 'fight')) this.endPrewarm()
+    if (this.prewarmGroup) this.prewarmGroup.position.set(cameraRig.fx * S, 0, -cameraRig.fy * S)
     if (curr) {
       // a new match restarts tick numbering: drop everything tied to the old one
       if (curr.tick < this.lastStateTick) this.resetMatch()
@@ -507,11 +602,6 @@ export class MatchWorld {
       fr.prev = prev
       fr.alpha = alpha
       if (this.modulesOn) {
-        for (const m of spellVfxModules()) {
-          if (this.inited.has(m)) continue
-          this.inited.add(m)
-          this.guard(m, 'init', () => m.init?.(this.vfx))
-        }
         // once per rendered frame, even when the clock is frozen: modules reset
         // their per-frame batches here (never key that on ctx.now changing)
         for (const m of spellVfxModules()) this.guard(m, 'beginFrame', () => m.beginFrame?.(this.vfx))
@@ -534,6 +624,8 @@ export class MatchWorld {
       this.builtinProjectileShadows(prev, curr, alpha)
     }
 
+    this.drainUploads()
+    this.updateShadowCadence()
     this.ambient(dt, t)
     this.tickSmoulders(dt, t)
     this.tickLingers(dt, t)
@@ -567,6 +659,7 @@ export class MatchWorld {
         pl.h = v.h + 190
         pl.name = v.name
         pl.color = v.color.getHex()
+        pl.nameColor = v.nameColor
         pl.hp = v.hp
         pl.maxHp = v.maxHp
         pl.kbPoints = v.kbPoints
@@ -642,9 +735,9 @@ export class MatchWorld {
     if (this.opts.mode === 'match') cameraRig.recenter()
   }
 
+  /** identity colour: TEAM colour in Teams / Shuffle (live), slot colour in FFA */
   private colorOf(s: SimState, owner: number): number {
-    for (const sl of s.slots) if (sl.id === owner) return sl.color
-    return 0xffffff
+    return colorForPawn(s, owner)
   }
 
   private slotOf(s: SimState, owner: number): PlayerSlot | undefined {
@@ -1610,6 +1703,9 @@ export class MatchWorld {
           }
         }
       }
+      // team identity (Shuffle re-teams every round): ring, trims, plate fill
+      v.setIdentity(colorForPawn(curr, p.owner), slotColorOf(curr, p.owner))
+      v.combat = curr.phase === 'fight'
       samplePawn(pp, p, alpha, this.sample)
       // shop-phase ward (combat off): full until the 3-2-1, easing down through it
       if (curr.phase === 'shop' || curr.phase === 'warmup') {
@@ -1618,6 +1714,15 @@ export class MatchWorld {
       } else v.wardTarget = 0
       const view = v
       this.safe('pawn:update', () => view.update(p, this.sample, layer, t, dt))
+      let pawnEvents: readonly SimEvent[] = this.frameEvents
+      if (view.justSnapped) {
+        // round-start reposition / respawn: no lingering trails or dust from the
+        // old spot, the character's cloth settles at once (its blink path), and
+        // the camera snaps for the local warlock instead of gliding across
+        this.lingers.delete(p.id)
+        pawnEvents = this.frameEvents.concat({ type: 'teleport', pawn: p.id, fromX: p.x, fromY: p.y, toX: p.x, toY: p.y })
+        if (this.opts.mode === 'match' && p.owner === this.opts.source.buf.localPlayer) cameraRig.recenter()
+      }
       if (v.usesWarlock) {
         // cast glow colour = the spell's hue (sleeve runes, palm, crystal)
         let castHex: number | null = null
@@ -1629,7 +1734,8 @@ export class MatchWorld {
         }
         // driveWarlock catches character errors itself and falls back to the
         // built-in body after repeated failures
-        view.driveWarlock(p, pp, alpha, dt, this.frameEvents, castHex, this.claimedHits.has(p.id))
+        const pawnIn = !view.combat && p.lavaTicks > 0 ? { ...p, lavaTicks: 0 } : p
+        view.driveWarlock(pawnIn, view.justSnapped ? undefined : pp, alpha, dt, pawnEvents, castHex, this.claimedHits.has(p.id))
       }
       v.seen = seen
       v.kbPoints = p.kbPoints
@@ -1720,7 +1826,7 @@ export class MatchWorld {
   private pawnAmbient(v: PawnView, p: PawnState, dt: number): void {
     const ps = this.particles
     const amb = this.visOverrides.get(p.id)?.ambient !== false
-    if (v.onLava && p.alive && amb) {
+    if (v.onLava && p.alive && amb && v.combat) {
       // burning: flames licking up the robe and dark smoke
       const n = ps.budget(dt * 70)
       for (let i = 0; i < n; i++) {
@@ -1860,7 +1966,8 @@ export class MatchWorld {
     const ox = this.wO.x / S
     const oy = -this.wO.z / S
     const oh = this.wO.y / S
-    if (!hide.includes('orb')) {
+    // a module that claims the spell draws its own orb (e.g. Scourge per level)
+    if (!mod && !hide.includes('orb')) {
       const os = style?.orbScale ?? 1
       // halo ~1.6x warlock radius at full charge, hot core in the palette core colour
       B.add(this.wO.x, this.wO.y, this.wO.z, (50 + k * 130) * os * S, c.r * (0.9 + k * 2.2) * flick, c.g * (0.9 + k * 2.2) * flick, c.b * (0.9 + k * 2.2) * flick, 1.4)
@@ -1989,7 +2096,8 @@ export class MatchWorld {
       fx = devCamera.focus.x
       fy = devCamera.focus.y
     }
-    cameraRig.update(camera, fx, fy, dt, aspect, this.opts.fx)
+    // screen-shake setting (fx intensity already scales each shake as it is added)
+    cameraRig.update(camera, fx, fy, dt, aspect, renderPrefs.shake)
   }
 
   private updateCursor(camera: THREE.PerspectiveCamera): void {
@@ -2012,6 +2120,7 @@ export class MatchWorld {
   }
 
   dispose(): void {
+    this.endPrewarm()
     for (const m of this.inited) m.dispose?.()
     this.inited.clear()
     for (const v of this.views.values()) v.dispose()

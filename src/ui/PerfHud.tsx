@@ -31,6 +31,9 @@ function PerfReadout() {
     const avg = s.acc / s.n
     const p = renderPerf()
     const parts = [`${Math.round(1000 / avg)} fps`, `${avg.toFixed(1)} ms`, `worst ${s.worst.toFixed(0)} ms`]
+    // under an fps cap the scene renders less often than the page
+    const cap = useGame.getState().settings.fpsCap ?? 0
+    if (cap > 0 && p?.fps) parts.splice(1, 0, `scene ${Math.round(p.fps)} fps (cap ${cap})`)
     if (p && p.gpuMs >= 0) parts.push(`gpu ${p.gpuMs.toFixed(1)} ms`)
     if (p && p.cpuMs > 0) parts.push(`cpu ${p.cpuMs.toFixed(1)} ms`)
     if (p && p.drawCalls > 0) parts.push(`${p.drawCalls} draws`, `${(p.triangles / 1000).toFixed(0)}k tris`)

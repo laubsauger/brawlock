@@ -8,25 +8,30 @@
  * of exactly r200: crisp ring, ice shard spray, powder cloud, a frost patch that thaws.
  */
 import * as THREE from 'three/webgpu'
-import { dot, float, mix, normalView, positionGeometry, positionView, pow, saturate, smoothstep, texture, vec3 } from 'three/tsl'
+import { bumpMap, dot, float, mix, normalView, positionGeometry, positionView, pow, saturate, smoothstep, texture, vec3 } from 'three/tsl'
 import type { ModifierState, PawnState, ProjectileState, SimEvent } from '../../../sim/types'
 import { S, TILE_TOP_H } from '../../coords'
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitAdopt, kitBegin,
   kitInit, kitRelease, light, originOf, projShadow, rand, type RGB,
-  pal, flashT, levelOfThing, tierOfLevel,
+  pal, flashT, levelOfThing, tierOfLevel, tierCap,
 } from './kitB'
 
 // identity: light ice blue (vfx/palette.ts)
 const FROST = pal('snowball', 'accent', 1.5)
-const ICE_VIOLET = pal('snowball', 'accent', 0.7)
 
 const SPELL = 'snowball'
 const MOD = 'snowball'
-const SNOW: RGB = [0.66, 0.84, 1.0]
+const SNOW: RGB = [0.68, 0.87, 1.0]
 const MIST = [0.55, 0.68, 0.85] as const
+/** powder puffs (soft smoke particles) */
+const POWDER = [0.62, 0.7, 0.82] as const
+/** violet ice: albedo tint and its cold glow */
+const ICE_TINT: RGB = [0.36, 0.34, 1.0]
+const ICE_GLOW: RGB = [0.4, 0.3, 1.0]
 
 interface Ball {
   id: number
@@ -44,6 +49,8 @@ interface Patch {
   born: number
   life: number
   seed: number
+  /** intensity */
+  k: number
 }
 interface Chill {
   since: number
@@ -65,43 +72,66 @@ const tv = new THREE.Vector3()
 const CRYSTALS: { d: THREE.Vector3; len: number; q: THREE.Quaternion }[] = []
 for (let i = 0; i < 9; i++) {
   const d = new THREE.Vector3(Math.sin(i * 2.4) * Math.cos(i * 1.3), Math.cos(i * 2.4), Math.sin(i * 2.4) * Math.sin(i * 1.3)).normalize()
-  CRYSTALS.push({ d, len: 0.42 + ((i * 37) % 5) * 0.06, q: new THREE.Quaternion().setFromUnitVectors(UP, d) })
+  CRYSTALS.push({ d, len: 0.26 + ((i * 37) % 5) * 0.04, q: new THREE.Quaternion().setFromUnitVectors(UP, d) })
 }
 
+/**
+ * Packed snowball: icosphere detail 7 merged into an indexed mesh (shared vertices -> smooth
+ * normals; the raw icosphere is non-indexed and shades flat), with soft clumpy lumps.
+ */
 function snowGeometry(): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, 3)
+  const raw = new THREE.IcosahedronGeometry(1, 7)
+  raw.deleteAttribute('normal')
+  raw.deleteAttribute('uv')
+  const g = mergeVertices(raw)
+  raw.dispose()
   const pos = g.getAttribute('position') as THREE.BufferAttribute
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i)
     const y = pos.getY(i)
     const z = pos.getZ(i)
-    const n = Math.sin(x * 7.3 + y * 2.1) * 0.5 + Math.sin(y * 8.9 - z * 3.3) * 0.3 + Math.sin(z * 6.1 + x * 4.7) * 0.4
-    const k = 1 + n * 0.035
+    // broad packed lumps + finer clumps (deterministic, keyed on the direction)
+    const n0 = Math.sin(x * 3.1 + y * 1.7) * 0.5 + Math.sin(y * 3.7 - z * 2.3) * 0.4 + Math.sin(z * 2.9 + x * 2.2) * 0.4
+    const n1 = Math.sin(x * 11.3 + z * 7.1) * 0.5 + Math.sin(y * 12.7 + x * 5.3) * 0.5 + Math.sin(z * 13.9 - y * 6.1) * 0.4
+    const k = 1 + n0 * 0.03 + n1 * 0.012
     pos.setXYZ(i, x * k, y * k, z * k)
   }
   g.computeVertexNormals()
   return g
 }
 
-/** Packed snow with violet ice facets; lit by the scene (moon + lava bounce). */
+/**
+ * Packed snow with violet ice veins; lit by the scene (moon + lava bounce). Surface detail is a
+ * bump from the shared noise: clumps pressed together along cell seams, fine grain on top.
+ */
 function snowMaterial(ctx: VfxCtx): THREE.Material {
+  const noise = ctx.world.noise
   const p = positionGeometry
   const uvA = p.xy.mul(0.9).add(p.z.mul(0.37))
-  const clump = texture(ctx.world.noise, uvA.mul(0.8)).r
-  const seams = smoothstep(0.06, 0.0, texture(ctx.world.noise, p.yz.mul(0.55).add(p.x.mul(0.3))).b)
-  const iceN = texture(ctx.world.noise, p.zx.mul(0.35).add(p.y.mul(0.2)).add(0.5)).a
-  const ice = smoothstep(0.17, 0.08, iceN)
+  const clump = texture(noise, uvA.mul(0.8)).r
+  const grain = texture(noise, uvA.mul(3.4).add(0.71)).g
+  const seamTex = texture(noise, uvA.mul(1.15).add(p.z.mul(0.2)).add(0.13))
+  const seam = smoothstep(0.09, 0.0, seamTex.b)
+  // violet ice: crystalline veins in a few regions, not dots
+  const region = smoothstep(0.46, 0.6, texture(noise, uvA.mul(0.42).add(1.9)).r)
+  const vein = smoothstep(0.07, 0.0, texture(noise, uvA.mul(2.1).add(0.37)).b)
+  const ice = saturate(vein.mul(region).add(region.mul(0.25)))
   const viewDir = positionView.negate().normalize()
   const ndv = saturate(dot(normalView, viewDir))
   const rim = pow(float(1).sub(ndv), 3)
   const m = new THREE.MeshStandardNodeMaterial()
-  const snow = vec3(...SNOW).mul(clump.mul(0.4).add(0.72)).mul(float(1).sub(seams.mul(0.35)))
-  m.colorNode = mix(snow, vec3(0.42, 0.55, 0.95), ice.mul(0.8))
-  m.roughnessNode = mix(float(0.92), float(0.2), ice)
+  const snow = vec3(...SNOW).mul(clump.mul(0.18).add(0.86)).mul(grain.mul(0.18).add(0.88)).mul(float(1).sub(seam.mul(0.38)))
+  m.colorNode = mix(snow, vec3(...ICE_TINT), ice.mul(0.8))
+  m.roughnessNode = mix(float(0.97), float(0.22), ice)
   m.metalnessNode = float(0)
-  // cold self-light so it reads at night: icy rim + glowing ice facets
-  // cold self-light (cancels the warm lava bounce from below): icy blue-white body + rim + ice
-  m.emissiveNode = vec3(...FROST).mul(rim.mul(0.35)).add(vec3(...ICE_VIOLET).mul(ice.mul(0.35))).add(vec3(0.07, 0.11, 0.17).mul(clump.mul(0.5).add(0.75)))
+  // packed-snow relief: clumps (seams sink in) + fine grain
+  m.normalNode = bumpMap(texture(noise, uvA.mul(1.15).add(p.z.mul(0.2)).add(0.13)).b.mul(0.6).add(texture(noise, uvA.mul(3.4).add(0.71)).g.mul(0.25)), float(1.3))
+  // cold self-light (cancels the warm lava bounce from below): icy body + soft rim + violet ice glow
+  m.emissiveNode = tierCap(
+    ctx,
+    vec3(...FROST).mul(rim.mul(0.2)).add(vec3(...ICE_GLOW).mul(ice.mul(0.7))).add(vec3(0.06, 0.11, 0.19).mul(clump.mul(0.4).add(0.8)).mul(float(1).sub(seam.mul(0.5)))),
+    1.2, 0.45, 0.85,
+  )
   m.name = 'VfxB-Snowball'
   return m
 }
@@ -112,7 +142,7 @@ function shardMaterial(): THREE.Material {
   const ndv = saturate(dot(normalView, viewDir))
   const fr = pow(float(1).sub(ndv), 2)
   const m = new THREE.MeshBasicNodeMaterial()
-  m.colorNode = mix(vec3(0.18, 0.22, 0.45), vec3(...FROST).mul(1.1), fr).add(vec3(...ICE_VIOLET).mul(0.15))
+  m.colorNode = mix(vec3(0.16, 0.14, 0.4), vec3(...ICE_GLOW).mul(1.4), fr)
   m.opacityNode = fr.mul(0.6).add(0.35)
   m.transparent = true
   m.depthWrite = false
@@ -120,9 +150,9 @@ function shardMaterial(): THREE.Material {
   return m
 }
 
-function addPatch(x: number, y: number, r: number, life: number, now: number): void {
+function addPatch(x: number, y: number, r: number, life: number, now: number, k = 1): void {
   if (patches.length >= 44) patches.shift()
-  patches.push({ x, y, r, born: now, life, seed: Math.random() * 10 })
+  patches.push({ x, y, r, born: now, life, seed: Math.random() * 10, k })
 }
 
 function nova(ctx: VfxCtx, x: number, y: number, R: number, tier = 0): void {
@@ -133,7 +163,7 @@ function nova(ctx: VfxCtx, x: number, y: number, R: number, tier = 0): void {
   // brief icy flash (2-3 frames), coloured, never a white disc
   flashT(ctx, x, y, fh + 70, 0.06, R * 0.8, R * 0.8, FROST[0] * 0.45, FROST[1] * 0.5, FROST[2] * 0.6)
   // frozen ground that melts away
-  addPatch(x, y, R * 0.97, 3.6, ctx.now)
+  addPatch(x, y, R * 0.97, 3.0, ctx.now, 0.9)
   // ice shards and chunks (opaque), landing inside R
   const nd = ctx.debris.budget(32 * pw)
   for (let i = 0; i < nd; i++) {
@@ -191,7 +221,7 @@ function drawBall(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
       tv.copy(c.d).applyQuaternion(b.q)
       const L = r * c.len
       shards.quat.copy(b.q).multiply(c.q)
-      shards.add((x * S) + tv.x * r * 0.86 * S, (h + tv.y * r * 0.86) * S, (-y * S) + tv.z * r * 0.86 * S, L * S, L * S, L * S)
+      shards.add((x * S) + tv.x * r * 0.9 * S, (h + tv.y * r * 0.9) * S, (-y * S) + tv.z * r * 0.9 * S, L * S, L * S, L * S)
     }
   }
   projShadow(ctx, x, y, TILE_TOP_H + 2, r * 0.9)
@@ -202,34 +232,40 @@ function drawBall(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
   const ux = p.vx / sp
   const uy = p.vy / sp
   const dt = ctx.dt
-  // tumbling snow puffs flung off the back and sides (discrete clumps, not a band)
+  // snow powder kicked off the back and sides: small soft puffs that drift apart and are gone
+  // within ~0.5 s (a broken-up dusting, never a ribbon)
   const sm = ctx.smoke
-  if (Math.random() < dt * 16 * ctx.tier.particles) {
+  const np = sm.budget(dt * 26)
+  for (let i = 0; i < np; i++) {
     const side = Math.random() < 0.5 ? -1 : 1
-    const px = x - ux * r * 0.8 + -uy * side * r * 0.5
-    const py = y - uy * r * 0.8 + ux * side * r * 0.5
-    sm.spawn(px, py, TILE_TOP_H + 15, -uy * side * rand(60, 140) - ux * 30, ux * side * rand(60, 140) - uy * 30, rand(90, 180), rand(0.45, 0.75), 24, rand(55, 85), SNOW[0], SNOW[1], SNOW[2], -320, 1.8, 4)
+    const px = x - ux * r * rand(0.5, 0.9) + -uy * side * r * rand(0.2, 0.7)
+    const py = y - uy * r * rand(0.5, 0.9) + ux * side * r * rand(0.2, 0.7)
+    sm.spawn(px, py, TILE_TOP_H + rand(8, 30), -uy * side * rand(50, 130) - ux * 40, ux * side * rand(50, 130) - uy * 40, rand(60, 140), rand(0.3, 0.5), rand(14, 22), rand(36, 56), POWDER[0], POWDER[1], POWDER[2], -260, 2.4, 6)
   }
   // snow clumps thrown up by the roll (opaque, small)
   if (Math.random() < dt * 22 * ctx.tier.particles) {
     const side = Math.random() < 0.5 ? -1 : 1
-    ctx.debris.spawn(x - ux * r * 0.6 + -uy * side * r * 0.6, y - uy * r * 0.6 + ux * side * r * 0.6, TILE_TOP_H + 10, -uy * side * rand(60, 160), ux * side * rand(60, 160), rand(200, 380), rand(0.4, 0.6), rand(6, 11), 3, 0.75, 0.8, 0.88, -1600, 1, 0)
+    ctx.debris.spawn(x - ux * r * 0.6 + -uy * side * r * 0.6, y - uy * r * 0.6 + ux * side * r * 0.6, TILE_TOP_H + 10, -uy * side * rand(60, 160), ux * side * rand(60, 160), rand(200, 380), rand(0.35, 0.5), rand(6, 10), 3, 0.62, 0.7, 0.82, -1600, 1, 0)
   }
   // glittering flakes
   const ps = ctx.particles
   const nf = ps.budget(dt * 70)
   for (let i = 0; i < nf; i++) {
     const a = Math.random() * TAU
-    ps.spawn(x + Math.cos(a) * r * 0.9, y + Math.sin(a) * r * 0.9, h + rand(-r * 0.6, r * 0.8), Math.cos(a) * 40 - ux * 50, Math.sin(a) * 40 - uy * 50, rand(20, 90), rand(0.4, 0.8), rand(4, 7), 1, FROST[0] * 1.2, FROST[1] * 1.2, FROST[2] * 1.2, -60, 1, 10)
+    ps.spawn(x + Math.cos(a) * r * 0.9, y + Math.sin(a) * r * 0.9, h + rand(-r * 0.6, r * 0.8), Math.cos(a) * 40 - ux * 50, Math.sin(a) * 40 - uy * 50, rand(20, 90), rand(0.25, 0.5), rand(4, 7), 1, FROST[0] * 0.9, FROST[1] * 0.9, FROST[2] * 0.9, -60, 1, 10)
   }
   if (ctx.isLava(x, y) && Math.random() < dt * 20) {
     sm.spawn(x, y, 20, rand(-30, 30), rand(-30, 30), 160, 0.9, 40, 120, 0.5, 0.5, 0.55, 0, 1, 10)
   }
   // frost trail
-  if (Math.hypot(x - b.fx, y - b.fy) > r * 0.3) {
+  if (Math.hypot(x - b.fx, y - b.fy) > r * 0.7) {
     b.fx = x
     b.fy = y
-    if (!ctx.isLava(x, y)) addPatch(x - ux * r * 0.1, y - uy * r * 0.1, r * rand(0.5, 0.62), 2.6, ctx.now)
+    // the contact strip under the ball: small frost marks with sideways jitter (broken, not a band)
+    const j = rand(-0.22, 0.22) * r
+    const mx = x - ux * r * 0.15 - uy * j
+    const my = y - uy * r * 0.15 + ux * j
+    if (!ctx.isLava(mx, my)) addPatch(mx, my, r * rand(0.3, 0.42), 1.2, ctx.now, 0.55)
   }
 }
 
@@ -324,7 +360,7 @@ registerSpellVfx({
         patches.splice(i, 1)
         continue
       }
-      drawCircle(pt.x, pt.y, floorH(ctx, pt.x, pt.y) + 0.1, pt.r, STYLE_FROST, FROST[0] * 0.5, FROST[1] * 0.55, FROST[2] * 0.62, 1.2, u * u, 0, pt.seed, 0, 1, 0, pt.born - 1)
+      drawCircle(pt.x, pt.y, floorH(ctx, pt.x, pt.y) + 0.1, pt.r, STYLE_FROST, FROST[0] * 0.38, FROST[1] * 0.42, FROST[2] * 0.48, pt.k, u, 0, pt.seed, 0, 1, 0, pt.born - 1)
     }
     for (const [id, b] of tracks) {
       if (frameNo - b.seen > 2) {

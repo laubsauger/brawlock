@@ -44,6 +44,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Score win condition iteration bug | Fixed: winners are players with max score ≥ limit |
 | `math.random` float coercion makes bot wander jitter | Fixed (intended float ranges) |
 | Arena size counts players who left | Fixed: counts active players at round start |
+| Shop-phase respawns use the fight spawn ring, (13 + players) · 100 − 600, on the smaller layer-14 shop platform (radius 1300): from 6 players up warlocks start the shop in lava | Fixed: the spawn ring is capped 300 inside the edge of the platform that exists at spawn time (floor 300). Fight spawns already sit 300–500 inside their platform and are unchanged |
 | Hero choice effectively random, 7 Dota heroes | Lobby cosmetic picker: warlock archetypes with team-color trim |
 | Bot difficulty = think interval only, console command only | Full difficulty system, lobby UI (§7) |
 | Chat-line announcements | Proper UI announcements, killfeed, round banners |
@@ -176,7 +177,7 @@ Target: Dota-class responsiveness or better on a normal connection.
   - Optional host-advantage compensation: confirmed input delay for the host equals the median client delay.
 - **Fallback**: if cross-engine determinism ever fails in practice, the same `step(state, inputs)` sim supports classic state sync with own-pawn prediction and delta snapshots.
 - **Clock sync**: RTT probes on the unreliable channel; client keeps a smoothed tick offset.
-- **Prediction is the default** once verified (decided 2026-10-16): instant own-input reaction for every client; the classic path stays only as an escape hatch.
+- **Prediction is the default** (shipped 2026-10-16, verified in two-browser WebRTC runs at RTT 0/80/200 with loss): the client keeps the newest host snapshot and re-simulates the whole world forward to its predicted present (re-sim capped at 20 ticks, skipped when a snapshot only confirms the prediction). Own inputs are stamped with the predicted tick and the host runs them at that tick, so acked states are bit-identical (hash-checked). Corrections slide out over ~100 ms and snap above 250 units. Setting `netMode`, URL override `?net=classic|predict`; spectators always get the classic interpolated stream. `PROTOCOL_VERSION` 3. Host-arbitrated input sync (above) stays the later path for bandwidth.
 - **Fairness**: host advantage is compensated (host input delay equalization and/or caster projectile fast-forward, both capped).
 - **Connection monitoring**: per-peer RTT, jitter, loss, snapshot age, channel mode, correction size, desync count and a quality grade; always-visible HUD indicator, a toggleable net graph, rate-limited warnings for your own link, and host-side per-player warnings in scoreboard and lobby.
 - **Room codes**: 5 letters without I/O (pattern from Pit of Carnage). The host registers PeerJS id `brawlock-<CODE>`; friends type the code or open `?room=CODE`.
@@ -395,3 +396,28 @@ New spells and items, map variants and hazards, alternative movement schemes, dr
 8. **Small genre audience** (Spellsworn and Battlerite sit at tens of concurrent players; Spellbreak and Magicka: Wizard Wars shut down). Bots, instant solo play and near-zero hosting cost matter more than server scale.
 10. **Staff casting shelved** (2026-10-15): the staff attachment does not grip or follow the hands and would need staff-specific animations. Hand casting is the default; revisit the staff when animation work is budgeted.
 9. **Character art** is the biggest presentation lever. Decided: CC0 base, customized. Risk: stylized low-poly bases cap fidelity; revisit (AI 3D gen or commission) if the customized base cannot reach the bar.
+
+## 12. Status and open items (2026-10-16)
+
+Done this session, beyond the milestones above:
+- Netcode: client prediction default, host fairness delay (median client one-way latency, capped at 6 ticks), connection monitoring API (`session.netStats()`, `onNetGrade`) with HUD indicator, net graph (F3) and rate-limited warnings.
+- Performance with 8 players: render CPU per frame from 6–7 ms to about 3.3 ms (static attribute uploads with update ranges, visible-only matrix updates, shadow refresh every 2nd frame on High/Ultra, warlock animation 3× cheaper and 2 draws per warlock, VFX buffers upload only the used range). Round transitions are flat at one vsync (cached tile material, budgeted texture uploads, pooled pillars built in a worker). Match start prewarms the arena in the lobby.
+- Readability: team colours in team modes (`PLAYER_COLORS[team]`, matching banner names), colourblind palette option with player glyphs, unique bot names, readable warlock robes (old near-black look kept as `look: 'void'`), Scourge L1/L2/L3 visual and audio tiers (L1 tame, L3 the full blast), Scourge caster band, Lightning crack-and-echo sound and full bolt on misses, spell icons recoloured to the spell palette.
+- Fixes: shop-phase spawns no longer land in lava with 5+ players (§2 deviation), tile whiteout on shrink, render crash guards and first-stack error capture.
+- Settings: screen shake, frame rate limit, resolution scale, key-hint toggle.
+
+Open:
+- Lobby prewarm still runs as one ~0.5 s task: textures decode and upload all at once on the main thread. Planned: `createImageBitmap` loading, ~4 ms per-frame upload budget, ready only after loads finish.
+- Perf follow-ups (non-render main thread is only ~0.3–0.5 ms per frame; sim, clone, bots and audio are not hotspots):
+  - nameplates (`WorldOverlay`) write ~670 inline styles per second; write only on real change, or draw plates on the GPU (0.15–0.3 ms per frame);
+  - three.js rebuilds material cache keys every frame (`getMaterialCacheKey`, ~30% of allocations); find what bumps `material.version` or the dynamic cache key per frame (0.2–0.4 ms per frame and most GC);
+  - one-time 20–24 ms webp decodes inside the frame loop early in the first fight; pre-decode all textures at load;
+  - the worker clock posts 250 main-thread tasks per second; step from rAF while visible;
+  - the arena-shrink warning animates `color`/`text-shadow`; animate opacity on a glow layer instead.
+- Character `setDetail()` (half-rate far / offscreen warlocks) exists but is not called by render yet.
+- Screen shake still scales with effects intensity (effective shake = fx × shake).
+- Facing of an idle warlock from above is better but not yet obvious.
+- Unexplained single capture of two large red/blue rings at arena centre in the shop.
+- Determinism verified in Chrome only; cross-browser hash test still to do.
+- Showcase supercut tooling lives in `scripts/showcase/` and `src/render/showcase/` (not imported by the app).
+

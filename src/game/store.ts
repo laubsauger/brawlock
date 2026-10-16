@@ -30,8 +30,14 @@ export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
 
 export interface Settings {
   quality: Quality
-  /** 0..1, scales screen shake and post fx */
+  /** 0..1, scales flashes and post fx; screen shake is fxIntensity x screenShake */
   fxIntensity: number
+  /** 0..1, camera shake and hit kick (render prefs; 0 = no shake at all) */
+  screenShake: number
+  /** frame rate cap in Hz, 0 = uncapped (render prefs) */
+  fpsCap: 0 | 30 | 60 | 120 | 144
+  /** 0.5..1, factor on the quality tier's pixel ratio (render prefs) */
+  resolutionScale: number
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -54,6 +60,10 @@ export interface Settings {
   soundStyle: 'hybrid' | 'synth'
   /** net graph overlay (also F3): per-link ping, jitter and loss sparklines */
   netGraph: boolean
+  /** key legend at the bottom left of the match HUD */
+  showHints: boolean
+  /** colourblind-safe player palette plus a shape per player (game/playerPalette.ts) */
+  colorblindPalette: boolean
   /**
    * online netcode, read at every match start: 'predict' = client-side prediction
    * (own inputs react at once), 'classic' = interpolated host snapshots (escape
@@ -123,6 +133,9 @@ const SETTINGS_KEY = 'brawlock.settings.v1'
 const defaultSettings: Settings = {
   quality: 'high',
   fxIntensity: 1,
+  screenShake: 1,
+  fpsCap: 0,
+  resolutionScale: 1,
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.6,
@@ -138,6 +151,8 @@ const defaultSettings: Settings = {
   hudLayout: 'center',
   soundStyle: 'hybrid',
   netGraph: false,
+  showHints: true,
+  colorblindPalette: false,
   netMode: 'predict',
 }
 

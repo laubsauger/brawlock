@@ -61,8 +61,22 @@ function asText(d: unknown): string {
   return String(d)
 }
 
+/**
+ * Dev-only link simulator for two-tab testing: `?lag=<one-way ms>&jitter=<ms>&loss=<0..1>`
+ * delays every outgoing frame (reliable frames keep their order) and drops that
+ * fraction of unreliable ones. Set it on both tabs for a symmetric link.
+ */
+const LINK_SIM = (() => {
+  if (!import.meta.env.DEV || typeof location === 'undefined') return null
+  const q = new URLSearchParams(location.search)
+  const num = (k: string) => Math.max(0, Number(q.get(k)) || 0)
+  const sim = { lag: num('lag'), jitter: num('jitter'), loss: Math.min(1, num('loss')) }
+  return sim.lag || sim.jitter || sim.loss ? sim : null
+})()
+
 class PeerTransport extends BaseTransport {
   private raw: RTCDataChannel | null = null
+  private simReliableAt = 0
   private readonly conn: DataConnection
   private readonly onShutdown: (() => void) | null
 
@@ -99,12 +113,31 @@ class PeerTransport extends BaseTransport {
   }
 
   protected rawReliable(data: string): void {
+    if (LINK_SIM) {
+      const at = Math.max(performance.now() + LINK_SIM.lag, this.simReliableAt)
+      this.simReliableAt = at
+      setTimeout(() => {
+        if (this.conn.open) void this.conn.send(data)
+      }, at - performance.now())
+      return
+    }
     if (this.conn.open) void this.conn.send(data)
   }
 
   protected rawUnreliable(data: string): boolean {
     const dc = this.raw
     if (!dc || dc.readyState !== 'open') return false
+    if (LINK_SIM) {
+      if (Math.random() < LINK_SIM.loss) return true
+      setTimeout(() => {
+        try {
+          if (dc.readyState === 'open') dc.send(data)
+        } catch {
+          /* closed meanwhile */
+        }
+      }, LINK_SIM.lag + Math.random() * LINK_SIM.jitter)
+      return true
+    }
     if (dc.bufferedAmount > RAW_MAX_BUFFERED) return true // congested: drop, like UDP
     try {
       dc.send(data)

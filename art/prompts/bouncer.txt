@@ -1,10 +1,10 @@
-Use your built-in image_gen tool to generate exactly ONE image, then copy the generated PNG file unchanged (plain cp; do not resize, convert or edit it) to the exact path /Users/flo/work/code/brawlock/art/source/icons/bouncer.png, overwriting if present. Do not create, edit or delete any other files. Do not run git. Do not generate variants. When done, print the source path of the generated file.
+Use your built-in image_gen tool to generate exactly ONE image, then copy the generated PNG file unchanged (plain cp; do not resize, convert or edit it) to the exact path /Users/flo/work/code/brawlock/art/archive/icons/bouncer/v2.png. Do not create, edit or delete any other files. Do not run git. Do not generate variants. When done, print the source path of the generated file.
 
 Image spec:
 Use case: stylized-concept
 Asset type: game inventory spell/item icon, square
 Style: Premium dark-fantasy game inventory icon, as in modern AAA RPG/MOBA inventories. One hero object or effect, centered, slight 3/4 view, painterly-rendered 3D look. Crisp silhouette that reads at 48 px. Strong rim light, rich material detail, glow where magical. Subject fills about 80% of the canvas with a small even margin.
 Background: genuinely transparent background (alpha channel), nothing behind the subject.
-Color language: molten orange-gold rim light and magic glow (shop column 3, Damage spells)
-Subject: Bouncer spell: a molten orange-gold energy orb ricocheting along a sharp zigzag path, with small bright impact flashes at each bounce point. The zigzag bounce path is the focus.
+Color language: pure bright yellow (#e4e04a) with a very light yellow-white core (#fffcb0); crackling electric spark. The dominant color must be the identity color above; no orange fire unless stated.
+Subject: Bouncer spell: a bright yellow crackling spark orb ricocheting along a sharp zigzag path, with small yellow impact flashes at each bounce point. The zigzag bounce path is the focus.
 Constraints: no text, no letters, no numbers, no border or frame, no UI chrome, no drop-shadow box, no ground plane, no vignette, no background scene.

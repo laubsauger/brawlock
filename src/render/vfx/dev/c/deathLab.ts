@@ -37,6 +37,8 @@ export interface DeathLabOptions {
   cancelAfter?: number
   /** killer's Scourge level 1..3 (visual tiers) */
   level?: number
+  /** Scourge: the victims cast it too, in the same tick (overlapping circles, caster identity) */
+  allCast?: boolean
 }
 
 export const labState = { label: '', deathTick: -1, hitTick: -1, castTick: -1, tick: 0 }
@@ -82,13 +84,15 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       p.lavaTicks = 0
       p.cooldowns = p.cooldowns.map(() => 0)
     }
-    if (o.level) k.levels[SCOURGE_SLOT] = Math.max(1, Math.min(3, o.level))
+    if (o.level) for (const p of state.pawns) p.levels[SCOURGE_SLOT] = Math.max(1, Math.min(3, o.level))
     victims().forEach((v, i) => {
       if (cause === 'scourge') {
-        // ring around the killer, inside the Scourge radius (250)
+        // ring around the killer, inside the Scourge radius (250); with allCast
+        // further out so the circles overlap like a busy 8-player fight
         const ang = (i / n) * Math.PI * 2
-        v.x = k.x + Math.cos(ang) * 130
-        v.y = k.y + Math.sin(ang) * 130
+        const rr = o.allCast ? 300 : 130
+        v.x = k.x + Math.cos(ang) * rr
+        v.y = k.y + Math.sin(ang) * rr
       } else {
         v.x = a.x + OFFS[i].x
         v.y = a.y + OFFS[i].y
@@ -116,6 +120,7 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
       inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: v.x, y: v.y }] })
     } else if (cause === 'scourge') {
       inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: k.x, y: k.y }] })
+      if (o.allCast) for (const v of victims()) inputs.push({ player: v.owner, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: v.x, y: v.y }] })
     } else if (cause === 'lava') {
       // victims stand on lava: the burn kills them (or keeps burning in hit mode)
       if (o.hit) for (const v of victims()) v.hp = v.maxHp

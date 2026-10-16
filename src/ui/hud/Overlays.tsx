@@ -1,12 +1,13 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
+import { colorblindPalette } from '../../game/playerPalette'
 import { Sigil } from '../icons'
 import { displayName, isPassive, itemDef, levelStats, MASTERIES, MASTERY_MAX_LEVEL, masteryValue, SPELL_MAX_LEVEL, type MasteryId } from '../data/catalog'
 import { PAWN_MAX_LIFE, PAWN_MOVE_SPEED } from '../../sim'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled } from '../lib/ticker'
-import { hex, kbMultiplier, localView, TEAM_NAMES } from '../lib/view'
+import { kbMultiplier, localView, playerColor, playerGlyph, teamName } from '../lib/view'
 import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { useLinks } from '../lib/netmonitor'
@@ -153,7 +154,8 @@ export function CharacterBody() {
                     )}
                   </span>
                   {stats.length > 0 && (
-                    <span className="block truncate text-[0.85rem] text-ash" title={next ? `Next level: ${next.map(([k, x]) => `${k} ${x}`).join(', ')}` : undefined}>
+                    // wraps instead of truncating: long kits (Scourge) must show every number
+                    <span className="block text-[0.85rem] leading-snug text-ash" title={next ? `Next level: ${next.map(([k, x]) => `${k} ${x}`).join(', ')}` : undefined}>
                       {stats.map(([k, x]) => `${k} ${x}`).join(', ')}
                     </span>
                   )}
@@ -196,8 +198,12 @@ interface BoardRow {
   id: number
   name: string
   color: string
+  /** shape next to the name (colourblind palette only) */
+  glyph: string
   team: number
   kind: 'human' | 'bot'
+  /** bots: difficulty, shown as a small tag next to the name */
+  difficulty?: string
   score: number
   kills: number
   deaths: number
@@ -209,15 +215,18 @@ interface BoardRow {
 function readBoard(): BoardRow[] {
   const s = frame.curr
   if (!s) return []
+  const cb = colorblindPalette()
   return s.slots
     .map((slot) => {
       const sc = s.scores.find((x) => x.id === slot.id)
       return {
         id: slot.id,
         name: slot.name,
-        color: hex(slot.color),
+        color: playerColor(slot, s.settings.teamMode),
+        glyph: playerGlyph(slot, s.settings.teamMode, cb),
         team: slot.team,
         kind: slot.kind,
+        difficulty: slot.kind === 'bot' ? slot.difficulty : undefined,
         score: sc?.score ?? 0,
         kills: sc?.kills ?? 0,
         deaths: sc?.deaths ?? 0,
@@ -279,12 +288,16 @@ export function Scoreboard() {
                 <td className="py-2 pl-3">
                   <span className="flex items-center gap-2.5">
                     <span className="h-3 w-3 rotate-45 rounded-[2px]" style={{ background: r.color }} aria-hidden />
-                    <span className="font-semibold">{r.name}</span>
+                    <span className="font-semibold">
+                      {r.glyph && <span className="mr-1" style={{ color: r.color }} aria-hidden>{r.glyph}</span>}
+                      {r.name}
+                    </span>
                     {r.id === local && <span className="chip text-gold">You</span>}
+                    {r.difficulty && <span className="chip text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
                     {!r.alive && <span className="text-sm text-ash">out</span>}
                   </span>
                 </td>
-                {teamMode === 'teams' && <td className="py-2 text-ash">{TEAM_NAMES[r.team] ?? r.team + 1}</td>}
+                {teamMode === 'teams' && <td className="py-2 text-ash">{teamName(r.team)}</td>}
                 <td className="py-2 text-right text-[1.15rem] font-bold text-gold">{r.score}</td>
                 <td className="py-2 text-right">
                   {r.kills} / {r.deaths}

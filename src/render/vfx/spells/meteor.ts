@@ -41,7 +41,7 @@ import { crater } from '../deathKit'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_CRACKS, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle, drawShadow, flashT, floorH, glowG, hexRgb,
-  implode, kitAdopt, kitBegin, kitInit, kitRelease, levelOfThing, light, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, tierOfLevel,
+  implode, kitAdopt, kitBegin, kitInit, kitRelease, markRange, levelOfThing, light, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, tierOfLevel,
   type RGB,
 } from './kitB'
 
@@ -102,7 +102,7 @@ class FireVolume {
   ) {
     for (let i = 0; i < 4; i++) {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       this.attrs.push(a)
     }
     const a0 = this.attrs[0].array as Float32Array
@@ -222,7 +222,7 @@ class Rifts {
   constructor(ctx: VfxCtx, private capacity: number) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.p = mk()
@@ -290,8 +290,8 @@ class Rifts {
     this.n++
     this.object.count = this.n
     this.object.visible = true
-    this.p.needsUpdate = true
-    this.r.needsUpdate = true
+    markRange(this.p, this.n)
+    markRange(this.r, this.n)
   }
 
   dispose(): void {

@@ -42,7 +42,7 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     const r = gl as unknown as THREE.WebGPURenderer
     r.shadowMap.enabled = tierCfg.shadowMap > 0
     r.shadowMap.type = THREE.PCFShadowMap
-    const world = new MatchWorld({ source, tier: tierConfig(eff), fx, overlayParent: null, mode: 'menu' })
+    const world = new MatchWorld({ source, tier: tierConfig(eff), fx, overlayParent: null, mode: 'menu', renderer: r })
     scene.add(world.root)
     scene.background = new THREE.Color(0x0b0604)
     scene.fogNode = world.fogNode

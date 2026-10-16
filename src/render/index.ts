@@ -3,11 +3,13 @@
  * internal.
  */
 export { GpuCanvas } from './GpuCanvas'
-export { MatchView, type MatchViewProps } from './MatchView'
+export { MatchView, isMatchRenderReady, type MatchViewProps } from './MatchView'
 export { MenuBackdrop } from './MenuBackdrop'
 export { toWorld, toGame, S as RENDER_SCALE, TILE_TOP_H, LAVA_H } from './coords'
 export { recenterCamera, zoomCamera, showMoveMarker, cameraListener, cameraParams, ZOOM_MIN, ZOOM_MAX, ZOOM_DEFAULT } from './cameraRig'
+export { setRenderPrefs, renderPrefs, type RenderPrefs } from './prefs'
 export { renderStats, type RenderStats } from './stats'
+export { colorForPawn, slotColorOf, teamColor, teamModeOn } from './teamColors'
 export { TIERS, tierConfig, type TierConfig } from './quality'
 
 // Character warlocks: start loading the CC0 rig as soon as the render module is

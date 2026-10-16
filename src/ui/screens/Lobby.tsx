@@ -5,11 +5,13 @@ import type { BotDifficulty, PlayerSlot, TeamMode } from '../../sim/types'
 import { Button, Crown, PingBars } from '../widgets'
 import { hostGame, leaveToMenu, setReady, startMatch } from '../flow'
 import { headToHead, useEncounters } from '../lib/stats'
-import { hex, TEAM_NAMES } from '../lib/view'
+import { playerColor, playerGlyph, teamName } from '../lib/view'
+import { PLAYER_COLORS } from '../../net/session'
 import { sfx } from '../lib/sound'
 import { MatchOptions } from './MatchOptions'
 import { roomLink } from '../../net/code'
 import { useLinks } from '../lib/netmonitor'
+import { useMatchRenderReady } from '../MatchLayer'
 import type { PeerNet } from '../lib/netstats'
 
 const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
@@ -43,7 +45,7 @@ function statusLine(l: LobbyView, humans: number): { text: string; tone: 'idle' 
 function teamText(mode: TeamMode | undefined, team: number): string {
   if (mode === 'ffa') return 'Free for all'
   if (mode === 'shuffle') return 'Shuffled each round'
-  return `${TEAM_NAMES[team] ?? `Team ${team + 1}`} team`
+  return `${teamName(team)} team`
 }
 
 function PlayerCard({
@@ -73,7 +75,11 @@ function PlayerCard({
   ready: boolean
   h2h: ReturnType<typeof headToHead>
 }) {
-  const color = hex(slot.color)
+  // lobby: team colours only in fixed teams (shuffle deals teams per round)
+  const cb = useGame((s) => s.settings.colorblindPalette ?? false)
+  const shown = teamMode === 'teams' ? 'teams' : 'ffa'
+  const color = playerColor(slot, shown)
+  const glyph = playerGlyph(slot, shown, cb)
   return (
     <li
       className="card-in relative flex items-center gap-3.5 rounded-lg px-3 py-2.5"
@@ -86,7 +92,10 @@ function PlayerCard({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-[1.15rem] font-bold">{slot.name}</span>
+          <span className="truncate text-[1.15rem] font-bold">
+            {glyph && <span className="mr-1.5" style={{ color }} aria-hidden>{glyph}</span>}
+            {slot.name}
+          </span>
           {isHost && <Crown />}
           {isLocal && <span className="chip text-gold">You</span>}
           {ready && <span className="chip pop-in bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}
@@ -117,9 +126,9 @@ function PlayerCard({
               session.setTeam(slot.id, Number(e.target.value))
             }}
           >
-            {TEAM_NAMES.map((n, i) => (
-              <option key={n} value={i}>
-                {n}
+            {PLAYER_COLORS.map((_, i) => (
+              <option key={i} value={i}>
+                {teamName(i)}
               </option>
             ))}
           </select>
@@ -221,6 +230,8 @@ export function Lobby() {
   const localReady = !!lobby.ready?.[lobby.localPlayer]
 
   const links = useLinks()
+  // the hidden match scene warms up while the lobby is open (App's MatchLayer); Start waits for it, 6 s at most
+  const warm = useMatchRenderReady(6000)
   const canEdit = lobby.role !== 'client'
   const humans = lobby.slots.filter((s) => s.kind === 'human').length
   const status = statusLine(lobby, humans)
@@ -305,8 +316,24 @@ export function Lobby() {
         <div className="flex gap-3">
           {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={hostGame}>Try again</Button>}
           {canEdit ? (
-            <Button variant="primary" size="lg" disabled={!ready} sound="ready" onClick={startMatch} title={ready ? undefined : 'Add a bot or wait for a friend'}>
-              Start match
+            <Button
+              variant="primary"
+              size="lg"
+              disabled={!ready || !warm.ready}
+              sound="ready"
+              onClick={startMatch}
+              title={!ready ? 'Add a bot or wait for a friend' : !warm.ready ? 'Loading the arena so the match starts without a hitch' : undefined}
+              data-testid="start-match"
+              data-ready={ready && warm.ready}
+            >
+              {ready && !warm.ready ? (
+                <>
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-ember" aria-hidden />
+                  Preparing arena…
+                </>
+              ) : (
+                'Start match'
+              )}
             </Button>
           ) : (
             lobby.status === 'open' && (

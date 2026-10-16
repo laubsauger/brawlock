@@ -28,13 +28,20 @@ export interface TierConfig {
   shadowMap: number
   /** screen-space ambient occlusion (GTAO) in post */
   ao: boolean
+  /**
+   * key-light shadow map refresh: every Nth frame (1 = every frame). The
+   * shadow pass re-draws every caster (8 warlocks x 3 parts + pillars) and
+   * costs ~1 ms of CPU; at 2 the shadows lag by one frame, invisible at run
+   * speed.
+   */
+  shadowEvery: number
 }
 
 export const TIERS: Record<Quality, TierConfig> = {
-  low: { dprScale: 0.75, dprMax: 1, post: false, bloom: false, bloomStrength: 0, heatHaze: false, msaa: 0, particles: 0.25, lavaDetail: false, anisotropy: 1, shadowMap: 0, ao: false },
-  medium: { dprScale: 1, dprMax: 1.5, post: true, bloom: true, bloomStrength: 0.5, heatHaze: false, msaa: 0, particles: 0.5, lavaDetail: true, anisotropy: 4, shadowMap: 0, ao: false },
-  high: { dprScale: 1, dprMax: 2, post: true, bloom: true, bloomStrength: 0.6, heatHaze: true, msaa: 4, particles: 1, lavaDetail: true, anisotropy: 8, shadowMap: 2048, ao: true },
-  ultra: { dprScale: 1, dprMax: 3, post: true, bloom: true, bloomStrength: 0.7, heatHaze: true, msaa: 4, particles: 1.5, lavaDetail: true, anisotropy: 16, shadowMap: 4096, ao: true },
+  low: { dprScale: 0.75, dprMax: 1, post: false, bloom: false, bloomStrength: 0, heatHaze: false, msaa: 0, particles: 0.25, lavaDetail: false, anisotropy: 1, shadowMap: 0, ao: false, shadowEvery: 1 },
+  medium: { dprScale: 1, dprMax: 1.5, post: true, bloom: true, bloomStrength: 0.5, heatHaze: false, msaa: 0, particles: 0.5, lavaDetail: true, anisotropy: 4, shadowMap: 0, ao: false, shadowEvery: 1 },
+  high: { dprScale: 1, dprMax: 2, post: true, bloom: true, bloomStrength: 0.6, heatHaze: true, msaa: 4, particles: 1, lavaDetail: true, anisotropy: 8, shadowMap: 2048, ao: true, shadowEvery: 2 },
+  ultra: { dprScale: 1, dprMax: 3, post: true, bloom: true, bloomStrength: 0.7, heatHaze: true, msaa: 4, particles: 1.5, lavaDetail: true, anisotropy: 16, shadowMap: 4096, ao: true, shadowEvery: 2 },
 }
 
 export function tierConfig(q: Quality): TierConfig {

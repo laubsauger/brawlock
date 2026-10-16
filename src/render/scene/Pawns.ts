@@ -10,6 +10,8 @@ import { tweaks } from '../tweaks'
 import { COLLISION_RING_R } from '../scale'
 
 const DEATH_DUR = 0.9
+/** a frame-to-frame move longer than this (game units) is a reposition, not motion */
+const SNAP_DIST = 300
 const DEATH_KINDS: ReadonlySet<string> = new Set(['ash', 'lava', 'fireball', 'meteor', 'lightning', 'freeze', 'gravity', 'drain', 'shadow', 'fade'])
 const FLASH_DUR = 0.3
 const DECAL_R = 84
@@ -336,16 +338,22 @@ export class PawnView {
       dm.depthWrite = false
       dm.blending = THREE.AdditiveBlending
       dm.side = THREE.FrontSide
+      // faint rim only: a steep fresnel keeps the faces toward the camera
+      // (over the pawn) near zero, and the glow fades out with height so the
+      // ward reads as a rising curtain, not a closed bubble around the body
+      const DOME_H = 130
       const viewDir = positionView.negate().normalize()
-      const fres = pow(float(1).sub(saturate(dot(normalView, viewDir))), 2.5)
+      const fres = pow(float(1).sub(saturate(dot(normalView, viewDir))), 4)
+      const yN = saturate(positionGeometry.y.div(DOME_H * S))
+      const fade = float(1).sub(yN.mul(0.75))
       const band = sin(positionGeometry.y.mul(18).sub(tF.mul(1.6))).mul(0.5).add(0.5)
       const shimmer = band.mul(0.35).add(0.65)
-      dm.colorNode = this.dTeam.mul(0.55).add(vec3(0.12, 0.13, 0.18)).mul(fres.mul(shimmer)).mul(this.wAlpha).mul(0.8)
+      dm.colorNode = this.dTeam.mul(0.55).add(vec3(0.1, 0.11, 0.15)).mul(fres.mul(shimmer).mul(fade)).mul(this.wAlpha).mul(1.1)
       dm.opacityNode = float(1)
       dm.name = 'ShopWardDome'
       this.wardDomeMat = dm
       const dg = new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2)
-      dg.scale(62 * S, 150 * S, 62 * S)
+      dg.scale(60 * S, DOME_H * S, 60 * S)
       this.wardDome = new THREE.Mesh(dg, dm)
       this.wardDome.renderOrder = 8
       this.wardDome.frustumCulled = false
@@ -385,6 +393,23 @@ export class PawnView {
     this.name = slot?.name ?? ''
   }
 
+  /** set by the world each frame: the sim applies damage (fight phase) */
+  combat = true
+
+  /** slot colour (name text); `color` is the identity (team) colour */
+  nameColor = 0xffffff
+
+  /** Identity colour (team in team modes) for ring, trims and plates; slot colour for the name. */
+  setIdentity(identityHex: number, slotHex: number): void {
+    this.nameColor = slotHex
+    if (this.color.getHex() === identityHex) return
+    this.color.setHex(identityHex)
+    this.u.team.value.copy(this.color)
+    this.dTeam.value.copy(this.color)
+    this.cColor.value.copy(this.color)
+    this.warlock?.setColor(identityHex)
+  }
+
   /** last physics (knockback) velocity, game units/s, for directional death FX */
   knockX = 0
   knockY = 0
@@ -415,6 +440,23 @@ export class PawnView {
   }
 
   private edgeOverride = false
+
+  /** Reset every smoothed / simulated per-pawn value to rest at the new pose. */
+  private snapTo(p: PawnState, s: PawnSample, layer: number): void {
+    this.h = isLocationSafe(s.x, s.y, layer) ? TILE_TOP_H : LAVA_H - 16
+    this.yaw = facingToYaw(s.facing)
+    this.spin = 0
+    this.tilt.quaternion.identity()
+    this.clothX = this.clothY = this.clothVx = this.clothVy = 0
+    this.flutter = this.flutterKick = 0
+    this.u.sway.value.set(0, 0, 0)
+    this.knockX = this.knockY = 0
+    this.walkPhase = 0
+    this.castProgress = 0
+    this.cAlpha.value = 0
+    this.charge.visible = false
+    void p
+  }
 
   /** Teleport arrival: rematerialize (reverse dissolve, cyan edge) + rim flash. */
   materialize(now: number): void {
@@ -590,7 +632,20 @@ export class PawnView {
     return this.deathAt >= 0 && this.ctx.uTime.value - this.deathAt > DEATH_DUR
   }
 
+  /**
+   * True for the frame in which the pawn jumped (round-start reposition,
+   * respawn, teleport): everything per-pawn was snapped to the new spot.
+   */
+  justSnapped = false
+  private placed = false
+
   update(p: PawnState, s: PawnSample, layer: number, now: number, dt: number): void {
+    // teleport-like jump (far beyond any per-frame move): snap, never smooth
+    // across the map; cloth / lean / spin / height restart at rest
+    const jump = this.placed && Math.hypot(s.x - this.x, s.y - this.y) > SNAP_DIST
+    this.justSnapped = jump
+    this.placed = true
+    if (jump) this.snapTo(p, s, layer)
     this.x = s.x
     this.y = s.y
     this.hp = p.hp
@@ -764,7 +819,8 @@ export class PawnView {
     )
 
     // hem keeps glowing for a couple of seconds after leaving the lava
-    const burnTarget = this.onLava && p.alive ? 1 : 0
+    // no burn while combat is off (shop / round end): the lava deals no damage
+    const burnTarget = this.onLava && p.alive && this.combat ? 1 : 0
     this.burn += (burnTarget - this.burn) * (1 - Math.exp(-dt * (burnTarget > this.burn ? 8 : 0.9)))
     this.invuln += ((p.invulnerable ? 1 : 0) - this.invuln) * k
     this.u.burn.value = this.burn

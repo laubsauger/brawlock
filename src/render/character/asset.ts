@@ -2,8 +2,8 @@ import * as THREE from 'three/webgpu'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { buildCloth, buildStaff, buildVoid, setCalfRadiusHint, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
-import { clothParams, createClothMaterial, createGloveMaterial, createOutfitMaterial, createStaffMaterial, createVoidMaterial } from './materials'
+import { KIND, buildCloth, buildStaff, buildVoid, setCalfRadiusHint, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
+import { clothParams, createClothMaterial, createOutfitMaterial, createStaffMaterial } from './materials'
 
 /**
  * Loads public/models/warlock/warlock.glb (CC0 Quaternius rig + outfit parts +
@@ -14,6 +14,10 @@ import { clothParams, createClothMaterial, createGloveMaterial, createOutfitMate
  */
 
 export const WARLOCK_URL = `${import.meta.env.BASE_URL}models/warlock/warlock.glb`
+
+/** finger bones (animated only by the cast clips) */
+const FINGER = /^(index|middle|ring|pinky|thumb)_0[1-4](_leaf)?_[lr]$/
+const FINGER_CLIPS = new Set(['castEnter', 'castLoop', 'castShoot', 'castExit'])
 
 /** Bones that belong to the lower-body layer; everything else is upper body. */
 const LOWER = /^(root|pelvis|spine_01|thigh_[lr]|calf_[lr]|foot_[lr]|ball_[lr]|ball_leaf_[lr])$/
@@ -133,6 +137,13 @@ async function build(url: string): Promise<WarlockAsset> {
     m.removeFromParent()
   }
   if (!outfitSrc || outfitGeos.length === 0) throw new Error('warlock.glb: outfit material missing')
+  // the hands share the outfit draw: aGlove picks their texture set in the shader
+  const flag = (g: THREE.BufferGeometry, v: number) => g.setAttribute('aGlove', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(v), 1))
+  for (const g of outfitGeos) flag(g, 0)
+  if (gloveGeo) {
+    flag(gloveGeo, 1)
+    outfitGeos.push(gloveGeo)
+  }
   const outfitGeo = mergeGeometries(outfitGeos)
   if (!outfitGeo) throw new Error('warlock.glb: outfit merge failed')
 
@@ -274,31 +285,60 @@ async function build(url: string): Promise<WarlockAsset> {
     mesh.frustumCulled = false
     return mesh
   }
-  addSkinned(outfitGeo, createOutfitMaterial(outfitSrc), 'WarlockOutfit')
+  addSkinned(outfitGeo, createOutfitMaterial(outfitSrc, gloveSrc, rig.pos('hand_l').x), 'WarlockOutfit')
   const palmL = rig.pos('hand_l').add(new THREE.Vector3(0.085, -0.025, 0.01))
   const palmR = rig.pos('hand_r').add(new THREE.Vector3(-0.085, -0.025, 0.01))
-  if (gloveGeo && gloveSrc) addSkinned(gloveGeo, createGloveMaterial(gloveSrc, rig.pos('hand_l').x), 'WarlockGloves')
-  const clothGeo = buildCloth(rig)
-  addSkinned(clothGeo, createClothMaterial(), 'WarlockCloth')
-
-  // ---- hood void + eyes, rigid on the Head bone
+  // ---- cloth + the hood void / eyes (skinned 100 % to the Head bone) in one draw
   {
-    const head = bones[rig.index('Head')]
-    const g = buildVoid(rig.pos('Head'))
-    g.applyMatrix4(new THREE.Matrix4().copy(head.matrixWorld).invert())
-    const mesh = new THREE.Mesh(g, createVoidMaterial())
-    mesh.name = 'WarlockVoid'
-    head.add(mesh)
+    const vg = buildVoid(rig.pos('Head'))
+    const n = vg.getAttribute('position').count
+    const part = vg.getAttribute('aPart')
+    const cl = new Float32Array(n * 4)
+    const si = new Uint16Array(n * 4)
+    const sw = new Float32Array(n * 4)
+    const headI = rig.index('Head')
+    for (let i = 0; i < n; i++) {
+      cl[i * 4 + 2] = KIND.void
+      cl[i * 4 + 3] = part.getX(i) > 0.5 ? 1 : 0
+      si[i * 4] = headI
+      sw[i * 4] = 1
+    }
+    vg.deleteAttribute('aPart')
+    vg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2))
+    vg.setAttribute('aCloth', new THREE.BufferAttribute(cl, 4))
+    vg.setAttribute('aDim', new THREE.BufferAttribute(new Float32Array(n * 2), 2))
+    vg.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4))
+    vg.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4))
+    const clothGeo = mergeGeometries([buildCloth(rig), vg])
+    if (!clothGeo) throw new Error('warlock: cloth + void merge failed')
+    addSkinned(clothGeo, createClothMaterial(), 'WarlockCloth')
   }
 
   // ---- clips: lower / upper halves for layered playback, additive hits
   const clips: Record<string, ClipPair> = {}
   const additive: Record<string, THREE.AnimationClip> = {}
   const boneOf = (track: THREE.KeyframeTrack) => track.name.slice(0, track.name.lastIndexOf('.'))
+  // Fingers are 30 of the 65 bones but a few pixels on screen: they stay in a
+  // relaxed pose (the idle clip's first frame, baked into the rest pose) and
+  // only the cast clips animate them (open palm). Halves the mixer's work.
+  {
+    const idle = gltf.animations.find((c) => c.name === 'idle')
+    if (idle) {
+      for (const t of idle.tracks) {
+        const b = boneOf(t)
+        if (!FINGER.test(b) || !t.name.endsWith('.quaternion')) continue
+        const bone = bones[boneIndex.get(b) ?? -1]
+        if (bone) bone.quaternion.fromArray(t.values as unknown as number[], 0)
+      }
+    }
+  }
   for (const clip of gltf.animations) {
-    const lo = new THREE.AnimationClip(`${clip.name}_lo`, clip.duration, clip.tracks.filter((t) => LOWER.test(boneOf(t))))
-    const up = new THREE.AnimationClip(`${clip.name}_up`, clip.duration, clip.tracks.filter((t) => !LOWER.test(boneOf(t))))
-    clips[clip.name] = { full: clip, lo, up }
+    const keepFingers = FINGER_CLIPS.has(clip.name)
+    const tracks = keepFingers ? clip.tracks : clip.tracks.filter((t) => !FINGER.test(boneOf(t)))
+    const full = keepFingers ? clip : new THREE.AnimationClip(clip.name, clip.duration, tracks)
+    const lo = new THREE.AnimationClip(`${clip.name}_lo`, clip.duration, tracks.filter((t) => LOWER.test(boneOf(t))))
+    const up = new THREE.AnimationClip(`${clip.name}_up`, clip.duration, tracks.filter((t) => !LOWER.test(boneOf(t))))
+    clips[clip.name] = { full, lo, up }
   }
   for (const name of ['hit', 'hitHead']) {
     const c = clips[name]?.full

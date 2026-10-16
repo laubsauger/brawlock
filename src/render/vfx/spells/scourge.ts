@@ -22,17 +22,33 @@
  *   - a dark shockwave sweeps centre -> exactly R in 0.22 s with a hot crimson
  *     edge, then rests as the thin boundary and fades
  *   - the floor inside cracks open radially, cracks glow crimson and cool to
- *     charred black (decal ~2.6 s), heat distortion on the front (High+)
+ *     charred black (L2 / L3; see the aftermath note), heat distortion on the
+ *     front (High+)
  *   - shadow flames lick up along the front and the rim, black-red debris and
  *     embers burst outward but stop inside R
  *   - short shake (fx scaled); every warlock hit gets a crimson rim flash
  *     (the core's 'shadow' after-hit and afterhit.ts add the wisps)
  *
- * Level tiers (L1 / L2 / L3, edge always at the sim radius): L2 adds an inner
- *   rune ring and more shadow flames; L3 adds a third rune ring, denser flames
- *   and a crimson crown of blades circling above the caster, which bursts on
- *   release. Level comes from the event (`level`) when the sim sends it, else
- *   from the caster's slot level.
+ * Level tiers (edge always the crisp ring at the sim radius: who gets hit):
+ *   L1 (everyone, from round 1, so the look seen constantly) is tame: mostly
+ *     outline, not fill. A thin ember-crimson edge, sparse runes, no threads,
+ *     a faint floor tint, a small sphere and no beam, ~35 % of the particles;
+ *     release = a quick shockwave ring + a short flash, no filled disc or
+ *     crack blaze.
+ *   L2: some fill, all runes plus an inner ring, the threads, an echo
+ *     shockwave, moderate particles and cracks.
+ *   L3: the full escalation: three rune rings, the full red pool, beam and a
+ *     crown of blades that bursts on release, dense flames, glowing cracks.
+ *   Level comes from the event (`level`) when the sim sends it, else from the
+ *   caster's slot level.
+ * Caster identity: with bots spamming Scourge, 2-4 overlapping r250 circles are
+ *   common, so a thin band just inside the crimson edge carries the caster's
+ *   identity colour (render/teamColors colorForPawn: team colour in team modes,
+ *   slot colour in FFA, like the pawn ring) through the windup and while the
+ *   released edge rests. The
+ *   edge, runes and blast stay Scourge crimson. The shared hand-cast rings and
+ *   arm spiral are hidden (windupStyle): the gathering orb above the head is
+ *   this module's.
  * Aftermath (one clean curve, nothing lingers as a smear): glow cools fast and
  *   is gone by ~1.1 s, the charred fill fades out crisply by 1.4 s, the dark
  *   crack lines by 1.8 s; decal alpha reaches exactly 0. Smoke <= 1 s.
@@ -54,6 +70,7 @@ import { S } from '../../coords'
 import { Billboards } from '../../scene/Billboards'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
+import { colorForPawn } from '../../teamColors'
 import { BODY_H, BODY_R, decalFloor } from '../deathKit'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 
@@ -78,6 +95,13 @@ const ang01 = (q: Node<'vec2'>) => atan(q.y, q.x.add(1e-5)).div(TAU).add(0.5)
 /** quad spans +-QUAD radii so the boundary ring and its glow fit */
 const QUAD = 1.1
 
+/** per-level value, L1 / L2 / L3 (CPU side) */
+const tier = (level: number, v1: number, v2: number, v3: number) => (level >= 3 ? v3 : level >= 2 ? v2 : v1)
+/** per-level value in a shader, from the level node (1..3) */
+const tierN = (lvl: Node<'float'>, v1: number, v2: number, v3: number) => float(v1).add(step(1.5, lvl).mul(v2 - v1)).add(step(2.5, lvl).mul(v3 - v2))
+/** tier base colour: L1 dark ember crimson (low bloom), L3 the full blood crimson */
+const tierCol = (lvl: Node<'float'>) => vec3(tierN(lvl, 0.82, 1.15, CRIMSON[0]), tierN(lvl, 0.085, 0.06, CRIMSON[1]), tierN(lvl, 0.045, 0.055, CRIMSON[2]))
+
 // ---------------------------------------------------------------- windup circles (immediate)
 
 const WC = 8
@@ -87,6 +111,7 @@ class WindupCircles {
   readonly glow: THREE.Mesh
   private a0: THREE.InstancedBufferAttribute
   private a1: THREE.InstancedBufferAttribute
+  private a2: THREE.InstancedBufferAttribute
   private mats: THREE.MeshBasicNodeMaterial[] = []
   private geo: THREE.BufferGeometry
   private n = 0
@@ -99,8 +124,10 @@ class WindupCircles {
     }
     this.a0 = mk() // centre (three), R (game)
     this.a1 = mk() // progress 0..1, cancel 0..1, seed, seconds since windup start
+    this.a2 = mk() // caster colour (linear, peak 1), -
     const A0 = asV4(instancedBufferAttribute(this.a0))
     const A1 = asV4(instancedBufferAttribute(this.a1))
+    const A2 = asV4(instancedBufferAttribute(this.a2))
     const q = positionGeometry.xy
     const positionNode = A0.xyz.add(vec3(q.x, 0, q.y.negate()).mul(A0.w.mul(S * QUAD)))
     const w = ctx.world
@@ -153,7 +180,9 @@ class WindupCircles {
     const litFlash = exp(prog.sub(igniteAt).max(0).mul(-22)).mul(lit)
     // cancel: each rune breaks at its own moment
     const intact = step(cancel.mul(1.25), hash(cs.add(6)))
-    const runes = stroke.mul(lit).mul(intact).mul(float(0.65).add(litFlash.mul(1.4)))
+    // L1: sparse runes (every third cell), L2+ the full band
+    const sparse = mix(step(mod(ci, 3), 0.5), float(1), l2)
+    const runes = stroke.mul(lit).mul(intact).mul(sparse).mul(float(0.65).add(litFlash.mul(1.4))).mul(tierN(lvl, 0.75, 0.9, 1))
 
     // inner rune rings: L2 adds one at 0.66 R (counter-rotating), L3 one more at 0.44 R
     const band = (rc: number, cells: number, rot: Node<'float'>, salt: number, gs: number) => {
@@ -191,16 +220,24 @@ class WindupCircles {
     const tip = exp(tx.mul(tx).negate()).mul(smoothstep(0.012, 0.0, abs(lx)))
     const gap2 = float(1).sub(smoothstep(0.075, 0.065, abs(rn.sub(0.6))).mul(l2))
     const gap3 = float(1).sub(smoothstep(0.085, 0.075, abs(rn.sub(0.34))).mul(l3))
-    const threads = line.mul(0.55).mul(gap2).mul(gap3).add(tip.mul(1.6)).mul(lit).mul(intact).mul(smoothstep(0.02, 0.12, prog))
+    const threads = line.mul(0.55).mul(gap2).mul(gap3).add(tip.mul(1.6)).mul(lit).mul(intact).mul(smoothstep(0.02, 0.12, prog)).mul(tierN(lvl, 0, 0.55, 1))
 
     // shadow pool creeping inward from the edge
     const pool = smoothstep(float(1).sub(prog.mul(0.95)).sub(0.12), float(1).sub(prog.mul(0.95)).add(0.25), rn).mul(step(rn, 1))
     const pn = texture(w.noise, vec2(a.mul(4), rn.mul(0.8).sub(age.mul(0.15)).add(seed))).r
-    const darkA = pool.mul(pn.mul(0.4).add(0.6)).mul(0.72).mul(saturate(prog.mul(2.5))).mul(live)
+    // floor tint: L1 a faint low-alpha shade, L3 the full creeping pool
+    const darkA = pool.mul(pn.mul(0.4).add(0.6)).mul(tierN(lvl, 0.2, 0.45, 0.72)).mul(saturate(prog.mul(2.5))).mul(live)
 
     const flick = mix(float(1), sin(age.mul(70)).mul(0.5).add(0.5), saturate(cancel.mul(4)))
-    const glowC = vec3(...CRIMSON).mul(boundary.add(innerGlow).add(runes).add(threads).add(runes2).add(runes3))
-      .add(vec3(...HOT).mul(runes.mul(litFlash).add(tip.mul(0.4)).add(sweep.mul(boundary).mul(0.3))))
+    // caster identity: a thin band in the caster's colour just inside the edge
+    const cbx = rn.sub(0.958).div(tierN(lvl, 0.0042, 0.0046, 0.0052))
+    const casterBand = exp(cbx.mul(cbx).negate()).mul(ignite).mul(tierN(lvl, 0.75, 0.95, 1.3))
+    // a clean gap around the band so the caster colour reads even under L3's runes
+    const gapX = rn.sub(0.958).div(0.012)
+    const gap = float(1).sub(exp(gapX.mul(gapX).negate()).mul(0.85).mul(ignite))
+    // the edge line stays crisp on every tier (gameplay info); the fill glow scales
+    const glowC = A2.xyz.mul(casterBand).add(gap.mul(tierCol(lvl).mul(boundary.mul(tierN(lvl, 0.85, 0.95, 1)).add(innerGlow.mul(tierN(lvl, 0.25, 0.65, 1))).add(runes).add(threads).add(runes2).add(runes3))
+      .add(vec3(...HOT).mul(runes.mul(litFlash).add(tip.mul(0.4)).add(sweep.mul(boundary).mul(0.3))).mul(tierN(lvl, 0.25, 0.6, 1)))))
       .mul(live.mul(live)).mul(flick)
     const dm = new THREE.MeshBasicNodeMaterial()
     dm.transparent = true
@@ -239,11 +276,15 @@ class WindupCircles {
     this.n = 0
   }
 
-  add(x: number, y: number, h: number, R: number, progress: number, cancel: number, seed: number, age: number, level: number): void {
+  add(x: number, y: number, h: number, R: number, progress: number, cancel: number, seed: number, age: number, level: number, caster: readonly number[]): void {
     if (this.n >= WC) return
     const o = this.n * 4
     const a0 = this.a0.array as Float32Array
     const a1 = this.a1.array as Float32Array
+    const a2 = this.a2.array as Float32Array
+    a2[o] = caster[0]
+    a2[o + 1] = caster[1]
+    a2[o + 2] = caster[2]
     a0[o] = x * S
     a0[o + 1] = h * S
     a0[o + 2] = -y * S
@@ -263,6 +304,7 @@ class WindupCircles {
     if (this.n > 0) {
       this.a0.needsUpdate = true
       this.a1.needsUpdate = true
+      this.a2.needsUpdate = true
     }
   }
 
@@ -281,6 +323,7 @@ class ReleaseDecals {
   readonly glow: THREE.Mesh
   private a0: THREE.InstancedBufferAttribute
   private a1: THREE.InstancedBufferAttribute
+  private a2: THREE.InstancedBufferAttribute
   private mats: THREE.MeshBasicNodeMaterial[] = []
   private geo: THREE.BufferGeometry
   private cursor = 0
@@ -293,7 +336,8 @@ class ReleaseDecals {
       return a
     }
     this.a0 = mk() // centre (three), born
-    this.a1 = mk() // R (game), seed, life, -
+    this.a1 = mk() // R (game), seed, life, level
+    this.a2 = mk() // caster colour (linear, peak 1), -
     const a0 = this.a0.array as Float32Array
     const a1 = this.a1.array as Float32Array
     for (let i = 0; i < RD; i++) {
@@ -302,6 +346,7 @@ class ReleaseDecals {
     }
     const A0 = asV4(instancedBufferAttribute(this.a0))
     const A1 = asV4(instancedBufferAttribute(this.a1))
+    const A2 = asV4(instancedBufferAttribute(this.a2))
     const w = ctx.world
     const ageVert = w.uTime.sub(A0.w)
     const aliveVert = step(0, ageVert).mul(step(ageVert, A1.z))
@@ -343,7 +388,10 @@ class ReleaseDecals {
     const fillEnd = float(1).sub(smoothstep(0.85, 1.4, age))
     const crackEnd = float(1).sub(smoothstep(1.25, 1.8, age))
     const fill = smoothstep(1.0, 0.15, rn.add(n1.sub(0.5).mul(0.25))).mul(0.62).mul(fillEnd)
-    const darkA = max(fill, crack.mul(0.95).mul(crackEnd)).mul(revealed).add(wake.mul(0.25).mul(fillEnd))
+    // L1 leaves no filled disc and only a ghost of the cracks; L2 half; L3 full
+    const lvlD = A1.w
+    const darkA = max(fill.mul(tierN(lvlD, 0, 0.5, 1)), crack.mul(0.95).mul(crackEnd).mul(tierN(lvlD, 0.15, 0.6, 1))).mul(revealed)
+      .add(wake.mul(0.25).mul(fillEnd).mul(tierN(lvlD, 0.4, 0.75, 1)))
     // tiers: L2+ an echo shockwave 0.1 s behind the first, L3 a ring of rune
     // ticks burnt in just inside the edge (cools with the cracks)
     const lvl = A1.w
@@ -356,9 +404,14 @@ class ReleaseDecals {
     const ticks = smoothstep(0.12, 0.05, tu).mul(smoothstep(0.84, 0.86, rn)).mul(smoothstep(0.95, 0.93, rn))
       .add(smoothstep(0.004, 0.0015, abs(rn.sub(0.83))))
       .mul(revealed).mul(exp(age.mul(-1.8))).mul(glowEnd).mul(step(2.5, lvl))
-    const glowC = vec3(...CRIMSON).mul(shock.mul(1.0).add(hold.mul(0.85)).add(echo.mul(0.75)).add(ticks.mul(1.2)))
-      .add(vec3(...HOT).mul(shock.mul(0.35).add(coreBurn)))
-      .add(crackGlow.mul(float(0.85).add(lvl.mul(0.08))))
+    // L1: the quick shockwave ring and the edge only (no crack blaze, no core
+    // burn); L2 some; L3 everything
+    // caster band rests with the edge after the sweep (same timing as `hold`)
+    const rbx = rn.sub(0.958).div(0.0042)
+    const casterBand = exp(rbx.mul(rbx).negate()).mul(smoothstep(SWEEP_S * 0.8, SWEEP_S, age)).mul(float(1).sub(smoothstep(0.3, 0.75, age))).mul(0.8)
+    const glowC = A2.xyz.mul(casterBand).add(tierCol(lvl).mul(shock.mul(tierN(lvl, 0.9, 1, 1)).add(hold.mul(0.85)).add(echo.mul(0.75)).add(ticks.mul(1.2)))
+      .add(vec3(...HOT).mul(shock.mul(tierN(lvl, 0.12, 0.25, 0.35)).add(coreBurn.mul(tierN(lvl, 0.2, 0.6, 1)))))
+      .add(crackGlow.mul(tierN(lvl, 0, 0.5, 1.09))))
       .mul(alive)
     const dm = new THREE.MeshBasicNodeMaterial()
     dm.transparent = true
@@ -375,7 +428,7 @@ class ReleaseDecals {
     const gcol = min(glowC, vec3(3))
     gm.colorNode = gcol
     gm.opacityNode = float(1)
-    if (ctx.tier.heatHaze) gm.mrtNode = mrt({ heat: vec4(saturate(shock.mul(0.7).add(crack.mul(heat).mul(glowEnd).mul(0.25))).mul(alive), 0, 0, 1) })
+    if (ctx.tier.heatHaze) gm.mrtNode = mrt({ heat: vec4(saturate(shock.mul(tierN(lvlD, 0.35, 0.55, 0.7)).add(crack.mul(heat).mul(glowEnd).mul(tierN(lvlD, 0, 0.12, 0.25)))).mul(alive), 0, 0, 1) })
     gm.name = 'ScourgeReleaseGlow'
     this.mats.push(dm, gm)
     const g = new THREE.BufferGeometry()
@@ -395,12 +448,16 @@ class ReleaseDecals {
     this.dark.onBeforeRender = () => this.commit()
   }
 
-  spawn(x: number, y: number, h: number, R: number, level: number): void {
+  spawn(x: number, y: number, h: number, R: number, level: number, caster: readonly number[]): void {
     const i = this.cursor
     this.cursor = (this.cursor + 1) % RD
     const o = i * 4
     const a0 = this.a0.array as Float32Array
     const a1 = this.a1.array as Float32Array
+    const a2 = this.a2.array as Float32Array
+    a2[o] = caster[0]
+    a2[o + 1] = caster[1]
+    a2[o + 2] = caster[2]
     a0[o] = x * S
     a0[o + 1] = h * S
     a0[o + 2] = -y * S
@@ -417,6 +474,7 @@ class ReleaseDecals {
     this.dirty = false
     this.a0.needsUpdate = true
     this.a1.needsUpdate = true
+    this.a2.needsUpdate = true
   }
 
   dispose(): void {
@@ -444,6 +502,8 @@ interface Windup {
   y: number
   h: number
   seed: number
+  /** caster colour, linear, peak 1 (the pawn ring's colour) */
+  col: [number, number, number]
   acc: number
   acc2: number
   acc3: number
@@ -468,7 +528,7 @@ interface RimFlash {
 }
 
 const windups: Windup[] = []
-for (let i = 0; i < 8; i++) windups.push({ pawn: -1, level: 1, t0: 0, total: WINDUP_S, cancelAt: -1, cancelP: 0, active: false, x: 0, y: 0, h: 0, seed: 0, acc: 0, acc2: 0, acc3: 0 })
+for (let i = 0; i < 8; i++) windups.push({ pawn: -1, level: 1, t0: 0, total: WINDUP_S, cancelAt: -1, cancelP: 0, active: false, x: 0, y: 0, h: 0, seed: 0, col: [1, 1, 1], acc: 0, acc2: 0, acc3: 0 })
 const releases: Release[] = []
 for (let i = 0; i < 8; i++) releases.push({ level: 1, x: 0, y: 0, h: 0, R: R_DEFAULT, t0: 0, acc: 0, acc2: 0, on: false })
 const rims: RimFlash[] = []
@@ -496,6 +556,34 @@ function windupOf(pawn: EntityId, create: boolean, now: number): Windup | null {
 }
 
 const isScourge = (s: string) => s.startsWith('scourge')
+
+const tmpCol = new THREE.Color()
+const relCol: [number, number, number] = [1, 1, 1]
+/** 0xRRGGBB (sRGB, as the pawn ring) -> linear, brightest channel 1, written into out */
+function casterRGB(hex: number, out: [number, number, number]): [number, number, number] {
+  tmpCol.setHex(hex, THREE.SRGBColorSpace)
+  const k = 1 / Math.max(1e-3, tmpCol.r, tmpCol.g, tmpCol.b)
+  out[0] = tmpCol.r * k
+  out[1] = tmpCol.g * k
+  out[2] = tmpCol.b * k
+  return out
+}
+
+/** Owner of the pawn standing at (x, y): the Scourge caster at its blast centre. */
+function ownerAt(ctx: VfxCtx, x: number, y: number): number {
+  const st = ctx.state
+  if (!st) return -1
+  let best = 1e9
+  let owner = -1
+  for (const p of st.pawns) {
+    const d = Math.hypot(p.x - x, p.y - y)
+    if (d < best) {
+      best = d
+      owner = p.owner
+    }
+  }
+  return owner
+}
 
 /** Visual tier: the event's `level` when the sim sends it, else the caster's Scourge slot level. */
 function levelOf(ctx: VfxCtx, e: object, pawnId: EntityId | null, x?: number, y?: number): number {
@@ -529,9 +617,11 @@ function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
   const hy = w.y
   const handsH = w.h + BODY_H * 1.12
   const sphereH = w.h + BODY_H + 46
-  const tier = 1 + (w.level - 1) * 0.3
+  const L = w.level
+  // particle budget per tier: L3 is the full look, L1 ~35 % of the old L1
+  const pk = tier(L, 0.35, 0.8, 1.6)
   // shadow tendrils: off the floor inside the circle, streaming to the raised hands
-  const nt = emitN(ctx, w, 'acc', 34 * (0.3 + p) * tier)
+  const nt = emitN(ctx, w, 'acc', 34 * (0.3 + p) * pk)
   for (let i = 0; i < nt; i++) {
     const a = rnd() * TAU
     const r0 = R * (0.3 + rnd() * 0.62)
@@ -546,7 +636,7 @@ function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
     if (rnd() < 0.55) ps.spawn(sx, sy, w.h + 6, vx, vy, vh, life * 0.9, 5, 2, CRIMSON[0] * 1.1, CRIMSON[1], CRIMSON[2], 0, 0.4, 6)
   }
   // motes converging into the sphere
-  const nm = emitN(ctx, w, 'acc2', 46 * p)
+  const nm = emitN(ctx, w, 'acc2', 46 * p * tier(L, 0.35, 0.7, 1))
   for (let i = 0; i < nm; i++) {
     const a = rnd() * TAU
     const e = (rnd() - 0.5) * 1.4
@@ -559,7 +649,7 @@ function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
     ps.spawn(hx + dx * r0, hy + dy * r0, sphereH + dh * r0, -dx * sp, -dy * sp, -dh * sp, life, 6, 2, CRIMSON[0] * 1.2, CRIMSON[1] * 1.5, CRIMSON[2] * 1.5, 0, 0, -0.06)
   }
   // the caster's own life drained into the sphere (the 100 HP cost)
-  const nl = emitN(ctx, w, 'acc3', 22)
+  const nl = emitN(ctx, w, 'acc3', 22 * tier(L, 0.4, 0.7, 1))
   for (let i = 0; i < nl; i++) {
     const a = rnd() * TAU
     const rr = BODY_R * (1.05 + rnd() * 0.25)
@@ -575,17 +665,19 @@ function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
     const Y = sphereH * S
     const Z = -hy * S
     const flick = 0.88 + Math.sin(ctx.now * 37) * 0.08 + Math.sin(ctx.now * 23) * 0.04
-    const k = 0.25 + p * 0.95
-    bb.add(X, Y, Z, (40 + 90 * p) * S, CRIMSON[0] * 0.55 * k, CRIMSON[1] * 0.4 * k, CRIMSON[2] * 0.45 * k, 1.5)
-    bb.add(X, Y, Z, (14 + 30 * p) * S, HOT[0] * 0.7 * k * flick, HOT[1] * 0.5 * k * flick, HOT[2] * 0.5 * k * flick, 2.6)
-    bb.add(X, Y, Z, (34 + 46 * p) * S, CRIMSON[0] * 0.8 * k, CRIMSON[1] * k, CRIMSON[2] * k, -2.5)
-    // a faint column linking hands and sphere
-    bb.addStreak(X, (handsH + 20) * S, Z, 16 * S, 3.2, Math.PI / 2, CRIMSON[0] * 0.35 * p, 0.02, 0.03, 1.6)
-    if (w.level >= 3) crown(hx, hy, sphereH + 40, p, ctx.now - w.t0)
+    // sphere size / brightness per tier: L1 a small ember orb
+    const sz = tier(L, 0.5, 0.75, 1)
+    const k = (0.25 + p * 0.95) * tier(L, 0.55, 0.8, 1)
+    bb.add(X, Y, Z, (40 + 90 * p) * sz * S, CRIMSON[0] * 0.55 * k, CRIMSON[1] * 0.4 * k, CRIMSON[2] * 0.45 * k, 1.5)
+    bb.add(X, Y, Z, (14 + 30 * p) * sz * S, HOT[0] * 0.7 * k * flick, HOT[1] * 0.5 * k * flick, HOT[2] * 0.5 * k * flick, 2.6)
+    if (L >= 2) bb.add(X, Y, Z, (34 + 46 * p) * sz * S, CRIMSON[0] * 0.8 * k, CRIMSON[1] * k, CRIMSON[2] * k, -2.5)
+    // the column linking hands and sphere: none on L1, faint on L2, full on L3
+    if (L >= 2) bb.addStreak(X, (handsH + 20) * S, Z, 16 * S, 3.2, Math.PI / 2, CRIMSON[0] * tier(L, 0, 0.18, 0.35) * p, 0.02, 0.03, 1.6)
+    if (L >= 3) crown(hx, hy, sphereH + 40, p, ctx.now - w.t0)
   }
-  if (ctx.quality !== 'low') ctx.glow.add(hx, hy, R * 0.7, 0.06 + 0.2 * p, 1.0, 0.03, 0.04)
+  if (ctx.quality !== 'low') ctx.glow.add(hx, hy, R * 0.7, (0.06 + 0.2 * p) * tier(L, 0.35, 0.7, 1), 1.0, 0.03, 0.04)
   // low ground tremor, ramping (shake trauma per frame ~ target * 6 dt)
-  ctx.shakeNear(hx, hy, (0.02 + 0.16 * p) * 6 * ctx.dt)
+  ctx.shakeNear(hx, hy, (0.02 + 0.16 * p) * tier(L, 0.5, 0.75, 1) * 6 * ctx.dt)
 }
 
 /** L3: a crown of crimson blades circling above the caster, tilted toward the camera. */
@@ -625,10 +717,12 @@ function hitImpact(ctx: VfxCtx, target: EntityId, x: number, y: number, kb: numb
   // push direction: away from the blast centre (the caster that just cast Scourge)
   let dx = 0
   let dy = 0
+  let lv = 1
   for (const r of releases) {
     if (r.on && ctx.now - r.t0 < 0.1) {
       dx = x - r.x
       dy = y - r.y
+      lv = r.level
     }
   }
   const tp = st?.pawns.find((p) => p.id === target)
@@ -644,7 +738,7 @@ function hitImpact(ctx: VfxCtx, target: EntityId, x: number, y: number, kb: numb
   const k = Math.min(1.4, kb / 900)
   const ps = ctx.particles
   const base = Math.atan2(dy, dx)
-  const n = ps.budget(18 + 22 * k)
+  const n = ps.budget((18 + 22 * k) * tier(lv, 0.6, 0.8, 1))
   for (let i = 0; i < n; i++) {
     const a = base + (rnd() - 0.5) * 1.2
     const sp = 400 + rnd() * 700
@@ -698,8 +792,12 @@ function cancelFx(ctx: VfxCtx, w: Windup): void {
 function releaseBurst(ctx: VfxCtx, x: number, y: number, h: number, R: number, level: number): void {
   const ps = ctx.particles
   if (level >= 3) crownBurst(ctx, x, y, h + BODY_H + 52)
+  const pk = tier(level, 0.35, 0.65, 1)
+  // short coloured flash at the slam (never white): L1 small, L3 full
+  const fk = tier(level, 0.45, 0.7, 1) * (0.45 + 0.55 * ctx.fx)
+  ctx.flash(x, y, h + 60, tier(level, 0.12, 0.16, 0.2), R * 0.7, tier(level, 110, 150, 190), CRIMSON[0] * fk, CRIMSON[1] * 2 * fk, CRIMSON[2] * 2 * fk)
   // black-red debris and embers outward; drag-limited so nothing travels past ~0.95 R
-  const nd = ctx.debris.budget(34)
+  const nd = ctx.debris.budget(34 * pk)
   for (let i = 0; i < nd; i++) {
     const a = rnd() * TAU
     const r0 = rnd() * R * 0.35
@@ -710,7 +808,7 @@ function releaseBurst(ctx: VfxCtx, x: number, y: number, h: number, R: number, l
     const red = rnd() < 0.35
     ctx.debris.spawn(x + Math.cos(a) * r0, y + Math.sin(a) * r0, h + 8, Math.cos(a) * sp, Math.sin(a) * sp, 240 + rnd() * 300, life, 5 + rnd() * 7, 3, red ? 0.16 : 0.025, red ? 0.012 : 0.012, red ? 0.014 : 0.012, -1700, k, 0)
   }
-  const ne = ps.budget(56)
+  const ne = ps.budget(56 * pk)
   for (let i = 0; i < ne; i++) {
     const a = rnd() * TAU
     const life = 0.45 + rnd() * 0.45
@@ -720,7 +818,7 @@ function releaseBurst(ctx: VfxCtx, x: number, y: number, h: number, R: number, l
     ps.spawn(x, y, h + 20 + rnd() * 40, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 220, life, 7 + rnd() * 5, -2, CRIMSON[0] * 1.2, CRIMSON[1] * 2.5 + 0.08, CRIMSON[2] * 1.5, -500, k, rnd() < 0.5 ? -0.06 : 5)
   }
   // dark burst from the slam point
-  const ns = ctx.smoke.budget(16)
+  const ns = ctx.smoke.budget(16 * pk)
   for (let i = 0; i < ns; i++) {
     const a = rnd() * TAU
     const sp = 80 + rnd() * 160
@@ -741,7 +839,8 @@ function releaseTick(ctx: VfxCtx, r: Release): void {
   const f = 1 - Math.pow(1 - sp, 2.4)
   const rf = Math.min(R * 0.97, R * f)
   const k = age < SWEEP_S ? 1 : Math.max(0, 1 - (age - SWEEP_S) / 0.45)
-  const n = emitN2(ctx, r, 'acc', 260 * k * (0.35 + f) * (1 + (r.level - 1) * 0.35))
+  // flame density per tier (L3 unchanged: 1.7)
+  const n = emitN2(ctx, r, 'acc', 260 * k * (0.35 + f) * tier(r.level, 0.35, 0.85, 1.7))
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
     const rr = rf * (0.94 + rnd() * 0.05)
@@ -754,7 +853,7 @@ function releaseTick(ctx: VfxCtx, r: Release): void {
       ctx.smoke.spawn(px, py, r.h + 10, -Math.cos(a) * 20, -Math.sin(a) * 20, 70 + rnd() * 70, 0.55 + rnd() * 0.3, 18, 46, g + 0.015, g * 0.2, g * 0.4, 20, 1, 8)
     }
   }
-  if (ctx.quality !== 'low') ctx.glow.add(r.x, r.y, R * 0.9, 0.35 * (1 - age / 0.7), 1.0, 0.04, 0.04)
+  if (ctx.quality !== 'low') ctx.glow.add(r.x, r.y, R * 0.9, 0.35 * (1 - age / 0.7) * tier(r.level, 0.35, 0.7, 1), 1.0, 0.04, 0.04)
 }
 
 /** emission helpers: tier-scaled continuous counts with a fractional carry */
@@ -791,6 +890,7 @@ registerSpellVfx({
         if (!isScourge(e.spell)) return false
         const w = windupOf(e.pawn, true, now)!
         w.level = levelOf(ctx, e, e.pawn)
+        casterRGB(colorForPawn(ctx.state, ctx.pawn(e.pawn)?.owner ?? -1), w.col)
         w.active = true
         w.cancelAt = -1
         w.t0 = now
@@ -821,7 +921,8 @@ registerSpellVfx({
         if (!isScourge(e.spell)) return false
         const h = decalFloor(ctx, e.x, e.y) - 0.3
         const level = levelOf(ctx, e, null, e.x, e.y)
-        decals?.spawn(e.x, e.y, h, e.radius, level)
+        casterRGB(colorForPawn(ctx.state, ownerAt(ctx, e.x, e.y)), relCol)
+        decals?.spawn(e.x, e.y, h, e.radius, level, relCol)
         let slot = releases[0]
         for (const r of releases) {
           if (!r.on) {
@@ -839,7 +940,7 @@ registerSpellVfx({
         slot.acc = slot.acc2 = 0
         slot.on = true
         releaseBurst(ctx, e.x, e.y, h, e.radius, level)
-        ctx.shakeNear(e.x, e.y, 0.34)
+        ctx.shakeNear(e.x, e.y, tier(level, 0.2, 0.28, 0.34))
         return true
       }
       case 'damage': {
@@ -864,6 +965,9 @@ registerSpellVfx({
     }
     return false
   },
+  // the shared hand-cast arm rings and spiral clash with the summon pose and
+  // the tame L1; this module draws its own gathering orb
+  windupStyle: () => ({ hide: ['rings', 'spiral', 'orb'] }),
   beginFrame() {
     // every rendered frame (also frozen ones): the batches are refilled in frame()
     circles?.begin()
@@ -898,8 +1002,10 @@ registerSpellVfx({
         w.x = info.x
         w.y = info.y
         w.h = info.h
+        // read live: Shuffle re-teams between rounds
+        casterRGB(colorForPawn(st, info.owner), w.col)
         if (w.active) {
-          circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level)
+          circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level, w.col)
           windupFx(ctx, w, p)
         }
       }
@@ -910,7 +1016,7 @@ registerSpellVfx({
           w.pawn = -1
           continue
         }
-        circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, w.cancelP, c, w.seed, now - w.t0, w.level)
+        circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, w.cancelP, c, w.seed, now - w.t0, w.level, w.col)
       }
     }
     for (const r of releases) if (r.on) releaseTick(ctx, r)

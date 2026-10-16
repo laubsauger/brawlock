@@ -96,6 +96,7 @@ export class ProceduralWarlock implements WarlockHandle {
   setCastFrom(_from: CastFrom): void {}
   tumble(): void {}
   hitFlash(): void {}
+  setDetail(): void {}
   levelUp(): void {
     this.flashAt = this.t
   }

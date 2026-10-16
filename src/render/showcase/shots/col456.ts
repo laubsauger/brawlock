@@ -3,7 +3,7 @@ import type { ShotSpec } from '../types'
 import { DUMMIES, HERO, chapter, slowmo, spellLower, stage } from './common'
 import { LAYER } from './kit'
 
-const Y = 700
+const Y = 1060
 
 export const COL4_SHOTS: ShotSpec[] = [
   {
@@ -24,7 +24,7 @@ export const COL4_SHOTS: ShotSpec[] = [
       [0.36, (s) => s.move(0, 330, Y + 30)],
     ],
     camera: stage({ pitch: 42, yaw: 10, push: 0.08, margin: 0.85 }),
-    overlay: { card: chapter(3), lower: spellLower('Windwalk', 'windwalk', 3, 'Vanish, run, and slam the first enemy you touch.', 1.3), plates: false },
+    overlay: { card: chapter(3), lower: spellLower('Windwalk', 'windwalk', 3, 'Vanish, run, and slam the first enemy you touch.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c4_meteor',
@@ -43,7 +43,7 @@ export const COL4_SHOTS: ShotSpec[] = [
     script: [[0.25, (s) => s.cast(0, 'meteor', 265, Y - 30)]],
     speed: slowmo(1.62, 1.95, 0.3, 0.06),
     camera: stage({ pitch: 26, yaw: 18, push: 0.1, margin: 0.9 }),
-    overlay: { lower: spellLower('Meteor', 'meteor', 3, 'Called down from the sky. It cannot be blocked.'), plates: false },
+    overlay: { lower: spellLower('Meteor', 'meteor', 3, 'Called down from the sky. It cannot be blocked.'), plates: false, nums: false },
   },
   {
     id: 'c4_splitter',
@@ -60,7 +60,7 @@ export const COL4_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.cast(0, 'splitter', -60, Y)]],
     camera: stage({ pitch: 50, yaw: 4, push: 0.07 }),
-    overlay: { lower: spellLower('Splitter', 'splitter', 3, 'One bolt bursts into waves of smaller ones.'), plates: false },
+    overlay: { lower: spellLower('Splitter', 'splitter', 3, 'One bolt bursts into waves of smaller ones.'), plates: false, nums: false },
   },
   {
     id: 'c4_snowball',
@@ -75,7 +75,7 @@ export const COL4_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.castAt(0, 'snowball', 1)]],
     camera: stage({ pitch: 42, yaw: 10, push: 0.08 }),
-    overlay: { lower: spellLower('Snowball', 'snowball', 3, 'Rolls them up, freezes them, shatters them.'), plates: false },
+    overlay: { lower: spellLower('Snowball', 'snowball', 3, 'Rolls over them, drags them along, then explodes.'), plates: false, nums: false },
   },
 ]
 
@@ -96,7 +96,7 @@ export const COL5_SHOTS: ShotSpec[] = [
       [0.55, (s) => s.cast(0, 'shield', -260, Y)],
     ],
     camera: stage({ pitch: 40, yaw: 12, push: 0.08, margin: 0.85 }),
-    overlay: { card: chapter(4), lower: spellLower('Shield', 'shield', 4, 'Reflect their spell. Now it is yours.', 1.3), plates: false },
+    overlay: { card: chapter(4), lower: spellLower('Shield', 'shield', 4, 'Reflect their spell. Now it is yours.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c5_rush',
@@ -116,7 +116,7 @@ export const COL5_SHOTS: ShotSpec[] = [
       [1.3, (s) => s.move(0, -700, Y + 120)],
     ],
     camera: stage({ pitch: 44, yaw: 0, push: 0.07 }),
-    overlay: { lower: spellLower('Rush', 'rush', 4, 'Soak half the damage and turn it into speed.'), plates: false },
+    overlay: { lower: spellLower('Rush', 'rush', 4, 'Soak half the damage and turn it into speed.'), plates: false, nums: false },
   },
   {
     id: 'c5_alteration',
@@ -135,7 +135,7 @@ export const COL5_SHOTS: ShotSpec[] = [
       [0.4, (s) => s.cast(0, 'alteration', -180, Y)],
     ],
     camera: stage({ pitch: 42, yaw: 8, push: 0.07, margin: 0.9 }),
-    overlay: { lower: spellLower('Alteration', 'alteration', 4, 'Trade places with the spell about to hit you.'), plates: false },
+    overlay: { lower: spellLower('Alteration', 'alteration', 4, 'Trade places with the spell about to hit you.'), plates: false, nums: false },
   },
 ]
 
@@ -157,7 +157,7 @@ export const COL6_SHOTS: ShotSpec[] = [
     script: [[0.2, (s) => s.cast(0, 'gravity', 220, Y)]],
     speed: slowmo(1.75, 2.15, 0.35, 0.08),
     camera: stage({ pitch: 46, yaw: 0, push: 0.08 }),
-    overlay: { card: chapter(5), lower: spellLower('Gravity', 'gravity', 5, 'Pulls warlocks and spells into the dark.', 1.3), plates: false },
+    overlay: { card: chapter(5), lower: spellLower('Gravity', 'gravity', 5, 'Pulls warlocks and spells into the dark.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c6_grip',
@@ -176,7 +176,7 @@ export const COL6_SHOTS: ShotSpec[] = [
       [1.25, (s) => s.castAt(0, 'fireball', 1)],
     ],
     camera: stage({ pitch: 46, yaw: 6, push: 0.07 }),
-    overlay: { lower: spellLower('Grip', 'grip', 5, 'Root them in place, then line up the shot.'), plates: false },
+    overlay: { lower: spellLower('Grip', 'grip', 5, 'Root them in place, then line up the shot.'), plates: false, nums: false },
   },
   {
     id: 'c6_warpzone',
@@ -194,7 +194,7 @@ export const COL6_SHOTS: ShotSpec[] = [
       [1.0, (s) => s.move(0, -360, Y + 300)],
     ],
     camera: stage({ pitch: 44, yaw: 6, push: 0.07, untilSt: 3.0 }),
-    overlay: { lower: spellLower('Warpzone', 'warpzone', 5, 'Enemy spells crawl through the zone.'), plates: false },
+    overlay: { lower: spellLower('Warpzone', 'warpzone', 5, 'Enemy spells crawl through the zone.'), plates: false, nums: false },
   },
   {
     id: 'c6_magnetize',
@@ -213,7 +213,7 @@ export const COL6_SHOTS: ShotSpec[] = [
       [1.2, (s) => s.cast(0, 'fireball', 300, Y + 40)],
     ],
     camera: stage({ pitch: 48, yaw: 4, push: 0.07 }),
-    overlay: { lower: spellLower('Magnetize', 'magnetize', 5, 'Mark a warlock and your shots bend into them.'), plates: false },
+    overlay: { lower: spellLower('Magnetize', 'magnetize', 5, 'Mark a warlock and your shots bend into them.'), plates: false, nums: false },
   },
   {
     id: 'c6_rockpillar',
@@ -234,7 +234,7 @@ export const COL6_SHOTS: ShotSpec[] = [
       [1.55, (s) => s.hp(1, 2)],
     ],
     camera: stage({ pitch: 40, yaw: 10, push: 0.08, margin: 0.85 }),
-    overlay: { lower: spellLower('Rockpillar', 'rockpillar', 5, 'Raise a wall of stone. Break it and it explodes.'), plates: false },
+    overlay: { lower: spellLower('Rockpillar', 'rockpillar', 5, 'Raise a wall of stone. Break it and it explodes.'), plates: false, nums: false },
   },
   {
     id: 'c6_link',
@@ -255,6 +255,6 @@ export const COL6_SHOTS: ShotSpec[] = [
     ],
     speed: slowmo(2.55, 2.95, 0.35, 0.08),
     camera: stage({ pitch: 40, yaw: 12, push: 0.08 }),
-    overlay: { lower: spellLower('Link', 'link', 5, 'Drag them in. Step aside, and let them fly past into the lava.'), plates: false },
+    overlay: { lower: spellLower('Link', 'link', 5, 'Drag them in. Step aside, and let them fly past into the lava.'), plates: false, nums: false },
   },
 ]

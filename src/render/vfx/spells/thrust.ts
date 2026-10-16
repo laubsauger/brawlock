@@ -18,6 +18,7 @@ import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { S } from '../../coords'
 import { G_BOW, G_SHOCK, acquireKit, kflash, kring, palFor, palSaturate, pawnById, pspawn, releaseKit, trailFrom, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
+import { LivePool } from './livePool'
 
 /** Thrust's accent is a very pale cyan-white: saturate it so the dash and slam read cyan, not white */
 const P = palSaturate(palFor('thrust'), 2.6)
@@ -34,9 +35,7 @@ interface Ghost {
   g: number
   b: number
 }
-const ghosts: Ghost[] = []
-let nGhost = 0
-for (let i = 0; i < 48; i++) ghosts.push({ x: 0, y: 0, h: 0, born: -10, r: 0, g: 0, b: 0 })
+const ghosts = new LivePool<Ghost>(48, () => ({ x: 0, y: 0, h: 0, born: -10, r: 0, g: 0, b: 0 }), (a, b) => a.born < b.born)
 const lastGhost = new Map<number, number>()
 /** pawn id -> time of its last thrust slam (to tell a hit from an expiry) */
 const slamAt = new Map<number, number>()
@@ -48,12 +47,7 @@ const STREAK: TrailStyle = trailFrom(P, { life: 0.22, width: 14, widthTail: 0.2,
 const WAKE: TrailStyle = trailFrom(P, { life: 0.35, width: 70, widthTail: 0.4, intensity: 0.7, falloff: 1.2, noise: 0.7, spacing: 12, rim: 0.3, flat: true }, 0.2)
 
 function addGhost(k: KitA, x: number, y: number, h: number, now: number, owner: number): void {
-  let g: Ghost
-  if (nGhost < ghosts.length) g = ghosts[nGhost++]
-  else {
-    g = ghosts[0]
-    for (const c of ghosts) if (c.born < g.born) g = c
-  }
+  const g = ghosts.acquire()
   k.teamRGB(owner)
   g.x = x
   g.y = y
@@ -66,19 +60,16 @@ function addGhost(k: KitA, x: number, y: number, h: number, now: number, owner: 
 }
 
 function drawGhosts(k: KitA, now: number): void {
-  let w = 0
-  for (let i = 0; i < nGhost; i++) {
-    const g = ghosts[i]
+  ghosts.sweep((g) => now - g.born <= GHOST_LIFE)
+  for (let i = 0; i < ghosts.n; i++) {
+    const g = ghosts.items[i]
     const age = now - g.born
-    if (age > GHOST_LIFE) continue
-    ghosts[w++] = g
     const f = 1 - age / GHOST_LIFE
     const a = f * f * 0.55
     // a body-shaped vertical glow (torso + head): reads as a fading silhouette
     k.bbStreak(g.x * S, (g.h + 62) * S, -g.y * S, 60 * S, 2.1, Math.PI / 2, g.r * a, g.g * a, g.b * a, 1.4)
     k.glowAt(g.x, g.y, g.h + 128, 34, g.r * a * 1.2, g.g * a * 1.2, g.b * a * 1.2, 1.8)
   }
-  nGhost = w
 }
 
 function slam(k: KitA, ctx: VfxCtx, x: number, y: number, dx: number, dy: number, h: number): void {
@@ -114,7 +105,7 @@ const mod: SpellVfx = {
   dispose() {
     releaseKit(K)
     K = null
-    nGhost = 0
+    ghosts.clear()
     lastGhost.clear()
     slamAt.clear()
     tierOf.clear()
@@ -210,7 +201,7 @@ const mod: SpellVfx = {
 
   frame(ctx) {
     const k = K
-    if (!k || nGhost === 0) return
+    if (!k || ghosts.n === 0) return
     k.begin()
     drawGhosts(k, ctx.now)
   },

@@ -82,6 +82,13 @@ export interface WarlockHandle {
    * cloth kick and the hit reaction still play.
    */
   hitFlash(enabled: boolean): void
+  /**
+   * Level of detail (default 0): 0 full; 1 far (cloth springs / front drape at
+   * half rate); 2 offscreen (skeleton at ~15 Hz, no pose layer, capsules or
+   * cloth update; events and fx state still tracked). Set it from the
+   * owner's frustum / distance test.
+   */
+  setDetail(level: 0 | 1 | 2): void
   /** Thrown off the feet along game direction (dx, dy): falls backwards, recovers when the slide slows. Big knockbacks do this automatically. */
   tumble(dx: number, dy: number): void
   /**

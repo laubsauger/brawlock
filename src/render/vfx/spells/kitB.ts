@@ -35,6 +35,21 @@ export function pal(id: string, which: 'core' | 'accent', lum: number): RGB {
   return withLuminance([c.r, c.g, c.b], lum, [0, 0, 0])
 }
 
+/**
+ * A spell identity colour with its saturation multiplied by `k` (same hue), at a target luminance.
+ * For near-white identities (Shield's cream accent) that would otherwise flatten to cream.
+ */
+export function palSat(id: string, which: 'core' | 'accent', k: number, lum: number): RGB {
+  const c = getSpellColor(id)[which]
+  const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+  const m: [number, number, number] = [
+    Math.max(0, l + (c.r - l) * k),
+    Math.max(0, l + (c.g - l) * k),
+    Math.max(0, l + (c.b - l) * k),
+  ]
+  return withLuminance(m, lum, m)
+}
+
 /** accent -> core mix (t 0..1) of a spell's identity, at a target luminance. */
 export function palMix(id: string, t: number, lum: number): RGB {
   const c = getSpellColor(id)
@@ -91,6 +106,17 @@ export function screenAngle(ctx: VfxCtx, x: number, y: number, h: number, dx: nu
 
 // ---------------------------------------------------------------- pools
 
+/**
+ * Static-usage attribute upload of the first `count` items (stride floats each). three's WebGPU
+ * backend re-uploads DynamicDrawUsage attributes in full every frame; static attributes with an
+ * update range upload only what was written (perf pass).
+ */
+export function markRange(a: THREE.BufferAttribute, count: number, stride = 4): void {
+  a.clearUpdateRanges()
+  a.addUpdateRange(0, count * stride)
+  a.needsUpdate = true
+}
+
 /** Anything kitBegin() resets each frame. */
 interface Resettable {
   begin(): void
@@ -116,7 +142,7 @@ export class GlowSprites implements Resettable {
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.p = mk()
@@ -193,9 +219,9 @@ export class GlowSprites implements Resettable {
     this.n++
     this.object.count = this.n
     this.object.visible = true
-    this.p.needsUpdate = true
-    this.c.needsUpdate = true
-    this.e.needsUpdate = true
+    markRange(this.p, this.n)
+    markRange(this.c, this.n)
+    markRange(this.e, this.n)
   }
 
   /** Game-space convenience (x, y ground, h height; size in game units). */
@@ -232,13 +258,13 @@ export class InstPool implements Resettable {
     const nodes: Node<'vec4'>[] = []
     for (let i = 0; i < nAttr; i++) {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       this.attrs.push(a)
       nodes.push(asV4(instancedBufferAttribute(a)))
     }
     const mat = build(nodes)
     this.object = new THREE.InstancedMesh(geo, mat, capacity)
-    this.object.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.object.instanceMatrix.setUsage(THREE.StaticDrawUsage)
     this.object.count = 0
     this.object.frustumCulled = false
     this.object.renderOrder = renderOrder
@@ -261,7 +287,7 @@ export class InstPool implements Resettable {
     this.object.setMatrixAt(i, this.mtx)
     this.object.count = this.n
     this.object.visible = true
-    this.object.instanceMatrix.needsUpdate = true
+    markRange(this.object.instanceMatrix, this.n, 16)
     return i
   }
 
@@ -273,7 +299,7 @@ export class InstPool implements Resettable {
     arr[o + 1] = b
     arr[o + 2] = c
     arr[o + 3] = d
-    this.attrs[k].needsUpdate = true
+    markRange(this.attrs[k], this.n)
   }
 
   dispose(): void {

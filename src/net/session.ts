@@ -183,9 +183,15 @@ export interface SessionDebug {
   /** client prediction: ticks re-simulated by the last / the largest rollback */
   resimTicks: number
   maxResimTicks: number
+  /** client prediction: wall ms of the last rollback (clone + re-sim) and the largest so far */
+  resimMs: number
+  maxResimMs: number
   /** client prediction: own frames the host applied after their stamp; margin ticks of the lead clock */
   lateFrames: number
   marginTicks: number
+  /** client prediction: lead the clock aims for (rtt + margin + 2 × jitter), and the snapshot jitter, ms */
+  leadMs: number
+  jitterMs: number
   /** host fairness delay on the host's own inputs, ticks */
   hostDelayTicks: number
 }
@@ -334,8 +340,19 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-function botName(d: BotDifficulty): string {
-  return `${cap(d)} Bot`
+/**
+ * Bot names: themed and unique within the lobby, so the score strip, plates,
+ * kill feed and banners can tell seven bots apart ("Ash, Cinder and Vex win",
+ * not "Hard Bot and Hard Bot and Hard Bot"). The difficulty is shown as a tag
+ * by the UI. Fallback when every name is taken: "Hard Bot 2".
+ */
+const BOT_NAMES = ['Ash', 'Cinder', 'Thorn', 'Vex', 'Sable', 'Rook', 'Wisp', 'Pyre', 'Slag', 'Hex', 'Morrow', 'Brand']
+
+function botName(d: BotDifficulty, taken: readonly { name: string }[]): string {
+  const used = new Set(taken.map((s) => s.name))
+  const free = BOT_NAMES.find((n) => !used.has(n))
+  if (free) return free
+  for (let i = 2; ; i++) if (!used.has(`${cap(d)} Bot ${i}`)) return `${cap(d)} Bot ${i}`
 }
 
 /** Bots of one difficulty share a stats identity, so "you vs Hard bots" is a record. */
@@ -815,8 +832,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
     }
 
-    // the previous state was handed to render: step a copy
-    const next = structuredClone(cur)
+    // the previous state was handed to render: step a copy (plain data: cloneState is
+    // the same deep copy as structuredClone, ~4× cheaper)
+    const next = cloneState(cur)
+    const patched = m.connectedPatch.size > 0
     if (m.connectedPatch.size) {
       for (const [id, c] of m.connectedPatch) {
         const sc = next.scores.find((s) => s.id === id)
@@ -834,7 +853,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
     if (f.pred) {
       // the host's view: its own delayed inputs predicted, display ticks `delay` ahead
-      f.pred.offer(next, f.applied, next.events.length ? [{ tick: next.tick, events: next.events }] : [])
+      // only the host's own frames (at their stamps) stepped: the predicted view already holds `next`
+      const confirms = !patched && inputs.every((i) => i.player === localPlayer)
+      f.pred.offer(next, f.applied, next.events.length ? [{ tick: next.tick, events: next.events }] : [], confirms)
       const goal = next.tick + f.delay
       f.pred.advance(goal, (display, events) => {
         out.pushState(display, at + (display.tick - goal) * DT_MS)
@@ -987,7 +1008,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         noteAck(cm, m.ack, now)
         cm.sender.ack(m.ack)
         cm.buffer.push(m, now)
-        cm.pred?.offer(m.state, m.ack, m.ev)
+        if (cm.pred) cm.pred.offer(m.state, m.ack, m.ev, confirmsPrediction(cm, cm.pred, m))
         checkDeterminism(cm, m, now)
         break
       }
@@ -1176,6 +1197,30 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       cm.ackLagMs = cm.ackLagMs === null ? lag : cm.ackLagMs * 0.8 + lag * 0.2
       cm.sentAt.delete(seq)
     }
+  }
+
+  /**
+   * The host stepped nothing since the previous snapshot but this client's own
+   * frames, each at its stamp (snap.in), and patched no `connected` flag: the
+   * prediction already holds this state, no rollback needed. Off after any failed
+   * determinism check (the prediction could not be trusted to equal the host's).
+   */
+  function confirmsPrediction(cm: ClientMatch, pred: Predictor, m: Extract<Msg, { t: 'snap' }>): boolean {
+    const prev = cm.check.prev
+    if (cm.check.desyncs > 0 || !prev || m.n !== prev.n + 1 || !Array.isArray(m.in)) return false
+    const a = prev.state
+    const b = m.state
+    if (b.tick <= a.tick) return false
+    for (let i = 0; i < b.scores.length; i++) if (a.scores[i]?.connected !== b.scores[i].connected) return false
+    const stepped = new Map<number, InputCommand[]>()
+    for (const x of m.in) {
+      if (!x || x.player !== cm.localPlayer || !Array.isArray(x.cmds)) return false
+      stepped.set(x.tick, x.cmds)
+    }
+    for (let t = a.tick; t < b.tick; t++) {
+      if (JSON.stringify(stepped.get(t) ?? []) !== JSON.stringify(pred.ownAt(t))) return false
+    }
+    return !pred.lateBefore(b.tick, m.ack)
   }
 
   /**
@@ -1413,7 +1458,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     addBot(difficulty) {
       if (!canEdit() || slots.length >= MAX_PLAYERS) return
-      addSlot({ name: botName(difficulty), kind: 'bot', difficulty, profileId: botProfileId(difficulty) })
+      addSlot({ name: botName(difficulty, slots), kind: 'bot', difficulty, profileId: botProfileId(difficulty) })
       publishLobby()
     },
 
@@ -1438,10 +1483,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (!canEdit()) return
       const s = slots.find((x) => x.id === player)
       if (!s || s.kind !== 'bot') return
-      const autoName = s.difficulty !== undefined && s.name === botName(s.difficulty)
+      // names no longer carry the difficulty, so a bot keeps its name
       s.difficulty = difficulty
       s.profileId = botProfileId(difficulty)
-      if (autoName) s.name = botName(difficulty)
       publishLobby()
     },
 
@@ -1603,8 +1647,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         predictAhead: pred && pred.tick >= 0 ? pred.tick - pred.base : 0,
         resimTicks: pred?.stats.resimTicks ?? 0,
         maxResimTicks: pred?.stats.maxResimTicks ?? 0,
+        resimMs: pred?.stats.resimMs ?? 0,
+        maxResimMs: pred?.stats.maxResimMs ?? 0,
         lateFrames: pred?.stats.lateFrames ?? 0,
         marginTicks: cm?.clock.marginTicks ?? 0,
+        leadMs: cm?.clock.leadMs ?? 0,
+        jitterMs: cm?.buffer.jitterMs ?? 0,
         hostDelayTicks: match?.fair.delay ?? 0,
       }
     },

@@ -15,6 +15,7 @@
  *   --crf 12          x264 quality of the per-shot intermediates
  *   --frames N        stop after N frames (tests)
  *   --stills t1,t2    also save PNG stills at these video seconds (<id>_<t>.png)
+ *   --static <dir>    capture from a snapshot build (vite.snapshot.config.ts) instead of the dev server
  *   --puppeteer <path to the puppeteer package> (default: wave-rider's node_modules)
  */
 import { spawn } from 'node:child_process'
@@ -62,9 +63,12 @@ function portOpen(port) {
 async function startServer() {
   if (flag('no-server')) return null
   if (await portOpen(PORT)) throw new Error(`port ${PORT} is busy; pick another with --port or pass --no-server`)
-  const vite = spawn(join(root, 'node_modules/.bin/vite'), ['--config', 'scripts/showcase/vite.showcase.config.ts'], {
+  // --static <dir>: serve a frozen snapshot build (vite.snapshot.config.ts) instead of the live tree
+  const STATIC = opt('static', '')
+  const viteArgs = STATIC ? ['preview', '--config', 'scripts/showcase/vite.snapshot.config.ts'] : ['--config', 'scripts/showcase/vite.showcase.config.ts']
+  const vite = spawn(join(root, 'node_modules/.bin/vite'), viteArgs, {
     cwd: root,
-    env: { ...process.env, SHOWCASE_PORT: String(PORT) },
+    env: { ...process.env, SHOWCASE_PORT: String(PORT), ...(STATIC ? { SNAP_OUT: resolve(STATIC) } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   vite.stdout.on('data', () => {})

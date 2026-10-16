@@ -4,7 +4,7 @@ import { DUMMIES, HERO, chapter, slowmo, spellLower, stage } from './common'
 
 export const LAYER = 18
 /** shot staging row: action happens around this y so the lava rim backs the frame */
-const Y = 700
+const Y = 1060
 
 export const KIT_SHOTS: ShotSpec[] = [
   {
@@ -21,7 +21,7 @@ export const KIT_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.castAt(0, 'fireball', 1)]],
     camera: stage({ pitch: 40, yaw: 10, push: 0.08 }),
-    overlay: { lower: spellLower('Fireball', 'fireball', 'kit', 'Straight, fast, reliable. Blows its victim apart.'), plates: false },
+    overlay: { lower: spellLower('Fireball', 'fireball', 'kit', 'Straight, fast, reliable. Big knockback.'), plates: false, nums: false },
   },
   {
     id: 'kit_scourge',
@@ -43,7 +43,7 @@ export const KIT_SHOTS: ShotSpec[] = [
     script: [[0.2, (s) => s.cast(0, 'scourge', 0, Y)]],
     speed: slowmo(1.12, 1.42, 0.3, 0.06),
     camera: stage({ pitch: 36, yawAbs: -18, push: 0.12, dolly: 10, margin: 0.8 }),
-    overlay: { lower: spellLower('Scourge', 'scourge', 'kit', 'Charge it, then blast everyone around you. Costs you 100 HP.'), plates: false },
+    overlay: { lower: spellLower('Scourge', 'scourge', 'kit', 'Charge it, then blast everyone around you. Costs you 100 HP.'), plates: false, nums: false },
   },
 ]
 
@@ -61,7 +61,7 @@ export const COL1_SHOTS: ShotSpec[] = [
     },
     script: [[0.25, (s) => s.castAt(0, 'boomerang', 1)]],
     camera: stage({ pitch: 54, yaw: 0, push: 0.06 }),
-    overlay: { card: chapter(0), lower: spellLower('Boomerang', 'boomerang', 0, 'Arcs out, cuts through, and comes back to you.', 1.3), plates: false },
+    overlay: { card: chapter(0), lower: spellLower('Boomerang', 'boomerang', 0, 'Arcs out, cuts through, and comes back to you.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c1_lightning',
@@ -76,7 +76,7 @@ export const COL1_SHOTS: ShotSpec[] = [
     },
     script: [[0.35, (s) => s.castAt(0, 'lightning', 1)]],
     camera: stage({ pitch: 38, yaw: 14, push: 0.08, margin: 0.85 }),
-    overlay: { lower: spellLower('Lightning', 'lightning', 0, 'Instant. The first thing in its path takes all of it.'), plates: false },
+    overlay: { lower: spellLower('Lightning', 'lightning', 0, 'Instant. The first thing in its path takes all of it.'), plates: false, nums: false },
   },
   {
     id: 'c1_combo',
@@ -99,7 +99,7 @@ export const COL1_SHOTS: ShotSpec[] = [
     ],
     speed: slowmo(0.92, 1.2, 0.3, 0.05),
     camera: stage({ pitch: 44, yaw: 10, push: 0.07, exclude: ['lightning'] }),
-    overlay: { lower: { name: 'Lightning × Fireball', spell: 'lightning', kicker: 'Combo', kickerColor: '#ff7a2a', line: 'Strike your own Fireball to detonate it mid-flight.' }, plates: false },
+    overlay: { lower: { name: 'Lightning × Fireball', spell: 'lightning', kicker: 'Combo', kickerColor: '#ff7a2a', line: 'Strike your own Fireball to detonate it mid-flight.' }, plates: false, nums: false },
   },
   {
     id: 'c1_homing',
@@ -116,8 +116,8 @@ export const COL1_SHOTS: ShotSpec[] = [
       [0.05, (s) => s.move(1, 160, Y - 500)],
       [0.3, (s) => s.cast(0, 'homing', 120, Y + 260)],
     ],
-    camera: stage({ pitch: 56, yaw: 0, push: 0.05 }),
-    overlay: { lower: spellLower('Homing', 'homing', 0, 'Hunts the nearest enemy, wherever they run.'), plates: false },
+    camera: stage({ pitch: 56, yaw: 0, push: 0.05, minPx: 88 }),
+    overlay: { lower: spellLower('Homing', 'homing', 0, 'Hunts the nearest enemy, wherever they run.'), plates: false, nums: false },
   },
   {
     id: 'c1_twin',
@@ -132,6 +132,6 @@ export const COL1_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.castAt(0, 'twin', 1)]],
     camera: stage({ pitch: 56, yaw: 0, push: 0.07 }),
-    overlay: { lower: spellLower('Twin', 'twin', 0, 'Two bolts swing out on mirrored arcs and meet at the target.'), plates: false },
+    overlay: { lower: spellLower('Twin', 'twin', 0, 'Two bolts swing out on mirrored arcs and meet at the target.'), plates: false, nums: false },
   },
 ]

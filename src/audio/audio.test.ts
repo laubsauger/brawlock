@@ -15,7 +15,7 @@ import { asContext, MockAudioContext } from './mockContext'
 /** One sample of every SimEvent type. The mapped type makes this fail to compile when a type is added. */
 const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   cast: { type: 'cast', pawn: 1, spell: 'fireball', x: 500, y: 0 },
-  castStart: { type: 'castStart', pawn: 1, spell: 'scourge', ticks: 54 },
+  castStart: { type: 'castStart', pawn: 1, spell: 'scourge', ticks: 54, level: 3 },
   projectileSpawn: { type: 'projectileSpawn', id: 9, spell: 'fireball' },
   projectileHit: { type: 'projectileHit', id: 9, spell: 'fireball', x: 300, y: 0, target: 2 },
   projectileExpire: { type: 'projectileExpire', id: 9, spell: 'fireball', x: 900, y: 0 },
@@ -139,6 +139,19 @@ describe('audio: event mapping', () => {
     const scourge = planEvents([SAMPLES.castStart], LISTENER)[0]
     const cut = planEvents([{ type: 'castCancel', pawn: 1, spell: 'scourge', slot: 7, started: true }], LISTENER)[0]
     expect(cut.stopKey).toBe(scourge.key)
+  })
+
+  it('Scourge escalates with level: the starting-kit L1 is modest, the full blast is reserved for L3', () => {
+    // everyone casts L1 Scourge every round; at full volume it drowns out the rest of the fight
+    const windup = (level: number) => planEvents([{ ...SAMPLES.castStart, level }], LISTENER)[0]
+    const blast = (level: number) => planEvents([{ ...SAMPLES.explosion, level }], LISTENER)[0]
+    expect(windup(1).gain).toBeLessThan(windup(2).gain)
+    expect(windup(2).gain).toBeLessThan(windup(3).gain)
+    expect(blast(1).gain).toBeLessThan(blast(3).gain)
+    // the recipe also gets the level, so L1 is a lighter sound, not only a quieter one
+    expect([blast(1).param, blast(3).param]).toEqual([1, 3])
+    // an event without a level (never sent by the sim) falls back to the modest L1
+    expect(planEvents([{ ...SAMPLES.explosion, level: undefined }], LISTENER)[0].gain).toBe(blast(1).gain)
   })
 
   it('a fireball in flight is heard along its path, swoops as it passes, and stops on impact', () => {

@@ -10,6 +10,7 @@ import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
+import { MatchLayer } from './ui/MatchLayer'
 import { NetGraph } from './ui/NetGraph'
 import { startNetMonitor } from './ui/lib/netmonitor'
 import { InkFilters } from './ui/InkFilters'
@@ -83,7 +84,11 @@ function useUiScale() {
       root.setProperty('--ui-scale', scale.toFixed(3))
       // docks are in unscaled px (zoom scales them); neither may reach the screen center
       const half = window.innerWidth / 2
-      root.setProperty('--dock-right-w', `${Math.round(Math.max(300, Math.min(700, (half - 64) / scale)))}px`)
+      const dockRight = Math.max(300, Math.min(700, (half - 64) / scale))
+      root.setProperty('--dock-right-w', `${Math.round(dockRight)}px`)
+      // score strip width (unscaled px) that stays centered and clear of the open right dock: it wraps instead
+      const clear = window.innerWidth - 10 - dockRight * scale - half - 12
+      root.setProperty('--strip-max-w', `${Math.round(Math.max(300, (2 * clear) / scale))}px`)
       root.setProperty('--dock-left-w', `${Math.round(Math.max(240, Math.min(330, (half - 120) / scale)))}px`)
     }
     apply()
@@ -148,7 +153,10 @@ export default function App() {
     <div className="relative h-full overflow-hidden">
       <InkFilters />
       {BACKDROP.has(screen) && <Backdrop />}
-      <main key={screen} className="absolute inset-0">
+      {/* lobby -> match -> results: one match scene instance, warmed hidden in the lobby */}
+      <MatchLayer />
+      {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
+      <main key={screen} className={`absolute inset-0 ${screen === 'match' ? 'pointer-events-none' : ''}`}>
         {screen === 'menu' && <MainMenu />}
         {screen === 'lobby' && <Lobby />}
         {screen === 'match' && <Match />}

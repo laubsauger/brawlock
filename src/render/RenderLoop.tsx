@@ -35,6 +35,7 @@ import { warlockParams } from './character'
 import { tierConfig } from './quality'
 import { postState } from './scene/MatchWorld'
 import { getNoiseTexture } from './scene/noiseTexture'
+import * as frameCull from './frameCull'
 import { perfMark, perfProbe, renderStats } from './stats'
 
 /** HDR ceilings (linear, max channel). Scene: before bloom/composite (bloom
@@ -78,7 +79,18 @@ type TsRenderer = THREE.WebGPURenderer & { resolveTimestampsAsync?: (type?: stri
  * HDR clamp -> tone map (no bloom). Every tier clamps HDR so no effect can
  * white out the screen.
  */
-export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: number; inspect: boolean }) {
+export function RenderLoop({
+  quality,
+  fx,
+  inspect,
+  idle,
+}: {
+  quality: Quality
+  fx: number
+  inspect: boolean
+  /** true = skip rendering (a hidden, already warmed view) */
+  idle?: { current: boolean }
+}) {
   const gl = useThree((s) => s.gl) as unknown as TsRenderer
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera)
@@ -188,6 +200,12 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
 
   useEffect(() => () => pipeline.dispose(), [pipeline])
 
+  // visible-only matrix updates (frameCull) for this canvas's scene
+  useEffect(() => {
+    frameCull.adoptScene(scene)
+    return () => frameCull.releaseScene(scene)
+  }, [scene])
+
   // real GPU cost: render N frames back to back, wait for the queue to drain
   useEffect(() => {
     const device = (gl as unknown as { backend?: { device?: GPUDevice } }).backend?.device
@@ -200,13 +218,28 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
       const nodeFrame = (gl as unknown as { _nodes?: { nodeFrame?: { update(): void } } })._nodes?.nodeFrame
       for (let i = 0; i < frames; i++) {
         nodeFrame?.update()
+        frameCull.beginFrame(scene)
         pipeline.render()
+        frameCull.endFrame()
       }
       await device.queue.onSubmittedWorkDone()
       return (performance.now() - t0) / frames
     }
+    perfProbe.benchCpu = (frames = 120) => {
+      const nodeFrame = (gl as unknown as { _nodes?: { nodeFrame?: { update(): void } } })._nodes?.nodeFrame
+      const t0 = performance.now()
+      for (let i = 0; i < frames; i++) {
+        nodeFrame?.update()
+        perfProbe.worldStep?.(1 / 60)
+        frameCull.beginFrame(scene)
+        pipeline.render()
+        frameCull.endFrame()
+      }
+      return (performance.now() - t0) / frames
+    }
     return () => {
       perfProbe.bench = null
+      perfProbe.benchCpu = null
     }
   }, [gl, pipeline, scene, camera])
 
@@ -253,13 +286,19 @@ export function RenderLoop({ quality, fx, inspect }: { quality: Quality; fx: num
   }, [eff])
 
   useFrame((state, dt) => {
+    if (idle?.current) return
     const t0 = performance.now()
     u.time.value += dt
     u.frame.value = (u.frame.value + 1) % 61
     u.hurt.value = Math.min(0.8, postState.hurt) * Math.max(0.3, fx)
     const size = state.size
     u.aspect.value = size.width / Math.max(1, size.height)
-    pipeline.render()
+    frameCull.beginFrame(scene)
+    try {
+      pipeline.render()
+    } finally {
+      frameCull.endFrame()
+    }
 
     const p = perf.current
     const now = performance.now()

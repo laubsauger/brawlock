@@ -104,7 +104,11 @@ export interface VfxCtx {
   pawn(id: EntityId): PawnRenderInfo | null
   /** pawn render info by owner player id */
   pawnOf(owner: number): PawnRenderInfo | null
-  /** team colour of a player */
+  /**
+   * identity colour of a player: the TEAM colour in Teams / Shuffle (live,
+   * PLAYER_COLORS[team], matching HUD pills and banners), the slot colour in
+   * FFA. Use this for caster tints. (render/teamColors: colorForPawn)
+   */
   colorOf(owner: number): number
   /** floor height at a game position: tile top, or the lava surface */
   floorAt(x: number, y: number): number

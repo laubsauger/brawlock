@@ -207,16 +207,26 @@ export function kring(ctx: VfxCtx, kind: number, x: number, y: number, h: number
   ctx.ground.spawn(kind, x, y, h, r0, r1, life, thickness, r * k, g * k, b * k)
 }
 
-/** set a single upload range, reusing the range object (no per-frame allocation) */
+const ranges = new WeakMap<THREE.BufferAttribute, { start: number; count: number }>()
+
+/**
+ * Upload only the used part of a per-frame attribute. Attributes are StaticDrawUsage: three's
+ * WebGPU backend re-uploads every DynamicDrawUsage attribute in FULL on every frame (and again
+ * for every extra draw of it), which made these buffers the biggest render cost. A static one
+ * is written only when its version changes, and only the ranges given here. Nothing to draw =
+ * no upload at all. The range object is reused (no per-frame allocation).
+ */
 function uploadRange(a: THREE.BufferAttribute, start: number, count: number): void {
-  const r = a.updateRanges
-  if (r.length === 1) {
-    r[0].start = start
-    r[0].count = count
-  } else {
-    a.clearUpdateRanges()
-    a.addUpdateRange(start, count)
+  if (count <= 0) return
+  let r = ranges.get(a)
+  if (!r) {
+    r = { start: 0, count: 0 }
+    ranges.set(a, r)
   }
+  r.start = start
+  r.count = count
+  a.updateRanges.length = 0
+  a.updateRanges.push(r)
   a.needsUpdate = true
 }
 
@@ -252,7 +262,7 @@ class Strips {
     const g = new THREE.BufferGeometry()
     const mk = (n: number) => {
       const a = new THREE.BufferAttribute(new Float32Array(cap * n), n)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.aPos = mk(3)
@@ -264,7 +274,7 @@ class Strips {
     g.setAttribute('sAux', this.aAux)
     g.setAttribute('sEdge', this.aEdge)
     this.aIdx = new THREE.BufferAttribute(new Uint16Array(cap * 3), 1)
-    this.aIdx.setUsage(THREE.DynamicDrawUsage)
+    this.aIdx.setUsage(THREE.StaticDrawUsage)
     g.setIndex(this.aIdx)
     g.setDrawRange(0, 0)
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5)
@@ -459,7 +469,7 @@ class Glyphs {
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.g0 = mk()
@@ -694,7 +704,7 @@ class Cores {
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.attrs = [mk(), mk(), mk(), mk(), mk()]

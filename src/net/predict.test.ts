@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { cloneState, hashState, step } from '../sim'
 import { fight, pawn } from '../sim/testkit'
 import type { InputCommand, PlayerInput, SimEvent, SimState } from '../sim/types'
-import { EventLedger, LeadClock, MAX_AHEAD_TICKS, Predictor, SNAP_DIST, type LocalFrame } from './predict'
+import { EventLedger, FORCE_REBASE_TICKS, LeadClock, MAX_AHEAD_TICKS, Predictor, SNAP_DIST, type LocalFrame } from './predict'
 import { GradeTracker, LossTracker, gradeOf } from './netstats'
 
 const hashNoEvents = (s: SimState) => hashState({ ...s, events: [] })
@@ -25,6 +25,8 @@ function simulate(opts: {
   remote?: (t: number) => InputCommand[] | null
   /** extra ticks a frame takes on its way (late inputs) */
   inputDelay?: (seq: number) => number
+  /** offer every snapshot as confirming the prediction (true even when it does not: a lying caller) */
+  confirmAll?: boolean
 }) {
   const host = fight(2)
   const start = host.tick
@@ -66,7 +68,7 @@ function simulate(opts: {
     // client
     while (snaps.length && snaps[0].at <= w) {
       const s = snaps.shift()!
-      pred.offer(s.state, s.ack)
+      pred.offer(s.state, s.ack, [], opts.confirmAll === true)
       latest = s.state.tick
     }
     // a player issues orders once they see the match (before that a stamp means nothing)
@@ -199,6 +201,28 @@ describe('Predictor', () => {
     expect(maxErr).toBeLessThan(25)
   })
 
+  /**
+   * Why: most snapshots only confirm what the client already predicted (bots and
+   * players issue sticky orders, a few per second). Skipping those rollbacks cuts the
+   * re-sim cost several times over and must not cost any exactness.
+   */
+  it('confirmed snapshots skip the rollback and every displayed tick stays exact', () => {
+    const s0 = fight(2)
+    const { shown, hostHash, pred } = simulate({ oneWay: 5, ticks: 600, own: wander(s0, 1, 23), confirmAll: true })
+    for (const d of shown) if (hostHash.has(d.tick)) expect(hashNoEvents(d)).toBe(hostHash.get(d.tick))
+    expect(pred.stats.confirms).toBeGreaterThan(pred.stats.rebases * 5)
+  })
+
+  /** Why: a wrong "confirmed" (a bug, a desync) must never drift for long: a rollback still happens periodically. */
+  it('a wrong confirmation heals within FORCE_REBASE_TICKS', () => {
+    const s0 = fight(2)
+    const remote = wander(s0, 0, 29, 7)
+    const res = simulate({ oneWay: 5, ticks: 500, own: wander(s0, 1, 37), remote: (t) => (t < 300 ? remote(t) : null), confirmAll: true })
+    const after = res.shown.filter((d) => d.tick > 300 + FORCE_REBASE_TICKS + 2 * 5 + 20 && res.hostHash.has(d.tick))
+    expect(after.length).toBeGreaterThan(50)
+    for (const d of after) expect(hashNoEvents(d)).toBe(res.hostHash.get(d.tick))
+  })
+
   it('re-simulation never exceeds MAX_AHEAD_TICKS and display ticks only go forward', () => {
     const s0 = fight(2)
     const res = simulate({ oneWay: 30, ticks: 300, own: wander(s0, 1, 17) })
@@ -293,6 +317,25 @@ describe('LeadClock', () => {
       expect(t).toBeGreaterThanOrEqual(last)
       last = t
     }
+  })
+
+  /**
+   * Why: a match start stalls the tab (shader compile) and inflates the jitter and RTT
+   * estimates for a moment. The lead must stay capped and come back within a couple
+   * of seconds, or the client predicts 300+ ms ahead (big remote corrections, 3× the re-sim).
+   */
+  it('recovers from a stall spike: lead capped, back near its target within ~2 s', () => {
+    const c = new LeadClock()
+    const base = 1000
+    const ahead = (now: number) => c.tickAt(now) - (now - base) / (1000 / 60)
+    for (let now = 0; now < 1000; now += 4) c.update(now, base, 100, 5)
+    const steady = ahead(1000)
+    expect(steady).toBeCloseTo((100 + 16.7 + 10) / 16.7, 0)
+    // a 2 s stall: jitter estimate 850 ms, RTT 330 ms
+    for (let now = 1000; now < 3000; now += 4) c.update(now, base, 330, 850)
+    expect(ahead(3000)).toBeLessThanOrEqual(MAX_AHEAD_TICKS - 2 + 0.01)
+    for (let now = 3000; now < 5500; now += 4) c.update(now, base, 100, 8)
+    expect(ahead(5500)).toBeLessThan(steady + 1.5)
   })
 
   it('widens the margin after late frames and narrows it after a calm spell', () => {

@@ -165,11 +165,11 @@ export class Obstacles {
     const geos = [columnGeometry(), spireGeometry(), standingStoneGeometry()]
     geos.forEach((g, k) => {
       const attr = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-      attr.setUsage(THREE.DynamicDrawUsage)
+      attr.setUsage(THREE.StaticDrawUsage)
       g.setAttribute('aObs', attr)
       const mat = this.material(k)
       const mesh = new THREE.InstancedMesh(g, mat, CAPACITY)
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
       mesh.count = 0
       mesh.frustumCulled = false
       mesh.castShadow = ctx.tier.shadowMap > 0

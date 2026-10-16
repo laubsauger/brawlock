@@ -14,6 +14,7 @@
 import type { SimEvent } from '../../../sim/types'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
 import { G_RETICLE, G_RUNE, G_SHOCK, G_SIGIL, PH, acquireKit, kflash, palFor, pspawn, releaseKit, windupProgress, type KitA } from './kitA'
+import { LivePool } from './livePool'
 
 const P = palFor('redirector')
 let K: KitA | null = null
@@ -29,10 +30,9 @@ interface Turn {
   ny: number
   born: number
 }
-const turns: Turn[] = []
-let nTurn = 0
-for (let i = 0; i < 8; i++) turns.push({ id: -1, x: 0, y: 0, ox: 1, oy: 0, nx: 1, ny: 0, born: -10 })
-const TURN_LIFE = 0.5
+const turns = new LivePool<Turn>(8, () => ({ id: -1, x: 0, y: 0, ox: 1, oy: 0, nx: 1, ny: 0, born: -10 }), (a, b) => a.born < b.born)
+/** how long the redirect stays legible: pivot rune, ground chevrons and the riding ring */
+const TURN_LIFE = 1.3
 
 function projVel(list: { id: number; vx: number; vy: number }[] | undefined, id: number, out: { x: number; y: number }): boolean {
   if (!list) return false
@@ -52,44 +52,68 @@ const vNew = { x: 1, y: 0 }
 
 function drawTurns(k: KitA, ctx: VfxCtx): void {
   const now = ctx.now
-  let w = 0
-  for (let i = 0; i < nTurn; i++) {
-    const t = turns[i]
+  turns.sweep((t) => now - t.born <= TURN_LIFE)
+  for (let i = 0; i < turns.n; i++) {
+    const t = turns.items[i]
     const age = now - t.born
-    if (age > TURN_LIFE) continue
-    turns[w++] = t
-    const f = 1 - age / TURN_LIFE
-    // pin at the pivot
-    k.air.add(G_RUNE, t.x, t.y, PH, 34, now * 4, P.body[0], P.body[1], P.body[2], 1.4 * f, 1, t.id)
-    k.glowAt(t.x, t.y, PH, 46, P.hot[0] * 0.5 * f, P.hot[1] * 0.5 * f, P.hot[2] * 0.5 * f, 2.6)
-    // bent swoosh: old heading in, curve through the pin, new heading out
-    k.stripBegin(false, 1.5, 0.3, t.born * 13)
-    const N = 16
-    for (let j = 0; j <= N; j++) {
-      const s = j / N
-      // quadratic bezier: A (behind on the old line) -> pin -> B (ahead on the new line)
-      const ax = t.x - t.ox * 140
-      const ay = t.y - t.oy * 140
-      const bx = t.x + t.nx * 160
-      const by = t.y + t.ny * 160
-      const u = 1 - s
-      const px = u * u * ax + 2 * u * s * t.x + s * s * bx
-      const py = u * u * ay + 2 * u * s * t.y + s * s * by
-      const a = Math.sin(Math.PI * s) * f
-      k.stripPoint(px, py, PH, 26 * (0.4 + s * 0.6), P.body[0], P.body[1], P.body[2], 1.3 * a)
+    // the burst (pin flare + bent swoosh) is quick; the markers linger for the whole TURN_LIFE
+    const fq = Math.max(0, 1 - age / 0.5)
+    const fl = 1 - age / TURN_LIFE
+    const linger = Math.min(1, fl / 0.35)
+    // pin at the pivot: a turning bronze rune that stays put where the redirect happened
+    k.air.add(G_RUNE, t.x, t.y, PH, 34, now * 4, P.body[0], P.body[1], P.body[2], 0.8 * linger + 0.6 * fq, 1, t.id)
+    k.glowAt(t.x, t.y, PH, 46, P.hot[0] * 0.5 * fq, P.hot[1] * 0.5 * fq, P.hot[2] * 0.5 * fq, 2.6)
+    // lingering ground marker: a bronze ring at the pivot with a chevron arrow pointing the new heading
+    const flo = k.floor(t.x, t.y) + 2
+    k.ground.add(G_SHOCK, t.x, t.y, flo, 46, 0, P.body[0], P.body[1], P.body[2], 0.9 * linger, 0.85, 0.08)
+    for (let c = 0; c < 3; c++) {
+      // three chevrons marching out along the new heading
+      const d = 52 + c * 34 + ((age * 140) % 34)
+      const cx = t.x + t.nx * d
+      const cy = t.y + t.ny * d
+      const a = linger * (1 - c * 0.25)
+      k.stripBegin(true, 1.8, 0, 0)
+      k.stripPoint(cx - t.nx * 14 - t.ny * 16, cy - t.ny * 14 + t.nx * 16, flo, 9, P.body[0], P.body[1], P.body[2], 1.2 * a)
+      k.stripPoint(cx, cy, flo, 9, P.hot[0] * 0.7, P.hot[1] * 0.7, P.hot[2] * 0.7, 1.4 * a)
+      k.stripPoint(cx - t.nx * 14 + t.ny * 16, cy - t.ny * 14 - t.nx * 16, flo, 9, P.body[0], P.body[1], P.body[2], 1.2 * a)
+      k.stripEnd()
     }
-    k.stripEnd()
-    // the bronze ring riding the projectile
+    // bent swoosh: old heading in, curve through the pin, new heading out
+    if (fq > 0) {
+      k.stripBegin(false, 1.5, 0.3, t.born * 13)
+      const N = 16
+      for (let j = 0; j <= N; j++) {
+        const sN = j / N
+        // quadratic bezier: A (behind on the old line) -> pin -> B (ahead on the new line)
+        const ax = t.x - t.ox * 140
+        const ay = t.y - t.oy * 140
+        const bx = t.x + t.nx * 160
+        const by = t.y + t.ny * 160
+        const u = 1 - sN
+        const px = u * u * ax + 2 * u * sN * t.x + sN * sN * bx
+        const py = u * u * ay + 2 * u * sN * t.y + sN * sN * by
+        const a = Math.sin(Math.PI * sN) * fq
+        k.stripPoint(px, py, PH, 26 * (0.4 + sN * 0.6), P.body[0], P.body[1], P.body[2], 1.3 * a)
+      }
+      k.stripEnd()
+    }
+    // the bronze ring riding the redirected projectile, shedding bronze sparks
     const s = ctx.state
     if (s) {
       for (const p of s.projectiles) {
         if (p.id !== t.id) continue
-        k.air.add(G_SHOCK, p.x, p.y, PH, Math.max(30, p.radius) * 1.8, 0, P.body[0], P.body[1], P.body[2], 1.1 * f, 0.75, 0.08)
+        k.air.add(G_SHOCK, p.x, p.y, PH, Math.max(30, p.radius) * 1.8, now * 3, P.body[0], P.body[1], P.body[2], 1.1 * linger, 0.75, 0.08)
+        const ps = ctx.particles
+        const n = ps.budget(ctx.dt * 30 * linger)
+        for (let q = 0; q < n; q++) {
+          const a = Math.random() * Math.PI * 2
+          const rr = Math.max(30, p.radius) * 1.8
+          pspawn(ps, p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, PH, Math.cos(a) * 60, Math.sin(a) * 60, 40, 0.35, 6, 1, P.spark[0], P.spark[1], P.spark[2], -200, 2, 4)
+        }
         break
       }
     }
   }
-  nTurn = w
 }
 
 /** signature charge-up: a bronze compass, its needle swinging onto the target */
@@ -116,7 +140,7 @@ const mod: SpellVfx = {
   dispose() {
     releaseKit(K)
     K = null
-    nTurn = 0
+    turns.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -144,12 +168,7 @@ const mod: SpellVfx = {
           vOld.x = vNew.x
           vOld.y = vNew.y
         }
-        let t: Turn
-        if (nTurn < turns.length) t = turns[nTurn++]
-        else {
-          t = turns[0]
-          for (const q of turns) if (q.born < t.born) t = q
-        }
+        const t = turns.acquire()
         t.id = e.target
         t.x = e.x
         t.y = e.y
@@ -189,7 +208,7 @@ const mod: SpellVfx = {
       k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
       signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
     }
-    if (nTurn > 0) {
+    if (turns.n > 0) {
       k.begin()
       drawTurns(k, ctx)
     }

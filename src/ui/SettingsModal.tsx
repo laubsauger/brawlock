@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useGame, type CastMode, type Quality } from '../game/store'
+import { useGame, type CastMode, type Quality, type Settings } from '../game/store'
 import { Button, Kbd, Modal, Row, Segmented, Slider, Switch } from './widgets'
 import { ACTION_LABEL, BIND_GROUPS, bindLabel, keyLabel, PRESET_INFO, resolveBinds, type BindAction } from './lib/keys'
 import { forcedSynth, sfx } from './lib/sound'
@@ -8,6 +8,14 @@ import { toggleFullscreen, useFullscreen } from './lib/fullscreen'
 import { slotDragProps } from './lib/slotDnd'
 import { audio } from '../audio'
 import { chooseName } from './lib/name'
+
+const FPS_CAPS = [
+  { value: '0', label: 'Off' },
+  { value: '30', label: '30' },
+  { value: '60', label: '60' },
+  { value: '120', label: '120' },
+  { value: '144', label: '144' },
+]
 
 const QUALITY: { value: Quality; label: string }[] = [
   { value: 'low', label: 'Low' },
@@ -252,9 +260,22 @@ export function SettingsModal() {
         <Row label="Fullscreen" hint="Also Alt+Enter at any time">
           <Switch label="Fullscreen" checked={fullscreen} onChange={() => void toggleFullscreen()} />
         </Row>
-        <Row label="Effects intensity" hint="Screen shake, flashes and post effects">
+        <Row label="Effects intensity" hint="Flashes, post effects, and how hard effects shake the screen">
           <div className="w-56">
             <Slider label="Effects intensity" value={s.fxIntensity} onChange={(fxIntensity) => setSettings({ fxIntensity })} />
+          </div>
+        </Row>
+        <Row label="Screen shake" hint={(s.screenShake ?? 1) === 0 ? 'Off: the camera never shakes' : 'Camera shake and hit kick'}>
+          <div className="w-56">
+            <Slider label="Screen shake" value={s.screenShake ?? 1} onChange={(screenShake) => setSettings({ screenShake })} />
+          </div>
+        </Row>
+        <Row label="Frame rate limit" hint={(s.fpsCap ?? 0) === 0 ? 'Runs at your display refresh rate' : `At most ${s.fpsCap} frames per second; saves power and heat`}>
+          <Segmented label="Frame rate limit" value={String(s.fpsCap ?? 0)} options={FPS_CAPS} onChange={(v) => setSettings({ fpsCap: Number(v) as Settings['fpsCap'] })} />
+        </Row>
+        <Row label="Resolution scale" hint="Lower renders fewer pixels: smoother on weak GPUs, softer image">
+          <div className="w-56">
+            <Slider label="Resolution scale" value={s.resolutionScale ?? 1} min={0.5} max={1} step={0.05} onChange={(resolutionScale) => setSettings({ resolutionScale })} />
           </div>
         </Row>
       </Section>
@@ -341,6 +362,12 @@ export function SettingsModal() {
           <div className="w-56">
             <Slider label="HUD scale" value={s.uiScale ?? 1} min={0.8} max={1.2} step={0.05} onChange={(uiScale) => setSettings({ uiScale })} />
           </div>
+        </Row>
+        <Row label="Colorblind-safe player colors" hint="Swaps the player and team colors for a palette that stays distinct with color vision deficiency, and adds a shape next to every name">
+          <Switch label="Colorblind-safe player colors" checked={!!s.colorblindPalette} onChange={(colorblindPalette) => setSettings({ colorblindPalette })} />
+        </Row>
+        <Row label="Key hints" hint="The small key legend at the bottom left of a match">
+          <Switch label="Key hints" checked={s.showHints ?? true} onChange={(showHints) => setSettings({ showHints })} />
         </Row>
         <Row label="Performance overlay" hint="Frame rate, frame time, GPU time and ping. Also F2">
           <Switch label="Performance overlay" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />

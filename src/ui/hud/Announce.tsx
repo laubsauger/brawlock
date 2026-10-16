@@ -9,8 +9,9 @@ import { displayName } from '../data/catalog'
 export type BannerTone = 'normal' | 'count' | 'fight' | 'danger' | 'win'
 
 export interface KillEntry {
-  killer: { name: string; color: string } | null
-  victim: { name: string; color: string }
+  /** glyph: shape next to the name, only with the colourblind palette */
+  killer: { name: string; color: string; glyph?: string } | null
+  victim: { name: string; color: string; glyph?: string }
   /** spell / item id of the last hit, if known */
   cause: string | null
   /** died in the lava (the killer, if any, pushed them there) */
@@ -97,9 +98,14 @@ function LavaIcon() {
   )
 }
 
-function Name({ who }: { who: { name: string; color: string } }) {
+function Name({ who }: { who: { name: string; color: string; glyph?: string } }) {
   return (
     <b className="max-w-[10rem] truncate font-bold" style={{ color: who.color }}>
+      {who.glyph && (
+        <span className="mr-1" aria-hidden>
+          {who.glyph}
+        </span>
+      )}
       {who.name}
     </b>
   )

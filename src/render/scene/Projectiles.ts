@@ -60,7 +60,7 @@ export class Projectiles {
   ) {
     const geo = new THREE.IcosahedronGeometry(1, 2)
     this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-    this.aCol.setUsage(THREE.DynamicDrawUsage)
+    this.aCol.setUsage(THREE.StaticDrawUsage)
     geo.setAttribute('aCol', this.aCol)
     const A = asV4(attribute('aCol', 'vec4'))
     const viewDir = positionView.negate().normalize()
@@ -83,7 +83,7 @@ export class Projectiles {
     m.name = 'ProjectileCore'
     this.material = m
     this.mesh = new THREE.InstancedMesh(geo, m, CAPACITY)
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
     this.mesh.count = 0
     this.mesh.frustumCulled = false
     // drawn after particles and halos so the hitbox core always reads on top

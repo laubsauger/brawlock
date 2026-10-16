@@ -32,7 +32,7 @@ export class GroundFx {
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.b0 = mk()

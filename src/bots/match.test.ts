@@ -152,5 +152,5 @@ describe('bots: headless matches on the real sim', () => {
         expect(meter.worstTicks, `${diffs.join(' vs ')} seed ${seed}`).toBeLessThanOrEqual(60)
       }
     }
-  })
+  }, 20_000) // several seeded full matches: ~3-4 s alone, more under a loaded parallel run
 })

@@ -151,6 +151,9 @@ const SCRIPTS: Record<string, Step[]> = {
     [70, (l) => put(l, 0, -180, -20), 'lightningx: fireball detonation (r225)'],
     [2, (l) => castFacing(l, 0, 'fireball', at(1).x, at(1).y)],
     [24, (l) => castFacing(l, 0, 'lightning', at(1).x, at(1).y)],
+    // miss with the tip over lava: caster near the west rim, firing outward
+    [70, (l) => put(l, 0, -1250, 0), 'lightningx: miss over lava'],
+    [2, (l) => castFacing(l, 0, 'lightning', -1900, 0)],
     [80, () => {}],
   ],
   homing: [

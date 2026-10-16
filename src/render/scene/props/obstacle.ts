@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu'
 import { S } from '../../coords'
 import { Part, mergeParts, rock } from './geo'
-import { buildPillar, type PillarShape } from './pillars'
+import type { PillarShape } from './pillars'
+import { pillarShape } from './shapes'
 import { contactDecalMaterial, lookForTheme, setPropAnisotropy, useLook, type Look } from './materials'
 import { rng } from './rng'
 
@@ -38,6 +39,8 @@ export interface ObstacleVisual {
   riseFromGround(t: number): void
   /** false when the floor under the pillar is gone (lava): hides the contact ring */
   setGrounded(onFloor: boolean): void
+  /** back to intact, risen and at rest (pooled reuse across rounds) */
+  reset(): void
   update(dt: number): void
   dispose(): void
 }
@@ -171,6 +174,13 @@ class ChipPool {
     if (n > 0) this.mesh.instanceMatrix.needsUpdate = true
   }
 
+  clear(): void {
+    this.alive.fill(0)
+    this.active = 0
+    this.mesh.count = 0
+    this.mesh.visible = false
+  }
+
   dispose(): void {
     this.release()
     this.mesh.dispose()
@@ -186,7 +196,8 @@ export function createObstacleVisual(opts: ObstacleVisualOpts): ObstacleVisual {
   if (opts.anisotropy) setPropAnisotropy(opts.anisotropy)
   const r = opts.radius
   const look = lookForTheme(opts.theme, opts.variant)
-  const shape: PillarShape = buildPillar(opts.theme, opts.variant, r, opts.seed)
+  // shared, cached shape (built off-thread by prefetchShapes); never disposed here
+  const shape: PillarShape = pillarShape(opts.theme, opts.variant, r, opts.seed)
   const R = rng(opts.seed * 3 + 1)
 
   const object3d = new THREE.Group()
@@ -308,6 +319,18 @@ export function createObstacleVisual(opts: ObstacleVisualOpts): ObstacleVisual {
     setGrounded(onFloor: boolean) {
       decal.visible = onFloor
     },
+    reset() {
+      tx = tz = vx = vz = 0
+      hit = lost = dmg = 0
+      rise = lastRise = 1
+      chips.clear()
+      for (const m of meshes) Object.assign(m.userData, { propDmg: 0, propHit: 0, propLost: 0 })
+      body.rotation.x = body.rotation.z = 0
+      lift.position.y = 0
+      lift.visible = true
+      decal.visible = true
+      decal.scale.setScalar(decalR)
+    },
     update(dt: number) {
       const d = Math.min(dt, 1 / 20)
       // damped spring on the tilt (semi-implicit Euler, substepped for stability)
@@ -335,8 +358,6 @@ export function createObstacleVisual(opts: ObstacleVisualOpts): ObstacleVisual {
     },
     dispose() {
       for (const rel of releases) rel()
-      shape.geometry.dispose()
-      shape.crystals?.dispose()
       chips.dispose()
       object3d.removeFromParent()
     },

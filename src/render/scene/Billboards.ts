@@ -26,7 +26,7 @@ export class Billboards {
   ) {
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.p = mk()

@@ -64,7 +64,9 @@ for key, (ref, tiling, mat) in TEXTURES.items():
     rows.append((f"`public/textures/{theme}/{name}_*.webp` ({files})", src, what))
 
 rows.append(("`art/source/textures/height16/*_height16.png`", "Derived from the texture masters", "16-bit height masters (the public height maps are 8-bit)"))
-rows.append(("`art/contact-sheet.png`", "Composite of the final icons (`art/tools/contact_sheet.py`)", "Review sheet of every icon with its id"))
+rows.append(("`art/contact-sheet_v2.png`", "Composite of the final icons (`art/tools/contact_sheet.py`)", "Review sheet of every current icon with its id (pass 2, spell palette colors)"))
+rows.append(("`art/contact-sheet_before_after.png`", "Composite (`art/tools/before_after_sheet.py`)", "The 22 icons recolored in pass 2: pass 1 (shop-column colors) next to pass 2 (palette colors)"))
+rows.append(("`art/contact-sheet.png`", "Composite (`art/tools/contact_sheet.py`)", "Pass 1 sheet (2026-10-15), kept for history"))
 rows.append(("`art/previews/*`", "Composites", "Texture review: 2x2 tiling, raking-light check at 100% and 25%, height preview, and side-by-side with the original mod texture. The `_vs_original` images contain the original mod's textures for comparison only: keep them out of `public/`."))
 
 out = ["## Generated art", "",

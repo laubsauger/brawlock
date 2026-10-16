@@ -53,6 +53,7 @@ interface Plate {
   mult: HTMLDivElement
   lastName: string
   lastColor: number
+  lastNameColor: number
   lastHp: number
   lastMax: number
   lastKb: number
@@ -79,7 +80,10 @@ export interface PlateInput {
   y: number
   h: number
   name: string
+  /** identity (team) colour: HP fill */
   color: number
+  /** slot colour: name text */
+  nameColor: number
   hp: number
   maxHp: number
   kbPoints: number
@@ -159,7 +163,7 @@ export class WorldOverlay {
       kb.append(kbFill, mult)
       el.append(name, bar, kb)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -298,9 +302,14 @@ export class WorldOverlay {
         p.name.textContent = inp.name
         p.lastName = inp.name
       }
+      if (p.lastNameColor !== inp.nameColor) {
+        p.name.style.color = `#${inp.nameColor.toString(16).padStart(6, '0')}`
+        p.lastNameColor = inp.nameColor
+      }
       if (p.lastColor !== inp.color) {
         const hex = `#${inp.color.toString(16).padStart(6, '0')}`
-        p.name.style.color = hex
+        // the bar border carries the identity (team) colour too
+        p.bar.style.outline = `1px solid ${hex}88`
         p.fill.style.background = `linear-gradient(180deg, ${hex}, ${hex} 55%, ${hex}bb)`
         p.el.classList.toggle('local', inp.local)
         p.lastColor = inp.color

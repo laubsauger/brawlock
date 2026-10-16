@@ -2,20 +2,32 @@ import * as THREE from 'three/webgpu'
 import type { ObstacleState } from '../../../sim/types'
 import { isLocationSafe } from '../../arenaGeom'
 import { S, TILE_TOP_H } from '../../coords'
+import { cameraRig } from '../../cameraRig'
 import type { WorldCtx } from '../world'
 import { createObstacleVisual, type ObstacleVisual } from './obstacle'
 import { preloadLooks, setPropAnisotropy } from './materials'
+import { SHAPE_SLOTS, allShapeSpecs, cachedShape, prefetchShapes, shapeSpec } from './shapes'
 
 /**
  * Drop-in replacement for scene/Obstacles (same public surface), built on
  * createObstacleVisual: one sculpted pillar per obstacle, shared theme
  * materials, rise for mid-round spawns (Rockpillar), shudder + chips on
  * damage, a sink-crumble when a Rockpillar expires.
+ *
+ * No pillar is ever built at a phase change: shapes come from the worker
+ * cache (shapes.ts), visuals are pooled per shape across rounds, and every
+ * shape is pre-warmed once (one per frame, hidden under the lava at the
+ * camera focus, chips included) so its buffers, render objects and shadow
+ * variant exist before a round asks for it.
  */
 
 export const OBSTACLE_MAX_HP = 400
 const RISE_DUR = 0.55
 const SINK_DUR = 0.45
+/** pooled visuals pre-warmed per shape (rounds often repeat a shape) */
+const WARM_PER_SHAPE = 2
+/** frames a staged visual renders before it is parked in the pool */
+const WARM_FRAMES = 2
 
 interface Track {
   id: number
@@ -28,6 +40,7 @@ interface Track {
   radius: number
   ticksLeft: number | undefined
   vis: ObstacleVisual
+  key: string
   x: number
   y: number
 }
@@ -40,7 +53,11 @@ function hash(n: number): number {
 export class PropObstacles {
   readonly group = new THREE.Group()
   private tracks = new Map<number, Track>()
-  private dying: { vis: ObstacleVisual; at: number }[] = []
+  private dying: { vis: ObstacleVisual; key: string; at: number }[] = []
+  /** idle visuals per shape key (hidden, kept in the group so their GPU state stays warm) */
+  private free = new Map<string, ObstacleVisual[]>()
+  private warmQueue: { key: string; theme: number; variant: number; radius: number; seed: number }[] = []
+  private staged: { vis: ObstacleVisual; key: string; frames: number }[] = []
   private theme = 0
   private frameId = 0
   private lastNow = -1
@@ -52,6 +69,61 @@ export class PropObstacles {
     // start every theme's texture load now so pillars are textured before the first fight
     setPropAnisotropy(ctx.tier.anisotropy)
     preloadLooks()
+    prefetchShapes()
+    for (let n = 0; n < WARM_PER_SHAPE; n++) {
+      for (const sp of allShapeSpecs()) {
+        // a seed whose slot matches the spec's key
+        for (let slot = 0; slot < SHAPE_SLOTS; slot++) {
+          if (shapeSpec(sp.theme, sp.variant, sp.radius, slot).key === sp.key) this.warmQueue.push({ key: sp.key, theme: sp.theme, variant: sp.variant, radius: sp.radius, seed: slot })
+        }
+      }
+    }
+  }
+
+  private create(theme: number, variant: number, radius: number, seed: number): ObstacleVisual {
+    const vis = createObstacleVisual({ theme: theme as 0 | 1 | 2, variant, radius, seed, castShadow: this.ctx.tier.shadowMap > 0, anisotropy: this.ctx.tier.anisotropy })
+    this.group.add(vis.object3d)
+    return vis
+  }
+
+  /** A pooled visual for this shape, or a new one (shape geometry is shared either way). */
+  private acquire(theme: number, variant: number, radius: number, seed: number): { vis: ObstacleVisual; key: string } {
+    const key = shapeSpec(theme, variant, radius, seed).key
+    const list = this.free.get(key)
+    const vis = list?.pop() ?? this.create(theme, variant, radius, seed)
+    vis.reset()
+    vis.object3d.visible = true
+    return { vis, key }
+  }
+
+  private release(vis: ObstacleVisual, key: string): void {
+    vis.reset()
+    vis.object3d.visible = false
+    let list = this.free.get(key)
+    if (!list) this.free.set(key, (list = []))
+    list.push(vis)
+  }
+
+  /** One hidden pre-warm per frame: render a pooled visual (and its chips) under the lava. */
+  private warmStep(): void {
+    let w = 0
+    for (const st of this.staged) {
+      if (--st.frames > 0) {
+        this.staged[w++] = st
+        continue
+      }
+      this.release(st.vis, st.key)
+    }
+    this.staged.length = w
+    const next = this.warmQueue[0]
+    if (!next || !cachedShape(next.key)) return
+    this.warmQueue.shift()
+    const vis = this.create(next.theme, next.variant, next.radius, next.seed)
+    // under the lava at the camera focus: in the frustum, drawn, never seen
+    vis.object3d.position.set(cameraRig.fx * S, -6, -cameraRig.fy * S)
+    vis.hitShudder(1, 0, 0.3)
+    vis.update(1 / 60)
+    this.staged.push({ vis, key: next.key, frames: WARM_FRAMES })
   }
 
   setTheme(theme: number): void {
@@ -78,6 +150,7 @@ export class PropObstacles {
     const fid = this.frameId
     const dt = this.lastNow < 0 ? 0 : Math.max(0, Math.min(0.1, now - this.lastNow))
     this.lastNow = now
+    this.warmStep()
     for (const o of list) {
       let tr = this.tracks.get(o.id)
       if (tr && (tr.theme !== this.theme || tr.variant !== o.variant || tr.radius !== o.radius) && o.variant >= 0) {
@@ -86,10 +159,9 @@ export class PropObstacles {
       }
       if (!tr) {
         const seed = Math.floor(hash(o.id * 1.37 + o.variant) * 100000)
-        const vis = createObstacleVisual({ theme: this.theme as 0 | 1 | 2, variant: o.variant, radius: o.radius, seed, castShadow: this.ctx.tier.shadowMap > 0, anisotropy: this.ctx.tier.anisotropy })
-        tr = { id: o.id, hp: o.hp, seen: fid, spawnAt: animateNew ? now : -100, seed, theme: this.theme, variant: o.variant, radius: o.radius, ticksLeft: o.ticksLeft, vis, x: o.x, y: o.y }
+        const { vis, key } = this.acquire(this.theme, o.variant, o.radius, seed)
+        tr = { id: o.id, hp: o.hp, seen: fid, spawnAt: animateNew ? now : -100, seed, theme: this.theme, variant: o.variant, radius: o.radius, ticksLeft: o.ticksLeft, vis, key, x: o.x, y: o.y }
         vis.object3d.position.set(o.x * S, TILE_TOP_H * S, -o.y * S)
-        this.group.add(vis.object3d)
         this.tracks.set(o.id, tr)
       }
       if (o.hp < tr.hp - 0.01) {
@@ -111,7 +183,7 @@ export class PropObstacles {
       tr.vis.setGrounded(isLocationSafe(o.x, o.y, this.ctx.field.layer))
       tr.vis.update(dt)
     }
-    for (const [, tr] of this.tracks) {
+    for (const tr of this.tracks.values()) {
       if (tr.seen === fid) continue
       // an expiring Rockpillar sinks back; a destroyed pillar is replaced by the blast FX
       const expired = tr.ticksLeft !== undefined && tr.ticksLeft <= 8 && tr.hp > 0
@@ -122,7 +194,7 @@ export class PropObstacles {
       const d = this.dying[i]
       const k = (now - d.at) / SINK_DUR
       if (k >= 1) {
-        d.vis.dispose()
+        this.release(d.vis, d.key)
         continue
       }
       d.vis.riseFromGround(1 - k)
@@ -137,15 +209,19 @@ export class PropObstacles {
     if (sink) {
       tr.vis.setDamage(0.05)
       tr.vis.hitShudder(1, 0, 1.5)
-      this.dying.push({ vis: tr.vis, at: now })
-    } else tr.vis.dispose()
+      this.dying.push({ vis: tr.vis, key: tr.key, at: now })
+    } else this.release(tr.vis, tr.key)
   }
 
   dispose(): void {
     for (const tr of this.tracks.values()) tr.vis.dispose()
     for (const d of this.dying) d.vis.dispose()
+    for (const st of this.staged) st.vis.dispose()
+    for (const list of this.free.values()) for (const v of list) v.dispose()
     this.tracks.clear()
     this.dying.length = 0
+    this.staged.length = 0
+    this.free.clear()
     this.group.removeFromParent()
   }
 }

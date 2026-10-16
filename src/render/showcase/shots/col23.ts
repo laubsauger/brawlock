@@ -3,7 +3,7 @@ import type { ShotSpec } from '../types'
 import { DUMMIES, HERO, chapter, spellLower, stage } from './common'
 import { LAYER } from './kit'
 
-const Y = 700
+const Y = 1060
 
 export const COL2_SHOTS: ShotSpec[] = [
   {
@@ -23,7 +23,7 @@ export const COL2_SHOTS: ShotSpec[] = [
       [1.25, (s) => s.castAt(0, 'fireball', 1)],
     ],
     camera: stage({ pitch: 44, yaw: 0, push: 0.06 }),
-    overlay: { card: chapter(1), lower: spellLower('Teleport', 'teleport', 1, 'Blink out of the line of fire, then answer.', 1.3), plates: false },
+    overlay: { card: chapter(1), lower: spellLower('Teleport', 'teleport', 1, 'Blink out of the line of fire, then answer.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c2_thrust',
@@ -38,7 +38,7 @@ export const COL2_SHOTS: ShotSpec[] = [
     },
     script: [[0.45, (s) => s.castAt(0, 'thrust', 1)]],
     camera: stage({ pitch: 40, yaw: 12, push: 0.08, margin: 0.85 }),
-    overlay: { lower: spellLower('Thrust', 'thrust', 1, 'Dash and slam. The faster you arrive, the harder it lands.'), plates: false },
+    overlay: { lower: spellLower('Thrust', 'thrust', 1, 'Dash and slam. The faster you arrive, the harder it lands.'), plates: false, nums: false },
   },
   {
     id: 'c2_swap',
@@ -54,7 +54,7 @@ export const COL2_SHOTS: ShotSpec[] = [
     },
     script: [[0.4, (s) => s.castAt(0, 'swap', 1)]],
     camera: stage({ pitch: 38, yawAbs: -72, push: 0.08, margin: 0.85 }),
-    overlay: { lower: spellLower('Swap', 'swap', 1, 'Knocked into the lava? Trade places and leave them in it.'), plates: false },
+    overlay: { lower: spellLower('Swap', 'swap', 1, 'Knocked into the lava? Trade places and leave them in it.'), plates: false, nums: false },
   },
 ]
 
@@ -74,7 +74,7 @@ export const COL3_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.cast(0, 'cluster', 255, Y)]],
     camera: stage({ pitch: 46, yaw: 6, push: 0.07 }),
-    overlay: { card: chapter(2), lower: spellLower('Cluster', 'cluster', 2, 'Four small fireballs in a fan. More chances to land.', 1.3), plates: false },
+    overlay: { card: chapter(2), lower: spellLower('Cluster', 'cluster', 2, 'Four small fireballs in a fan. More chances to land.', 1.3), plates: false, nums: false },
   },
   {
     id: 'c3_drain',
@@ -90,7 +90,7 @@ export const COL3_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.castAt(0, 'drain', 1)]],
     camera: stage({ pitch: 46, yaw: 8, push: 0.07 }),
-    overlay: { lower: spellLower('Drain', 'drain', 2, 'Saps the enemy and sends the life back to you.'), plates: false },
+    overlay: { lower: spellLower('Drain', 'drain', 2, 'Saps the enemy and sends the life back to you.'), plates: false, nums: false },
   },
   {
     id: 'c3_bouncer',
@@ -108,7 +108,7 @@ export const COL3_SHOTS: ShotSpec[] = [
     },
     script: [[0.3, (s) => s.castAt(0, 'bouncer', 1)]],
     camera: stage({ pitch: 52, yaw: 0, push: 0.06 }),
-    overlay: { lower: spellLower('Bouncer', 'bouncer', 2, 'Ricochets from warlock to warlock.'), plates: false },
+    overlay: { lower: spellLower('Bouncer', 'bouncer', 2, 'Ricochets from warlock to warlock.'), plates: false, nums: false },
   },
   {
     id: 'c3_recharge',
@@ -127,6 +127,6 @@ export const COL3_SHOTS: ShotSpec[] = [
       [1.15, (s) => s.castAt(0, 'recharge', 2)],
     ],
     camera: stage({ pitch: 46, yaw: 0, push: 0.06 }),
-    overlay: { lower: spellLower('Recharge', 'recharge', 2, 'Every hit in a row hits harder. The orb brings the cooldown back.'), plates: false },
+    overlay: { lower: spellLower('Recharge', 'recharge', 2, 'Every hit in a row hits harder. The orb brings the cooldown back.'), plates: false, nums: false },
   },
 ]

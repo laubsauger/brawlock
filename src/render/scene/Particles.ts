@@ -33,7 +33,10 @@ export class Particles {
     this.capacity = Math.max(16, Math.round(capacity))
     const mk = () => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4)
-      a.setUsage(THREE.DynamicDrawUsage)
+      // StaticDrawUsage on purpose: three's WebGPU path re-uploads a
+      // DynamicDrawUsage attribute IN FULL every frame (and every pass);
+      // static + needsUpdate + update ranges uploads only the spawned slots
+      a.setUsage(THREE.StaticDrawUsage)
       return a
     }
     this.a0 = mk()

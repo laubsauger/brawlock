@@ -22,6 +22,7 @@ import {
   normalLocal,
   normalMap,
   normalView,
+  normalWorld,
   normalize,
   positionGeometry,
   positionLocal,
@@ -44,6 +45,7 @@ import {
 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { U } from './gpuState'
+import { lookUniform } from './config'
 
 /*
  * Warlock look (art/brand/splash.png): near-black fabric tinted toward the
@@ -80,13 +82,21 @@ export const clothParams = {
 const tF = f(varying(time))
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
+/** 1 = readable look, 0 = void look (config.ts) */
+const L = lookUniform
 const LEATHER = vec3(0.042, 0.027, 0.022)
+const LEATHER_READ = vec3(0.09, 0.065, 0.05)
 const METAL = vec3(0.4, 0.3, 0.19)
 const DUST = vec3(0.05, 0.043, 0.038)
 
-/** near-black fabric with a hint of the player colour */
-const fabric = (k = 1): V3 => v3(mix(vec3(0.011, 0.01, 0.013), U.team.mul(0.032), 0.55).mul(k))
-const sheenColor = (): V3 => v3(mix(vec3(0.13, 0.12, 0.15), U.team.mul(0.3), 0.35))
+/**
+ * Robe fabric: void look = near black with a hint of the player colour;
+ * readable look = dark but not black (value ~0.06), tinted toward the player
+ * colour (dark teal, dark crimson ... like the splash)
+ */
+const fabric = (k = 1): V3 =>
+  v3(mix(mix(vec3(0.011, 0.01, 0.013), U.team.mul(0.032), 0.55), mix(vec3(0.056, 0.052, 0.064), U.team.mul(0.13), 0.3), L).mul(k))
+const sheenColor = (): V3 => v3(mix(vec3(0.13, 0.12, 0.15), U.team.mul(0.3), 0.35).mul(L.mul(0.25).add(1)))
 
 function fresnel(power = 3): F {
   const viewDir = positionView.negate().normalize()
@@ -155,7 +165,9 @@ function bumpNormal(h: F): V3 {
  * the hem, invulnerability rim, and the death burn-up (via opacity +
  * alphaTest). Heights are model metres (0 feet .. 1.9 hood tip).
  */
-function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2): void {
+function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2, surfaceIn?: F): void {
+  // 1 = robe / body surface; 0 = the hood void (no flash, burn, fill or sweep on it)
+  const surface = surfaceIn ?? float(1)
   const t = tF
   const h01 = saturate(heightNode.div(1.9))
   const n1 = sin(heightNode.mul(37).add(t.mul(7)).add(positionGeometry.x.mul(55))).mul(0.5).add(0.5)
@@ -177,19 +189,26 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
   col = v3(mix(col, vec3(0.32, 0.5, 0.68).mul(luma.mul(4).add(0.35)), U.freeze.mul(0.85)))
   col = v3(mix(col, vec3(0.008, 0.002, 0.01), U.shadow))
   let em = emissive.mul(float(1).sub(U.char.mul(0.7)).sub(U.wither.mul(0.6)).sub(U.shadow.mul(0.8)).max(0))
-  em = em.add(vec3(3.2, 0.9, 0.15).mul(U.burn.mul(flick.mul(1.4).add(0.2)).mul(burnMask)))
-  em = em.add(vec3(3.5, 0.9, 0.12).mul(cracks.mul(U.char).mul(flick.mul(0.8).add(0.4))))
-  em = em.add(vec3(0.6, 0.9, 1.4).mul(U.freeze.mul(fr.mul(1.2).add(0.05))))
-  em = em.add(vec3(1.6, 2.2, 4.0).mul(U.xray.mul(fr.mul(2.5).add(0.25))))
+  // readable look: a soft fill from above and from the camera's side, scaled by
+  // the albedo, so folds, shoulders, hood top and pose read on dark tiles and
+  // on tiers without post (it follows the shading normal, folds included)
+  const up = saturate(normalWorld.y.mul(0.5).add(0.5))
+  const key = saturate(dot(normalWorld, vec3(-0.25, 0.8, 0.55).normalize()))
+  em = em.add(col.mul(up.mul(up).mul(0.45).add(key.mul(0.3))).mul(L))
+  let fx = v3(vec3(3.2, 0.9, 0.15).mul(U.burn.mul(flick.mul(1.4).add(0.2)).mul(burnMask)))
+  fx = v3(fx.add(vec3(3.5, 0.9, 0.12).mul(cracks.mul(U.char).mul(flick.mul(0.8).add(0.4)))))
+  fx = v3(fx.add(vec3(0.6, 0.9, 1.4).mul(U.freeze.mul(fr.mul(1.2).add(0.05)))))
+  fx = v3(fx.add(vec3(1.6, 2.2, 4.0).mul(U.xray.mul(fr.mul(2.5).add(0.25)))))
   // hit flash: hot-white core on the rim for the first ~12 % only, then crimson
   // over the body, scaled by the hit's strength
   const whiteCore = smoothstep(0.88, 1.0, U.flash).mul(fr)
-  em = em.add(vec3(1.6, 1.6, 1.7).mul(whiteCore.mul(U.flashK)))
-  em = em.add(vec3(1.9, 0.08, 0.05).mul(U.flash.mul(U.flashK).mul(fr.mul(0.6).add(0.4))))
+  fx = v3(fx.add(vec3(1.6, 1.6, 1.7).mul(whiteCore.mul(U.flashK))))
+  fx = v3(fx.add(vec3(1.9, 0.08, 0.05).mul(U.flash.mul(U.flashK).mul(fr.mul(0.6).add(0.4)))))
   // invulnerable: subtle golden rim (falloff squared) with a slow breathing pulse;
   // no fill, so robe and player colours stay readable
   const breathe = sin(t.mul(2.4)).mul(0.25).add(0.75)
-  em = em.add(vec3(1.5, 1.05, 0.35).mul(U.invuln.mul(fr.mul(fr)).mul(breathe)))
+  fx = v3(fx.add(vec3(1.5, 1.05, 0.35).mul(U.invuln.mul(fr.mul(fr)).mul(breathe))))
+  em = em.add(fx.mul(surface))
   // death: burn up from the feet with a hot edge in the dissolve colour
   const dis = U.dissolve.mul(1.3)
   // dissolve order: feet -> hood (0), silhouette edges inward (1: shadow), smoke noise (2: fade)
@@ -204,7 +223,7 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
   // level-up burst: a band of light sweeping feet -> hood, plus a soft rim
   const sw = heightNode.sub(U.levelSweep).div(0.13)
   const sweep = exp(sw.mul(sw).negate()).mul(U.levelFlash)
-  em = em.add(U.levelColor.mul(sweep.mul(2.4).add(U.levelFlash.mul(fr).mul(0.3))))
+  em = em.add(U.levelColor.mul(sweep.mul(2.4).add(U.levelFlash.mul(fr).mul(0.3))).mul(surface))
   // clipping check: covered body parts pure red, the rest black (depth still written)
   const dbg = clothParams.debugClip
   const red = cover ? step(0.5, cover.x) : float(0)
@@ -217,7 +236,7 @@ function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heig
 
 /** Silhouette rim: player tint plus cool moonlight so dark robes read on dark tiles. */
 function rim(k = 1): V3 {
-  return v3(U.team.mul(0.14).add(vec3(0.03, 0.04, 0.08)).mul(fresnel(3)).mul(k))
+  return v3(U.team.mul(mix(float(0.14), float(0.2), L)).add(vec3(0.03, 0.04, 0.08)).mul(fresnel(3)).mul(k))
 }
 
 /** Eye glow spilling onto the hood interior / face void (model-space distance). */
@@ -229,11 +248,16 @@ function eyeSpill(k: number): V3 {
 
 // ------------------------------------------------------------------ outfit (CC0 ranger parts, recoloured)
 
-export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.MeshPhysicalNodeMaterial {
+/**
+ * Outfit parts and the hands in one draw: `aGlove` (0/1 per vertex) selects
+ * the hands' own texture set and leather look; the casting palm glows.
+ */
+export function createOutfitMaterial(src: THREE.MeshStandardMaterial, gloveSrc: THREE.MeshStandardMaterial | null, palmLeftX: number): THREE.MeshPhysicalNodeMaterial {
   const m = new THREE.MeshPhysicalNodeMaterial()
   m.name = 'WarlockOutfit'
   // the hood is an open shell: its inside renders as part of the face void
   m.side = THREE.DoubleSide
+  const gl = f(attribute('aGlove', 'float'))
   const bcTex = src.map!
   const ormTex = (src.roughnessMap ?? src.metalnessMap)!
   const nTex = src.normalMap!
@@ -248,7 +272,7 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   // keep the painted shading, swap the palette
   const shade = (ref: number) => clamp(lum.div(ref), 0.25, 2.2)
   const fabricCol = fabric(1.25).mul(shade(0.05))
-  const leatherCol = LEATHER.mul(shade(0.12))
+  const leatherCol = mix(LEATHER, LEATHER_READ, L).mul(shade(0.12))
   const metalCol = METAL.mul(shade(0.3).mul(0.8).add(0.2))
   // inside of the hood (and anything else seen from behind near the face) = void
   const back = f(float(1).sub(step(0, faceDirection)))
@@ -256,15 +280,21 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   // the hood's inner layer faces the head: also void
   const headC = U.eyes.sub(vec3(0, 0.005, 0.085))
   const inward = smoothstep(0.05, 0.35, dot(normalLocal, normalize(headC.sub(positionLocal))))
-  const voidK = f(max(back.mul(0.6), max(back, inward).mul(nearFace)))
-  const base = v3(fabricCol.mul(isFabric).add(leatherCol.mul(leather)).add(metalCol.mul(metal)).mul(float(1).sub(voidK)))
-  m.roughnessNode = mix(orm.g.mul(0.9).add(0.08), float(0.32), metal).max(mix(float(0), float(0.62), isFabric)).max(voidK)
-  m.metalnessNode = metal.mul(float(1).sub(voidK))
-  m.aoNode = orm.r.mul(0.7).add(0.3)
-  m.sheenNode = sheenColor().mul(isFabric).mul(float(1).sub(voidK))
+  const voidK = f(max(back.mul(0.6), max(back, inward).mul(nearFace)).mul(float(1).sub(gl)))
+  const baseO = v3(fabricCol.mul(isFabric).add(leatherCol.mul(leather)).add(metalCol.mul(metal)).mul(float(1).sub(voidK)))
+  // hands: dark leather (void) / a lighter worn leather so the hands read (readable)
+  const gbc = gloveSrc?.map ? texture(gloveSrc.map).rgb : vec3(0.25, 0.25, 0.25)
+  const baseG = v3(mix(vec3(0.035, 0.026, 0.024), vec3(0.15, 0.115, 0.095), L).mul(clamp(dot(gbc, LUMA).div(0.25), 0.4, 1.8)))
+  const base = v3(mix(baseO, baseG, gl))
+  const roughO = mix(orm.g.mul(0.9).add(0.08), float(0.32), metal).max(mix(float(0), float(0.62), isFabric)).max(voidK)
+  m.roughnessNode = mix(roughO, float(0.55), gl)
+  m.metalnessNode = metal.mul(float(1).sub(voidK)).mul(float(1).sub(gl))
+  m.aoNode = mix(orm.r.mul(0.7).add(0.3), float(1), gl)
+  m.sheenNode = sheenColor().mul(isFabric).mul(float(1).sub(voidK)).mul(float(1).sub(gl))
   m.sheenRoughnessNode = float(0.42)
   const ns = src.normalScale
-  m.normalNode = normalMap(texture(nTex), vec2(ns.x, ns.y))
+  const nCol = gloveSrc?.normalMap ? mix(texture(nTex), texture(gloveSrc.normalMap), gl) : texture(nTex)
+  m.normalNode = normalMap(nCol, vec2(ns.x, ns.y))
   // a thin rune stripe down the back of the hood (bind-pose centre line)
   const pg = positionGeometry
   const hoodBack = step(1.5, pg.y).mul(step(pg.z, -0.03)).mul(float(1).sub(back)).mul(float(1).sub(inward))
@@ -278,8 +308,16 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
   const own2 = step(0.001, dot(v3(U.accent2), vec3(1, 1, 1)))
   const stripeCol = mix(v3(U.team), v3(U.accent2.mul(2.2)), own2)
   const hPulse = sin(pg.y.mul(9).sub(tF.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
+  // readable: the hood opening gets a player-colour lip, so facing reads from above
+  const toEye = positionLocal.sub(U.eyes)
+  const lipD = length(toEye)
+  const lip = smoothstep(0.088, 0.105, lipD)
+    .mul(float(1).sub(smoothstep(0.13, 0.155, lipD)))
+    .mul(smoothstep(0.0, 0.03, toEye.z.add(0.02)))
+    .mul(float(1).sub(back))
+    .mul(float(1).sub(inward))
   // metal studs catch a little player colour; eye glow lights the hood rim
-  const em = v3(
+  const emO = v3(U.team.mul(lip.mul(1.6).mul(L))).add(
     rim()
       .mul(float(1).sub(voidK))
       .add(U.team.mul(0.06).mul(metal))
@@ -287,48 +325,23 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial): THREE.Mes
       .add(U.team.mul(hoodRunes.mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost)))
       .add(stripeCol.mul(sLine.mul(hoodBack).mul(hPulse.mul(0.45).add(0.55)).mul(U.runeBoost))),
   )
-  applyFx(m, base, em, f(positionLocal.y), v2(attribute('aCover', 'vec2')))
-  return m
-}
-
-// ------------------------------------------------------------------ gloves (CC0 hands, recoloured)
-
-export function createGloveMaterial(src: THREE.MeshStandardMaterial, palmLeftX: number): THREE.MeshStandardNodeMaterial {
-  const m = new THREE.MeshStandardNodeMaterial()
-  m.name = 'WarlockGloves'
-  const bc = texture(src.map!).rgb
-  const lum = dot(bc, LUMA)
-  const base = v3(vec3(0.035, 0.026, 0.024).mul(clamp(lum.div(0.25), 0.4, 1.8)))
-  m.roughnessNode = float(0.55)
-  m.metalnessNode = float(0)
-  if (src.normalMap) m.normalNode = normalMap(texture(src.normalMap), vec2(src.normalScale.x, src.normalScale.y))
-  // casting hand glows: palm / fingers of the casting side (bind pose x sign)
+  // casting hand glows: palm / fingers of the casting side (bind pose x sign);
   // castSide: +1 left, -1 right, 0 both hands
   const both = float(1).sub(abs(U.castSide))
-  const sideX = mix(positionGeometry.x.mul(U.castSide), abs(positionGeometry.x), both)
+  const sideX = mix(pg.x.mul(U.castSide), abs(pg.x), both)
   const handMask = smoothstep(palmLeftX - 0.04, palmLeftX + 0.06, sideX)
   const flicker = sin(tF.mul(53)).mul(0.5).add(0.5)
   const charge = U.castCharge.mul(U.castCharge).add(U.castFlare.mul(2.5)).add(U.castFizzle.mul(flicker).mul(0.8))
-  const em = v3(U.castColor.mul(charge.mul(2.2)).mul(handMask).add(rim(0.6)))
-  applyFx(m, base, em, f(positionLocal.y))
+  const emG = v3(U.castColor.mul(charge.mul(2.2)).mul(handMask).add(rim(0.6)))
+  applyFx(m, base, v3(mix(emO, emG, gl)), f(positionLocal.y), v2(attribute('aCover', 'vec2')))
   return m
 }
 
-// ------------------------------------------------------------------ hood void + eyes
-
-export function createVoidMaterial(): THREE.MeshBasicNodeMaterial {
-  const m = new THREE.MeshBasicNodeMaterial()
-  m.name = 'WarlockVoid'
-  const part = f(attribute('aPart', 'float'))
-  const eye = step(0.5, part)
+/** Eye glow of the hood void (cloth draw, kind void). */
+function eyeGlow(): V3 {
   const pulse = sin(tF.mul(2.1).add(U.phase)).mul(0.08).add(0.92)
   const hot = mix(U.team, vec3(1, 1, 1), 0.45)
-  const glow = hot.mul(float(8).add(U.castCharge.mul(8)).add(U.castFlare.mul(14)).add(U.levelFlash.mul(10)).mul(pulse).mul(U.runeBoost).mul(U.power.mul(0.8).add(0.8)))
-  // the void is pure black: only the eyes glow
-  m.colorNode = mix(glow.mul(eye), vec3(0, 0, 0), clothParams.debugClip)
-  m.opacityNode = step(U.dissolve.mul(1.3), float(0.92))
-  m.alphaTest = 0.5
-  return m
+  return v3(hot.mul(float(8).add(U.castCharge.mul(8)).add(U.castFlare.mul(14)).add(U.levelFlash.mul(10)).mul(pulse).mul(U.runeBoost).mul(U.power.mul(0.8).add(0.8))))
 }
 
 // ------------------------------------------------------------------ cloth (coat, tabard, cape, mantle, sleeves, panel, medallions)
@@ -370,6 +383,9 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const isPanel = isK(6)
   const isSash = isK(7)
   const isUnder = isK(8)
+  // hood void + eyes (rigid on the Head bone): black, unlit-looking, only the eyes glow
+  const isVoid = isK(9)
+  const isEye = f(isVoid.mul(step(0.5, side)))
 
   // ---- vertex: spring lag + flutter + billow, pendulum-clamped, pushed out of the limbs
   {
@@ -454,7 +470,7 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const fromTop = f(uvn.y.mul(len))
   const fromSide = f(min(uvn.x, float(1).sub(uvn.x)).mul(rowW))
   const um = f(uvn.x.mul(rowW))
-  const isFabric = f(float(1).sub(isMedal))
+  const isFabric = f(float(1).sub(isMedal).sub(isVoid))
   // which edges carry trim: hem everywhere; slit / vent edges on the coat, all
   // sides on tabard / cape / panel, the front opening on the mantle; sleeves the cuff
   const sideTrim = isCoat.add(isTabard).add(isCape).add(isMantle).add(isPanel)
@@ -533,15 +549,26 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   const fadeAt = (coord: F, period: number) => float(1).sub(smoothstep(0.2, 0.45, fwidth(coord).div(period)))
   const wear = sin(um.mul(97)).mul(sin(fromTop.mul(41))).mul(0.5).mul(fadeAt(um, 0.065)).add(0.5)
   let base = v3(fabric(1).mul(float(0.85).add(wear.mul(0.3))))
-  base = v3(mix(base, U.team.mul(0.045).add(vec3(0.008, 0.007, 0.009)), back))
-  base = v3(mix(base, U.team.mul(0.05).add(vec3(0.01, 0.008, 0.011)), band.mul(float(1).sub(back))))
+  // readable: the front pieces (tabard, chest panel) carry more player colour, a
+  // facing cue from above; the cape back stays the darkest
+  base = v3(mix(base, U.team.mul(0.2).add(vec3(0.02, 0.018, 0.022)), isTabard.add(isPanel).mul(0.3).mul(L)))
+  // readable: the shoulders (mantle top) carry a player-colour wash: the
+  // strongest colour read from the top-down camera
+  base = v3(mix(base, U.team.mul(0.2).add(vec3(0.02, 0.018, 0.022)), isMantle.mul(float(1).sub(uvn.y).mul(0.5).add(0.2)).mul(L)))
+  const liningCol = mix(U.team.mul(0.045).add(vec3(0.008, 0.007, 0.009)), U.team.mul(0.1).add(vec3(0.02, 0.018, 0.022)), L)
+  base = v3(mix(base, liningCol, back))
+  // trim band: dark embroidery (void) / mid-value player colour (readable)
+  const trimCol = mix(U.team.mul(0.05).add(vec3(0.01, 0.008, 0.011)), U.team.mul(0.42).add(vec3(0.015, 0.014, 0.016)), L)
+  base = v3(mix(base, trimCol, band.mul(float(1).sub(back))))
   base = v3(mix(base, DUST, smoothstep(0.14, 0.0, fromHem).mul(0.55).mul(wear.mul(0.5).add(0.5)).mul(isCoat.add(isCape).add(isTabard))))
   // medallions: gold rim, glowing player-colour gem
   const r01 = f(aD.x.div(max(aD.y, 1e-4)))
   const gem = f(float(1).sub(smoothstep(0.5, 0.6, r01)))
   base = v3(mix(base, mix(METAL, vec3(0.02, 0.02, 0.02), gem), isMedal))
+  base = v3(mix(base, vec3(0, 0, 0), isVoid))
   m.metalnessNode = isMedal.mul(float(1).sub(gem))
-  m.roughnessNode = mix(float(0.8), float(0.3), isMedal)
+  m.roughnessNode = mix(mix(float(0.8), float(0.3), isMedal), float(1), isVoid)
+  m.specularIntensityNode = float(1).sub(isVoid)
   m.sheenNode = sheenColor().mul(isFabric)
   m.sheenRoughnessNode = float(0.38)
 
@@ -589,7 +616,8 @@ export function createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
   // casting arm fabric warms up under the runes
   em = v3(em.add(U.castColor.mul(castArm.mul(0.045)).mul(isFabric)))
   em = v3(em.add(rim(0.8)).add(eyeSpill(0.25).mul(isMantle)))
-  applyFx(m, base, em, f(positionLocal.y))
+  em = v3(em.mul(float(1).sub(isVoid)).add(eyeGlow().mul(isEye)))
+  applyFx(m, base, em, f(positionLocal.y), undefined, f(float(1).sub(isVoid)))
   return m
 }
 

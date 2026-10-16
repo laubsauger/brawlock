@@ -62,20 +62,25 @@
  *   castFrom 'palm' | 'staff'.
  * - Performance: geometry, materials and clips are shared; per-pawn values are
  *   per-object uniforms (gpuState.ts). One mixer and one skeleton per warlock,
- *   4 draws (outfit, gloves, cloth, hood void), ~12.1k triangles.
+ *   2 draws (outfit + hands, cloth + hood void), ~12.1k triangles. update()
+ *   allocates nothing, does no full matrix update (the renderer's one is
+ *   enough) and animates fingers only in cast clips. w.setDetail(0 | 1 | 2):
+ *   full / far (secondary motion at half rate) / offscreen (skeleton ~15 Hz,
+ *   no pose layer or cloth) for the owner's distance / frustum test.
  * - Debug: warlockParams.debugFootprint (collision ring r30 + Fireball ball
  *   r25), clothParams.debugClip (robe-covered body red, lower legs green).
- * - Look-dev switches: `warlockParams` (style, staff, staffVariant, castFrom,
- *   debugFootprint, version counter) for the Inspector; style needs a rebuild.
+ * - Look-dev switches: `warlockParams` (style, look, staff, staffVariant,
+ *   castFrom, debugFootprint, version counter) for the Inspector; style needs a
+ *   rebuild, look ('readable' default | 'void', the earlier near-black robe) is live.
  */
 import { loadWarlockAsset, getWarlockAsset, WARLOCK_URL } from './asset'
-import { warlockParams, type CastFrom, type WarlockStyle } from './config'
+import { warlockParams, type CastFrom, type WarlockLook, type WarlockStyle } from './config'
 import type { StaffVariant } from './geometry'
 import { ProceduralWarlock } from './procedural'
 import type { CastArm, DeathKind, WarlockHandle, WarlockOptions } from './types'
 import { CC0Warlock } from './warlock'
 
-export type { CastArm, DeathKind, WarlockHandle, WarlockOptions, WarlockStyle, CastFrom, StaffVariant }
+export type { CastArm, DeathKind, WarlockHandle, WarlockOptions, WarlockStyle, WarlockLook, CastFrom, StaffVariant }
 export { warlockParams, WARLOCK_URL }
 export { CC0_SCALE, RIG_HEIGHT_M } from './config'
 export { HEM_RX_M } from './geometry'

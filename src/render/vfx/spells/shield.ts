@@ -17,12 +17,13 @@ import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle, floorH, glowG, hexRgb, kitAdopt, kitBegin, kitInit,
   kitRelease, light, rand,
-  pal, tierCap, flashT, levelOf, tierOfLevel,
+  palSat, tierCap, flashT, levelOf, tierOfLevel,
 } from './kitB'
 
 // identity: pale gold-white (vfx/palette.ts)
-const GOLD = pal('shield', 'accent', 1.4)
-const GOLD_WHITE = pal('shield', 'core', 2.0)
+// identity hue from the (cream) palette accent, saturated so the bubble reads gold, never cream
+const GOLD = palSat('shield', 'accent', 5, 1.0)
+const GOLD_WHITE = palSat('shield', 'accent', 3, 1.5)
 
 const SPELL = 'shield'
 const INFLATE = 0.12
@@ -91,11 +92,14 @@ function domeMaterial(ctx: VfxCtx, A: Node<'vec4'>[]): THREE.Material {
   const white = vec3(...GOLD_WHITE)
   const latticeCol = mix(gold, A3.xyz.mul(2.2), A0.z)
   // nearly clear in the middle (the warlock reads through it); rim and grazing lattice carry it
-  const graze = pow(float(1).sub(ndv), 1.6)
-  const col = white.mul(pow(float(1).sub(ndv), 3.5).mul(0.7))
-    .add(latticeCol.mul(lattice.mul(graze).mul(0.55)))
-    .add(gold.mul(sweep.mul(lattice).mul(graze.add(0.15)).mul(0.3)))
-    .add(gold.mul(rip))
+  // see-through: lattice and light only toward the silhouette, the middle stays clear so the
+  // warlock inside always reads; a thin fresnel rim carries the bubble's edge
+  const graze = pow(float(1).sub(ndv), 2.4)
+  const rimF = pow(float(1).sub(ndv), 5)
+  const col = white.mul(rimF.mul(0.8))
+    .add(latticeCol.mul(lattice.mul(graze).mul(0.5)))
+    .add(gold.mul(sweep.mul(lattice).mul(graze).mul(0.3)))
+    .add(gold.mul(rip.mul(0.9)))
   const m = new THREE.MeshBasicNodeMaterial()
   m.transparent = true
   m.depthWrite = false
@@ -156,7 +160,7 @@ registerSpellVfx({
     switch (e.type) {
       case 'cast':
         if (e.spell !== SPELL) return
-        castFlash(ctx, e.pawn, GOLD_WHITE, 0.8)
+        castFlash(ctx, e.pawn, GOLD, 0.8)
         return true
       case 'modifier': {
         if (e.id !== SPELL) return
@@ -164,7 +168,7 @@ registerSpellVfx({
         if (!info) return
         if (e.on) {
           bubble(e.pawn, info.owner, ctx.now).since = ctx.now
-          burst(ctx, info.x, info.y, info.h + 70, 26, 200, 500, 0.2, 0.4, 12, 3, GOLD_WHITE, 0.9, -300, 3, -0.06, 40, 220)
+          burst(ctx, info.x, info.y, info.h + 70, 20, 200, 500, 0.2, 0.4, 10, 3, GOLD, 0.9, -300, 3, -0.06, 40, 220)
         } else {
           pop(ctx, info.x, info.y, info.h, bubbles.get(e.pawn)?.R ?? 220)
         }
@@ -260,8 +264,8 @@ registerSpellVfx({
     // cast: a crisp golden rune circle sweeps out and becomes the dome's footprint
     if (age < 0.35) drawCircle(x, y, fh + 1.5, R * grow, STYLE_RUNES, GOLD[0], GOLD[1], GOLD[2], 1.2 * (1 - age / 0.35), 0, 3, pawn.id, 0, 0.8, 22 + 8 * tierOfLevel(ctx, levelOf(ctx, pawn.owner, SPELL)), b.since)
     // crisp footprint at exactly the reflect radius
-    drawCircle(x, y, fh + 1.4, R * grow, STYLE_RING, GOLD[0], GOLD[1], GOLD[2], 0.9 * fade, 0, 0, pawn.id, 0.06, 0.6, 0, b.since)
-    glowG(x, y, fh + 70, 160, GOLD_WHITE, 0.18 * fade, 1.6)
-    light(ctx, x, y, R, 0.55 * fade, GOLD, 0.45)
+    drawCircle(x, y, fh + 1.4, R * grow, STYLE_RING, GOLD[0], GOLD[1], GOLD[2], 0.9 * fade, 0, 0, pawn.id, 0, 0.6, 0, b.since)
+    glowG(x, y, fh + 70, 160, GOLD, 0.1 * fade, 1.8)
+    light(ctx, x, y, R * 0.7, 0.18 * fade, GOLD, 0.45)
   },
 })

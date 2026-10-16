@@ -5,25 +5,68 @@
  * splash warms it up. A crashing 3D layer is contained and the UI keeps
  * working on top of the CSS backdrop.
  */
-import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from 'react'
+import { Component, lazy, Suspense, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
 import { recoverFromChunkError } from '../lib/staleBuild'
+import { useGame, type Settings } from '../game/store'
 
 type RenderModule = typeof import('../render')
+export type MatchViewProps = import('../render').MatchViewProps
 
 let mod: RenderModule | null = null
 let pending: Promise<RenderModule | null> | null = null
+let failed = false
 
 /** Start loading the render module (the splash calls this to warm the chunk). */
 export function loadRender(): Promise<RenderModule | null> {
   pending ??= import('../render')
-    .then((m) => (mod = m))
+    .then((m) => {
+      mod = m
+      syncRenderPrefs(m)
+      return m
+    })
     .catch((e) => {
       console.error('[ui] render module failed to load', e)
       pending = null
+      failed = true
       recoverFromChunkError(e)
       return null
     })
   return pending
+}
+
+/**
+ * True once the mounted MatchView has compiled its materials and uploaded its
+ * textures (render's isMatchRenderReady). Also true when the render module
+ * failed to load, so nothing waits on a 3D layer that will never come.
+ */
+export function matchRenderReady(): boolean {
+  if (!mod) return failed
+  try {
+    return mod.isMatchRenderReady()
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Push the display settings render reads (shake, fps cap, resolution scale):
+ * once when the module loads (render starts on its defaults), then on every
+ * change. Module-level in render, so it covers both canvases and remounts.
+ */
+function syncRenderPrefs(m: RenderModule): void {
+  const push = (s: Settings) => {
+    try {
+      m.setRenderPrefs({ shake: s.screenShake ?? 1, fpsCap: s.fpsCap ?? 0, resolutionScale: s.resolutionScale ?? 1 })
+    } catch (e) {
+      console.error('[ui] setRenderPrefs failed', e)
+    }
+  }
+  push(useGame.getState().settings)
+  useGame.subscribe((s, prev) => {
+    const a = s.settings
+    const b = prev.settings
+    if (a.screenShake !== b.screenShake || a.fpsCap !== b.fpsCap || a.resolutionScale !== b.resolutionScale) push(a)
+  })
 }
 
 export function recenterCamera(): void {
@@ -42,6 +85,8 @@ export interface RenderPerf {
   drawCalls: number
   triangles: number
   dpr: number
+  /** frames the scene renders per second (lower than the page rate under an fps cap) */
+  fps?: number
 }
 
 /** Live render numbers (mutated in place by the render loop), or null before render loads. */
@@ -70,7 +115,7 @@ const LazyBackdrop = lazy(async () => {
   return { default: m?.MenuBackdrop ?? Nothing }
 })
 
-const LazyMatch = lazy(async () => {
+const LazyMatch = lazy<ComponentType<MatchViewProps>>(async () => {
   const m = await loadRender()
   return { default: m?.MatchView ?? Nothing }
 })
@@ -85,11 +130,12 @@ export function MenuBackdropSlot() {
   )
 }
 
-export function MatchViewSlot() {
+/** The match scene. Props pass through (prewarm, onReady): keep ONE instance mounted from lobby to match. */
+export function MatchViewSlot(props: MatchViewProps) {
   return (
     <RenderBoundary name="MatchView">
       <Suspense fallback={null}>
-        <LazyMatch />
+        <LazyMatch {...props} />
       </Suspense>
     </RenderBoundary>
   )

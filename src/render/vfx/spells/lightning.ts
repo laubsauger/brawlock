@@ -15,13 +15,23 @@
  */
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
+import { spellPalette } from '../palette'
 import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
-import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pawnById, pspawn, releaseKit, windupProgress, type KitA, type RGB } from './kitA'
+import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pawnById, pspawn, releaseKit, windupProgress, type KitA, type Pal, type RGB } from './kitA'
 import { spellDeath } from './deathsA'
+import { LivePool } from './livePool'
 
 const P = palFor('lightning')
 /** afterimage cools to the darker identity edge */
 const AFTER: RGB = P.edge
+/** windup / spark palette: identity blue, no near-white core (stacking layers must not go white) */
+const WIND: Pal = { hot: P.body, body: [P.body[0] * 0.8, P.body[1] * 0.85, P.body[2]], edge: P.edge, tail: P.tail, light: P.light, spark: [P.body[0] * 1.3, P.body[1] * 1.4, P.body[2] * 1.6] }
+/** sRGB hex of the identity accent at 60 %: tint for the shared windup's spiral and ground ring */
+const WIND_HEX = (() => {
+  const a = spellPalette('lightning').accent
+  const ch = (sh: number) => Math.round(((a >> sh) & 255) * 0.6)
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+})()
 /** the detonated Fireball's own fire */
 const FB = palFor('fireball')
 let K: KitA | null = null
@@ -47,17 +57,10 @@ interface Bolt {
   tier: number
 }
 
-const bolts: Bolt[] = []
-let nBolts = 0
-for (let i = 0; i < 24; i++) bolts.push({ born: -10, x0: 0, y0: 0, h0: 0, x1: 0, y1: 0, h1: 0, seed: 0, blocked: false, hit: false, life: 0, kind: 0, tier: 0 })
+const bolts = new LivePool<Bolt>(24, () => ({ born: -10, x0: 0, y0: 0, h0: 0, x1: 0, y1: 0, h1: 0, seed: 0, blocked: false, hit: false, life: 0, kind: 0, tier: 0 }), (a, b) => a.born < b.born)
 
 function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1: number, h1: number, life: number, kind: number, blocked = false, hit = false, tier = 0): void {
-  let b: Bolt
-  if (nBolts < bolts.length) b = bolts[nBolts++]
-  else {
-    b = bolts[0]
-    for (const c of bolts) if (c.born < b.born) b = c
-  }
+  const b = bolts.acquire()
   b.born = now
   b.x0 = x0
   b.y0 = y0
@@ -73,7 +76,9 @@ function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1
   b.tier = tier
 }
 
-const STRIKE = 0.13
+const STRIKE = 0.16
+/** whole bolt life: strike + afterimage, matched to the cast sound's ~0.5 s echo tail */
+const BOLT_LIFE = 0.62
 /** flashes left this frame (several bolts in one tick must not stack into a white-out) */
 let flashBudget = 4
 function lflash(ctx: VfxCtx, x: number, y: number, h: number, life: number, radius: number, size: number, c: readonly number[], k: number): void {
@@ -84,12 +89,10 @@ function lflash(ctx: VfxCtx, x: number, y: number, h: number, life: number, radi
 
 function drawBolts(k: KitA, ctx: VfxCtx): void {
   const now = ctx.now
-  let w = 0
-  for (let i = 0; i < nBolts; i++) {
-    const b = bolts[i]
+  bolts.sweep((b) => now - b.born <= b.life)
+  for (let i = 0; i < bolts.n; i++) {
+    const b = bolts.items[i]
     const age = now - b.born
-    if (age > b.life) continue
-    bolts[w++] = b
     if (b.kind === 0) {
       const len = Math.hypot(b.x1 - b.x0, b.y1 - b.y0)
       if (age < STRIKE) {
@@ -97,7 +100,7 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         const seed = b.seed + Math.floor(age * 45)
         const f = 1 - age / STRIKE
         // thin white-blue core, blue halo hugging it (sim half-width 25 -> ~50 wide)
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 6 + b.tier * 1.5, P.body, P.hot, 1.3 + f * 0.7 + b.tier * 0.2, 4 + b.tier * 2, 28, 48 + b.tier * 8, 0.22)
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 10 + b.tier * 2, P.body, P.hot, 1.8 + f * 0.6 + b.tier * 0.2, 4 + b.tier * 2, 28, 54 + b.tier * 8, 0.24)
         // light the floor along the bolt (tight, brief)
         const mx = (b.x0 + b.x1) * 0.5
         const my = (b.y0 + b.y1) * 0.5
@@ -106,10 +109,12 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         k.glowAt(b.x0, b.y0, b.h0, 55, P.body[0] * 0.5 * f, P.body[1] * 0.5 * f, P.body[2] * 0.5 * f, 2.6)
         k.glowAt(b.x1, b.y1, b.h1, 70, P.body[0] * 0.6 * f, P.body[1] * 0.6 * f, P.body[2] * 0.6 * f, 2.6)
       } else {
-        // afterimage: last strike shape frozen, cooling to violet and thinning
+        // afterimage: the last strike shape burned in, electric blue, thinning and fading over
+        // the rest of the bolt's life (stays readable ~0.5 s, like the crack's echo)
         const f = 1 - (age - STRIKE) / (b.life - STRIKE)
         const seed = b.seed + Math.floor(STRIKE * 45) - 1
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 5 * f + 1.2, AFTER, P.body, 0.8 * f * f, 4 + b.tier * 2, 28, 30, 0.2)
+        const fa = Math.pow(f, 0.5)
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 3 + 5 * fa, AFTER, P.body, 1.5 * fa, 4 + b.tier * 2, 28, 26 + 12 * fa, 0.22)
       }
       // scorched ember line on the floor
       const fade = Math.max(0, 1 - age / b.life)
@@ -131,7 +136,6 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
       k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, b.seed + Math.floor(age * 30), 10, 3, P.body, P.hot, 1.2 * f, 0, 14, 16, 0.25)
     }
   }
-  nBolts = w
 }
 
 /** a few short arcs crawling over a pawn body */
@@ -151,19 +155,22 @@ function crackleSparks(ctx: VfxCtx, x: number, y: number, h: number, n0: number,
   for (let i = 0; i < n; i++) {
     const a = (dx === 0 && dy === 0 ? Math.random() * Math.PI * 2 : base) + (Math.random() - 0.5) * 2 * cone
     const sp = speed * (0.4 + Math.random() * 0.8)
-    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * sp * 0.5, 0.1 + Math.random() * 0.16, 7, 1, P.spark[0], P.spark[1], P.spark[2], -600, 5, -0.2)
+    pspawn(ps, x, y, h, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.3) * sp * 0.5, 0.1 + Math.random() * 0.16, 7, 1, WIND.spark[0], WIND.spark[1], WIND.spark[2], -600, 5, -0.2)
   }
 }
 
 const mod: SpellVfx = {
   spell: 'lightning',
+  // the shared base windup's arm rings mix in the palette's white core and stack into a white
+  // blob at the hand; Lightning draws its own arcs up the arm instead, in a deeper identity blue
+  windupStyle: () => ({ hide: ['rings'], color: WIND_HEX }),
   init(ctx) {
     K = acquireKit(ctx)
   },
   dispose() {
     releaseKit(K)
     K = null
-    nBolts = 0
+    bolts.clear()
   },
 
   onEvent(e: SimEvent, ctx) {
@@ -243,7 +250,7 @@ const mod: SpellVfx = {
           const tv = ctx.pawn(tp.id)
           if (tv) h1 = tv.h + 70
         }
-        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, 0.55, 0, e.blocked, e.target !== null, k.tierOf(e))
+        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, BOLT_LIFE, 0, e.blocked, e.target !== null, k.tierOf(e))
         lflash(ctx, x0, y0, h0, 0.1, 120, 70, P.body, 0.8)
         crackleSparks(ctx, x0, y0, h0, 8, 500, ux, uy, 0.9)
         ctx.shakeNear(x0, y0, 0.12)
@@ -325,22 +332,27 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      // signature: arcs jumping between the fingers and crawling up the arm
+      k.windupAt(o.x, o.y, o.h, w, WIND, ctx.now, ctx.dt, p.id)
+      // signature: arcs jumping between the fingers and crawling up the arm. Electric blue
+      // cores (never the white-hot palette core): several stacked layers at the hand would
+      // otherwise add up to a white blob.
       const sx = info.x + (o.x - info.x) * 0.25
       const sy = info.y + (o.y - info.y) * 0.25
       const sh = info.h + 112
       const armSeed = p.id * 53 + Math.floor(ctx.now * 22)
-      k.bolt(o.x, o.y, o.h, sx, sy, sh, armSeed, 9, 2.5, P.body, P.hot, 0.6 + w * 0.8, w > 0.5 ? 1 : 0, 9, 14, 0.25)
-      const arcs = 1 + Math.floor(w * 3)
+      // (each arc starts a little off the palm so they don't all stack on one point)
+      const ox0 = o.x + (sx - o.x) * 0.15
+      const oy0 = o.y + (sy - o.y) * 0.15
+      k.bolt(ox0, oy0, o.h + (sh - o.h) * 0.15, sx, sy, sh, armSeed, 9, 2.2, WIND.edge, WIND.body, 0.4 + w * 0.45, w > 0.5 ? 1 : 0, 9, 10, 0.18)
+      const arcs = 1 + Math.floor(w * 2)
       for (let i = 0; i < arcs; i++) {
         const seed = p.id * 97 + i * 13 + Math.floor(ctx.now * 28)
         const a = hash01(seed, 1) * Math.PI * 2
         const l = 30 + w * 40
-        k.bolt(o.x, o.y, o.h, o.x + Math.cos(a) * l, o.y + Math.sin(a) * l, o.h + (hash01(seed, 2) - 0.5) * 60, seed, 8, 2.5, P.body, P.hot, 0.7 + w * 0.6, 0, 10, 14, 0.25)
+        k.bolt(o.x + Math.cos(a) * 14, o.y + Math.sin(a) * 14, o.h, o.x + Math.cos(a) * l, o.y + Math.sin(a) * l, o.h + (hash01(seed, 2) - 0.5) * 60, seed, 8, 1.8, WIND.edge, WIND.body, 0.35 + w * 0.3, 0, 10, 9, 0.18)
       }
     }
-    if (nBolts > 0) {
+    if (bolts.n > 0) {
       k.begin()
       drawBolts(k, ctx)
     }
