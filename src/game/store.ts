@@ -207,4 +207,4 @@ export const useGame = create<GameStore>((set, get) => ({
   setGpu: (gpu) => set({ gpu }),
 }))
 
-export const BOT_DIFFICULTIES: BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal']
+export const BOT_DIFFICULTIES: BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']

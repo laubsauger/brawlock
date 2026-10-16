@@ -83,6 +83,13 @@ describe('bots: presets', () => {
     }
   })
 
+  it('Uber is better by decisions, not by superhuman inputs', () => {
+    const u = BOT_PRESETS.uber
+    expect(u.reactionDelay).toBeGreaterThanOrEqual(0.12) // no faster than a sharp human
+    expect(u.aimErrorRad).toBeGreaterThan(0) // never pixel-perfect
+    expect(u.thinkInterval).toBeGreaterThanOrEqual(BOT_PRESETS.brutal.thinkInterval) // no per-tick corrections
+  })
+
   it('harder presets think at least as often as the original intervals', () => {
     expect(BOT_PRESETS.easy.thinkInterval).toBe(1.0)
     expect(BOT_PRESETS.medium.thinkInterval).toBe(0.5)
@@ -725,3 +732,71 @@ describe('bots: pillars', () => {
     expect(run('easy').has('dodge')).toBe(true)
   })
 })
+
+describe('bots: Scourge timing', () => {
+  /** Run a bot for `seconds` next to an enemy standing at distance d; was Scourge started? */
+  function scourges(difficulty: BotDifficulty, d: number, hp = 1000, seconds = 10): boolean {
+    const me = makePawn(BOT, 0, 0, { hp })
+    me.slots[FIREBALL_SLOT] = null // only Scourge to use
+    const state = makeState([me, makePawn(ENEMY, d, 0)])
+    const bot = createBot(BOT, difficulty, 5)
+    for (let t = 0; t < seconds * 60; t++) {
+      state.tick = t
+      if (bot.think(state).some((c) => c.kind === 'cast' && c.slot === 7)) return true
+    }
+    return false
+  }
+
+  it('no difficulty starts a Scourge into an empty radius (enemy just outside its 250 reach)', () => {
+    for (const d of ['easy', 'medium', 'hard', 'brutal', 'uber'] as const) expect(scourges(d, 270), d).toBe(false)
+  })
+
+  it('...but every difficulty does Scourge an enemy standing inside it', () => {
+    for (const d of ['easy', 'medium', 'hard', 'brutal', 'uber'] as const) expect(scourges(d, 110), d).toBe(true)
+  })
+
+  it('value-based Scourge holds at low HP when the blast would not kill', () => {
+    for (const d of ['hard', 'brutal', 'uber'] as const) expect(scourges(d, 110, 150), d).toBe(false)
+  })
+
+  it('a rooted enemy at the rim is worth it: it cannot walk out during the windup', () => {
+    for (const d of ['brutal', 'uber'] as const) {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[FIREBALL_SLOT] = null
+      const rooted = makePawn(ENEMY, 215, 0, { modifiers: [{ id: 'grip', ticksLeft: 200, source: BOT, data: {} }] })
+      const state = makeState([me, rooted])
+      const bot = createBot(BOT, d, 5)
+      let cast = false
+      for (let t = 0; t < 600 && !cast; t++) {
+        state.tick = t
+        cast = bot.think(state).some((c) => c.kind === 'cast' && c.slot === 7)
+      }
+      expect(cast, d).toBe(true)
+    }
+  })
+})
+
+describe('bots: Uber build plan', () => {
+  it('buys Teleport first, then Lightning, then Fireball upgrades, in order and as gold allows', () => {
+    const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 900, 0)], { phase: 'shop' })
+    state.scores[0].gold = 30
+    const bot = createBot(BOT, 'uber', 4)
+    const buys: string[] = []
+    for (let t = 0; t < 60 * 5; t++) {
+      state.tick = t
+      for (const c of bot.think(state)) {
+        if (c.kind === 'buySpell' || c.kind === 'buyItem') {
+          const id = c.kind === 'buySpell' ? c.spell : c.item
+          buys.push(id)
+          // grant it like the sim would, so the plan moves on
+          const me = state.pawns[0]
+          if (id === 'teleport') { me.slots[1] = 'teleport'; me.levels[1] = 1; state.scores[0].gold -= 12 }
+          if (id === 'lightning') { me.slots[0] = 'lightning'; me.levels[0] = 1; state.scores[0].gold -= 11 }
+          if (id === 'fireball') { me.levels[FIREBALL_SLOT] += 1; state.scores[0].gold -= 7 }
+        }
+      }
+    }
+    expect(buys).toEqual(['teleport', 'lightning', 'fireball'])
+  })
+})
+

@@ -20,6 +20,7 @@ const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
   medium: 'Medium',
   hard: 'Hard',
   brutal: 'Brutal',
+  uber: 'Uber',
 }
 
 const ROLE_LABEL = { offline: 'Offline', host: 'Hosting', client: 'Joined' } as const

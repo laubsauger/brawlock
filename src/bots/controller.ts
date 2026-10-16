@@ -35,7 +35,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { isEnemy } from '../sim'
+import { attr, isEnemy, spellDef } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -43,6 +43,8 @@ import { dangerAt, dodgeDirection } from './danger'
 import { insideAny, threatZones, type ThreatZone } from './threats'
 import { firstBlocking, inPillar, routeAround, shieldedFrom } from './pillars'
 import { BOT_PRESETS, type BotParams } from './presets'
+import { afterHit, lavaOutcome, leadWithFriction, physVelocity, positionAfter, projectileHit } from './predict'
+import { planStep } from './plan'
 import { botSeed, Rng } from './prng'
 import {
   BOT_SPELLS,
@@ -79,6 +81,11 @@ const FLEE_ANGLES = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1
 const FIREBALL_DETONATE_RADIUS = 225
 /** How far ahead a lava-aware dodge checks the ground. */
 const DODGE_LOOKAHEAD = 150
+/** Landing-spot search for Teleport: fractions of its range x directions. */
+const TP_RADII = [0.3, 0.5, 0.7, 0.9]
+const TP_DIRS = 16
+/** A human needs about this long to notice a cast and start walking. */
+const HUMAN_NOTICE = 0.25
 
 export type BotAction =
   | 'idle'
@@ -95,6 +102,9 @@ export type BotAction =
   | 'thrust'
   | 'flee'
   | 'hold'
+  | 'save'
+  | 'blink'
+  | 'reposition'
 
 const secToTicks = (s: number) => Math.round(s * TICK_HZ)
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -209,13 +219,16 @@ export class BotController implements Bot {
 
     // 1. Buy: between rounds or while dead, one spell per 40 s.
     this.checkPendingBuy(tick, me, gold)
-    if (
-      p.buys &&
-      !this.pendingBuy &&
-      tick >= this.nextBuyTick &&
-      (state.phase !== 'fight' || !me?.alive) &&
-      gold >= BUY_MIN_GOLD
-    ) {
+    const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && (state.phase !== 'fight' || !me?.alive)
+    if (canShop && p.buildPlan === 'plan') {
+      // Uber: the next step of its build, several per shop phase
+      const step = planStep(me, gold, this.failedBuys)
+      if (step) {
+        this.nextBuyTick = tick + secToTicks(0.3)
+        this.pendingBuy = { spell: step.id, tick: tick + this.delayTicks, gold }
+        return this.act('buy', [step.cmd])
+      }
+    } else if (canShop && gold >= BUY_MIN_GOLD) {
       const spell = this.chooseBuy(me)
       if (spell) {
         this.nextBuyTick = tick + secToTicks(BUY_INTERVAL)
@@ -239,6 +252,24 @@ export class BotController implements Bot {
       }
     }
     const onLava = !isSafe(layer, me.x, me.y)
+    const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
+    const tp = me.slots.indexOf('teleport')
+    const tpReady = tp >= 0 && castable(me, tp) && !(me.cast && me.cast.spell === 'teleport')
+
+    // 1b. Teleport save (new): blink out of a lethal or high-risk lava trajectory.
+    if (tpReady && p.teleportSave > 0 && this.lavaRisk(state, me, layer) && this.rng.chance(p.teleportSave)) {
+      const land = this.planTeleport(state, me, tp, threats, 'save')
+      if (land) {
+        this.wander = null
+        return this.act('save', [{ kind: 'cast', slot: tp, x: land.x, y: land.y }])
+      }
+    }
+
+    // 1c. Teleport dodge (new): a bolt walking cannot clear in time, whose hit would be dangerous.
+    if (tpReady && p.teleportDodge > 0 && this.unavoidableHit(state, me, threats, layer) && this.rng.chance(p.teleportDodge)) {
+      const land = this.planTeleport(state, me, tp, threats, 'dodge')
+      if (land) return this.act('blink', [{ kind: 'cast', slot: tp, x: land.x, y: land.y }])
+    }
 
     // 2. Lava escape: cast the escape spell toward safe ground.
     if (onLava) {
@@ -258,10 +289,11 @@ export class BotController implements Bot {
       if (flee) return this.act('flee', flee)
     }
 
-    // 3. Retarget: lost target or 1/5 chance -> closest enemy.
+    // 3. Retarget: lost target or 1/5 chance -> closest enemy (edgePressure: best kill chance).
     const current = this.target === null ? null : state.pawns.find((o) => o.owner === this.target)
     if (!current || !current.alive || !areEnemies(state, this.player, current.owner) || this.rng.chance(p.retargetChance)) {
-      this.target = closest ? closest.owner : null
+      const pick = p.edgePressure ? this.killTarget(state, me, enemies) : closest
+      this.target = pick ? pick.owner : null
     }
     const target = this.target === null ? null : (state.pawns.find((o) => o.owner === this.target && o.alive) ?? null)
 
@@ -279,7 +311,6 @@ export class BotController implements Bot {
     if (tick < this.spellEndTick) return this.act('idle', [])
     if (me.cast && me.cast.spell !== 'scourge') return this.act('idle', [])
 
-    const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
     // Danger where we will be when this decision lands (a player plans from where they are going).
     const self = this.predictSelf(me, tick)
     const danger = this.dangerHere(state, threats, self.x, self.y)
@@ -287,7 +318,9 @@ export class BotController implements Bot {
 
     // 6. Scourge channel: keep it unless in danger or the enemy walked away.
     if (me.cast?.spell === 'scourge' || tick < this.scourgeEndTick) {
-      if (mustDodge || (closestDist > SCOURGE_RADIUS && this.rng.chance(SCOURGE_GIVE_UP_CHANCE))) {
+      // value-based presets let go of a blast whose victims walked out (no cooldown is spent)
+      const gone = p.scourgeMinValue > 0 && this.scourgeValue(state, me, enemies, true).value < p.scourgeMinValue * 0.5
+      if (mustDodge || gone || (closestDist > SCOURGE_RADIUS && this.rng.chance(SCOURGE_GIVE_UP_CHANCE))) {
         this.scourgeEndTick = 0
         const cmds: InputCommand[] = [{ kind: 'stop' }]
         if (mustDodge) cmds.push(this.dodgeMove(state, self, threats, danger))
@@ -299,12 +332,22 @@ export class BotController implements Bot {
     // 7. Dodge down the danger gradient.
     if (mustDodge) return this.act('dodge', [this.dodgeMove(state, self, threats, danger)])
 
-    // 8. Scourge an enemy in reach.
+    // 8. Scourge: never into an empty radius. Value-based presets weigh who will still be
+    // inside after the windup and whether the push kills; the rest keep the original chance.
     if (closest && closestDist <= p.scourgeRange) {
       const sc = this.findSlot(me, 'scourge')
-      if (sc >= 0 && this.rng.chance(p.scourgeChance)) {
-        this.scourgeEndTick = tick + secToTicks(SCOURGE_CHANNEL_SECONDS)
-        return this.act('scourge', [{ kind: 'cast', slot: sc, x: me.x, y: me.y }])
+      if (sc >= 0) {
+        let go = false
+        if (p.scourgeMinValue > 0) {
+          const v = this.scourgeValue(state, me, enemies, false)
+          go = v.value >= p.scourgeMinValue && (me.hp >= p.scourgeMinHp || v.kills > 0) && this.rng.chance(p.scourgeChance)
+        } else {
+          go = closestDist <= SCOURGE_RADIUS - 20 && this.rng.chance(p.scourgeChance)
+        }
+        if (go) {
+          this.scourgeEndTick = tick + secToTicks(SCOURGE_CHANNEL_SECONDS)
+          return this.act('scourge', [{ kind: 'cast', slot: sc, x: me.x, y: me.y }])
+        }
       }
     }
 
@@ -330,14 +373,21 @@ export class BotController implements Bot {
       }
     }
 
+    // 8d. Offensive Teleport (new): blink to the arena-centre side of an enemy near the edge,
+    // so the next hits push it out. Only with Teleport spare and nothing threatening us.
+    if (tpReady && target && p.teleportOffense > 0 && danger < 1 && this.rng.chance(p.teleportOffense)) {
+      const spot = this.repositionSpot(state, me, target, threats, safety)
+      if (spot) return this.act('reposition', [{ kind: 'cast', slot: tp, x: spot.x, y: spot.y }])
+    }
+
     // 9. Shoot a random projectile spell at the target (falls through if not castable).
     if (target && this.rng.chance(p.castChance)) {
       const options = this.slotsWithRole(me, 'projectile')
       if (options.length > 0) {
         const slot = this.rng.pick(options)
         if (castable(me, slot) && !me.cast) {
-          const aim = this.aimAt(me, target, me.slots[slot]!)
-          if (aim) {
+          const aim = this.aimAt(me, target, me.slots[slot]!, state)
+          if (aim && (p.shotGate <= 0 || this.shotChance(state, me, target, me.slots[slot]!, aim) >= p.shotGate)) {
             this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
             return this.act('shoot', [{ kind: 'cast', slot, x: aim.x, y: aim.y }])
           }
@@ -501,6 +551,186 @@ export class BotController implements Bot {
     return [{ kind: 'move', x: from.x + best.dir.x * go, y: from.y + best.dir.y * go }]
   }
 
+  /**
+   * Lava risk now (Teleport save): standing in lava, or (saveLookahead) being carried toward
+   * it, where walking back would burn us to death or cost most of our HP.
+   */
+  private lavaRisk(state: SimState, me: PawnState, layer: number): boolean {
+    const p = this.params
+    const ph = physVelocity(me)
+    const onLava = !isSafe(layer, me.x, me.y)
+    const sliding = Math.hypot(ph.x, ph.y) > me.moveSpeed
+    if (!onLava && !(p.saveLookahead && sliding)) return false
+    const out = lavaOutcome(state, me, ph, me.hp, me.moveSpeed, layer)
+    return out.lethal || out.damage >= me.hp * 0.45 || (onLava && out.lavaTime > 1.5)
+  }
+
+  /**
+   * An enemy bolt we cannot walk out of before it arrives (after our reaction delay), whose
+   * knockback would be lethal or cost most of our HP in lava.
+   */
+  private unavoidableHit(state: SimState, me: PawnState, threats: ProjectileState[], layer: number): boolean {
+    for (const pr of threats) {
+      const v2 = pr.vx * pr.vx + pr.vy * pr.vy
+      if (v2 < 1) continue
+      if (this.params.useCover && shieldedFrom(state, pr, me.x, me.y)) continue
+      const rx = me.x - pr.x
+      const ry = me.y - pr.y
+      const tc = (rx * pr.vx + ry * pr.vy) / v2
+      if (tc <= 0 || tc > 1.5) continue
+      const v = Math.sqrt(v2)
+      const line = Math.abs(rx * pr.vy - ry * pr.vx) / v
+      const hitR = pr.radius + PAWN_BODY
+      if (line >= hitR + 5) continue
+      const avail = tc - this.params.reactionDelay - 0.06
+      if (avail > 0 && hitR + 10 - line <= me.moveSpeed * avail) continue
+      const hit = projectileHit(pr.spell, pr.level ?? 1)
+      const after = afterHit(state, me, hit.damage, hit.kbFactor, pr.vx / v, pr.vy / v)
+      const left = me.hp - hit.damage
+      if (left <= 1) return true
+      const out = lavaOutcome(state, me, after, left, me.moveSpeed, layer)
+      if (out.lethal || out.damage >= left * 0.4) return true
+    }
+    return false
+  }
+
+  /**
+   * Best Teleport landing: in range, on safe ground (with momentumAware, where the 80% of our
+   * velocity Teleport keeps still ends on a tile), out of bolts' paths, threat zones and
+   * pillars, away from enemies and the edge. Null when nowhere is acceptable.
+   */
+  private planTeleport(state: SimState, me: PawnState, slot: number, threats: ProjectileState[], purpose: 'save' | 'dodge'): Vec2 | null {
+    const p = this.params
+    const def = spellDef('teleport')
+    const range = def ? attr(def, 'range', me.levels[slot] || 1) : 770
+    const safety = this.safetyLayer(state)
+    const ph = physVelocity(me)
+    const keep = p.momentumAware ? 0.8 : 0
+    const carry = { x: ph.x * keep, y: ph.y * keep }
+    const zones = threatZones(state, this.player)
+    const enemies = state.pawns.filter((o) => o.alive && areEnemies(state, this.player, o.owner))
+    let best: Vec2 | null = null
+    let bestCost = Infinity
+    for (const rf of TP_RADII) {
+      for (let i = 0; i < TP_DIRS; i++) {
+        const a = (i / TP_DIRS) * Math.PI * 2
+        const land = { x: me.x + Math.cos(a) * range * rf, y: me.y + Math.sin(a) * range * rf }
+        if (!isSafeWithMargin(safety, land.x, land.y, 40) || inPillar(state, land.x, land.y) || insideAny(zones, land.x, land.y)) continue
+        const out = lavaOutcome(state, land, carry, me.hp, me.moveSpeed, safety, 2.5)
+        if (out.lethal) continue
+        let cost = out.damage * 8 + out.lavaTime * 150
+        cost += this.dangerHere(state, threats, land.x, land.y) * (purpose === 'dodge' ? 60 : 25)
+        for (const e of enemies) cost += Math.max(0, 450 - dist(land, e)) * 1.5
+        if (!isSafeWithMargin(safety, land.x, land.y, 160)) cost += 250
+        cost += Math.hypot(land.x, land.y) * 0.15
+        if (cost < bestCost) {
+          bestCost = cost
+          best = land
+        }
+      }
+    }
+    return best
+  }
+
+  /**
+   * Scourge value: expected enemies still inside the radius when the windup ends (rooted,
+   * linked or Gravity-pulled ones cannot walk out; walkers can once they notice), each
+   * counting extra when the push would end in lava. kills = likely kills.
+   */
+  private scourgeValue(state: SimState, me: PawnState, enemies: PawnState[], channelling: boolean): { value: number; kills: number } {
+    const def = spellDef('scourge')
+    const slot = me.slots.indexOf('scourge')
+    const level = slot >= 0 ? me.levels[slot] || 1 : 1
+    const radius = def ? attr(def, 'radius', level) : SCOURGE_RADIUS
+    const damage = def ? attr(def, 'damage', level) : 100
+    const castPoint = def ? def.castPoint : 0.9
+    // left of the windup: all of it plus our reaction when deciding, what remains when channelling
+    const windup = channelling && me.cast ? me.cast.ticksLeft / TICK_HZ : castPoint + this.params.reactionDelay
+    const layer = state.arena.layer
+    const linked = new Set(me.modifiers.filter((m) => m.id === 'link').map((m) => m.data.target))
+    const myGravity = state.projectiles.filter((pr) => pr.owner === this.player && pr.spell === 'gravity')
+    let value = 0
+    let kills = 0
+    for (const e of enemies) {
+      const stuck =
+        e.modifiers.some((m) => m.id === 'grip') ||
+        linked.has(e.id) ||
+        myGravity.some((g) => Math.hypot(g.x - e.x, g.y - e.y) < (g.data.pawnRadius || 550))
+      const at = stuck ? { x: e.x, y: e.y } : positionAfter(state, e, Math.min(windup, HUMAN_NOTICE))
+      const d = dist(me, at)
+      if (d >= radius) continue
+      const walk = Math.max(0, windup - HUMAN_NOTICE) * e.moveSpeed
+      const pHit = stuck || e.cast ? 1 : Math.max(0, Math.min(1, (radius - d + 20) / Math.max(1, walk)))
+      const dir = d > 1 ? { x: (at.x - me.x) / d, y: (at.y - me.y) / d } : { x: 1, y: 0 }
+      const kf = 0.75 + 0.25 * (1 - d / radius)
+      const after = afterHit(state, e, damage, kf, dir.x, dir.y)
+      const left = e.hp - damage
+      const out = left <= 1 ? null : lavaOutcome(state, at, after, left, e.moveSpeed, layer, 3)
+      const kill = left <= 1 || out!.lethal ? 1 : out!.damage >= left * 0.5 ? 0.4 : 0
+      value += pHit * (1 + 1.5 * kill)
+      if (pHit >= 0.6 && kill >= 1) kills++
+    }
+    return { value, kills }
+  }
+
+  /** Edge pressure: the enemy most likely to die to a push (near the edge, high DP, close). */
+  private killTarget(state: SimState, me: PawnState, enemies: PawnState[]): PawnState | null {
+    const r = layerRadius(state.arena.layer)
+    let best: PawnState | null = null
+    let bestScore = -Infinity
+    for (const e of enemies) {
+      const edge = Math.max(0, Math.min(1, 1 - (r - Math.hypot(e.x, e.y)) / 600))
+      const score = edge * 1.2 + e.kbPoints / 600 + (1 - e.hp / e.maxHp) * 0.5 - dist(me, e) / 2500
+      if (score > bestScore) {
+        bestScore = score
+        best = e
+      }
+    }
+    return best
+  }
+
+  /**
+   * Offensive Teleport: when the target is near the edge but our hits would push it inward,
+   * the spot on its arena-centre side (shooting range, safe, out of bolts and zones).
+   */
+  private repositionSpot(state: SimState, me: PawnState, target: PawnState, threats: ProjectileState[], safety: number): Vec2 | null {
+    if (me.hp < me.maxHp * 0.6) return null
+    const tl = Math.hypot(target.x, target.y)
+    if (tl < 50 || layerRadius(state.arena.layer) - tl > 350) return null
+    const ox = target.x / tl
+    const oy = target.y / tl
+    const d = Math.max(1, dist(me, target))
+    // our hits already push it outward: nothing to gain
+    if (((target.x - me.x) / d) * ox + ((target.y - me.y) / d) * oy > 0.3) return null
+    const fb = me.slots.indexOf('fireball')
+    if (fb < 0 || !castable(me, fb)) return null
+    const tp = me.slots.indexOf('teleport')
+    const def = spellDef('teleport')
+    const range = def ? attr(def, 'range', me.levels[tp] || 1) : 770
+    const spot = { x: target.x - ox * 430, y: target.y - oy * 430 }
+    if (dist(me, spot) > range || !isSafeWithMargin(safety, spot.x, spot.y, 120) || inPillar(state, spot.x, spot.y)) return null
+    if (insideAny(threatZones(state, this.player), spot.x, spot.y) || this.dangerHere(state, threats, spot.x, spot.y) > 1) return null
+    return spot
+  }
+
+  /**
+   * Chance the shot connects: the target needs to walk out by our hit radius once it notices
+   * the cast; rooted, knocked or casting targets cannot.
+   */
+  private shotChance(state: SimState, me: PawnState, target: PawnState, spell: SpellId, aim: Vec2): number {
+    const info = BOT_SPELLS[spell]
+    if (!info?.speed) return 1
+    if (target.cast || target.modifiers.some((m) => m.id === 'grip')) return 1
+    const ph = physVelocity(target)
+    if (Math.hypot(ph.x, ph.y) > target.moveSpeed * 1.5) return 1
+    const flight = dist(me, aim) / info.speed + info.castPoint
+    const room = Math.max(0, flight - HUMAN_NOTICE) * target.moveSpeed
+    const r = (spell === 'fireball' ? 25 : 30) + PAWN_BODY
+    const edge = Math.max(0, Math.min(1, 1 - (layerRadius(state.arena.layer) - Math.hypot(target.x, target.y)) / 400))
+    // a shot at a target near the edge is worth it even if it can step aside: it must
+    return Math.max(edge, Math.min(1, r / Math.max(1, room)))
+  }
+
   /** The layer the bot plans against: the next one when a shrink is imminent. */
   private safetyLayer(state: SimState): number {
     const a = state.arena
@@ -530,6 +760,21 @@ export class BotController implements Bot {
     const tries = p.safeWander ? 12 : 1
     let point: Vec2 | null = null
     let delay = 0.6
+    if (p.edgePressure && target) {
+      // hold the arena-centre side of the target at shooting range, so hits push it out
+      const tl = Math.hypot(target.x, target.y)
+      const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
+      const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
+      for (let i = 0; i < 6 && !point; i++) {
+        const a = this.rng.range(-0.5, 0.5)
+        const r = this.rng.range(450, 650)
+        const c = Math.cos(a)
+        const sn = Math.sin(a)
+        const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
+        if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
+      }
+      delay = this.rng.range(0.3, 0.6)
+    }
     for (let i = 0; i < tries && !point; i++) {
       let centre: Vec2
       let radius: number
@@ -632,7 +877,7 @@ export class BotController implements Bot {
     return { kind: 'move', x: from.x + dir.x * DODGE_REACH, y: from.y + dir.y * DODGE_REACH }
   }
 
-  private aimAt(me: PawnState, target: PawnState, spell: SpellId): Vec2 | null {
+  private aimAt(me: PawnState, target: PawnState, spell: SpellId, state?: SimState): Vec2 | null {
     const p = this.params
     const info = BOT_SPELLS[spell]
     let point: Vec2 = { x: target.x, y: target.y }
@@ -642,7 +887,9 @@ export class BotController implements Bot {
       const t = info.landDelay + windup
       point = { x: target.x + target.vx * t, y: target.y + target.vy * t }
     } else if (info?.speed && this.rng.chance(p.leadChance)) {
-      point = leadPoint(me, target, { x: target.vx, y: target.vy }, info.speed, windup)
+      point = p.frictionLead && state
+        ? leadWithFriction(state, me, target, info.speed, windup)
+        : leadPoint(me, target, { x: target.vx, y: target.vy }, info.speed, windup)
     }
     if ((p.rangeCheck || info?.hitscan) && info?.range && dist(me, point) > info.range) return null
     if (p.aimErrorRad > 0) {

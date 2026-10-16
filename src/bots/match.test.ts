@@ -3,7 +3,7 @@
  * never finish a round. Skipped (with a reason) while the sim cannot run a match.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, SCOURGE_SLOT, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, SCOURGE_SLOT, createMatch, hashState, step } from '../sim'
 import type { BotDifficulty, MatchSettings, PlayerSlot, SimState } from '../sim'
 import { createBot } from './index'
 import { PillarStuckMeter } from './pillarStuck'
@@ -153,4 +153,83 @@ describe('bots: headless matches on the real sim', () => {
       }
     }
   }, 20_000) // several seeded full matches: ~3-4 s alone, more under a loaded parallel run
+
+  /**
+   * Real sim: the bot slides hard toward the lava (a big knockback) with HP so low that
+   * walking back would burn it to death. Returns whether it survived 6 s.
+   */
+  function knockedTowardLava(difficulty: BotDifficulty, k: number, teleportReady: boolean): boolean {
+    const sl: PlayerSlot[] = [
+      { id: 0, name: 'bot', color: 0xff0000, team: 0, kind: 'bot', difficulty },
+      { id: 1, name: 'foe', color: 0x0000ff, team: 1, kind: 'human' },
+    ]
+    const state = createMatch({ ...DEFAULT_SETTINGS }, sl, 100 + k)
+    for (let i = 0; i < 60 * 60 && state.phase !== 'fight'; i++) step(state, [])
+    for (let i = 0; i < 150; i++) step(state, [])
+    state.obstacles = []
+    const me = state.pawns.find((p) => p.owner === 0)!
+    const foe = state.pawns.find((p) => p.owner === 1)!
+    const edge = (state.arena.layer - 1) * 100
+    const a = (k / 8) * Math.PI * 2 + 0.3
+    foe.x = -Math.cos(a) * 500
+    foe.y = -Math.sin(a) * 500
+    foe.vx = foe.vy = 0
+    foe.moveTarget = null
+    me.x = Math.cos(a) * (edge - 300)
+    me.y = Math.sin(a) * (edge - 300)
+    me.vx = Math.cos(a) * 1500
+    me.vy = Math.sin(a) * 1500
+    me.walkVx = me.walkVy = 0
+    me.moveTarget = null
+    me.cast = null
+    me.hp = 120 // a few lava ticks
+    me.slots[1] = 'teleport'
+    me.levels[1] = 1
+    me.cooldowns[1] = teleportReady ? 0 : 600
+    const bot = createBot(0, difficulty, 7 + k)
+    for (let i = 0; i < 360; i++) {
+      step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
+      if (!me.alive) return false
+    }
+    return true
+  }
+
+  it.skipIf(simReason !== '')(`a bot knocked toward lava with Teleport ready survives; without it, it burns${simReason}`, () => {
+    for (const d of ['hard', 'brutal', 'uber'] as const) {
+      for (let k = 0; k < 6; k++) {
+        expect(knockedTowardLava(d, k, false), `${d} #${k}: the setup must be lethal without Teleport`).toBe(false)
+        expect(knockedTowardLava(d, k, true), `${d} #${k}`).toBe(true)
+      }
+    }
+  })
+
+  it.skipIf(simReason !== '')(`Uber beats Brutal in most seeded 1v1s${simReason}`, () => {
+    let uber = 0
+    for (let seed = 1; seed <= 10; seed++) {
+      const sl = slots(['uber', 'brutal'])
+      const state = createMatch({ ...DEFAULT_SETTINGS }, sl, seed)
+      const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
+      for (let i = 0; i < 1500 * 60 && state.phase !== 'gameOver'; i++) {
+        step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
+      }
+      const best = Math.max(...state.scores.map((s) => s.score))
+      if (state.scores.find((s) => s.id === 0)!.score === best && state.scores.find((s) => s.id === 1)!.score < best) uber++
+    }
+    // 38 of 40 over the full measurement; 7 of 10 leaves room for seed noise
+    expect(uber).toBeGreaterThanOrEqual(7)
+  })
+
+  it.skipIf(simReason !== '')(`seeded bot matches are reproducible${simReason}`, () => {
+    const run = () => {
+      const sl = slots(['uber', 'brutal'])
+      const state = createMatch({ ...DEFAULT_SETTINGS }, sl, 3)
+      const bots = sl.map((s) => createBot(s.id, s.difficulty!, 3 * 31 + s.id))
+      for (let i = 0; i < 90 * 60 && state.phase !== 'gameOver'; i++) {
+        step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
+      }
+      return hashState(state)
+    }
+    expect(run()).toBe(run())
+  })
 })
+

@@ -65,7 +65,7 @@ export interface MatchSettings {
 // Players and inputs
 // ---------------------------------------------------------------------------
 
-export type BotDifficulty = 'dummy' | 'easy' | 'medium' | 'hard' | 'brutal'
+export type BotDifficulty = 'dummy' | 'easy' | 'medium' | 'hard' | 'brutal' | 'uber'
 
 export interface PlayerSlot {
   id: PlayerId

@@ -4,32 +4,43 @@
  * The original AI had one knob, the think interval (easy 1.0 s, medium 0.5 s,
  * hard 0.2 s), with identical decision logic. We keep that logic and spread
  * difficulty over the knobs below. Every preset stays human-plausible: reaction
- * delay >= 150 ms and aim error > 0, even for Brutal.
+ * delay >= 150 ms and aim error > 0 through Brutal. Uber sits above Brutal without cheating:
+ * reaction >= 120 ms, aim error > 0, the same casts, cooldowns and gold; it wins on decisions.
  *
- * | param            | dummy | easy  | medium | hard  | brutal | original |
- * |------------------|-------|-------|--------|-------|--------|----------|
- * | thinkInterval s  |   -   | 1.0   | 0.5    | 0.2   | 0.1    | 1.0/0.5/0.2 |
- * | reactionDelay s  |   -   | 0.35  | 0.25   | 0.18  | 0.15   | 0        |
- * | aimErrorRad      |   -   | 0.20  | 0.10   | 0.05  | 0.02   | 0        |
- * | leadChance       |   -   | 0.33  | 0.5    | 0.85  | 0.95   | 1/3      |
- * | leadWindup       |   -   | no    | no     | yes   | yes    | no       |
- * | castChance/think |   -   | 0.2   | 0.2    | 0.2   | 0.25   | 1/5      |
- * | rangeCheck       |   -   | no    | no     | yes   | yes    | no       |
- * | dodge (thresh)   |   -   | 3     | 3      | 3     | 2.5    | 3        |
- * | scourgeChance    |   -   | 1/6   | 1/6    | 1/6   | 0.3    | 1/6      |
- * | scourgeRange     |   -   | 300   | 300    | 300   | 240    | 300      |
- * | escapeChance     |   -   | 1/3   | 1/3    | 0.5   | 1.0    | 1/3      |
- * | safeWander       |   -   | yes   | yes    | yes   | yes    | no       |
- * | edgeMargin       |   -   | 0     | 60     | 110   | 150    | -        |
- * | shrinkLookahead s|   -   | 0     | 0      | 1.5   | 3      | -        |
- * | walkOffLava      |   -   | no    | yes    | yes   | yes    | no       |
- * | dodgeAvoidsLava  |   -   | no    | no     | yes   | yes    | no       |
- * | buys spells      |   no  | yes   | yes    | yes   | yes    | yes      |
- * | comboChance      |   -   | 0     | 0      | 0.5   | 0.9    | -        |
- * | thrustAttack     |   -   | no    | no     | yes   | yes    | no       |
- * | threatChance     |   -   | 0.35  | 0.8    | 1     | 1      | -        |
- * | threatEscape     |   -   | no    | no     | yes   | yes    | -        |
- * | useCover         |   -   | no    | no     | yes   | yes    | -        |
+ * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
+ * |------------------|-------|-------|--------|-------|--------|-------|----------|
+ * | thinkInterval s  |   -   | 1.0   | 0.5    | 0.2   | 0.1    | 0.1   | 1.0/0.5/0.2 |
+ * | reactionDelay s  |   -   | 0.35  | 0.25   | 0.18  | 0.15   | 0.12  | 0        |
+ * | aimErrorRad      |   -   | 0.20  | 0.10   | 0.05  | 0.02   | 0.015 | 0        |
+ * | leadChance       |   -   | 0.33  | 0.5    | 0.85  | 0.95   | 1     | 1/3      |
+ * | leadWindup       |   -   | no    | no     | yes   | yes    | yes   | no       |
+ * | castChance/think |   -   | 0.2   | 0.2    | 0.2   | 0.25   | 0.3   | 1/5      |
+ * | rangeCheck       |   -   | no    | no     | yes   | yes    | yes   | no       |
+ * | dodge (thresh)   |   -   | 3     | 3      | 3     | 2.5    | 2.5   | 3        |
+ * | scourgeChance    |   -   | 1/6   | 1/6    | 1/6   | 0.3    | 0.5   | 1/6      |
+ * | scourgeRange     |   -   | 300   | 300    | 300   | 240    | 240   | 300      |
+ * | escapeChance     |   -   | 1/3   | 1/3    | 0.5   | 1.0    | 1.0   | 1/3      |
+ * | safeWander       |   -   | yes   | yes    | yes   | yes    | yes   | no       |
+ * | edgeMargin       |   -   | 0     | 60     | 110   | 150    | 170   | -        |
+ * | shrinkLookahead s|   -   | 0     | 0      | 1.5   | 3      | 3     | -        |
+ * | walkOffLava      |   -   | no    | yes    | yes   | yes    | yes   | no       |
+ * | dodgeAvoidsLava  |   -   | no    | no     | yes   | yes    | yes   | no       |
+ * | buys spells      |   no  | yes   | yes    | yes   | yes    | plan  | yes      |
+ * | comboChance      |   -   | 0     | 0      | 0.5   | 0.9    | 1     | -        |
+ * | thrustAttack     |   -   | no    | no     | yes   | yes    | yes   | no       |
+ * | threatChance     |   -   | 0.35  | 0.8    | 1     | 1      | 1     | -        |
+ * | threatEscape     |   -   | no    | no     | yes   | yes    | yes   | -        |
+ * | useCover         |   -   | no    | no     | yes   | yes    | yes   | -        |
+ * | teleportSave     |   -   | 0.1   | 0.35   | 0.8   | 1      | 1     | -        |
+ * | saveLookahead    |   -   | no    | no     | yes   | yes    | yes   | -        |
+ * | momentumAware    |   -   | no    | no     | no    | yes    | yes   | -        |
+ * | teleportDodge    |   -   | 0     | 0      | 0.5   | 1      | 1     | -        |
+ * | teleportOffense  |   -   | 0     | 0      | 0     | 0.1    | 0.5   | -        |
+ * | scourgeMinValue  |   -   | -     | -      | 0.6   | 0.5    | 0.45  | -        |
+ * | scourgeMinHp     |   -   | 0     | 0      | 250   | 220    | 200   | -        |
+ * | edgePressure     |   -   | no    | no     | no    | no     | yes   | -        |
+ * | frictionLead     |   -   | no    | no     | no    | no     | yes   | -        |
+ * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
@@ -39,6 +50,26 @@
  * threatChance: chance per think to walk out of an area about to strike (an enemy charging
  * Scourge, a Meteor's landing spot, a Gravity orb's damage zone). threatEscape: when walking
  * cannot clear it in time, use the escape spell instead.
+ *
+ * teleportSave: chance per think to teleport out of a lethal or high-risk lava trajectory
+ * (saveLookahead: predict it from the knockback slide before touching lava; otherwise only
+ * once standing in lava). momentumAware: Teleport keeps 80% of the velocity, so the landing
+ * spot is chosen where that leftover slide ends on safe ground. teleportDodge: blink out of a
+ * projectile that walking cannot clear in time when the hit would be lethal or high-risk.
+ * teleportOffense: chance to blink to the arena-centre side of an enemy near the edge, so the
+ * next hits push it out (only with Teleport spare and nothing threatening).
+ *
+ * Scourge: every preset needs an enemy inside the blast radius (never an empty radius).
+ * scourgeMinValue (hard and up) replaces the per-think chance with a value: expected enemies
+ * still inside when the 0.9 s windup ends (rooted or pulled ones count fully, walkers can
+ * leave), weighted up when the push would end in lava; never below scourgeMinHp unless the
+ * blast would kill.
+ *
+ * Uber: edgePressure picks the target with the best kill chance (near the edge, high
+ * knockback points) and keeps to its arena-centre side, so hits push out. frictionLead leads
+ * knocked targets with their decaying slide. shotGate skips shots a target can easily walk
+ * out of. It buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades)
+ * as gold allows each shop phase.
  *
  * useCover: a bolt whose flight hits a pillar before reaching us is no threat, so the bot
  * stays in a pillar's cover instead of stepping out of it, and dodges toward cover. Every
@@ -100,6 +131,28 @@ export interface BotParams {
   threatEscape: boolean
   /** count pillars as cover from projectiles */
   useCover: boolean
+  /** chance per think to teleport out of a lethal / high-risk lava trajectory */
+  teleportSave: number
+  /** predict lava from the knockback slide (false: only react once in lava) */
+  saveLookahead: boolean
+  /** landing spot accounts for Teleport keeping 80% of the velocity */
+  momentumAware: boolean
+  /** chance per think to blink out of an unavoidable, dangerous projectile */
+  teleportDodge: number
+  /** chance per think to blink to an enemy's centre side when it is near the edge */
+  teleportOffense: number
+  /** value-based Scourge (0 = the original per-think chance) */
+  scourgeMinValue: number
+  /** no Scourge below this HP unless it kills */
+  scourgeMinHp: number
+  /** target by kill chance and hold the centre side of it */
+  edgePressure: boolean
+  /** lead knocked targets with friction */
+  frictionLead: boolean
+  /** minimum estimated hit chance to take a shot (0 = always) */
+  shotGate: number
+  /** shop: 'random' = original one random spell per 40 s, 'plan' = Uber build */
+  buildPlan: 'random' | 'plan'
 }
 
 const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
@@ -127,6 +180,17 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   threatChance: 0.35,
   threatEscape: false,
   useCover: false,
+  teleportSave: 0.1,
+  saveLookahead: false,
+  momentumAware: false,
+  teleportDodge: 0,
+  teleportOffense: 0,
+  scourgeMinValue: 0,
+  scourgeMinHp: 0,
+  edgePressure: false,
+  frictionLead: false,
+  shotGate: 0,
+  buildPlan: 'random',
 }
 
 export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
@@ -153,6 +217,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     edgeMargin: 60,
     walkOffLava: true,
     threatChance: 0.8,
+    teleportSave: 0.35,
   },
   hard: {
     ...ORIGINAL,
@@ -172,6 +237,11 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     threatChance: 1,
     threatEscape: true,
     useCover: true,
+    teleportSave: 0.8,
+    saveLookahead: true,
+    teleportDodge: 0.5,
+    scourgeMinValue: 0.6,
+    scourgeMinHp: 250,
   },
   brutal: {
     ...ORIGINAL,
@@ -195,5 +265,46 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     threatChance: 1,
     threatEscape: true,
     useCover: true,
+    teleportSave: 1,
+    saveLookahead: true,
+    momentumAware: true,
+    teleportDodge: 1,
+    teleportOffense: 0.1,
+    scourgeMinValue: 0.5,
+    scourgeMinHp: 220,
+  },
+  uber: {
+    ...ORIGINAL,
+    thinkInterval: 0.1,
+    reactionDelay: 0.12,
+    aimErrorRad: 0.015,
+    leadChance: 1,
+    leadWindup: true,
+    castChance: 0.3,
+    rangeCheck: true,
+    dodgeThreshold: 2.5,
+    scourgeChance: 0.5,
+    scourgeRange: 240,
+    escapeChance: 1,
+    edgeMargin: 170,
+    shrinkLookahead: 3,
+    walkOffLava: true,
+    dodgeAvoidsLava: true,
+    comboChance: 1,
+    thrustAttack: true,
+    threatChance: 1,
+    threatEscape: true,
+    useCover: true,
+    teleportSave: 1,
+    saveLookahead: true,
+    momentumAware: true,
+    teleportDodge: 1,
+    teleportOffense: 0.5,
+    scourgeMinValue: 0.45,
+    scourgeMinHp: 200,
+    edgePressure: true,
+    frictionLead: true,
+    shotGate: 0.3,
+    buildPlan: 'plan',
   },
 }
