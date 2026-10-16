@@ -555,18 +555,26 @@ describe('link monitor', () => {
       // a float drifting by one ulp-ish per tick, like an engine with different trig
       if (s.pawns[0]) s.pawns[0].hp -= 1e-9
     }
-    const { host, client } = await pair({ latencyMs: 20, jitterMs: 2, loss: 0, seed: 3 }, {}, { step: drift })
-    const events: NetGradeEvent[] = []
-    client.session.onNetGrade((e) => events.push(e))
-    host.session.startMatch()
-    await vi.advanceTimersByTimeAsync(5000)
-    const cr = client.session.netStats()!.peers[0]
-    expect(cr.desyncs!).toBeGreaterThan(0)
-    expect(events.some((e) => e.reason === 'desync')).toBe(true)
-    const hr = host.session.netStats()!.peers.find((p) => p.playerId === 1)!
-    expect(hr.desyncs!).toBeGreaterThan(0)
-    host.session.leave()
-    client.session.leave()
+    // the injected drift makes the session warn once; capture it here so a real desync
+    // warning anywhere else in the suite stands out
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { host, client } = await pair({ latencyMs: 20, jitterMs: 2, loss: 0, seed: 3 }, {}, { step: drift })
+      const events: NetGradeEvent[] = []
+      client.session.onNetGrade((e) => events.push(e))
+      host.session.startMatch()
+      await vi.advanceTimersByTimeAsync(5000)
+      const cr = client.session.netStats()!.peers[0]
+      expect(cr.desyncs!).toBeGreaterThan(0)
+      expect(events.some((e) => e.reason === 'desync')).toBe(true)
+      const hr = host.session.netStats()!.peers.find((p) => p.playerId === 1)!
+      expect(hr.desyncs!).toBeGreaterThan(0)
+      expect(warn.mock.calls.filter((c) => /determinism check failed/.test(String(c[0])))).toHaveLength(1)
+      host.session.leave()
+      client.session.leave()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
@@ -740,11 +748,14 @@ describe('event delivery (beam, explosion, death, damage)', () => {
           }
           expect(p.droppedBatches).toEqual([])
         }
-        // every kind of watched event happened, caused by both humans and the bot
+        // every kind of watched event happened; both humans cast Lightning and the bot
+        // fought too (whether its shots connect depends on the match, its events are
+        // checked above like everyone's)
         const all = host.auth.flatMap((s) => s.events)
-        const sources = new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : e.type === 'damage' && e.source !== null ? [e.source] : [])))
-        expect([...sources].sort()).toEqual([0, 1, 2])
-        expect(new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : []))).size).toBeGreaterThanOrEqual(2)
+        const beamOwners = new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : [])))
+        expect(beamOwners.has(0) && beamOwners.has(1)).toBe(true)
+        const botPawn = host.auth[0].pawns.find((q) => q.owner === 2)!.id
+        expect(all.some((e) => e.type === 'cast' && e.pawn === botPawn)).toBe(true)
         for (const t of ['damage', 'death'] as const) expect(all.some((e) => e.type === t)).toBe(true)
         console.log(`[delivery ${label} ${mode}] ${report.join(' | ')}`)
         host.session.leave()

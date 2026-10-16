@@ -39,6 +39,7 @@ interface FloatNum {
   amount: number
   kb: number
   pulseAt: number
+  lastOp: string
 }
 
 interface Plate {
@@ -59,6 +60,11 @@ interface Plate {
   lastKb: number
   lastMult: string
   lastOpacity: string
+  /** last written screen position (px) and trail scale: skip sub-pixel / unchanged writes */
+  lastX: number
+  lastY: number
+  lastTrail: number
+  shown: boolean
   trailFrac: number
   trailHoldUntil: number
   id: number
@@ -71,6 +77,7 @@ interface Callout {
   x: number
   y: number
   h: number
+  lastOp: string
 }
 
 export interface PlateInput {
@@ -163,19 +170,19 @@ export class WorldOverlay {
       kb.append(kbFill, mult)
       el.append(name, bar, kb)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
       el.style.display = 'none'
       this.root.appendChild(el)
-      this.nums.push({ el, active: false, born: 0, x: 0, y: 0, h: 0, stack: 0, driftX: 0, target: -1, kind: 'dmg', amount: 0, kb: 0, pulseAt: -10 })
+      this.nums.push({ el, active: false, born: 0, x: 0, y: 0, h: 0, stack: 0, driftX: 0, target: -1, kind: 'dmg', amount: 0, kb: 0, pulseAt: -10, lastOp: '' })
     }
     for (let i = 0; i < CALLOUT_POOL; i++) {
       const el = div('bl-call')
       el.style.display = 'none'
       this.root.appendChild(el)
-      this.callouts.push({ el, active: false, born: 0, x: 0, y: 0, h: 0 })
+      this.callouts.push({ el, active: false, born: 0, x: 0, y: 0, h: 0, lastOp: '' })
     }
     this.ro = new ResizeObserver(() => {
       this.w = this.root.clientWidth || 1
@@ -287,12 +294,27 @@ export class WorldOverlay {
     for (let i = 0; i < PLATE_POOL; i++) {
       const p = this.plates[i]
       const inp = i < plateCount ? plates[i] : null
-      if (!inp || !inp.visible || !this.project(camera, inp.x, inp.y, inp.h)) {
-        if (p.el.style.display !== 'none') p.el.style.display = 'none'
+      // off screen (with a margin for the plate's width): hidden, no writes
+      const off = !inp || !inp.visible || !this.project(camera, inp.x, inp.y, inp.h) || this.v.x < -120 || this.v.x > this.w + 120 || this.v.y < -60 || this.v.y > this.h + 120
+      if (off) {
+        if (p.shown) {
+          p.el.style.display = 'none'
+          p.shown = false
+        }
         continue
       }
-      if (p.el.style.display === 'none') p.el.style.display = ''
-      p.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 38).toFixed(1)}px,0) translate(-50%,0)`
+      if (!p.shown) {
+        p.el.style.display = ''
+        p.shown = true
+      }
+      // inline style writes force a style recalc: only move on a real (>= 0.5 px) change
+      const px = this.v.x
+      const py = this.v.y - 38
+      if (Math.abs(px - p.lastX) >= 0.5 || Math.abs(py - p.lastY) >= 0.5) {
+        p.el.style.transform = `translate3d(${px.toFixed(1)}px,${py.toFixed(1)}px,0) translate(-50%,0)`
+        p.lastX = px
+        p.lastY = py
+      }
       if (p.id !== inp.id) {
         p.id = inp.id
         p.trailFrac = 1
@@ -325,11 +347,15 @@ export class WorldOverlay {
       if (p.lastHp >= 0 && hpf < p.lastHp - 0.001) p.trailHoldUntil = now + 0.35
       if (hpf > p.trailFrac) p.trailFrac = hpf
       if (now > p.trailHoldUntil) p.trailFrac = Math.max(hpf, p.trailFrac - 0.55 * dt)
-      if (Math.abs(hpf - p.lastHp) > 0.0005) {
+      // bar is ~64 px wide: 0.002 is ~0.13 px
+      if (Math.abs(hpf - p.lastHp) > 0.002 || (hpf !== p.lastHp && (hpf === 0 || hpf === 1))) {
         p.fill.style.transform = `scaleX(${hpf.toFixed(4)})`
         p.lastHp = hpf
       }
-      p.trail.style.transform = `scaleX(${p.trailFrac.toFixed(4)})`
+      if (Math.abs(p.trailFrac - p.lastTrail) > 0.002) {
+        p.trail.style.transform = `scaleX(${p.trailFrac.toFixed(4)})`
+        p.lastTrail = p.trailFrac
+      }
       const kbf = Math.max(0, inp.kbPoints / KB_FULL)
       if (Math.abs(kbf - p.lastKb) > 0.003) {
         p.kbFill.style.transform = `scaleX(${Math.min(1, kbf).toFixed(3)})`
@@ -347,7 +373,8 @@ export class WorldOverlay {
       }
       // fade slightly with distance from the camera focus
       const d = Math.hypot(inp.x - focusX, inp.y - focusY)
-      const op = inp.local ? '1' : Math.max(0.72, 1 - Math.max(0, d - 600) / 2400).toFixed(2)
+      // quantised (0.04 steps) so a slow drift does not rewrite it every frame
+      const op = inp.local ? '1' : (Math.round(Math.max(0.72, 1 - Math.max(0, d - 600) / 2400) * 25) / 25).toFixed(2)
       if (op !== p.lastOpacity) {
         p.el.style.opacity = op
         p.lastOpacity = op
@@ -383,7 +410,11 @@ export class WorldOverlay {
       }
       const op = t > 0.68 ? 1 - (t - 0.68) / 0.32 : 1
       n.el.style.transform = `translate3d(${(this.v.x + dx + sx).toFixed(1)}px,${(this.v.y - 56 - rise + sy).toFixed(1)}px,0) translate(-50%,0) scale(${scale.toFixed(3)})`
-      n.el.style.opacity = op.toFixed(3)
+      const ops = op.toFixed(2)
+      if (ops !== n.lastOp) {
+        n.el.style.opacity = ops
+        n.lastOp = ops
+      }
     }
 
     // ---- callouts
@@ -398,7 +429,11 @@ export class WorldOverlay {
       const pop = t < 0.1 ? 0.6 + (t / 0.1) * 0.65 : t < 0.2 ? 1.25 - ((t - 0.1) / 0.1) * 0.25 : 1
       const op = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1
       c.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 120 - t * 24).toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)}) rotate(-4deg)`
-      c.el.style.opacity = op.toFixed(3)
+      const ops = op.toFixed(2)
+      if (ops !== c.lastOp) {
+        c.el.style.opacity = ops
+        c.lastOp = ops
+      }
     }
   }
 

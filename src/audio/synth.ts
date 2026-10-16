@@ -462,29 +462,33 @@ const hit: Recipe = (v, p) => {
   }
 }
 
-/** Scourge charge: a resonant saw stack sweeping up, pulsing faster, sparks building. p = seconds */
+/**
+ * Scourge charge: a dark saw stack swelling up, pulsing faster, a low hiss building. p = seconds.
+ * Everyone casts it every round, so it stays low and soft: the filter, pitch and hiss stop well
+ * below the shrill range, with a gentle resonance and a quieter peak.
+ */
 const scourgeWindup: Recipe = (v, p) => {
   const d = clamp(p || 0.9, 0.2, 2)
   const env = v.gain(0, v.out)
   env.gain.setValueAtTime(0, v.at(0))
-  env.gain.linearRampToValueAtTime(0.55, v.at(d))
+  env.gain.linearRampToValueAtTime(0.4, v.at(d))
   env.gain.exponentialRampToValueAtTime(0.0005, v.at(d + 0.06))
-  const am = tremolo(v, 0, d + 0.08, 7, 0.5, env)
-  if (am.lfo) v.glide(am.lfo.frequency, 0, 7, 28, d)
-  const lp = v.filter('lowpass', 180, 8, v.drive(am, 2, 0.6))
-  v.glide(lp.frequency, 0, 180, 4200, d)
+  const am = tremolo(v, 0, d + 0.08, 6, 0.35, env)
+  if (am.lfo) v.glide(am.lfo.frequency, 0, 6, 20, d)
+  const lp = v.filter('lowpass', 160, 4, v.drive(am, 1.6, 0.5))
+  v.glide(lp.frequency, 0, 160, 1500, d)
   for (const cents of [-12, 0, 12]) {
-    const o = v.osc('sawtooth', 65, 0, d + 0.08, lp, cents)
-    v.glide(o.frequency, 0, 65 * v.vary(0.03), 260, d)
+    const o = v.osc('sawtooth', 60, 0, d + 0.08, lp, cents)
+    v.glide(o.frequency, 0, 60 * v.vary(0.03), 170, d)
   }
   const ng = v.gain(0, v.out)
   ng.gain.setValueAtTime(0, v.at(0))
-  ng.gain.linearRampToValueAtTime(0.45, v.at(d))
+  ng.gain.linearRampToValueAtTime(0.16, v.at(d))
   ng.gain.exponentialRampToValueAtTime(0.0005, v.at(d + 0.05))
-  const bp = v.filter('bandpass', 600, 3, ng)
-  v.glide(bp.frequency, 0, 600, 7000, d)
-  v.noise('white', 0, d + 0.08, bp)
-  burst(v, { noise: 'crackle', freq: 4000, q: 1, attack: d * 0.9, decay: 0.08, gain: 0.6 })
+  const bp = v.filter('bandpass', 500, 1.4, ng)
+  v.glide(bp.frequency, 0, 500, 2200, d)
+  v.noise('pink', 0, d + 0.08, bp)
+  burst(v, { noise: 'crackle', freq: 2000, q: 0.8, attack: d * 0.9, decay: 0.08, gain: 0.25 })
 }
 
 /**

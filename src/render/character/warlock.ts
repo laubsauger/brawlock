@@ -4,7 +4,7 @@ import type { PawnState, SimEvent } from '../../sim/types'
 import { S, facingToYaw } from '../coords'
 import { Animator } from './animator'
 import type { WarlockAsset } from './asset'
-import { CC0_SCALE, type CastFrom } from './config'
+import { CC0_SCALE, facingUniform, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
 import { applyBuild, newBuildCache, startLevelUp, tickLevelUp } from './progression'
@@ -883,6 +883,9 @@ export class CC0Warlock implements WarlockHandle {
       P.beam += (tBeam - P.beam) * kk
       P.ground += (tGround - P.ground) * kk
       P.sky += (tSky - P.sky) * kk
+      // idle ready pose weight: standing still, not casting / tumbling / celebrating
+      const readyT = facingUniform.value > 0.5 && live && this.castPhase === 'none' && !this.victory && this.locomotion === 'idle' ? 1 : 0
+      g.idleHands += (readyT - g.idleHands) * damp(readyT > g.idleHands ? 4 : 10, dt)
       const useL = this.hands !== 'right' ? this.castArmK : 0
       const useR = this.hands !== 'left' ? this.castArmK : 0
       if (k > 1e-3) {
@@ -921,6 +924,17 @@ export class CC0Warlock implements WarlockHandle {
         this.rotBone('spine_03', X, 0.16 * P.ground)
       }
       if (P.sky > 1e-3) this.rotBone('upperarm_r', Z, -0.4 * P.sky)
+      // facing cue: standing idle, both hands come up in front of the robe (a
+      // ready stance) with a faint glow; from above they point the way
+      const ih = g.idleHands
+      if (ih > 1e-3) {
+        this.rotBone('upperarm_l', X, -0.42 * ih)
+        this.rotBone('upperarm_r', X, -0.42 * ih)
+        this.rotBone('lowerarm_l', X, -0.75 * ih)
+        this.rotBone('lowerarm_r', X, -0.75 * ih)
+        this.rotBone('upperarm_l', Y, -0.18 * ih)
+        this.rotBone('upperarm_r', Y, 0.18 * ih)
+      }
     }
 
     // ---- bones -> capsules (model metres), from local matrices of just these

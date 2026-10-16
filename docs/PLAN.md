@@ -408,17 +408,11 @@ Done this session, beyond the milestones above:
 - Settings: screen shake, frame rate limit, resolution scale, key-hint toggle.
 
 Open:
-- Lobby prewarm still runs as one ~0.5 s task: textures decode and upload all at once on the main thread. Planned: `createImageBitmap` loading, ~4 ms per-frame upload budget, ready only after loads finish.
-- Perf follow-ups (non-render main thread is only ~0.3–0.5 ms per frame; sim, clone, bots and audio are not hotspots):
-  - nameplates (`WorldOverlay`) write ~670 inline styles per second; write only on real change, or draw plates on the GPU (0.15–0.3 ms per frame);
-  - three.js rebuilds material cache keys every frame (`getMaterialCacheKey`, ~30% of allocations); find what bumps `material.version` or the dynamic cache key per frame (0.2–0.4 ms per frame and most GC);
-  - one-time 20–24 ms webp decodes inside the frame loop early in the first fight; pre-decode all textures at load;
-  - the worker clock posts 250 main-thread tasks per second; step from rAF while visible;
-  - the arena-shrink warning animates `color`/`text-shadow`; animate opacity on a glow layer instead.
-- Character `setDetail()` (half-rate far / offscreen warlocks) exists but is not called by render yet.
 - Screen shake still scales with effects intensity (effective shake = fx × shake).
-- Facing of an idle warlock from above is better but not yet obvious.
-- Unexplained single capture of two large red/blue rings at arena centre in the shop.
-- Determinism verified in Chrome only; cross-browser hash test still to do.
+- Facing: idle warlocks facing the camera or sideways read well (team-colour shoulder band, ground-ring chevron); facing away reads only weakly (small ring tail; the body hides the ground). A strong "away" cue needs a chevron drawn over the body (one shared instanced draw).
+- One High run showed a single ~270 ms frame stall at match start with an idle main thread (likely GPU-process shader compile).
+- `src/render/threePatches.ts` patches three r186 `Material.alphaTest` for shadow-pass materials (35–38% less allocation, ~40% fewer minor GCs); re-check on every three upgrade (dev warning fires if the internals change).
+- Firefox and WebKit Playwright builds are too old for the installed driver; the cross-browser determinism check used Firefox.app and the system JavaScriptCore shell instead (0 mismatches over 1,080 checkpoints).
 - Showcase supercut tooling lives in `scripts/showcase/` and `src/render/showcase/` (not imported by the app).
 
+Done since the first §12 list (2026-10-16, second pass): lobby prewarm split (createImageBitmap, 4 ms upload budget, no lobby long task), nameplate style writes cut ~85%, shadow cache-key churn removed, warlock `setDetail` wired, rAF game clock while visible, shrink-warning pulse compositor-only, tile-seam flicker and shrink-ring whiteout fixed, thinner antialiased lava cracks, softer Scourge charge sound, cross-browser determinism verified. The two red/blue rings in the shop were Warp Zone casts by a bot (casting in the shop is allowed, as in the original).

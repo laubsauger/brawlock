@@ -3,7 +3,9 @@
  * Dependencies are injected so tests can run a host and a client in one process
  * over the in-memory transport; src/game/session.ts wires the real modules.
  *
- * Host / offline: fixed 60 Hz accumulator driven by a worker pulse (clock.ts).
+ * Host / offline: fixed 60 Hz accumulator driven by the clock pulse (clock.ts: one
+ *   per animation frame, a worker timer in background tabs), plus a one-shot pulse
+ *   when the tick that applies an own command is due.
  *   Each tick: local input + remote inputs + bot commands → step → frame + audio
  *   → snapshot to clients (every tick, or every 2nd tick when large).
  * Client: own 60 Hz pulse; drains local input and sends every unacked frame
@@ -194,6 +196,9 @@ export interface SessionDebug {
   jitterMs: number
   /** host fairness delay on the host's own inputs, ticks */
   hostDelayTicks: number
+  /** clock pulses handled since the session was created, and wall ms spent in them */
+  pulses: number
+  pulseMs: number
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +335,8 @@ interface ClientMatch {
   corr: WindowMax
   rebases: number
   check: { prev: { n: number; state: SimState } | null; last: number; checks: number; desyncs: number; desyncAt: number }
+  /** one-shot pulse for the tick that applies an own command (wakeClient) */
+  wake: ReturnType<typeof setTimeout> | null
 }
 
 function errMsg(e: unknown): string {
@@ -408,6 +415,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   const grades = new Map<PlayerId, GradeTracker>()
   const gradeCbs = new Set<(e: NetGradeEvent) => void>()
   const netMode = (): NetMode => (deps.netMode?.() === 'classic' ? 'classic' : 'predict')
+  /** clock pulse count and cost (debug) */
+  const pulseStats = { n: 0, ms: 0 }
+  const metered = (run: () => void) => {
+    const a = deps.now()
+    run()
+    pulseStats.n++
+    pulseStats.ms += deps.now() - a
+  }
   const hostDelayCap = deps.hostDelayCapTicks ?? HOST_DELAY_CAP_TICKS
 
   // -------------------------------------------------------------------------
@@ -1064,6 +1079,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       corr: new WindowMax(1000),
       rebases: 0,
       check: { prev: null, last: -Infinity, checks: 0, desyncs: 0, desyncAt: -Infinity },
+      wake: null,
     }
     cmatch = cm
     ready = {}
@@ -1074,7 +1090,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     out.setLocalPlayer(m.localPlayer)
     ui.setResult(null)
     ui.setScreen('match')
-    const stopClock = deps.startClock((t) => clientPulse(cm, t))
+    const stopClock = deps.startClock((t) => metered(() => clientPulse(cm, t)))
     // send each command the moment it is issued instead of on the next 60 Hz
     // input tick; a microtask batches several commands from one DOM event
     let flushQueued = false
@@ -1084,14 +1100,32 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       queueMicrotask(() => {
         flushQueued = false
         if (cmatch !== cm) return
-        if (cm.pred) predictInput(cm, deps.now(), false)
-        else clientInputTick(cm, deps.now())
+        if (cm.pred) {
+          predictInput(cm, deps.now(), false)
+          wakeClient(cm)
+        } else clientInputTick(cm, deps.now())
       })
     })
     cm.stop = () => {
       stopClock()
       unsubscribe?.()
+      if (cm.wake !== null) clearTimeout(cm.wake)
+      cm.wake = null
     }
+  }
+
+  /**
+   * The clock pulses once per animation frame (clock.ts). An own command must not
+   * wait for the first frame after its tick is due: wake a pulse right at that tick.
+   */
+  function wakeClient(cm: ClientMatch): void {
+    const pred = cm.pred
+    if (!pred || cm.wake !== null || pred.tick < 0) return
+    const delay = Math.min(Math.max(0, cm.clock.timeOf(pred.tick + 1) - deps.now()), 2 * DT_MS) + 1
+    cm.wake = setTimeout(() => {
+      cm.wake = null
+      if (cmatch === cm) metered(() => clientPulse(cm, deps.now()))
+    }, delay)
   }
 
   function clientPulse(cm: ClientMatch, now: number): void {
@@ -1559,7 +1593,22 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       ui.setLobby({ error: null })
       ui.setResult(null)
       ui.setScreen('match')
-      m.stop = deps.startClock((t) => hostPulse(m, t))
+      const stopClock = deps.startClock((t) => metered(() => hostPulse(m, t)))
+      // own command: pulse when the tick that applies it is due, not on the frame after
+      let wake: ReturnType<typeof setTimeout> | null = null
+      const unsubscribe = deps.input.onCommand?.(() => {
+        if (wake !== null || match !== m) return
+        const delay = Math.min(Math.max(0, DT_MS - m.acc - (deps.now() - m.last)), 2 * DT_MS) + 1
+        wake = setTimeout(() => {
+          wake = null
+          if (match === m) metered(() => hostPulse(m, deps.now()))
+        }, delay)
+      })
+      m.stop = () => {
+        stopClock()
+        unsubscribe?.()
+        if (wake !== null) clearTimeout(wake)
+      }
     },
 
     rematch() {
@@ -1654,6 +1703,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         leadMs: cm?.clock.leadMs ?? 0,
         jitterMs: cm?.buffer.jitterMs ?? 0,
         hostDelayTicks: match?.fair.delay ?? 0,
+        pulses: pulseStats.n,
+        pulseMs: pulseStats.ms,
       }
     },
   }

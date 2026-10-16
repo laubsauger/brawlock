@@ -17,7 +17,7 @@ import { Billboards } from './Billboards'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava } from './Lava'
 import { Environment, Obstacles } from './props'
-import { pendingUploads } from './textures'
+import { pendingUploads, texturesSettled } from './textures'
 import { Particles } from './Particles'
 import { PawnView, samplePawn, type PawnSample } from './Pawns'
 import { Projectiles, spellLook } from './Projectiles'
@@ -102,6 +102,16 @@ interface Flash {
   g: number
   b: number
 }
+
+/** warlock detail test (game units): bounds centre height, radius incl. cloth + cast shadow, model height */
+const DETAIL_CENTER_H = 90
+const DETAIL_RADIUS = 230
+const WARLOCK_HEIGHT = 190
+/** below this fraction of the viewport height a warlock counts as far (detail 1): default zoom ~0.19, max zoom-out ~0.14 at screen centre, less toward the top edge */
+const DETAIL_FAR_FRAC = 0.12
+
+/** main-thread budget per frame for texture uploads (decoded bitmaps: ~1-3 ms each) */
+const UPLOAD_BUDGET_MS = 4
 
 const SCOURGE_COLOR = [1.5, 0.55, 2.4] as const
 /** max summed flash energy per frame (sum of (size/300)^2 x brightness) */
@@ -291,7 +301,7 @@ export class MatchWorld {
 
   /** true when no texture uploads are pending (prewarm readiness) */
   get uploadsDone(): boolean {
-    return pendingUploads.length === 0
+    return texturesSettled()
   }
 
   /** Re-render the key-light shadow map every tier.shadowEvery frames. */
@@ -302,19 +312,19 @@ export class MatchWorld {
     if (this.shadowFrame === 0) this.moon.shadow.needsUpdate = true
   }
 
-  /** Upload pending textures: one per frame live, all at once while prewarming. */
+  /** Upload pending textures on a per-frame time budget (at least one per frame). */
   private drainUploads(): void {
     const r = this.opts.renderer
     if (!r) return
-    // hidden prewarm: drain everything now; live: one upload per frame
-    const n = this.prewarmOn ? pendingUploads.length : 1
-    for (let i = 0; i < n && pendingUploads.length > 0; i++) {
+    const t0 = performance.now()
+    while (pendingUploads.length > 0) {
       const tex = pendingUploads.shift()!
       try {
         r.initTexture(tex)
       } catch {
         /* renderer not ready / disposed: it will upload on first use */
       }
+      if (performance.now() - t0 > UPLOAD_BUDGET_MS) break
     }
   }
 
@@ -1735,6 +1745,7 @@ export class MatchWorld {
         // driveWarlock catches character errors itself and falls back to the
         // built-in body after repeated failures
         const pawnIn = !view.combat && p.lavaTicks > 0 ? { ...p, lavaTicks: 0 } : p
+        view.detail = this.detailFor(p.x, p.y)
         view.driveWarlock(pawnIn, view.justSnapped ? undefined : pp, alpha, dt, pawnEvents, castHex, this.claimedHits.has(p.id))
       }
       v.seen = seen
@@ -1753,6 +1764,35 @@ export class MatchWorld {
       }
     }
   }
+
+  /**
+   * Character detail for a warlock at game (x, y), from last frame's camera:
+   * 2 when its bounds (with room for cloth and the shadow it casts) are
+   * outside the view frustum, 1 when it is small on screen (zoomed out),
+   * else 0. The character runs secondary motion at half rate on 1 and a
+   * ~15 Hz skeleton without cloth on 2.
+   */
+  private detailFor(x: number, y: number): 0 | 1 | 2 {
+    const cam = this.lastCamera
+    if (!cam || this.opts.mode !== 'match') return 0
+    if (this.detailFrame !== this.clock) {
+      // once per frame; the camera's matrices are last frame's (bounds have margin)
+      this.detailFrame = this.clock
+      this.detailMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+      this.frustum.setFromProjectionMatrix(this.detailMat)
+    }
+    this.detailSphere.center.set(x * S, (TILE_TOP_H + DETAIL_CENTER_H) * S, -y * S)
+    this.detailSphere.radius = DETAIL_RADIUS * S
+    if (!this.frustum.intersectsSphere(this.detailSphere)) return 2
+    // on-screen height as a fraction of the viewport height
+    const dist = cam.position.distanceTo(this.detailSphere.center)
+    const frac = (WARLOCK_HEIGHT * S) / Math.max(1e-3, dist) / (2 * Math.tan((cam.fov * Math.PI) / 360))
+    return frac < DETAIL_FAR_FRAC ? 1 : 0
+  }
+  private frustum = new THREE.Frustum()
+  private detailMat = new THREE.Matrix4()
+  private detailSphere = new THREE.Sphere()
+  private detailFrame = -1
 
   private lastMoveTarget = { x: NaN, y: NaN }
   private lastUiMarker = -10

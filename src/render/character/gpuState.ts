@@ -53,6 +53,8 @@ export class WarlockGpu {
    * garment location per column (progression.ts)
    */
   readonly accents = [new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0), new THREE.Color(0)]
+  /** 0..1 idle "ready" pose: hands held in front with a faint glow (facing cue) */
+  idleHands = 0
   /** 0..1 in steps from total spell levels: rune density / brightness, eye glow, hem aura */
   power = 0
   /** level-up burst: sweep height (model metres, feet -> hood) and strength */
@@ -145,6 +147,7 @@ export const U = {
   accent5: uc((s) => s.accents[4]),
   accent6: uc((s) => s.accents[5]),
   power: uf((s) => s.power),
+  idleHands: uf((s) => s.idleHands),
   levelSweep: uf((s) => s.levelSweep),
   levelFlash: uf((s) => s.levelFlash),
   levelColor: uc((s) => s.levelColor),

@@ -15,6 +15,12 @@ const SNAP_DIST = 300
 const DEATH_KINDS: ReadonlySet<string> = new Set(['ash', 'lava', 'fireball', 'meteor', 'lightning', 'freeze', 'gravity', 'drain', 'shadow', 'fade'])
 const FLASH_DUR = 0.3
 const DECAL_R = 84
+/** ring facing chevron: half-width (rad, ~10 % of the ring in total) and tip height past the ring (game units) */
+const CHEVRON_HALF_ANGLE = 0.32
+const CHEVRON_TIP = 13
+/** back-of-ring swallowtail: half-width of each prong (rad) and prong length (game units) */
+const TAIL_HALF_ANGLE = 0.13
+const TAIL_LEN = 12
 const CHARGE_R = 250
 const SCOURGE_RADIUS = 250
 
@@ -74,6 +80,8 @@ export class PawnView {
   private chargeMat: THREE.MeshBasicNodeMaterial
   private dTeam = makeC()
   private dKb = makeF()
+  /** visual facing as a game-space unit vector (ring facing chevron) */
+  private dFace = uniform(new THREE.Vector2(1, 0))
   private dAlpha = makeF()
   private cProgress = makeF()
   private cAlpha = makeF()
@@ -176,7 +184,29 @@ export class PawnView {
       const penumbra = float(1).sub(smoothstep(26, 76, rs)).mul(0.62)
       const shadowA = saturate(core.add(penumbra))
       const ringX = rr.sub(39).div(3)
-      const ring = exp(ringX.mul(ringX).negate())
+      const ringLine = exp(ringX.mul(ringX).negate())
+      // facing chevron (MOBA style): the ring line bends outward to a point
+      // along the visual facing, over ~10 % of the circumference, same weight
+      // and brightness as the ring. At this camera pitch the body hides the
+      // ground behind the pawn, so a pawn facing away would hide its own
+      // chevron: the back of the ring also gets an arrow's swallowtail (two
+      // short prongs with a notch that points forward), which pokes out past
+      // the hem toward the camera and reads the same way.
+      const qd = q.div(max(length(q), 1e-4))
+      const ang = abs(atan(qd.x.mul(this.dFace.y).sub(qd.y.mul(this.dFace.x)), dot(qd, this.dFace)))
+      const chevW = float(CHEVRON_HALF_ANGLE)
+      const chevR = float(39).add(float(CHEVRON_TIP).mul(float(1).sub(ang.div(chevW))))
+      const chevX = rr.sub(chevR).div(3)
+      const chev = exp(chevX.mul(chevX).negate()).mul(step(ang, chevW))
+      const back = float(Math.PI).sub(ang)
+      const tailW = float(TAIL_HALF_ANGLE)
+      // 0 at the notch (straight back), 1 at the prong tips, 0 again at 2 x tailW
+      const prong = float(1).sub(abs(back.div(tailW).sub(1)))
+      const tailR = float(39).add(float(TAIL_LEN).mul(prong))
+      const tailX = rr.sub(tailR).div(3)
+      const tail = exp(tailX.mul(tailX).negate()).mul(step(back, tailW.mul(2)))
+      // the ring line gives way where the chevron / tail replace it
+      const ring = max(ringLine.mul(step(chevW, ang)).mul(step(tailW.mul(2), back)), max(chev, tail))
       const auraR = this.dKb.mul(14).add(48)
       const auraX = rr.sub(auraR).div(this.dKb.mul(8).add(4))
       const aura = exp(auraX.mul(auraX).negate()).mul(this.dKb)
@@ -542,6 +572,10 @@ export class PawnView {
     const w = this.warlock
     if (!w) return true
     try {
+      if (this.detail !== this.detailSent) {
+        w.setDetail(this.detail)
+        this.detailSent = this.detail
+      }
       w.setCastColor(castColor)
       // a VFX module claimed this frame's hit on us: no material flash on top of its own
       if (suppressHitFlash) w.hitFlash(false)
@@ -568,6 +602,9 @@ export class PawnView {
   }
 
   private warlockFails = 0
+  /** character detail (set by the world's frustum / screen-size test): 0 full, 1 far, 2 offscreen */
+  detail: 0 | 1 | 2 = 0
+  private detailSent: 0 | 1 | 2 = 0
 
   /** Windup ground ring under the caster: progress 0..1, linear colour, alpha. */
   setCastRing(progress: number, color: THREE.Color, alpha: number): void {
@@ -692,6 +729,8 @@ export class PawnView {
     else this.spin = lerpAngle(this.spin, Math.round(this.spin / (Math.PI * 2)) * Math.PI * 2, k * 0.5)
     this.yaw = lerpAngle(this.yaw, facingToYaw(s.facing), 1 - Math.exp(-dt * 30))
     this.yawG.rotation.y = this.yaw + this.spin
+    // ring chevron follows the smoothed visual yaw (yaw = facing + pi/2)
+    this.dFace.value.set(Math.sin(this.yaw), -Math.cos(this.yaw))
 
     // cloth: hem trails opposite to velocity through an underdamped spring,
     // so knockback snaps it back and stopping makes it swing past and settle

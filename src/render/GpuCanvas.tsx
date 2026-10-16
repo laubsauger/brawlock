@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu'
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import type { Quality } from '../game/store'
 import { useRenderPref } from './prefs'
+import './threePatches'
 import { tierDpr } from './quality'
 import { renderStats } from './stats'
 

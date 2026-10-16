@@ -69,6 +69,8 @@ export function PhasePlate() {
     }
     if (sh !== l.shrink && shrink.current) {
       shrink.current.textContent = l.shrink = sh
+      // the pulsing hot copy (::after) reads the same text
+      shrink.current.dataset.text = sh
       shrink.current.style.visibility = sh ? 'visible' : 'hidden'
     }
     if (hot !== l.hot && shrink.current) {
@@ -84,7 +86,7 @@ export function PhasePlate() {
         <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
         <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
       </div>
-      <div ref={shrink} className="shrink-warn hud-backing hud-text-shadow mt-0.5 text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
+      <div ref={shrink} className="shrink-warn hud-backing mt-0.5 text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
     </div>
   )
 }

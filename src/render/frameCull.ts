@@ -15,6 +15,12 @@ import * as THREE from 'three/webgpu'
  *    full render-object pass and an empty draw (40+ idle VFX batches); they
  *    are hidden for the duration of the render only and restored after, so
  *    the owners never observe the change.
+ * 3. Staged warm-up (hidden prewarm only). The first draw of each material
+ *    builds its shader (TSL node build, WGSL validation, pipeline): all at
+ *    once that is one 300-500 ms task. While staging, drawables are let in a
+ *    few per frame, with the count adapted to the measured frame cost, so
+ *    the builds spread over many short frames. Not-yet-admitted drawables
+ *    are hidden for the render only, like empty batches.
  */
 
 const baseUpdate = THREE.Object3D.prototype.updateMatrixWorld
@@ -68,6 +74,60 @@ function hideEmpty(o: THREE.Object3D): void {
   for (let i = 0; i < ch.length; i++) hideEmpty(ch[i])
 }
 
+interface Stage {
+  admitted: WeakSet<THREE.Object3D>
+  /** drawables to admit per frame (adapted to the measured frame cost) */
+  budget: number
+  admittedNow: number
+  /** drawables held back this frame */
+  held: number
+  t0: number
+}
+
+const stages = new WeakMap<THREE.Scene, Stage>()
+/** frame cost targets for the staged warm-up (ms of render submit) */
+const STAGE_SLOW_MS = 30
+const STAGE_FAST_MS = 12
+const STAGE_MAX = 4
+
+/** Start (or stop) the staged warm-up for a scene. */
+export function setStaging(scene: THREE.Scene, on: boolean): void {
+  if (!on) stages.delete(scene)
+  else if (!stages.has(scene)) stages.set(scene, { admitted: new WeakSet(), budget: 2, admittedNow: 0, held: 1, t0: 0 })
+}
+
+/** true when staging is off, or the last frame drew everything (nothing held back). */
+export function stagingDone(scene: THREE.Scene): boolean {
+  const st = stages.get(scene)
+  return !st || st.held === 0
+}
+
+function isDrawable(o: THREE.Object3D): boolean {
+  const m = o as THREE.Mesh
+  return !!(m.isMesh || (o as THREE.Sprite).isSprite || (o as THREE.Points).isPoints || (o as THREE.Line).isLine)
+}
+
+function stageHold(o: THREE.Object3D, st: Stage): void {
+  if (!o.visible) return
+  if (isDrawable(o) && !st.admitted.has(o)) {
+    // lit PBR materials (standard / physical) build the biggest shaders:
+    // each gets a frame of its own
+    const heavy = !!((o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined)?.isMeshStandardMaterial
+    if (heavy ? st.admittedNow === 0 : st.admittedNow < st.budget) {
+      if (heavy) st.admittedNow = st.budget
+      st.admitted.add(o)
+      st.admittedNow++
+    } else {
+      o.visible = false
+      hidden.push(o)
+      st.held++
+      return
+    }
+  }
+  const ch = o.children
+  for (let i = 0; i < ch.length; i++) stageHold(ch[i], st)
+}
+
 /** Take over the scene's matrix update (call once per scene). */
 export function adoptScene(scene: THREE.Scene): void {
   scene.matrixWorldAutoUpdate = false
@@ -79,17 +139,39 @@ export function releaseScene(scene: THREE.Scene): void {
 
 /** Before render: visible-only matrices, hide empty batches. */
 export function beginFrame(scene: THREE.Scene): void {
+  const st = stages.get(scene)
   if (!cullFlags.enabled) {
     scene.updateMatrixWorld()
+    if (st) st.held = 0
     return
   }
   updateVisible(scene, false)
   hidden.length = 0
+  // staging first: held-back drawables are invisible to hideEmpty, so an
+  // empty batch is only marked compiled in the frame it is really drawn
+  if (st) {
+    st.admittedNow = 0
+    st.held = 0
+    stageHold(scene, st)
+    st.t0 = performance.now()
+  }
   hideEmpty(scene)
+  current = st ?? null
 }
+
+let current: Stage | null = null
 
 /** After render: restore the batches hidden by beginFrame. */
 export function endFrame(): void {
   for (let i = 0; i < hidden.length; i++) hidden[i].visible = true
   hidden.length = 0
+  const st = current
+  current = null
+  if (st && st.admittedNow > 0) {
+    // adapt: halve after an expensive frame, grow slowly after a cheap one
+    // (a batch of new shaders costs ~3-10 ms each, so the cap stays small)
+    const ms = performance.now() - st.t0
+    if (ms > STAGE_SLOW_MS) st.budget = Math.max(1, st.budget >> 1)
+    else if (ms < STAGE_FAST_MS) st.budget = Math.min(STAGE_MAX, st.budget + 1)
+  }
 }

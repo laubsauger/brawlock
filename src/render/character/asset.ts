@@ -311,7 +311,7 @@ async function build(url: string): Promise<WarlockAsset> {
     vg.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4))
     const clothGeo = mergeGeometries([buildCloth(rig), vg])
     if (!clothGeo) throw new Error('warlock: cloth + void merge failed')
-    addSkinned(clothGeo, createClothMaterial(), 'WarlockCloth')
+    addSkinned(clothGeo, createClothMaterial(rig.pos('neck_01').z), 'WarlockCloth')
   }
 
   // ---- clips: lower / upper halves for layered playback, additive hits

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { exp, float, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, vec2, vec3, vec4 } from 'three/tsl'
+import { exp, float, fwidth, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
 import type { Node } from 'three/webgpu'
 import { loadSurface, type SurfaceMaps } from './textures'
@@ -54,13 +54,19 @@ export class Lava {
     const cA = texture(noise, uvA)
     const sd = field.sample(p)
     const shore = exp(max(sd, 0).div(-170))
-    const crackW = float(0.028).add(heat.mul(0.045)).add(shore.mul(0.05))
-    const crackA = float(1).sub(smoothstep(0, crackW, cA.b))
+    // thinner cracks, antialiased: a crack thinner than a pixel widens by its
+    // screen footprint and dims to match, so it no longer pops on and off
+    // (bright sub-pixel lines flickered through bloom as the plates drift)
+    const crackW = float(0.02).add(heat.mul(0.032)).add(shore.mul(0.035))
+    const aaA = fwidth(cA.b)
+    const crackA = float(1).sub(smoothstep(0, crackW.add(aaA), cA.b)).mul(crackW.div(crackW.add(aaA)))
     let cracks = crackA
     if (tier.lavaDetail) {
       const uvB = p.mul(1 / 520).add(warp.mul(0.7)).add(vec2(t.mul(-0.015), t.mul(0.011)))
       const cB = texture(noise, uvB)
-      const crackB = float(1).sub(smoothstep(0, crackW.mul(0.6), cB.b)).mul(0.45)
+      const wB = crackW.mul(0.6)
+      const aaB = fwidth(cB.b)
+      const crackB = float(1).sub(smoothstep(0, wB.add(aaB), cB.b)).mul(wB.div(wB.add(aaB))).mul(0.45)
       cracks = max(crackA, crackB.mul(heat.add(0.35)))
     }
 
@@ -75,8 +81,9 @@ export class Lava {
       const glowRim = saturate(plateEdge.mul(0.45).add(molten.mul(0.6)))
       crust = alb.mul(vec3(0.16, 0.1, 0.085)).add(vec3(0.11, 0.02, 0.007).mul(glowRim))
     }
-    const hot = mix(vec3(1.25, 0.24, 0.035), vec3(3.4, 1.35, 0.32), saturate(cracks.mul(molten).mul(1.4).add(shore.mul(0.25))))
-    const k = saturate(cracks.mul(0.95).add(molten.mul(0.28)))
+    // crack peak kept below the cream-white range (was 3.4, 1.35, 0.32)
+    const hot = mix(vec3(1.05, 0.2, 0.03), vec3(2.3, 0.8, 0.17), saturate(cracks.mul(molten).mul(1.4).add(shore.mul(0.25))))
+    const k = saturate(cracks.mul(0.85).add(molten.mul(0.28)))
     let col = mix(crust, hot, k)
 
     // slow breathing, out of phase across the sea
@@ -85,8 +92,10 @@ export class Lava {
     // molten rim against the platform, and hot seams under the tiles
     const rim = exp(max(sd, 0).div(-26)).mul(step(-12, sd))
     col = col.add(vec3(1.9, 0.5, 0.07).mul(rim.mul(0.75)))
-    // under the platform only thin seams show: keep them a dull ember red
-    const under = smoothstep(-20, -70, sd)
+    // under the platform only thin seams show: keep them a dull ember red. Hot
+    // lava only at a seam's mouth (the last few units), not 70 units in: the
+    // seams near the shore flared as bright sub-pixel lines
+    const under = smoothstep(-4, -28, sd)
     col = mix(col, vec3(0.14, 0.028, 0.006), under)
 
     // frame the arena: crust thickens far from the centre

@@ -29,7 +29,8 @@ export const KIT_SHOTS: ShotSpec[] = [
     players: [HERO, DUMMIES[0], DUMMIES[1], DUMMIES[2]],
     layer: LAYER,
     theme: 1,
-    level: 3,
+    // starting kit: Scourge as every warlock first has it, level 1
+    level: 1,
     setup(s) {
       s.put(0, 0, Y, -0.5)
       const r = 165
@@ -40,7 +41,7 @@ export const KIT_SHOTS: ShotSpec[] = [
         s.hp(i, 60)
       }
     },
-    script: [[0.2, (s) => s.cast(0, 'scourge', 0, Y)]],
+    script: [[0.2, (s) => s.cast(0, 'scourge', 0, Y, 1)]],
     speed: slowmo(1.12, 1.42, 0.3, 0.06),
     camera: stage({ pitch: 36, yawAbs: -18, push: 0.12, dolly: 10, margin: 0.8 }),
     overlay: { lower: spellLower('Scourge', 'scourge', 'kit', 'Charge it, then blast everyone around you. Costs you 100 HP.'), plates: false, nums: false },

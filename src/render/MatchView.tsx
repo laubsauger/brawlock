@@ -8,6 +8,7 @@ import { cameraRig } from './cameraRig'
 import { startMockDriver, globalSink } from './dev/mockDriver'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
 import { tierConfig } from './quality'
+import * as frameCull from './frameCull'
 import { RenderLoop } from './RenderLoop'
 import { MatchWorld } from './scene/MatchWorld'
 import { globalSource } from './source'
@@ -156,6 +157,8 @@ function MatchScene({
     r.shadowMap.type = THREE.PCFShadowMap
     const world = new MatchWorld({ source: globalSource, tier: tierConfig(eff), fx, overlayParent: overlayEl, mode: 'match', quality: eff, renderer: r })
     world.setPrewarm(prewarmRef.current)
+    // hidden warm-up: shader builds spread over frames (frameCull staging)
+    frameCull.setStaging(scene, prewarmRef.current)
     ready.current = { frames: 0, steady: 0, last: 0, done: false }
     readiness.ready = false
     scene.add(world.root)
@@ -173,6 +176,7 @@ function MatchScene({
     return () => {
       scene.remove(world.root)
       scene.fogNode = null
+      frameCull.setStaging(scene, false)
       world.dispose()
       worldRef.current = null
       readiness.ready = false
@@ -188,7 +192,8 @@ function MatchScene({
 
   useEffect(() => {
     worldRef.current?.setPrewarm(prewarm)
-  }, [prewarm])
+    if (worldRef.current) frameCull.setStaging(scene, prewarm)
+  }, [prewarm, scene])
 
   // pointer -> NDC for the cursor raycast; window-level so HUD layers on top don't block it
   useEffect(() => {
@@ -234,7 +239,8 @@ function MatchScene({
     if (rd.done) return
     const now = performance.now()
     rd.frames++
-    rd.steady = rd.last > 0 && now - rd.last < READY_STEADY_MS && w.uploadsDone ? rd.steady + 1 : 0
+    const settled = w.uploadsDone && frameCull.stagingDone(state.scene)
+    rd.steady = rd.last > 0 && now - rd.last < READY_STEADY_MS && settled ? rd.steady + 1 : 0
     rd.last = now
     if (rd.frames >= READY_MIN_FRAMES && rd.steady >= READY_STEADY_FRAMES) {
       rd.done = true

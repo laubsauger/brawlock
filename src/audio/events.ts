@@ -239,7 +239,7 @@ const cue = (id: SfxId, sp: { pan: number; gain: number }, gain = 1, extra: Part
 const CENTRE = { pan: 0, gain: 1 }
 
 /** Scourge is in everyone's starting kit and heard every round: L1 stays modest, the full blast is the L3 escalation. */
-const SCOURGE_GAIN = [0.7, 0.85, 1]
+const SCOURGE_GAIN = [0.6, 0.8, 1]
 const scourgeLevel = (level?: number) => Math.max(1, Math.min(3, level ?? 1))
 
 const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {

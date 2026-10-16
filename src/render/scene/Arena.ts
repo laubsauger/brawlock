@@ -12,6 +12,7 @@ import {
   dFdy,
   dot,
   exp,
+  fwidth,
   normalMap,
   float,
   length,
@@ -41,6 +42,7 @@ import { tweaks } from '../tweaks'
 import { THEME_DIRS, loadSurface, type SurfaceMaps } from './textures'
 import { buildTileGeometry } from './tileGeometry'
 import { asV4, gamePos, type WorldCtx } from './world'
+import { TILE_GAP } from '../scale'
 
 /** Seconds a removed tile takes to sink out of sight. */
 export const SINK_DUR = 0.55
@@ -419,21 +421,38 @@ export class Arena {
     // waterline, still warm under the rim). A pure exp falloff left the upper
     // wall near-black: that was the "black band under the tile edge".
     // Interior seam walls keep a dim ember underglow.
-    const outerWall = smoothstep(-170, -50, sd)
+    // Which walls face the lava? Sample the SDF 40 units out along the wall
+    // normal (per vertex: walls are flat, the SDF is smooth). A lava-facing
+    // wall lands in lava; a seam wall lands on the neighbouring slab. Gating
+    // by distance to the shore alone lit the 4-unit seams between the outer
+    // tiles like lava walls: bright 1-2 px lines that flickered with every
+    // camera move (user report: "the lava flickers very brightly").
+    const vG = centre.add(positionGeometry)
+    const nG = vec2(normalGeometry.x, normalGeometry.z.negate())
+    const sdAhead = varying(field.sample(vec2(vG.x, vG.z.negate()).div(S).add(nG.mul(40))))
+    const facesLava = smoothstep(-25, 10, sdAhead)
+    const outerWall = smoothstep(-170, -50, sd).mul(facesLava)
     const wallFall = exp(h.div(-22))
-    const sideHeat = isSide.mul(mix(wallFall.mul(0.05), wallFall.mul(0.6).add(0.4), outerWall))
+    // seam walls: a calm ember line, fading further when the seam covers less
+    // than ~3 px (sub-pixel lines alias into on/off flicker)
+    const upp = length(fwidth(positionWorld)).div(S)
+    const seamAA = saturate(float(TILE_GAP * 0.75).div(max(upp, 0.001)))
+    const seamGlow = wallFall.mul(0.05).mul(seamAA)
+    const sideHeat = isSide.mul(mix(seamGlow, wallFall.mul(0.6).add(0.4), outerWall))
 
     const albedoLum = stone.r.add(stone.g).add(stone.b).mul(1.4).add(0.05)
-    let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), float(0.25), isSide))
+    // spell ground light: floors take it, walls a little, seam walls (deep
+    // 4-unit grooves the light barely reaches) hardly at all
+    let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), mix(float(0.05), float(0.25), facesLava), isSide))
     // lava veins: heat seeping up through the cracks, stronger toward the shore
     const veinPulse = sin(tF.mul(0.9).add(n.b.mul(12)).add(seed.mul(20))).mul(0.25).add(0.75)
     const vein = crackLine.mul(nearLava.mul(1.2).mul(tweaks.uEdgeGlow).add(0.05)).mul(veinPulse)
-    em = em.add(vec3(1.5, 0.3, 0.04).mul(vein))
+    em = em.add(vec3(1.1, 0.22, 0.03).mul(vein)) // toned down from (1.5, 0.3, 0.04): the veins shone too hard through bloom
     em = em.add(this.uRune.mul(rune).mul(runePulse.mul(0.05)).mul(tele.mul(14).add(1)))
     em = em.add(vec3(1.2, 0.26, 0.04).mul(edgeHeat.mul(0.2)).mul(tweaks.uEdgeGlow))
     // lava bounce: the shore lights nearby stone orange (modulated by albedo);
     // walls always catch some of it from below
-    em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(mix(float(0.08), float(1.1), outerWall)))))
+    em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(mix(float(0.08).mul(seamAA), float(1.1), outerWall)))))
     em = em.add(vec3(1.9, 0.42, 0.06).mul(sideHeat))
     // telegraph: the doomed ring heats from within, cracks first, then the slab
     // removed tiles carry the telegraph's crimson on (the cue players learned)
@@ -454,10 +473,14 @@ export class Arena {
     const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
     const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
     em = em.add(vec3(0.5, 0.48, 0.62).mul(waveF.mul(0.16)).mul(isTop))
-    // hard ceiling on tiles in transit (hue kept): bloom must never saturate a
-    // whole slab; thin hot cracks still read
+    // hard ceiling (hue kept) on the doomed ring and on tiles in transit. ACES
+    // desaturates bright orange toward cream: the telegraph cracks at full
+    // pulse (3.2 R + 0.5 halo) and the sinking slabs read near-white up close
+    // (showcase camera, Ultra bloom). 1.2 keeps them crimson-to-ember at any
+    // distance and tier; the 1 s pulse and the hot crack pattern still read.
     const emMax = max(em.r, max(em.g, em.b))
-    em = mix(em, em.mul(min(float(1), float(1.8).div(max(emMax, 0.001)))), transit)
+    const ringCap = max(transit, smoothstep(0, 0.05, tele))
+    em = mix(em, em.mul(min(float(1), float(1.2).div(max(emMax, 0.001)))), ringCap)
     // sinking slabs: dark basalt with an ember cast, never pale (QA: white shards)
     const sinkDark = isRemV.mul(sinkTV.mul(0.25).add(0.75))
     const sinkTint = vec3(0.28, 0.17, 0.14)
