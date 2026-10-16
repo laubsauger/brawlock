@@ -6,7 +6,7 @@ import { TEAM_DRAW, TICK_HZ } from '../../sim'
 import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
-import { announce, Banner, Killfeed } from './Announce'
+import { announce, Banner, KillCallout, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
 import { TopCenter, displayRound } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
@@ -89,7 +89,10 @@ function useDirector() {
             cause: hit?.spell ?? null,
             lava: hit ? hit.lava : true,
             local: e.owner === local || e.killer === local,
+            myKill: !!killer && e.killer === local,
           })
+          // your kill, wherever it happened (an off-screen push into the lava too)
+          if (killer && e.killer === local) announce.myKill(victim)
           if (e.owner === local && state.phase === 'fight') {
             announce.banner('Knocked out', killer ? `${hit?.lava !== false ? 'Pushed into the lava' : 'Taken down'} by ${killer.name}` : 'The lava took you', 'danger', 2200)
           }
@@ -331,8 +334,9 @@ export function Hud() {
       <StatusLayer />
 
       <div className="absolute top-0 right-0 left-0 flex justify-center">
-        <div className="hud-scale origin-top">
+        <div className="hud-scale flex origin-top flex-col items-center">
           <TopCenter />
+          <KillCallout />
         </div>
       </div>
 

@@ -1,6 +1,9 @@
 import * as THREE from 'three/webgpu'
 import { S } from '../coords'
 import { tweaks } from '../tweaks'
+import { globalSource, type RenderSource } from '../source'
+import { colorForPawn } from '../teamColors'
+import { KillStamps, STAMP_LIFE } from './killStamps'
 
 /**
  * DOM overlay anchored to world positions (pooled elements, positions written
@@ -13,6 +16,10 @@ import { tweaks } from '../tweaks'
  *   damage and knockback, rapid hits merged, lava ticks grouped (small,
  *   orange), heals green with "+".
  * - short callouts on big moments.
+ * - kill stamps: over the KILLER's plate, a skull and the victim's name in the
+ *   victim's identity colour (quick kills stack to "×2"), plus small skull
+ *   pips for this round's kills. Read from the sim's death events (killer =
+ *   last hitter, lava included); deaths nobody caused get no stamp.
  */
 
 const NUM_POOL = 64
@@ -33,6 +40,8 @@ const KB_FULL = 1000
  */
 const PLATE_PITCH = 30
 const PLATE_PAD_X = 14
+/** room a kill stamp takes above its plate, for de-collision */
+const STAMP_H = 22
 /** horizontal slack: plates may touch at their faint padding before they count as overlapping */
 const PLATE_SLACK_X = 8
 /** a plate moves up at most ~2 plate heights; past that a clump is allowed to overlap */
@@ -73,6 +82,15 @@ interface Plate {
   kb: HTMLDivElement
   kbFill: HTMLDivElement
   mult: HTMLDivElement
+  /** kill stamp above the plate (wrap positions, stamp animates) and this round's kill pips */
+  stampWrap: HTMLDivElement
+  stamp: HTMLDivElement
+  stampName: HTMLSpanElement
+  stampCount: HTMLSpanElement
+  pips: HTMLDivElement
+  lastStampSeq: number
+  stampOn: boolean
+  lastPips: number
   lastName: string
   lastColor: number
   lastNameColor: number
@@ -137,12 +155,32 @@ const css = `
 .bl-plate .kbf{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
 .bl-plate .mult{position:absolute;left:84px;top:-8px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap;padding:0 3px;border-radius:3px;background:rgba(12,7,7,.5)}
 .bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
+.bl-stampw{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;pointer-events:none}
+.bl-stamp{display:flex;align-items:center;gap:4px;white-space:nowrap;padding:2px 7px 2px 5px;border-radius:6px;background:rgba(12,7,7,.62);box-shadow:0 0 10px 3px rgba(12,7,7,.35),inset 0 0 0 1px rgba(255,214,150,.22);font-size:12px;font-weight:900;letter-spacing:.02em;color:#f4e6d2;text-shadow:0 0 2px #000,0 1px 1px #000;will-change:transform,opacity}
+.bl-stamp svg{width:13px;height:13px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
+.bl-stamp .kn{text-shadow:0 0 2px #000,0 1px 1px #000,0 0 6px rgba(0,0,0,.8)}
+.bl-stamp .kc{color:#ffd27a;font-size:13px}
+.bl-pips{position:absolute;right:calc(100% - 2px);top:3px;display:flex;gap:1px;opacity:.78;pointer-events:none}
+.bl-pips svg{width:9px;height:9px;color:#e9d8c2}
+.bl-pips b{font-size:9px;font-weight:900;color:#e9d8c2;line-height:9px;margin-left:1px;text-shadow:0 0 2px #000}
 .bl-plate.local .mult{left:92px}
 .bl-call{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;font-size:26px;letter-spacing:.08em;white-space:nowrap;
   color:#ffe2a8;text-shadow:0 0 3px #000,0 2px 0 #4a1000,0 0 8px rgba(0,0,0,.65),0 0 14px rgba(255,110,20,.95),0 0 28px rgba(255,60,0,.6);text-transform:uppercase}
 `
 
 let styleInjected = false
+
+const SKULL =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.4c-3.6 0-6.1 2.4-6.1 5.7 0 2 1 3.4 2.5 4.2V13a1 1 0 0 0 1 1h5.2a1 1 0 0 0 1-1v-1.7c1.5-.8 2.5-2.2 2.5-4.2 0-3.3-2.5-5.7-6.1-5.7Z"/><circle cx="5.6" cy="7.6" r="1.55" fill="#140909"/><circle cx="10.4" cy="7.6" r="1.55" fill="#140909"/><path d="M7.2 10.5h1.6L8 9.1Z" fill="#140909"/></svg>'
+
+/** stamp: pop in, hold, then rise and fade (opacity / transform only, run by the compositor) */
+const STAMP_KEYS: Keyframe[] = [
+  { opacity: 0, transform: 'translateY(6px) scale(.6)' },
+  { opacity: 1, transform: 'translateY(0) scale(1.14)', offset: 0.08 },
+  { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.16 },
+  { opacity: 1, transform: 'translateY(-2px) scale(1)', offset: 0.78 },
+  { opacity: 0, transform: 'translateY(-16px) scale(.96)' },
+]
 
 function kbColor(f: number): string {
   // yellow (55deg) -> orange -> red (0deg) as the multiplier climbs
@@ -171,8 +209,17 @@ export class WorldOverlay {
   private pOffId = new Int32Array(PLATE_POOL).fill(-1)
   private pOrder: number[] = []
   private pPlaced: number[] = []
+  /** room above each plate taken by its kill stamp (px), for de-collision */
+  private pExtra = new Float32Array(PLATE_POOL)
+  /** kill stamps and pips, fed from the sim's death events */
+  private kills = new KillStamps()
+  private evTick = -2
+  private round = -1
 
-  constructor(parent: HTMLElement) {
+  constructor(
+    parent: HTMLElement,
+    private source: RenderSource = globalSource,
+  ) {
     if (!styleInjected) {
       const st = document.createElement('style')
       st.textContent = css
@@ -200,9 +247,19 @@ export class WorldOverlay {
       const kbFill = div('kbf')
       const mult = div('mult')
       kb.append(kbFill, mult)
-      el.append(name, bar, kb)
+      const stampWrap = div('bl-stampw')
+      const stamp = div('bl-stamp')
+      stamp.innerHTML = SKULL
+      const stampName = document.createElement('span')
+      stampName.className = 'kn'
+      const stampCount = document.createElement('span')
+      stampCount.className = 'kc'
+      stamp.append(stampName, stampCount)
+      stampWrap.appendChild(stamp)
+      const pips = div('bl-pips')
+      el.append(stampWrap, pips, name, bar, kb)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -322,6 +379,7 @@ export class WorldOverlay {
   update(camera: THREE.Camera, now: number, plates: PlateInput[], plateCount: number, focusX: number, focusY: number): void {
     const dt = Math.min(0.1, Math.max(0, now - this.lastNow))
     this.lastNow = now
+    this.readKills(now)
     // ---- overhead plates
     // 1. project every plate (no DOM access)
     for (let i = 0; i < PLATE_POOL; i++) {
@@ -333,6 +391,7 @@ export class WorldOverlay {
       this.pX[i] = this.v.x
       this.pY[i] = this.v.y - 38
       this.pW[i] = plateWidth(inp.name, inp.local)
+      this.pExtra[i] = this.kills.stampOf(inp.id, now) ? STAMP_H : 0
     }
     // 2. de-collide: stack overlapping plates upwards
     this.stackPlates(plates, plateCount)
@@ -375,6 +434,7 @@ export class WorldOverlay {
         p.trailFrac = 1
         p.lastHp = -1
       }
+      this.drawKills(p, inp.id, now)
       if (p.lastName !== inp.name) {
         p.name.textContent = inp.name
         p.lastName = inp.name
@@ -492,6 +552,59 @@ export class WorldOverlay {
     }
   }
 
+  /** Death events since the last frame -> kill stamps / pips. New round resets pips, a new match everything. */
+  private readKills(now: number): void {
+    const s = this.source.buf.curr
+    if (!s) return
+    // first frame (or a remount): start at "now", never replay old deaths;
+    // the tick going backwards means a new match started (frame reset)
+    if (this.evTick === -2 || s.tick + 30 < this.evTick) {
+      if (this.evTick !== -2) this.kills.clear()
+      this.evTick = this.evTick === -2 ? s.tick : -1
+      this.round = s.round
+      return
+    }
+    if (s.round !== this.round) {
+      this.round = s.round
+      this.kills.resetRound()
+    }
+    const batches = this.source.eventsSince(this.evTick)
+    for (const b of batches) {
+      this.evTick = b.tick
+      for (const e of b.events) {
+        if (e.type !== 'death') continue
+        const vs = s.slots.find((x) => x.id === e.owner)
+        const kp = e.killer == null ? null : (s.pawns.find((p) => p.owner === e.killer)?.id ?? null)
+        this.kills.death({ player: e.owner, name: vs?.name ?? `Player ${e.owner + 1}`, color: colorForPawn(s, e.owner) }, e.killer, kp, now)
+      }
+    }
+  }
+
+  /** Kill stamp and pips on one plate; DOM writes only when something changed. */
+  private drawKills(p: Plate, pawn: number, now: number): void {
+    const st = this.kills.stampOf(pawn, now)
+    if (st && st.seq !== p.lastStampSeq) {
+      p.lastStampSeq = st.seq
+      p.stampName.textContent = st.victim.name
+      p.stampName.style.color = `#${st.victim.color.toString(16).padStart(6, '0')}`
+      p.stampCount.textContent = st.count > 1 ? `×${st.count}` : ''
+      if (!p.stampOn) {
+        p.stampWrap.style.display = 'block'
+        p.stampOn = true
+      }
+      p.stamp.animate(STAMP_KEYS, { duration: STAMP_LIFE * 1000, easing: 'cubic-bezier(.2,.8,.3,1)', fill: 'forwards' })
+    } else if (!st && p.stampOn) {
+      p.stampWrap.style.display = 'none'
+      p.stampOn = false
+    }
+    const n = this.kills.pipsOf(pawn)
+    if (n !== p.lastPips) {
+      p.lastPips = n
+      p.pips.innerHTML = n === 0 ? '' : n <= 3 ? SKULL.repeat(n) : `${SKULL}<b>${n}</b>`
+      p.pips.title = n ? `${n} knockout${n > 1 ? 's' : ''} this round` : ''
+    }
+  }
+
   /**
    * Vertical stacking pass over the visible plates. The local player's plate
    * is placed first and never moves; the rest go from the bottom of the
@@ -519,14 +632,15 @@ export class WorldOverlay {
           let moved = false
           for (const j of placed) {
             const overlapX = Math.abs(this.pX[i] - this.pX[j]) < (this.pW[i] + this.pW[j]) / 2 - PLATE_SLACK_X
-            if (overlapX && y > this.pTy[j] - PLATE_PITCH && y < this.pTy[j] + PLATE_PITCH) {
-              y = this.pTy[j] - PLATE_PITCH
+            // a kill stamp makes its plate taller upwards
+            if (overlapX && y > this.pTy[j] - PLATE_PITCH - this.pExtra[j] && y < this.pTy[j] + PLATE_PITCH + this.pExtra[i]) {
+              y = this.pTy[j] - PLATE_PITCH - this.pExtra[j]
               moved = true
             }
           }
           if (!moved) break
         }
-        y = Math.max(this.pY[i] - PLATE_MAX_PUSH, y)
+        y = Math.max(this.pY[i] - PLATE_MAX_PUSH - this.pExtra[i], y)
       }
       this.pTy[i] = y
       placed.push(i)

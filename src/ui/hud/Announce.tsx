@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sigil } from '../icons'
 import { displayName } from '../data/catalog'
+import { MULTI_WINDOW, streakWord } from '../../render/overlay/killStamps'
 
 /**
  * Center banners and the killfeed. Both are driven imperatively by the HUD
@@ -17,6 +18,14 @@ export interface KillEntry {
   /** died in the lava (the killer, if any, pushed them there) */
   lava: boolean
   local: boolean
+  /** the local player made this kill (stands out in the feed) */
+  myKill?: boolean
+}
+
+export interface MyKill {
+  name: string
+  color: string
+  glyph?: string
 }
 
 export const announce = {
@@ -25,6 +34,68 @@ export const announce = {
   hold(_title: string, _sub = '', _tone: BannerTone = 'normal'): void {},
   clear(): void {},
   kill(_e: KillEntry): void {},
+  /** you knocked someone out: the callout under the score strip */
+  myKill(_v: MyKill): void {},
+}
+
+const SKULL_PATH = 'M8 1.4c-3.6 0-6.1 2.4-6.1 5.7 0 2 1 3.4 2.5 4.2V13a1 1 0 0 0 1 1h5.2a1 1 0 0 0 1-1v-1.7c1.5-.8 2.5-2.2 2.5-4.2 0-3.3-2.5-5.7-6.1-5.7Z'
+
+export function Skull({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden className="shrink-0">
+      <path d={SKULL_PATH} fill={color} />
+      <circle cx="5.6" cy="7.6" r="1.55" fill="#140909" />
+      <circle cx="10.4" cy="7.6" r="1.55" fill="#140909" />
+      <path d="M7.2 10.5h1.6L8 9.1Z" fill="#140909" />
+    </svg>
+  )
+}
+
+/** how long the callout stays, and how close kills must be to count as a streak */
+const MYKILL_MS = 1500
+
+/**
+ * "Knocked out Thorn" under the score strip when you get a kill, wherever it
+ * happened (a push that lands in the lava off-screen too). Quick kills stack
+ * into "Double knockout" (same window as the overhead stamps).
+ */
+export function KillCallout() {
+  const [shown, setShown] = useState<(MyKill & { count: number; key: number }) | null>(null)
+  useEffect(() => {
+    let timer = 0
+    let lastAt = -Infinity
+    let count = 0
+    let n = 0
+    announce.myKill = (v) => {
+      const now = performance.now()
+      count = now - lastAt <= MULTI_WINDOW * 1000 ? count + 1 : 1
+      lastAt = now
+      setShown({ ...v, count, key: ++n })
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setShown(null), MYKILL_MS)
+    }
+    return () => {
+      window.clearTimeout(timer)
+      announce.myKill = () => {}
+    }
+  }, [])
+  if (!shown) return null
+  const streak = streakWord(shown.count)
+  return (
+    <div key={shown.key} className="kill-callout pop-in" role="status" aria-live="polite">
+      <Skull size={20} color="#f3e4cf" />
+      <span className="flex flex-col items-start leading-tight">
+        {streak && <span className="kill-callout-streak">{streak} knockout</span>}
+        <span>
+          Knocked out{' '}
+          <b style={{ color: shown.color }}>
+            {shown.glyph && <span className="mr-0.5">{shown.glyph}</span>}
+            {shown.name}
+          </b>
+        </span>
+      </span>
+    </div>
+  )
 }
 
 export function Banner() {
@@ -139,7 +210,8 @@ export function Killfeed() {
   return (
     <div className="flex flex-col items-end gap-1" aria-live="polite" aria-label="Kill feed">
       {rows.map((r) => (
-        <div key={r.key} className="feed-row hud-text-shadow" data-local={r.local} data-out={r.out} aria-label={feedText(r)}>
+        <div key={r.key} className="feed-row hud-text-shadow" data-local={r.local} data-mine={r.myKill ? 'kill' : undefined} data-out={r.out} aria-label={feedText(r)}>
+          {r.myKill && <Skull size={15} color="#ffd27a" />}
           {r.killer && <Name who={r.killer} />}
           {r.cause && r.cause !== 'lava' && <Sigil id={r.cause} size={22} />}
           {r.lava && <LavaIcon />}
