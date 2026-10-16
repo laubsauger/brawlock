@@ -14,6 +14,7 @@ import type { RenderSource } from '../source'
 import { Arena } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
+import { FacingChevrons } from './FacingChevrons'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava } from './Lava'
 import { Environment, Obstacles } from './props'
@@ -145,6 +146,8 @@ export class MatchWorld {
   private billboards: Billboards
   /** windup telegraphs drawn over bodies (no depth test) */
   private billboardsTop: Billboards
+  /** facing chevrons for every warlock (one draw), drawn over the bodies */
+  private chevrons = new FacingChevrons(16)
   private projectiles: Projectiles
   private overlay: WorldOverlay | null
   private views = new Map<number, PawnView>()
@@ -241,7 +244,7 @@ export class MatchWorld {
       sh.radius = 3
     }
     this.root.add(this.hemi, this.moon, this.moon.target, this.contact.mesh)
-    this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.projectiles.mesh)
+    this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.projectiles.mesh, this.chevrons.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
       this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, nameColor: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
@@ -400,13 +403,13 @@ export class MatchWorld {
       toWorld: (x, y, h, out) => toWorld(x, y, h, out),
       flash: (x, y, h, life, radius, size, r, g, b) => self.flash(x, y, h, life, radius, size, r, g, b),
       shake: (a) => {
-        if (self.opts.mode === 'match') cameraRig.shake(a * self.opts.fx)
+        if (self.opts.mode === 'match') cameraRig.shake(a)
       },
       shakeNear: (x, y, a) => {
-        if (self.opts.mode === 'match') self.shakeNear(x, y, a * self.opts.fx)
+        if (self.opts.mode === 'match') self.shakeNear(x, y, a)
       },
       kick: (dx, dy, a) => {
-        if (self.opts.mode === 'match') cameraRig.kick(dx, dy, a * self.opts.fx)
+        if (self.opts.mode === 'match') cameraRig.kick(dx, dy, a)
       },
       hitStop: (sec) => {
         if (self.opts.fx > 0.05) self.hitStop = Math.max(self.hitStop, Math.min(4 / 60, sec))
@@ -576,6 +579,7 @@ export class MatchWorld {
     this.ctx.glow.begin()
     this.billboards.begin()
     this.billboardsTop.begin()
+    this.chevrons.begin()
     this.contact.begin()
     this.visOverrides.clear()
     const src = this.opts.source
@@ -585,7 +589,11 @@ export class MatchWorld {
     // a state pushed after prewarm began (not a stale one left from an
     // earlier match) means the match started: drop the warm-up warlocks
     if (curr && this.prewarmGroup && curr !== this.prewarmState && (curr.phase === 'shop' || curr.phase === 'fight')) this.endPrewarm()
-    if (this.prewarmGroup) this.prewarmGroup.position.set(cameraRig.fx * S, 0, -cameraRig.fy * S)
+    if (this.prewarmGroup) {
+      this.prewarmGroup.position.set(cameraRig.fx * S, 0, -cameraRig.fy * S)
+      // under the lava with the warm-up warlocks: compiles the chevron material
+      this.chevrons.add(cameraRig.fx, cameraRig.fy, -300, 0, 1, 1, 1, 1)
+    }
     if (curr) {
       // a new match restarts tick numbering: drop everything tied to the old one
       if (curr.tick < this.lastStateTick) this.resetMatch()
@@ -629,7 +637,14 @@ export class MatchWorld {
       if (this.modulesOn) this.drawModules(prev, curr, alpha)
       for (const [id, v] of this.views) {
         const o = this.visOverrides.get(id)
-        v.applyVisibility(o?.body ?? 1, o?.decal ?? true)
+        const body = o?.body ?? 1
+        v.applyVisibility(body, o?.decal ?? true)
+        // facing chevron: fades with casting / death, and with any VFX
+        // visibility override (Windwalk must not give a position away)
+        if (this.opts.mode === 'match' && o?.decal !== false && !v.dead) {
+          const c = v.identityColor
+          this.chevrons.add(v.x, v.y, v.floorH, v.visualFacing, c.r, c.g, c.b, v.chevAlpha * Math.min(1, body))
+        }
       }
       this.builtinProjectileShadows(prev, curr, alpha)
     }
@@ -692,6 +707,7 @@ export class MatchWorld {
     this.debris.commit()
     this.billboards.commit()
     this.billboardsTop.commit()
+    if (this.lastCamera) this.chevrons.commit(this.lastCamera)
     this.contact.commit()
   }
 
@@ -806,7 +822,7 @@ export class MatchWorld {
         this.smoke.spawn(p.x, p.y, TILE_TOP_H, 0, 0, 70, 1.4, 60, 170, 0.06, 0.03, 0.025, 20, 0.6, 20)
       }
     }
-    if (this.opts.mode === 'match') cameraRig.shake(0.22 * this.opts.fx)
+    if (this.opts.mode === 'match') cameraRig.shake(0.22)
   }
 
   // ---------------------------------------------------------------- events
@@ -921,8 +937,8 @@ export class MatchWorld {
         // the screen or hit-stop
         if (match && e.amount >= 1 && this.isLocalPawn(curr, e.target)) {
           const real = e.amount / (e.amount + (e.absorbed ?? 0))
-          cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * fx * real)
-          if (e.kb > 0) cameraRig.kick(dx, dy, Math.min(900, 250 + e.kb * 0.5) * fx * real)
+          cameraRig.shake(Math.min(1, 0.12 + e.kb / 1600) * real)
+          if (e.kb > 0) cameraRig.kick(dx, dy, Math.min(900, 250 + e.kb * 0.5) * real)
           postState.hurt = Math.min(1, postState.hurt + (e.kb > 0 ? 0.35 + Math.min(0.5, e.kb / 2000) : 0.12) * real)
           // 2-4 frames of hit-stop on big, mostly unabsorbed hits
           if (e.kb >= 700 && real > 0.5 && fx > 0.05) this.hitStop = Math.min(4, 2 + Math.floor((e.kb - 700) / 500)) / 60
@@ -955,7 +971,7 @@ export class MatchWorld {
         if (claimed) break
         if (e.spell.startsWith('scourge')) this.scourgeBlast(e.x, e.y, e.radius)
         else this.genericBlast(e.x, e.y, e.radius, spellLook(e.spell).trail)
-        if (match) this.shakeNear(e.x, e.y, 0.3 * fx)
+        if (match) this.shakeNear(e.x, e.y, 0.3)
         break
       case 'castStart': {
         this.viewOfPawn(e.pawn)?.castStart(e.spell, e.ticks)
@@ -997,7 +1013,7 @@ export class MatchWorld {
             this.overlay?.callout('Melted', v.x, v.y, v.h + 120, t)
           }
           if (match && v.owner === this.opts.source.buf.localPlayer) {
-            cameraRig.shake(0.9 * fx)
+            cameraRig.shake(0.9)
             this.deathFocus = { x: v.x, y: v.y, at: t }
           }
         }
@@ -1307,7 +1323,7 @@ export class MatchWorld {
     if (tier >= 2) this.ground.spawn(RING_EXPAND, x, y, floor, 30, 210, 0.5, 8, look.edge[0] * 1.6, look.edge[1] * 1.6, look.edge[2] * 1.6)
     if (onTile) this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 60 + tier * 12 + Math.random() * 25)
     this.flash(x, y, h, 0.24, 340, 170, look.light[0] * 1.7 * stack, look.light[1] * 1.7 * stack, look.light[2] * 1.7 * stack)
-    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.12 * this.opts.fx)
+    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.12)
   }
 
   /**
@@ -1395,7 +1411,7 @@ export class MatchWorld {
     this.ground.spawn(RING_EXPAND, x, y, TILE_TOP_H + 1, 20, 240, 0.45, 16, 1.2, 0.55, 0.2)
     this.scorches.spawn(x, y, TILE_TOP_H + 0.6, 110, 5)
     this.flash(x, y, TILE_TOP_H + 80, 0.22, 300, 160, 1.4, 0.6, 0.2)
-    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.45 * this.opts.fx)
+    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.45)
   }
 
   /** Lava tick: hiss of steam and a few embers off the burning robe. */
@@ -1487,7 +1503,7 @@ export class MatchWorld {
     this.flash(tx, ty, h1 + 60, 0.3, 320, 240, tr, tg, tb)
     pawn?.materialize(t)
     if (this.opts.mode === 'match' && pawn && pawn.owner === this.opts.source.buf.localPlayer) {
-      cameraRig.kick(tx - fx, ty - fy, 280 * this.opts.fx)
+      cameraRig.kick(tx - fx, ty - fy, 280)
     }
   }
 
@@ -1514,7 +1530,7 @@ export class MatchWorld {
     }
     // flash light and sprite fully inside the radius
     this.flash(x, y, 80, 0.25, radius * 0.9, radius * 1.1, r, g, b)
-    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.25 * this.opts.fx)
+    if (this.opts.mode === 'match') this.shakeNear(x, y, 0.25)
   }
 
   private genericBlast(x: number, y: number, radius: number, c: readonly [number, number, number]): void {
@@ -1661,7 +1677,7 @@ export class MatchWorld {
     this.ground.spawn(RING_EXPAND, 0, 0, TILE_TOP_H + 2, 260, R * 0.6, 0.8, 7, 0.5, 0.44, 0.3)
     this.arena.shock(0, 0, t, 0.5)
     this.ctx.glow.add(0, 0, 500, 0.25, 0.4, 0.38, 0.5)
-    if (this.opts.mode === 'match') cameraRig.shake(0.3 * this.opts.fx)
+    if (this.opts.mode === 'match') cameraRig.shake(0.3)
   }
 
   // ---------------------------------------------------------------- pawns
@@ -2136,7 +2152,7 @@ export class MatchWorld {
       fx = devCamera.focus.x
       fy = devCamera.focus.y
     }
-    // screen-shake setting (fx intensity already scales each shake as it is added)
+    // screen shake and kick scale with the screen-shake setting only (not fx intensity)
     cameraRig.update(camera, fx, fy, dt, aspect, renderPrefs.shake)
   }
 
@@ -2179,6 +2195,7 @@ export class MatchWorld {
     this.debris.dispose()
     this.billboards.dispose()
     this.billboardsTop.dispose()
+    this.chevrons.dispose()
     this.contact.dispose()
     this.projectiles.dispose()
     this.ctx.field.dispose()

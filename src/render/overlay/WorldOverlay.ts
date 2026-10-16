@@ -23,6 +23,27 @@ const CALLOUT_LIFE = 1.1
 /** KB meter full scale (multiplier x2 at 1000 points) */
 const KB_FULL = 1000
 
+/*
+ * Plate de-collision (no layout reads: sizes come from the CSS below).
+ * A plate box is ~33 px tall (3 + 4 px padding, 12 px name + 2 px gap, 8 px
+ * bar, 4 px knockback row); plates may overlap a little padding, so stacking
+ * uses a 30 px pitch. Width: the bar (78 px, local 86 px) or the name,
+ * whichever is wider, plus 14 px padding; name width is estimated from its
+ * length (11 px, weight 800, ~6.5 px per glyph, max 120 px).
+ */
+const PLATE_PITCH = 30
+const PLATE_PAD_X = 14
+/** horizontal slack: plates may touch at their faint padding before they count as overlapping */
+const PLATE_SLACK_X = 8
+/** a plate moves up at most ~2 plate heights; past that a clump is allowed to overlap */
+const PLATE_MAX_PUSH = 2 * 33
+/** ease time constant for the stacking offset: ~95 % of the way in 120 ms, no jitter when the order flips */
+const PLATE_EASE_TAU = 0.04
+
+function plateWidth(name: string, local: boolean): number {
+  return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5)) + PLATE_PAD_X
+}
+
 export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb'
 
 interface FloatNum {
@@ -139,6 +160,17 @@ export class WorldOverlay {
   private h = 1
   private ro: ResizeObserver
   private lastNow = 0
+  // per plate slot, reused every frame (no allocations): projected base position, width,
+  // stacked target y, eased offset (px, upwards) and the pawn id that offset belongs to
+  private pVis = new Uint8Array(PLATE_POOL)
+  private pX = new Float32Array(PLATE_POOL)
+  private pY = new Float32Array(PLATE_POOL)
+  private pW = new Float32Array(PLATE_POOL)
+  private pTy = new Float32Array(PLATE_POOL)
+  private pOff = new Float32Array(PLATE_POOL)
+  private pOffId = new Int32Array(PLATE_POOL).fill(-1)
+  private pOrder: number[] = []
+  private pPlaced: number[] = []
 
   constructor(parent: HTMLElement) {
     if (!styleInjected) {
@@ -291,11 +323,25 @@ export class WorldOverlay {
     const dt = Math.min(0.1, Math.max(0, now - this.lastNow))
     this.lastNow = now
     // ---- overhead plates
+    // 1. project every plate (no DOM access)
     for (let i = 0; i < PLATE_POOL; i++) {
-      const p = this.plates[i]
       const inp = i < plateCount ? plates[i] : null
       // off screen (with a margin for the plate's width): hidden, no writes
       const off = !inp || !inp.visible || !this.project(camera, inp.x, inp.y, inp.h) || this.v.x < -120 || this.v.x > this.w + 120 || this.v.y < -60 || this.v.y > this.h + 120
+      this.pVis[i] = off ? 0 : 1
+      if (off || !inp) continue
+      this.pX[i] = this.v.x
+      this.pY[i] = this.v.y - 38
+      this.pW[i] = plateWidth(inp.name, inp.local)
+    }
+    // 2. de-collide: stack overlapping plates upwards
+    this.stackPlates(plates, plateCount)
+    // 3. ease each plate's offset toward its stacked spot, then write
+    const ease = 1 - Math.exp(-dt / PLATE_EASE_TAU)
+    for (let i = 0; i < PLATE_POOL; i++) {
+      const p = this.plates[i]
+      const inp = i < plateCount ? plates[i] : null
+      const off = !inp || !this.pVis[i]
       if (off) {
         if (p.shown) {
           p.el.style.display = 'none'
@@ -303,13 +349,22 @@ export class WorldOverlay {
         }
         continue
       }
+      // stacking offset: a new or re-shown plate starts at its spot, otherwise it glides there
+      const target = this.pY[i] - this.pTy[i]
+      if (!p.shown || this.pOffId[i] !== inp.id) {
+        this.pOff[i] = target
+        this.pOffId[i] = inp.id
+      } else {
+        this.pOff[i] += (target - this.pOff[i]) * ease
+        if (Math.abs(target - this.pOff[i]) < 0.25) this.pOff[i] = target
+      }
       if (!p.shown) {
         p.el.style.display = ''
         p.shown = true
       }
       // inline style writes force a style recalc: only move on a real (>= 0.5 px) change
-      const px = this.v.x
-      const py = this.v.y - 38
+      const px = this.pX[i]
+      const py = this.pY[i] - this.pOff[i]
       if (Math.abs(px - p.lastX) >= 0.5 || Math.abs(py - p.lastY) >= 0.5) {
         p.el.style.transform = `translate3d(${px.toFixed(1)}px,${py.toFixed(1)}px,0) translate(-50%,0)`
         p.lastX = px
@@ -434,6 +489,47 @@ export class WorldOverlay {
         c.el.style.opacity = ops
         c.lastOp = ops
       }
+    }
+  }
+
+  /**
+   * Vertical stacking pass over the visible plates. The local player's plate
+   * is placed first and never moves; the rest go from the bottom of the
+   * screen up, and a plate that overlaps one already placed moves above it,
+   * at most PLATE_MAX_PUSH. Writes the stacked top y per slot into pTy.
+   */
+  private stackPlates(plates: PlateInput[], plateCount: number): void {
+    const order = this.pOrder
+    const placed = this.pPlaced
+    order.length = 0
+    placed.length = 0
+    for (let i = 0; i < PLATE_POOL && i < plateCount; i++) if (this.pVis[i]) order.push(i)
+    // local first, then lowest on screen first; ties by pawn id so the order does not flicker
+    order.sort((a, b) => {
+      const la = plates[a].local ? 1 : 0
+      const lb = plates[b].local ? 1 : 0
+      if (la !== lb) return lb - la
+      return this.pY[b] - this.pY[a] || plates[a].id - plates[b].id
+    })
+    for (const i of order) {
+      let y = this.pY[i]
+      if (!plates[i].local) {
+        // each push moves strictly up, so this settles within one pass per placed plate
+        for (let pass = 0; pass <= placed.length; pass++) {
+          let moved = false
+          for (const j of placed) {
+            const overlapX = Math.abs(this.pX[i] - this.pX[j]) < (this.pW[i] + this.pW[j]) / 2 - PLATE_SLACK_X
+            if (overlapX && y > this.pTy[j] - PLATE_PITCH && y < this.pTy[j] + PLATE_PITCH) {
+              y = this.pTy[j] - PLATE_PITCH
+              moved = true
+            }
+          }
+          if (!moved) break
+        }
+        y = Math.max(this.pY[i] - PLATE_MAX_PUSH, y)
+      }
+      this.pTy[i] = y
+      placed.push(i)
     }
   }
 

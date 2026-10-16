@@ -408,11 +408,10 @@ Done this session, beyond the milestones above:
 - Settings: screen shake, frame rate limit, resolution scale, key-hint toggle.
 
 Open:
-- Screen shake still scales with effects intensity (effective shake = fx × shake).
-- Facing: idle warlocks facing the camera or sideways read well (team-colour shoulder band, ground-ring chevron); facing away reads only weakly (small ring tail; the body hides the ground). A strong "away" cue needs a chevron drawn over the body (one shared instanced draw).
-- One High run showed a single ~270 ms frame stall at match start with an idle main thread (likely GPU-process shader compile).
+- The hidden lobby prewarm occasionally (2 of 12 runs) has one 130–150 ms GPU-side compile frame; nothing over 100 ms after Start.
 - `src/render/threePatches.ts` patches three r186 `Material.alphaTest` for shadow-pass materials (35–38% less allocation, ~40% fewer minor GCs); re-check on every three upgrade (dev warning fires if the internals change).
 - Firefox and WebKit Playwright builds are too old for the installed driver; the cross-browser determinism check used Firefox.app and the system JavaScriptCore shell instead (0 mismatches over 1,080 checkpoints).
 - Showcase supercut tooling lives in `scripts/showcase/` and `src/render/showcase/` (not imported by the app).
 
 Done since the first §12 list (2026-10-16, second pass): lobby prewarm split (createImageBitmap, 4 ms upload budget, no lobby long task), nameplate style writes cut ~85%, shadow cache-key churn removed, warlock `setDetail` wired, rAF game clock while visible, shrink-warning pulse compositor-only, tile-seam flicker and shrink-ring whiteout fixed, thinner antialiased lava cracks, softer Scourge charge sound, cross-browser determinism verified. The two red/blue rings in the shop were Warp Zone casts by a bot (casting in the shop is allowed, as in the original).
+Third pass: facing chevron drawn over the body (one shared draw; `FacingChevrons.ts`), screen shake independent of effects intensity, console clean in production, nameplate de-collision (max lift 2 plate heights), calm scripted menu backdrop (`menuStage.ts`), Rush absorb VFX, Snowball ice blue, README with screenshots.

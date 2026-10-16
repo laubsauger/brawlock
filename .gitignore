@@ -50,3 +50,6 @@ art/source/
 art/previews/
 art/brand/
 __pycache__/
+
+# local media library (showcase clips, stills): big binaries, never committed
+/media/

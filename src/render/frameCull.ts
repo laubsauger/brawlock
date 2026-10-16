@@ -58,12 +58,28 @@ const hidden: THREE.Object3D[] = []
  */
 const compiled = new WeakSet<THREE.Object3D>()
 
+/**
+ * Drawables given a temporary `count = 0` for their compile frame: three then
+ * builds the pipeline but skips the draw (a draw with an empty draw range is
+ * a WebGPU validation warning). Restored after the render.
+ */
+const zeroed: THREE.Object3D[] = []
+const zeroedPrev: (number | undefined)[] = []
+
 function hideEmpty(o: THREE.Object3D): void {
   if (!o.visible) return
   const c = (o as unknown as { count?: number }).count
-  if (c === 0 && ((o as THREE.InstancedMesh).isInstancedMesh || (o as THREE.Sprite).isSprite || (o as THREE.Mesh).isMesh)) {
+  // an empty batch: instance count 0, or a geometry draw range of 0
+  const range = (o as THREE.Mesh).geometry?.drawRange
+  const emptyRange = range !== undefined && range.count === 0
+  if ((c === 0 || emptyRange) && ((o as THREE.InstancedMesh).isInstancedMesh || (o as THREE.Sprite).isSprite || (o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine)) {
     if (!compiled.has(o)) {
       compiled.add(o)
+      if (c !== 0) {
+        ;(o as unknown as { count?: number }).count = 0
+        zeroed.push(o)
+        zeroedPrev.push(c)
+      }
       return
     }
     o.visible = false
@@ -165,6 +181,13 @@ let current: Stage | null = null
 export function endFrame(): void {
   for (let i = 0; i < hidden.length; i++) hidden[i].visible = true
   hidden.length = 0
+  for (let i = 0; i < zeroed.length; i++) {
+    const o = zeroed[i] as unknown as { count?: number }
+    if (zeroedPrev[i] === undefined) delete o.count
+    else o.count = zeroedPrev[i]
+  }
+  zeroed.length = 0
+  zeroedPrev.length = 0
   const st = current
   current = null
   if (st && st.admittedNow > 0) {

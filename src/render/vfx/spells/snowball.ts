@@ -25,13 +25,14 @@ const FROST = pal('snowball', 'accent', 1.5)
 
 const SPELL = 'snowball'
 const MOD = 'snowball'
-const SNOW: RGB = [0.68, 0.87, 1.0]
+// red pulled down: the purple sky light otherwise turns the snow lilac
+const SNOW: RGB = [0.56, 0.86, 1.0]
 const MIST = [0.55, 0.68, 0.85] as const
 /** powder puffs (soft smoke particles) */
 const POWDER = [0.62, 0.7, 0.82] as const
 /** violet ice: albedo tint and its cold glow */
-const ICE_TINT: RGB = [0.36, 0.34, 1.0]
-const ICE_GLOW: RGB = [0.4, 0.3, 1.0]
+const ICE_TINT: RGB = [0.3, 0.52, 1.0]
+const ICE_GLOW: RGB = [0.28, 0.5, 1.0]
 
 interface Ball {
   id: number
@@ -101,7 +102,7 @@ function snowGeometry(): THREE.BufferGeometry {
 }
 
 /**
- * Packed snow with violet ice veins; lit by the scene (moon + lava bounce). Surface detail is a
+ * Packed snow (ice blue / clean white) with blue ice veins; lit by the scene (moon + lava bounce). Surface detail is a
  * bump from the shared noise: clumps pressed together along cell seams, fine grain on top.
  */
 function snowMaterial(ctx: VfxCtx): THREE.Material {
@@ -113,7 +114,7 @@ function snowMaterial(ctx: VfxCtx): THREE.Material {
   const seamTex = texture(noise, uvA.mul(1.15).add(p.z.mul(0.2)).add(0.13))
   const seam = smoothstep(0.09, 0.0, seamTex.b)
   // violet ice: crystalline veins in a few regions, not dots
-  const region = smoothstep(0.46, 0.6, texture(noise, uvA.mul(0.42).add(1.9)).r)
+  const region = smoothstep(0.5, 0.64, texture(noise, uvA.mul(0.42).add(1.9)).r)
   const vein = smoothstep(0.07, 0.0, texture(noise, uvA.mul(2.1).add(0.37)).b)
   const ice = saturate(vein.mul(region).add(region.mul(0.25)))
   const viewDir = positionView.negate().normalize()
@@ -129,7 +130,7 @@ function snowMaterial(ctx: VfxCtx): THREE.Material {
   // cold self-light (cancels the warm lava bounce from below): icy body + soft rim + violet ice glow
   m.emissiveNode = tierCap(
     ctx,
-    vec3(...FROST).mul(rim.mul(0.2)).add(vec3(...ICE_GLOW).mul(ice.mul(0.7))).add(vec3(0.06, 0.11, 0.19).mul(clump.mul(0.4).add(0.8)).mul(float(1).sub(seam.mul(0.5)))),
+    vec3(...FROST).mul(rim.mul(0.2)).add(vec3(...ICE_GLOW).mul(ice.mul(0.6))).add(vec3(0.05, 0.13, 0.19).mul(clump.mul(0.4).add(0.8)).mul(float(1).sub(seam.mul(0.5)))),
     1.2, 0.45, 0.85,
   )
   m.name = 'VfxB-Snowball'

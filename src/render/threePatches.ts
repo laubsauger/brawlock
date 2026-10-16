@@ -58,3 +58,15 @@ if (import.meta.env.DEV) {
   }
   if (problems.length > 0) console.warn(`[render] threePatches: re-check src/render/threePatches.ts: ${problems.join('; ')}`)
 }
+
+/**
+ * Console filter: react-three-fiber (9.x) creates a THREE.Clock per canvas,
+ * which three r183+ reports as deprecated on every canvas mount. Not
+ * actionable from here; every other three message passes through.
+ */
+const prevConsole = THREE.getConsoleFunction()
+THREE.setConsoleFunction((type: 'log' | 'warn' | 'error', message: string, ...params: unknown[]) => {
+  if (type === 'warn' && message.startsWith('THREE.Clock: This module has been deprecated')) return
+  if (prevConsole) prevConsole(type, message, ...params)
+  else (console[type] ?? console.log)(message, ...params)
+})

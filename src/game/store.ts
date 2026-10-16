@@ -30,7 +30,7 @@ export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
 
 export interface Settings {
   quality: Quality
-  /** 0..1, scales flashes and post fx; screen shake is fxIntensity x screenShake */
+  /** 0..1, scales flashes and post fx (screen shake is screenShake only) */
   fxIntensity: number
   /** 0..1, camera shake and hit kick (render prefs; 0 = no shake at all) */
   screenShake: number

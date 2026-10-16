@@ -260,7 +260,7 @@ export function SettingsModal() {
         <Row label="Fullscreen" hint="Also Alt+Enter at any time">
           <Switch label="Fullscreen" checked={fullscreen} onChange={() => void toggleFullscreen()} />
         </Row>
-        <Row label="Effects intensity" hint="Flashes, post effects, and how hard effects shake the screen">
+        <Row label="Effects intensity" hint="Flashes and post effects">
           <div className="w-56">
             <Slider label="Effects intensity" value={s.fxIntensity} onChange={(fxIntensity) => setSettings({ fxIntensity })} />
           </div>
