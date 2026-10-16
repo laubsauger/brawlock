@@ -508,6 +508,8 @@ export class PawnView {
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
     if (this.warlock) return this.warlock.castOrigin(out)
     this.tipW.copy(STAFF_TIP).multiplyScalar(S * MODEL_SCALE)
+    // the render-time matrix update skips hidden objects (frameCull): refresh the chain here
+    this.staff.updateWorldMatrix(true, false)
     return this.staff.localToWorld(out.copy(this.tipW))
   }
 

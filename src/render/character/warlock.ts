@@ -8,6 +8,7 @@ import { CC0_SCALE, facingUniform, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
 import { applyBuild, newBuildCache, startLevelUp, tickLevelUp } from './progression'
+import { stepEnvelope, type EnvelopeState } from './frontEnvelope'
 import { clothParams } from './materials'
 import type { CastArm, DeathKind, WarlockHandle } from './types'
 import { CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
@@ -1092,7 +1093,13 @@ export class CC0Warlock implements WarlockHandle {
     sp.step(dt, this.vel.x, this.vel.z)
   }
 
-  private envVel = [0, 0, 0, 0]
+  /** knee / hem envelope springs per leg (L knee, L hem, R knee, R hem) */
+  private env: EnvelopeState[] = [
+    { x: 0, v: 0 },
+    { x: 0, v: 0 },
+    { x: 0, v: 0 },
+    { x: 0, v: 0 },
+  ]
   private envInit = false
 
   /**
@@ -1115,21 +1122,16 @@ export class CC0Warlock implements WarlockHandle {
         return
       }
       out.x += (knee.y - out.x) * damp(25, dt)
-      for (const [k, target] of [
-        [1, kneeZ],
-        [2, hemZ],
-      ] as const) {
-        const cur = k === 1 ? out.y : out.z
-        const vi = i * 2 + k - 1
-        // stiff when pushed out, softer when the leg swings back
-        const K = target > cur ? 900 : 220
-        const C = target > cur ? 50 : 22
-        this.envVel[vi] += ((target - cur) * K - this.envVel[vi] * C) * dt
-        const next = cur + this.envVel[vi] * dt
-        // never more than 2 cm behind the leg (fast strides)
-        if (k === 1) out.y = Math.max(next, target - 0.02)
-        else out.z = Math.max(next, target - 0.02)
-      }
+      // substepped + clamped (frontEnvelope.ts): dt here can be a summed
+      // half-rate step at reduced detail, where a plain explicit step diverged
+      const ek = this.env[i * 2]
+      const eh = this.env[i * 2 + 1]
+      ek.x = out.y
+      eh.x = out.z
+      stepEnvelope(ek, kneeZ, dt)
+      stepEnvelope(eh, hemZ, dt)
+      out.y = ek.x
+      out.z = eh.x
     }
     leg(g.kneeL, g.footL, g.frontL, 0)
     leg(g.kneeR, g.footR, g.frontR, 1)

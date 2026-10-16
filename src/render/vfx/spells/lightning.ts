@@ -79,6 +79,8 @@ function addBolt(now: number, x0: number, y0: number, h0: number, x1: number, y1
 const STRIKE = 0.16
 /** whole bolt life: strike + afterimage, matched to the cast sound's ~0.5 s echo tail */
 const BOLT_LIFE = 0.62
+/** a miss cools faster: no target, the bolt fizzles out */
+const BOLT_LIFE_MISS = 0.42
 /** flashes left this frame (several bolts in one tick must not stack into a white-out) */
 let flashBudget = 4
 function lflash(ctx: VfxCtx, x: number, y: number, h: number, life: number, radius: number, size: number, c: readonly number[], k: number): void {
@@ -100,7 +102,9 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         const seed = b.seed + Math.floor(age * 45)
         const f = 1 - age / STRIKE
         // thin white-blue core, blue halo hugging it (sim half-width 25 -> ~50 wide)
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 10 + b.tier * 2, P.body, P.hot, 1.8 + f * 0.6 + b.tier * 0.2, 4 + b.tier * 2, 28, 54 + b.tier * 8, 0.24)
+        // a miss reads weaker than a hit: thinner, dimmer core
+        const mk = !b.hit && !b.blocked ? 0.75 : 1
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, (10 + b.tier * 2) * mk, P.body, P.hot, (1.8 + f * 0.6 + b.tier * 0.2) * (mk * 1.07), 4 + b.tier * 2, 28, (54 + b.tier * 8) * mk, 0.24)
         // light the floor along the bolt (tight, brief)
         const mx = (b.x0 + b.x1) * 0.5
         const my = (b.y0 + b.y1) * 0.5
@@ -114,7 +118,8 @@ function drawBolts(k: KitA, ctx: VfxCtx): void {
         const f = 1 - (age - STRIKE) / (b.life - STRIKE)
         const seed = b.seed + Math.floor(STRIKE * 45) - 1
         const fa = Math.pow(f, 0.5)
-        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, 3 + 5 * fa, AFTER, P.body, 1.5 * fa, 4 + b.tier * 2, 28, 26 + 12 * fa, 0.22)
+        const mk = !b.hit && !b.blocked ? 0.7 : 1
+        k.bolt(b.x0, b.y0, b.h0, b.x1, b.y1, b.h1, seed, 20 + len * 0.02, (3 + 5 * fa) * mk, AFTER, P.body, 1.5 * fa * mk, 4 + b.tier * 2, 28, (26 + 12 * fa) * mk, 0.22)
       }
       // scorched ember line on the floor
       const fade = Math.max(0, 1 - age / b.life)
@@ -250,7 +255,8 @@ const mod: SpellVfx = {
           const tv = ctx.pawn(tp.id)
           if (tv) h1 = tv.h + 70
         }
-        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, BOLT_LIFE, 0, e.blocked, e.target !== null, k.tierOf(e))
+        const miss = e.target === null && !e.blocked
+        addBolt(ctx.now, x0, y0, h0, x1, y1, h1, miss ? BOLT_LIFE_MISS : BOLT_LIFE, 0, e.blocked, e.target !== null, k.tierOf(e))
         lflash(ctx, x0, y0, h0, 0.1, 120, 70, P.body, 0.8)
         crackleSparks(ctx, x0, y0, h0, 8, 500, ux, uy, 0.9)
         ctx.shakeNear(x0, y0, 0.12)
@@ -262,19 +268,27 @@ const mod: SpellVfx = {
           crackleSparks(ctx, x1, y1, h1, 18, 800, -ux, -uy, 0.9)
           k.pulse(G_SHOCK, true, x1, y1, h1, 34, 48, 0.16, 0, 0, P.body, 1.0, 0.2, 0.9, 0.12)
         } else if (e.target === null) {
-          // full range: the bolt frays into a crackle
-          crackleSparks(ctx, x1, y1, h1, 14, 500)
-          lflash(ctx, x1, y1, h1, 0.12, 160, 90, P.body, 1)
+          // MISS at full range: no impact. The tip frays into short dying arcs and fizzles into
+          // sparks that drop away; no flash, no ground ring
+          const ps = ctx.particles
+          const nf = ps.budget(12)
+          for (let i = 0; i < nf; i++) {
+            const a = Math.atan2(uy, ux) + (Math.random() - 0.5) * 2.4
+            const sp = 120 + Math.random() * 220
+            pspawn(ps, x1, y1, h1, Math.cos(a) * sp, Math.sin(a) * sp, -40 - Math.random() * 120, 0.25 + Math.random() * 0.2, 6, 1, WIND.spark[0], WIND.spark[1], WIND.spark[2], -900, 2.5, -0.1)
+          }
           for (let i = 0; i < 3; i++) {
             const a = Math.atan2(uy, ux) + (Math.random() - 0.5) * 2.2
-            const l = 50 + Math.random() * 60
-            addBolt(ctx.now, x1, y1, h1, x1 + Math.cos(a) * l, y1 + Math.sin(a) * l, h1 - 20 - Math.random() * 30, 0.2, 1)
+            const l = 40 + Math.random() * 50
+            addBolt(ctx.now, x1, y1, h1, x1 + Math.cos(a) * l, y1 + Math.sin(a) * l, h1 - 20 - Math.random() * 30, 0.16, 1)
           }
         } else {
-          lflash(ctx, x1, y1, h1, 0.12, 150, 90, P.body, 1)
-          if (!ctx.isLava(x1, y1)) ctx.scorches.spawn(x1, y1, fl - 0.4, 40, 3)
+          // HIT: a strong strike on the victim: flash, shock ring at the feet, floor scorch
+          lflash(ctx, x1, y1, h1, 0.16, 220, 120, P.body, 1.2)
+          k.pulse(G_SHOCK, false, x1, y1, fl + 1.5, 95, 95, 0.32, Math.random() * 6, 0, P.body, 1.2, 0.1, 0.95, 0.09)
+          kring(ctx, RING_EXPAND, x1, y1, fl, 8, 110, 0.32, 10, P.body[0] * 0.8, P.body[1] * 0.8, P.body[2] * 0.8)
+          if (!ctx.isLava(x1, y1)) ctx.scorches.spawn(x1, y1, fl - 0.4, 46, 3.5)
         }
-        kring(ctx, RING_EXPAND, x1, y1, fl, 8, 90, 0.3, 8, P.body[0] * 0.7, P.body[1] * 0.7, P.body[2] * 0.7)
         return
       }
       case 'explosion': {

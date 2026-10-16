@@ -107,6 +107,8 @@ export class ProceduralWarlock implements WarlockHandle {
 
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
     this.tip.copy(STAFF_TIP).multiplyScalar(S * MODEL_SCALE)
+    // the render-time matrix update skips hidden objects (frameCull): refresh the chain here
+    this.staff.updateWorldMatrix(true, false)
     return this.staff.localToWorld(out.copy(this.tip))
   }
 

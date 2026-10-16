@@ -14,7 +14,8 @@ import * as THREE from 'three/webgpu'
  * 2. Empty-batch skip. Instanced meshes / sprites with count 0 still cost a
  *    full render-object pass and an empty draw (40+ idle VFX batches); they
  *    are hidden for the duration of the render only and restored after, so
- *    the owners never observe the change.
+ *    the owners never observe the change. Objects with their own
+ *    onBeforeRender are never skipped (they fill themselves in there).
  * 3. Staged warm-up (hidden prewarm only). The first draw of each material
  *    builds its shader (TSL node build, WGSL validation, pipeline): all at
  *    once that is one 300-500 ms task. While staging, drawables are let in a
@@ -66,8 +67,18 @@ const compiled = new WeakSet<THREE.Object3D>()
 const zeroed: THREE.Object3D[] = []
 const zeroedPrev: (number | undefined)[] = []
 
+const baseBeforeRender = THREE.Object3D.prototype.onBeforeRender
+
 function hideEmpty(o: THREE.Object3D): void {
   if (!o.visible) return
+  // never touch an object with its own onBeforeRender: owners commit their
+  // per-frame data (count, draw range, buffers) there, so it looks empty
+  // until three calls it, and hiding it would mean it never draws
+  if (o.onBeforeRender !== baseBeforeRender) {
+    const ch = o.children
+    for (let i = 0; i < ch.length; i++) hideEmpty(ch[i])
+    return
+  }
   const c = (o as unknown as { count?: number }).count
   // an empty batch: instance count 0, or a geometry draw range of 0
   const range = (o as THREE.Mesh).geometry?.drawRange

@@ -231,6 +231,8 @@ function uploadRange(a: THREE.BufferAttribute, start: number, count: number): vo
 }
 
 const STRIP_MAXP = 512
+/** permanent degenerate triangle at the start of the strip buffers (see Strips.reset) */
+const RESERVED = 3
 
 class Strips {
   readonly mesh: THREE.Mesh
@@ -242,8 +244,8 @@ class Strips {
   private aEdge: THREE.BufferAttribute
   private aIdx: THREE.BufferAttribute
   private readonly cap: number
-  private nv = 0
-  private ni = 0
+  private nv = RESERVED
+  private ni = RESERVED
   // scratch for the strip being built
   private px = new Float32Array(STRIP_MAXP)
   private py = new Float32Array(STRIP_MAXP)
@@ -276,7 +278,7 @@ class Strips {
     this.aIdx = new THREE.BufferAttribute(new Uint16Array(cap * 3), 1)
     this.aIdx.setUsage(THREE.StaticDrawUsage)
     g.setIndex(this.aIdx)
-    g.setDrawRange(0, 0)
+    g.setDrawRange(0, RESERVED) // the reserved zero-alpha triangle: never an empty (index count 0) draw
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5)
     this.geo = g
 
@@ -305,9 +307,14 @@ class Strips {
     this.mesh.name = 'vfxA-strips'
   }
 
+  /**
+   * Vertices / indices 0..2 hold a permanent degenerate, zero-alpha triangle, so the batch is
+   * never "empty": render's frameCull hides empty batches for the render, and the kit commits
+   * from the onBeforeRender of its own objects, so an all-empty kit would never commit again.
+   */
   reset(): void {
-    this.nv = 0
-    this.ni = 0
+    this.nv = RESERVED
+    this.ni = RESERVED
   }
 
   /** Start a strip. flat = lies in the ground plane (else faces the camera). */
@@ -435,7 +442,8 @@ class Strips {
 
   commit(): void {
     this.geo.setDrawRange(0, this.ni)
-    if (this.nv === 0) return
+    // only the reserved (all-zero, already on the GPU) triangle: nothing to upload
+    if (this.nv <= RESERVED) return
     uploadRange(this.aPos, 0, this.nv * 3)
     uploadRange(this.aCol, 0, this.nv * 4)
     uploadRange(this.aAux, 0, this.nv * 4)
@@ -459,7 +467,7 @@ class Glyphs {
   private g0: THREE.InstancedBufferAttribute
   private g1: THREE.InstancedBufferAttribute
   private g2: THREE.InstancedBufferAttribute
-  private n = 0
+  private n = 1
 
   constructor(
     ctx: VfxCtx,
@@ -645,8 +653,9 @@ class Glyphs {
     this.mesh.name = 'vfxA-glyphs'
   }
 
+  /** instance 0 is a permanent zero-size dummy (see Strips.reset) */
   reset(): void {
-    this.n = 0
+    this.n = 1
   }
 
   /**
@@ -676,7 +685,8 @@ class Glyphs {
 
   commit(): void {
     this.mesh.count = this.n
-    if (this.n === 0) return
+    // only the zero-size dummy at instance 0 (all zeros, already on the GPU): nothing to upload
+    if (this.n <= 1) return
     uploadRange(this.g0, 0, this.n * 4)
     uploadRange(this.g1, 0, this.n * 4)
     uploadRange(this.g2, 0, this.n * 4)
@@ -696,7 +706,7 @@ class Cores {
   readonly mesh: THREE.Mesh
   private material: THREE.MeshBasicNodeMaterial
   private attrs: THREE.InstancedBufferAttribute[]
-  private n = 0
+  private n = 1
 
   constructor(
     ctx: VfxCtx,
@@ -746,8 +756,9 @@ class Cores {
     this.mesh.name = 'vfxA-cores'
   }
 
+  /** instance 0 is a permanent zero-size dummy (see Strips.reset) */
   reset(): void {
-    this.n = 0
+    this.n = 1
   }
 
   /**
@@ -787,7 +798,8 @@ class Cores {
 
   commit(): void {
     this.mesh.count = this.n
-    if (this.n === 0) return
+    // only the zero-size dummy at instance 0 (all zeros, already on the GPU): nothing to upload
+    if (this.n <= 1) return
     for (let i = 0; i < this.attrs.length; i++) uploadRange(this.attrs[i], 0, this.n * 4)
   }
 
@@ -1097,6 +1109,8 @@ export class KitA {
     this.over.reset()
     this.cores.reset()
     this.bb.begin()
+    // zero-size placeholder: the batch is never empty (render's frameCull would hide it)
+    this.bb.add(0, 0, 0, 0, 0, 0, 0)
     const t = this.tracked
     this.tracked = this.trackedPrev
     this.trackedPrev = t
