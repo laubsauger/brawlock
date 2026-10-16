@@ -4,6 +4,9 @@ import { DEFAULT_SETTINGS } from './config'
 import { cmd, newMatch, pawn, run, runUntil, slots } from './testkit'
 import type { InputCommand, Phase, PlayerInput, SimEvent, SimState } from './types'
 
+/** The original lobby defaults; ours differ on purpose (PLAN §2), these tests pin the original round flow. */
+const ORIGINAL_RULES = { winScore: 11, killGold: 0, winGold: 0, shopSeconds: 30 }
+
 const phases = (events: SimEvent[]): Phase[] => events.flatMap((e) => (e.type === 'phase' ? [e.phase] : []))
 
 /** Player 1 walks off the platform every fight; player 0 holds the centre. */
@@ -14,7 +17,7 @@ function loserWalksIntoLava(s: SimState): PlayerInput[] {
 
 describe('rounds mode (systems.md §7.2)', () => {
   test('shop -> fight -> roundEnd -> shop, with spawn layout, arena size, score and gold', () => {
-    const s = newMatch()
+    const s = newMatch(ORIGINAL_RULES)
     expect(s.phase).toBe('shop')
     expect(s.arena.layer).toBe(14)
     expect(s.phaseTicksLeft).toBe(30 * 60)
@@ -50,10 +53,10 @@ describe('rounds mode (systems.md §7.2)', () => {
 
   test('garbage lobby numbers fall back to defaults instead of stalling the phase timer', () => {
     const s = newMatch({ shopSeconds: NaN, lavaDps: -5, friction: Infinity })
-    expect(s.settings.shopSeconds).toBe(30)
-    expect(s.settings.lavaDps).toBe(100)
-    expect(s.settings.friction).toBe(0.96)
-    run(s, 30 * 60)
+    expect(s.settings.shopSeconds).toBe(DEFAULT_SETTINGS.shopSeconds)
+    expect(s.settings.lavaDps).toBe(DEFAULT_SETTINGS.lavaDps)
+    expect(s.settings.friction).toBe(DEFAULT_SETTINGS.friction)
+    run(s, DEFAULT_SETTINGS.shopSeconds * 60)
     expect(s.phase).toBe('fight')
   })
 
@@ -79,8 +82,8 @@ describe('rounds mode (systems.md §7.2)', () => {
     expect(events.find((e) => e.type === 'roundWin')).toBeDefined()
   })
 
-  test('a bot-free headless match runs to gameOver with the default rules (first to 11)', () => {
-    const s = createMatch(DEFAULT_SETTINGS, slots(2), 7)
+  test('a bot-free headless match runs to gameOver with the original rules (first to 11)', () => {
+    const s = createMatch({ ...DEFAULT_SETTINGS, ...ORIGINAL_RULES }, slots(2), 7)
     const all: SimEvent[] = []
     for (let i = 0; i < 200000 && s.phase !== 'gameOver'; i++) {
       step(s, loserWalksIntoLava(s))
@@ -113,9 +116,24 @@ describe('rounds mode (systems.md §7.2)', () => {
   })
 })
 
+describe('default lobby rules (PLAN §2 deviation)', () => {
+  test('a default match is short: first to 5, a 25 s shop, and the round winner earns 2 bonus gold', () => {
+    // the original first-to-11 with a 30 s shop dragged on; win gold rewards taking the round
+    const s = createMatch(DEFAULT_SETTINGS, slots(2), 7)
+    expect(s.phaseTicksLeft).toBe(25 * 60)
+    for (let i = 0; i < 200000 && s.phase !== 'gameOver'; i++) step(s, loserWalksIntoLava(s))
+    expect(s.phase).toBe('gameOver')
+    expect(s.round).toBe(5)
+    expect(s.scores.map((x) => x.score)).toEqual([5, 0])
+    // round gold is paid at round end except for the deciding round; lava deaths without a hitter pay no kill gold
+    expect(s.scores[0].gold - s.scores[1].gold).toBe(5 * 2)
+  })
+})
+
 describe('arena pillars (systems.md §7.2)', () => {
   test('2-8 pillars of the theme’s radii in [-1000, 1000]^2, re-rolled every shop phase', () => {
-    const s = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 1 }, slots(2), 3)
+    // winScore 99: six rounds must be played without the match ending
+    const s = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 1, winScore: 99 }, slots(2), 3)
     const RADII = [[60], [70, 45, 60, 40], [50, 35]]
     const sets: string[] = []
     for (let round = 0; round < 6; round++) {

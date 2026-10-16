@@ -124,16 +124,17 @@ export const TEAM_DRAW = -1
 export const DEFAULT_SETTINGS: MatchSettings = {
   teamMode: 'ffa',
   gameMode: 'rounds',
-  winScore: 11,
+  // PLAN §2: shorter default match (original 11) and a small kill / round-win bonus (original 0 / 0)
+  winScore: 5,
   startGold: 30,
   roundGold: 10,
-  killGold: 0,
-  winGold: 0,
+  killGold: 1,
+  winGold: 2,
   lavaDps: 100,
   kbMultiplier: 1,
   dmgMultiplier: 1,
   friction: 0.96,
-  shopSeconds: 30,
+  shopSeconds: 25, // PLAN §2: original 30 felt long between rounds
   botsReplaceLeavers: true,
 }
 

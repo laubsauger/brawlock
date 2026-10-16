@@ -12,7 +12,9 @@ import { ORIGINAL } from './spells/reference'
  * Behavior-level fixes (Drain using its 24.5 radius for collision, Range mastery applied once,
  * Homing rebuilt, ...) do not change any number, so the list is empty.
  */
-const DEVIATIONS: Record<string, string> = {}
+const DEVIATIONS: Record<string, string> = {
+  'DEFAULT_SETTINGS.shopSeconds': 'PLAN §2 (2026-10-16): default shop 25 s instead of 30; still a lobby option',
+}
 
 type Num = number | boolean | readonly number[]
 

@@ -4,19 +4,23 @@
  * arena, and a targeting reticle tinted by the spell's column color while a
  * Normal-cast / held aim is active, red with a slash when the spell can't fire.
  *
- * Small SVGs as data URIs at 32 px with a 64 px copy for hi-dpi (image-set),
- * hotspots in 32 px coordinates. installCursors() publishes the static ones as
+ * Small SVGs as data URIs at SIZE px with a 2x copy for hi-dpi (image-set),
+ * drawn and hotspotted in a 32-unit box. installCursors() publishes the static ones as
  * CSS custom properties (--cursor-default / --cursor-lit / --cursor-move);
  * the arena sets reticles directly on the viewport (reticleCursor).
  */
 
+/** Cursor size in CSS px; the art is drawn in a 32-unit box and scaled (bigger than the OS default so it is easy to spot mid-fight). */
+const SIZE = 40
 const wrap = (body: string, size: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32">${body}</svg>`
 const uri = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 
-/** Best supported cursor value: image-set, then -webkit-image-set, then plain 32 px. */
-function cursorValue(body: string, hx: number, hy: number, fallback: string): string {
-  const one = uri(wrap(body, 32))
-  const two = uri(wrap(body, 64))
+/** Best supported cursor value: image-set, then -webkit-image-set, then plain SIZE px. Hotspot in 32-unit box coordinates. */
+function cursorValue(body: string, bx: number, by: number, fallback: string): string {
+  const one = uri(wrap(body, SIZE))
+  const two = uri(wrap(body, SIZE * 2))
+  const hx = Math.round((bx * SIZE) / 32)
+  const hy = Math.round((by * SIZE) / 32)
   const candidates = [`image-set(${one} 1x, ${two} 2x) ${hx} ${hy}, ${fallback}`, `-webkit-image-set(${one} 1x, ${two} 2x) ${hx} ${hy}, ${fallback}`]
   try {
     for (const c of candidates) if (CSS.supports('cursor', c)) return c
@@ -32,13 +36,14 @@ function claw(rim: string, ember: string, light = false): string {
     'M3 2C9.2 7.2 16 12.2 22.6 17.3L14.7 18.7L19.1 27.2C18.5 28.4 16.7 29.2 15.5 28.8L10.9 20.7L4.5 25.9C3.6 18 3.2 10 3 2Z'
   return (
     `<defs><linearGradient id="m" x1="0" y1="0" x2="1" y2="1">` +
-    `<stop offset="0" stop-color="${light ? '#8a7563' : '#6b5a4c'}"/><stop offset="0.55" stop-color="#2e2520"/><stop offset="1" stop-color="#140e0b"/>` +
+    // bright bone-gold body: the arena floor is dark blue-grey and the lava dark orange, so a dark claw vanished
+    `<stop offset="0" stop-color="${light ? '#fff7e4' : '#f6e9cf'}"/><stop offset="0.55" stop-color="${light ? '#f0cf8e' : '#dcbf8f'}"/><stop offset="1" stop-color="#a67c4a"/>` +
     `</linearGradient></defs>` +
-    // dark halo keeps it readable over bright lava
-    `<path d="${shape}" fill="none" stroke="#000" stroke-opacity=".55" stroke-width="3.2" stroke-linejoin="round"/>` +
+    // dark halo keeps it readable over bright lava and separates it from light UI
+    `<path d="${shape}" fill="none" stroke="#000" stroke-opacity=".85" stroke-width="3.6" stroke-linejoin="round"/>` +
     `<path d="${shape}" fill="url(#m)" stroke="${rim}" stroke-width="1.1" stroke-linejoin="round"/>` +
     // lit leading edge and a talon groove
-    `<path d="M4.3 5.2C4.8 11 5.1 16.3 5.5 21.4" fill="none" stroke="#ffd59a" stroke-opacity="${light ? '.95' : '.6'}" stroke-width=".9" stroke-linecap="round"/>` +
+    `<path d="M4.3 5.2C4.8 11 5.1 16.3 5.5 21.4" fill="none" stroke="#ffffff" stroke-opacity="${light ? '.95' : '.7'}" stroke-width=".9" stroke-linecap="round"/>` +
     `<path d="M7 9.5L15.5 16.2" fill="none" stroke="#000" stroke-opacity=".45" stroke-width=".8" stroke-linecap="round"/>` +
     `<circle cx="9.2" cy="15.8" r="1.5" fill="${ember}"/>` +
     (light ? `<circle cx="9.2" cy="15.8" r="3" fill="${ember}" fill-opacity=".25"/>` : '')

@@ -125,7 +125,8 @@ describe('lava (systems.md §5.2)', () => {
   })
 
   test('a lava death credits the last pawn that hit you', () => {
-    const s = newMatch({ killGold: 3 })
+    // winGold 0: this death also ends the 1v1 round, and only the kill payout is under test
+    const s = newMatch({ killGold: 3, winGold: 0 })
     toCombat(s)
     const p0 = pawn(s, 0)
     const p1 = pawn(s, 1)

@@ -29,8 +29,8 @@ The core loop, unchanged:
 - Top-down arena of square tiles over lava. 2–10 players, FFA or teams.
 - Right-click to move, hotkeys to cast at the cursor. Spells push people. Damage taken raises **knockback points**, which make every later hit push harder (Smash-style percent).
 - Lava burns 100 HP/s. The arena shrinks one ring every 10 s. Last team standing wins the round.
-- 30 s shop phase between rounds: buy spells (one per column), upgrade them to level 7, buy items and masteries. Everyone gets the same gold by default (30 start + 10 per round).
-- First to 11 round wins.
+- Shop phase between rounds (original 30 s, our default 25 s): buy spells (one per column), upgrade them to level 7, buy items and masteries. Original income is the same for everyone (30 start + 10 per round); our defaults add 1 gold per kill and 2 per round win (see table below).
+- First to N round wins (original 11, our default 5).
 
 Kept verbatim (see `systems.md` §13 and `spells.md`): base stats (1000 HP, 5 HP/s regen, 210 move speed, mass 100, radius 30), knockback formula, friction, arena layer formula, lava DPS, shrink timing, spell numbers, costs, item and mastery values, lobby options and defaults.
 
@@ -45,6 +45,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | `math.random` float coercion makes bot wander jitter | Fixed (intended float ranges) |
 | Arena size counts players who left | Fixed: counts active players at round start |
 | Shop-phase respawns use the fight spawn ring, (13 + players) · 100 − 600, on the smaller layer-14 shop platform (radius 1300): from 6 players up warlocks start the shop in lava | Fixed: the spawn ring is capped 300 inside the edge of the platform that exists at spawn time (floor 300). Fight spawns already sit 300–500 inside their platform and are unchanged |
+| Lobby defaults: first to 11 (rounds or score), kill gold 0, win gold 0 (income ignores performance), 30 s shop | Decided 2026-10-16: default first to 5 (11 dragged on, an 8-player FFA can run 40+ rounds), kill gold 1, win gold 2 so kills and round wins are rewarded a little, 25 s shop. All stay lobby options with the original range |
 | Hero choice effectively random, 7 Dota heroes | Lobby cosmetic picker: warlock archetypes with team-color trim |
 | Bot difficulty = think interval only, console command only | Full difficulty system, lobby UI (§7) |
 | Chat-line announcements | Proper UI announcements, killfeed, round banners |

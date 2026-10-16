@@ -127,7 +127,7 @@ export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | nu
     const k = scoreOf(state, credit)
     if (k) {
       k.kills += 1
-      // original pays 1 s after the kill; paid at once here (default killGold is 0)
+      // original pays 1 s after the kill; paid at once here (original default killGold 0, ours 1: PLAN §2)
       k.gold += state.settings.killGold
     }
   }
