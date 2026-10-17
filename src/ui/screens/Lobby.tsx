@@ -13,6 +13,7 @@ import { roomLink } from '../../net/code'
 import { useLinks } from '../lib/netmonitor'
 import { useMatchRenderReady } from '../MatchLayer'
 import type { PeerNet } from '../lib/netstats'
+import { BOT_ELO } from '../../bots'
 
 const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
   dummy: 'Dummy',
@@ -21,6 +22,20 @@ const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
   hard: 'Hard',
   brutal: 'Brutal',
   uber: 'Uber',
+}
+
+/** who each tier is for; the Elo is per round, measured bot vs bot (docs/PLAN.md §7) */
+const DIFFICULTY_HINT: Record<BotDifficulty, string> = {
+  dummy: 'a practice target that never acts',
+  easy: 'new players',
+  medium: 'knows the basics',
+  hard: 'experienced players',
+  brutal: 'veterans',
+  uber: 'beats most humans',
+}
+
+function difficultyTip(d: BotDifficulty): string {
+  return d === 'dummy' ? `${DIFFICULTY_LABEL[d]}, ${DIFFICULTY_HINT[d]}` : `${DIFFICULTY_LABEL[d]}, about ${BOT_ELO[d]} Elo: ${DIFFICULTY_HINT[d]}`
 }
 
 const ROLE_LABEL = { offline: 'Offline', host: 'Hosting', client: 'Joined' } as const
@@ -141,6 +156,7 @@ function PlayerCard({
         <select
           className="field w-28"
           aria-label={`Difficulty for ${slot.name}`}
+          title={difficultyTip(slot.difficulty ?? 'medium')}
           value={slot.difficulty ?? 'medium'}
           onChange={(e) => {
             sfx('click')
@@ -148,7 +164,7 @@ function PlayerCard({
           }}
         >
           {BOT_DIFFICULTIES.map((d) => (
-            <option key={d} value={d}>
+            <option key={d} value={d} title={difficultyTip(d)}>
               {DIFFICULTY_LABEL[d]}
             </option>
           ))}
@@ -282,9 +298,15 @@ export function Lobby() {
           </ul>
           {canEdit && (
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[rgba(255,170,100,0.1)] pt-4">
-              <select className="field w-32" aria-label="New bot difficulty" value={botLevel} onChange={(e) => setBotLevel(e.target.value as BotDifficulty)}>
+              <select
+                className="field w-32"
+                aria-label="New bot difficulty"
+                title={difficultyTip(botLevel)}
+                value={botLevel}
+                onChange={(e) => setBotLevel(e.target.value as BotDifficulty)}
+              >
                 {BOT_DIFFICULTIES.map((d) => (
-                  <option key={d} value={d}>
+                  <option key={d} value={d} title={difficultyTip(d)}>
                     {DIFFICULTY_LABEL[d]}
                   </option>
                 ))}

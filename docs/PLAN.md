@@ -328,9 +328,20 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 
 - Bots run on the host, read the same `SimState` a human client sees (the game has no fog of war), and emit `InputCommand`s through the same pipeline as humans. No direct sim access.
 - **Difficulty is a parameter vector**, not one knob: reaction latency, aim error, lead-prediction quality, dodge lookahead (forward-simulates incoming projectiles with the shared sim), action rate cap, lava and edge awareness, target selection, build quality (shop plans per archetype), team coordination.
-- Presets: **Dummy** (stands, for practice), **Easy**, **Medium**, **Hard**, **Brutal**. Every preset is human-plausible; Brutal is strong, not omniscient.
-- Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle.
-- Calibration: headless bot-vs-bot tournaments (Node, sim at 100× speed) produce an Elo per preset. CI fails if a preset drifts out of its band.
+- Presets: **Dummy** (stands, for practice), **Easy**, **Medium**, **Hard**, **Brutal**, **Uber**. Every preset is human-plausible; Brutal is strong, not omniscient; Uber wins on decisions, not reflexes (knob table: `src/bots/presets.ts`).
+- Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
+- Calibration: `npm run bots:elo` (scripts/bots/elo.ts) plays a seeded 1v1 round-robin of full first-to-5 matches on the real sim (about 40 s for 200 matches per pair, plus optional 4-player FFA pods). The unit is the **round**, the unit a player feels; a match turns a 75% round edge into about 90% of matches. Elo is the Bradley–Terry maximum-likelihood fit over all rounds (Medium = 1000); 95% intervals come from a bootstrap over whole matches, because rounds of one match share gold and items.
+- Ladder targets: Easy is the original AI for new players and never gets harder; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber are about 75% round win rate apart (150-250 Elo per step), with Uber the unchanged top. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60-88% round win rate. `BOT_ELO` (`src/bots/presets.ts`) exports them rounded to 25 (Easy 350, Medium 1000, Hard 1750, Brutal 1925, Uber 2100) for a future human rating.
+
+  | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | Before: round Elo |
+  |---|---|---|---|---|---|
+  | Easy | 356 | 278-409 | - | - | 529 |
+  | Medium | 1000 | anchor | 98% over Easy | 100% | 1000 |
+  | Hard | 1739 | 1682-1819 | 99% over Medium | 100% | 1536 |
+  | Brutal | 1935 | 1874-2016 | 75% over Hard | 91% | 1955 |
+  | Uber | 2112 | 2052-2194 | 73% over Brutal | 95% | 2264 |
+
+  Measured 2026-10-17, 200 matches per pair (seeds 1-200). "Before" is the previous ladder on its own scale (its Medium was weaker): every adjacent step was a match sweep (100-0, Uber over Brutal 98-2) with 85-96% of rounds. In 4-player FFA pods the steps shrink (Uber over Brutal 71%, Brutal over Hard 55% of pairwise placements): Brutal's edge is its build plan and edge pressure, which pay off most in a duel.
 - M0 ships a port of the original AI (danger field dodge, lead aim, random casts) as Easy/Medium. M3 builds the full system.
 
 ## 8. Assets and licensing
@@ -415,3 +426,6 @@ Open:
 
 Done since the first §12 list (2026-10-16, second pass): lobby prewarm split (createImageBitmap, 4 ms upload budget, no lobby long task), nameplate style writes cut ~85%, shadow cache-key churn removed, warlock `setDetail` wired, rAF game clock while visible, shrink-warning pulse compositor-only, tile-seam flicker and shrink-ring whiteout fixed, thinner antialiased lava cracks, softer Scourge charge sound, cross-browser determinism verified. The two red/blue rings in the shop were Warp Zone casts by a bot (casting in the shop is allowed, as in the original).
 Third pass: facing chevron drawn over the body (one shared draw; `FacingChevrons.ts`), screen shake independent of effects intensity, console clean in production, nameplate de-collision (max lift 2 plate heights), calm scripted menu backdrop (`menuStage.ts`), Rush absorb VFX, Snowball ice blue, README with screenshots.
+Fourth pass (2026-10-16/17): exploding-robe fix at low fps (substepped front-envelope spring), shop no longer shifts plus ability hover cards with live sim stats (media slot reserved), kill feedback (stamp over the killer, KO callout, kill pips), announcer pack (ElevenLabs, Maverick default / Arena alternative: First Blood, multi-kills, streaks) on its own bus, flat top HUD, ambience bus and slider, calmer Splitter sounds, bots that time Teleport and Scourge plus the Uber difficulty (beats Brutal 38-2), default rules first to 5 / 25 s shop / kill gold 1 / win gold 2.
+
+Not started (candidates): reduced-motion option (§M2 accessibility), preview clips in the hover cards (from `media/showcase/`), optional "click-to-move does not cancel a cast" setting, bot calibration and Elo bands (§M3), everything in §M4.

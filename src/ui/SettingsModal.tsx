@@ -353,6 +353,12 @@ export function SettingsModal() {
       </Section>
 
       <Section title="Controls">
+        <Row
+          label="Move cancels cast"
+          hint={(s.moveCancelsCast ?? true) ? 'On: right-click during a cast cancels it, as in the original' : 'Off: right-click during a cast queues the move until the spell goes off'}
+        >
+          <Switch label="Move cancels cast" checked={s.moveCancelsCast ?? true} onChange={(moveCancelsCast) => setSettings({ moveCancelsCast })} />
+        </Row>
         <Keybinds onCapture={setCapturing} />
       </Section>
 

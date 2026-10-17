@@ -23,5 +23,5 @@ export function createBot(player: PlayerId, difficulty: BotDifficulty, seed: num
   return new BotController(player, difficulty, seed)
 }
 
-export { BOT_PRESETS, type BotParams } from './presets'
+export { BOT_ELO, BOT_PRESETS, type BotParams } from './presets'
 export { BotController, type BotAction } from './controller'

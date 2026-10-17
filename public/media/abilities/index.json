@@ -1,0 +1,633 @@
+{
+ "source": "media/showcase/shots (showcase takes)",
+ "crop": {
+  "edge": 0.08,
+  "w": 1612,
+  "h": 906,
+  "x": 154,
+  "y": 86
+ },
+ "clips": {
+  "fireball": {
+   "shot": "kit_fireball",
+   "duration": 1.73,
+   "webm": {
+    "bytes": 68473,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 38550,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10210,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "scourge": {
+   "shot": "kit_scourge",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 94914,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 46429,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 12178,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "boomerang": {
+   "shot": "c1_boomerang",
+   "duration": 1.78,
+   "webm": {
+    "bytes": 62729,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 35359,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10086,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "lightning": {
+   "shot": "c1_lightning",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 69923,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 38552,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 9656,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "homing": {
+   "shot": "c1_homing",
+   "duration": 2.7,
+   "webm": {
+    "bytes": 69667,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 41104,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 8822,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "twin": {
+   "shot": "c1_twin",
+   "duration": 1.82,
+   "webm": {
+    "bytes": 56504,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 32118,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 9678,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "teleport": {
+   "shot": "c2_teleport",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 84887,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 44103,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10496,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "thrust": {
+   "shot": "c2_thrust",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 75668,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 42424,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10514,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "swap": {
+   "shot": "c2_swap",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 80945,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 42406,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10644,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "cluster": {
+   "shot": "c3_cluster",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 77772,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 43004,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10824,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "drain": {
+   "shot": "c3_drain",
+   "duration": 1.88,
+   "webm": {
+    "bytes": 67660,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 40679,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 11056,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "bouncer": {
+   "shot": "c3_bouncer",
+   "duration": 2.7,
+   "webm": {
+    "bytes": 91028,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 56326,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10882,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "recharge": {
+   "shot": "c3_recharge",
+   "duration": 2.6,
+   "webm": {
+    "bytes": 102695,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 57470,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 11246,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "windwalk": {
+   "shot": "c4_windwalk",
+   "duration": 2.07,
+   "webm": {
+    "bytes": 85283,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 47874,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10340,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "meteor": {
+   "shot": "c4_meteor",
+   "duration": 2.18,
+   "webm": {
+    "bytes": 77872,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 41545,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10088,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "splitter": {
+   "shot": "c4_splitter",
+   "duration": 2.03,
+   "webm": {
+    "bytes": 64624,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 37713,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10596,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "snowball": {
+   "shot": "c4_snowball",
+   "duration": 2.48,
+   "webm": {
+    "bytes": 86478,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 47926,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 11556,
+    "width": 300,
+    "height": 169,
+    "quality": 80
+   }
+  },
+  "shield": {
+   "shot": "c5_shield",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 104928,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 54482,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10536,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "rush": {
+   "shot": "c5_rush",
+   "duration": 1.7,
+   "webm": {
+    "bytes": 72215,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 38567,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10162,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "alteration": {
+   "shot": "c5_alteration",
+   "duration": 1.75,
+   "webm": {
+    "bytes": 81369,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 45126,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10154,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "gravity": {
+   "shot": "c6_gravity",
+   "duration": 2.7,
+   "webm": {
+    "bytes": 129040,
+    "width": 300,
+    "height": 169,
+    "crf": 39
+   },
+   "mp4": {
+    "bytes": 83662,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 11404,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "grip": {
+   "shot": "c6_grip",
+   "duration": 2.62,
+   "webm": {
+    "bytes": 91223,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 56100,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10834,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "warpzone": {
+   "shot": "c6_warpzone",
+   "duration": 1.9,
+   "webm": {
+    "bytes": 83176,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 49670,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 11588,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "magnetize": {
+   "shot": "c6_magnetize",
+   "duration": 2.68,
+   "webm": {
+    "bytes": 109118,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 63569,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10418,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "rockpillar": {
+   "shot": "c6_rockpillar",
+   "duration": 2.28,
+   "webm": {
+    "bytes": 122944,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 66641,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10816,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "link": {
+   "shot": "c6_link",
+   "duration": 2.7,
+   "webm": {
+    "bytes": 72855,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 51958,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10826,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "redirector": {
+   "shot": "it_redirector",
+   "duration": 1.95,
+   "webm": {
+    "bytes": 69918,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 40820,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 10728,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  },
+  "pact": {
+   "shot": "it_pact",
+   "duration": 2.3,
+   "webm": {
+    "bytes": 98149,
+    "width": 300,
+    "height": 169,
+    "crf": 36
+   },
+   "mp4": {
+    "bytes": 54370,
+    "width": 300,
+    "height": 168,
+    "crf": 28
+   },
+   "webp": {
+    "bytes": 9894,
+    "width": 300,
+    "height": 169,
+    "quality": 75
+   }
+  }
+ },
+ "totals": {
+  "webm": 2352057,
+  "mp4": 1338547,
+  "webp": 296232
+ }
+}

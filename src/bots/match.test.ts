@@ -203,21 +203,7 @@ describe('bots: headless matches on the real sim', () => {
     }
   })
 
-  it.skipIf(simReason !== '')(`Uber beats Brutal in most seeded 1v1s${simReason}`, () => {
-    let uber = 0
-    for (let seed = 1; seed <= 10; seed++) {
-      const sl = slots(['uber', 'brutal'])
-      const state = createMatch({ ...DEFAULT_SETTINGS }, sl, seed)
-      const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
-      for (let i = 0; i < 1500 * 60 && state.phase !== 'gameOver'; i++) {
-        step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
-      }
-      const best = Math.max(...state.scores.map((s) => s.score))
-      if (state.scores.find((s) => s.id === 0)!.score === best && state.scores.find((s) => s.id === 1)!.score < best) uber++
-    }
-    // 38 of 40 over the full measurement; 7 of 10 leaves room for seed noise
-    expect(uber).toBeGreaterThanOrEqual(7)
-  })
+  // tier-vs-tier win rates: ladder.test.ts
 
   it.skipIf(simReason !== '')(`seeded bot matches are reproducible${simReason}`, () => {
     const run = () => {

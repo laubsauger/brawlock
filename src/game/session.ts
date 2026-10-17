@@ -18,6 +18,7 @@ import { createBot } from '../bots'
 import { startClock } from '../net/clock'
 import { codeFromSearch } from '../net/code'
 import { joinUrlFor, peerNet } from '../net/peer'
+import { serverUrlFrom, wsNet } from '../net/ws'
 import { createSession, type MatchRecorder, type NetMode, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
@@ -57,6 +58,12 @@ function clientKey(): string {
 export function roomCodeFromUrl(): string | null {
   return typeof location === 'undefined' ? null : codeFromSearch(location.search)
 }
+
+/**
+ * `?server=ws://host:port` plays through a dedicated server (M4 prototype, docs/M4.md):
+ * rooms are joined by code over WebSocket instead of PeerJS. Default: P2P.
+ */
+const serverUrl = typeof location === 'undefined' ? null : serverUrlFrom(location.search)
 
 /** `?net=classic` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
@@ -118,7 +125,7 @@ const impl = createSession({
   step,
   createBot,
   defaultSettings: DEFAULT_SETTINGS,
-  net: peerNet,
+  net: serverUrl ? wsNet(serverUrl) : peerNet,
   startClock,
   now: () => performance.now(),
   random: Math.random,

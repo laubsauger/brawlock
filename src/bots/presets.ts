@@ -7,38 +7,43 @@
  * delay >= 150 ms and aim error > 0 through Brutal. Uber sits above Brutal without cheating:
  * reaction >= 120 ms, aim error > 0, the same casts, cooldowns and gold; it wins on decisions.
  *
+ * Calibrated with Elo per ROUND (scripts/bots/elo.ts, BOT_ELO below): Easy is the original AI
+ * for new players; Medium sits between Easy and Hard; Hard, Brutal and Uber are about 75% round
+ * win rate apart (about 190 Elo per step), Uber unchanged as the top. Hard is Brutal's decision
+ * set at slower hands (0.18 s, 0.03 rad); Brutal adds Uber's build plan and edge pressure.
+ *
  * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
  * |------------------|-------|-------|--------|-------|--------|-------|----------|
- * | thinkInterval s  |   -   | 1.0   | 0.5    | 0.2   | 0.1    | 0.1   | 1.0/0.5/0.2 |
- * | reactionDelay s  |   -   | 0.35  | 0.25   | 0.18  | 0.15   | 0.12  | 0        |
- * | aimErrorRad      |   -   | 0.20  | 0.10   | 0.05  | 0.02   | 0.015 | 0        |
- * | leadChance       |   -   | 0.33  | 0.5    | 0.85  | 0.95   | 1     | 1/3      |
+ * | thinkInterval s  |   -   | 1.0   | 0.35   | 0.1   | 0.1    | 0.1   | 1.0/0.5/0.2 |
+ * | reactionDelay s  |   -   | 0.35  | 0.22   | 0.18  | 0.15   | 0.12  | 0        |
+ * | aimErrorRad      |   -   | 0.20  | 0.08   | 0.03  | 0.02   | 0.015 | 0        |
+ * | leadChance       |   -   | 0.33  | 0.5    | 0.95  | 0.95   | 1     | 1/3      |
  * | leadWindup       |   -   | no    | no     | yes   | yes    | yes   | no       |
- * | castChance/think |   -   | 0.2   | 0.2    | 0.2   | 0.25   | 0.3   | 1/5      |
+ * | castChance/think |   -   | 0.2   | 0.2    | 0.25  | 0.25   | 0.3   | 1/5      |
  * | rangeCheck       |   -   | no    | no     | yes   | yes    | yes   | no       |
- * | dodge (thresh)   |   -   | 3     | 3      | 3     | 2.5    | 2.5   | 3        |
- * | scourgeChance    |   -   | 1/6   | 1/6    | 1/6   | 0.3    | 0.5   | 1/6      |
- * | scourgeRange     |   -   | 300   | 300    | 300   | 240    | 240   | 300      |
- * | escapeChance     |   -   | 1/3   | 1/3    | 0.5   | 1.0    | 1.0   | 1/3      |
+ * | dodge (thresh)   |   -   | 3     | 3      | 2.5   | 2.5    | 2.5   | 3        |
+ * | scourgeChance    |   -   | 1/6   | 1/6    | 0.3   | 0.3    | 0.5   | 1/6      |
+ * | scourgeRange     |   -   | 300   | 300    | 240   | 240    | 240   | 300      |
+ * | escapeChance     |   -   | 1/3   | 1/3    | 1.0   | 1.0    | 1.0   | 1/3      |
  * | safeWander       |   -   | yes   | yes    | yes   | yes    | yes   | no       |
- * | edgeMargin       |   -   | 0     | 60     | 110   | 150    | 170   | -        |
- * | shrinkLookahead s|   -   | 0     | 0      | 1.5   | 3      | 3     | -        |
+ * | edgeMargin       |   -   | 0     | 60     | 150   | 150    | 170   | -        |
+ * | shrinkLookahead s|   -   | 0     | 0      | 3     | 3      | 3     | -        |
  * | walkOffLava      |   -   | no    | yes    | yes   | yes    | yes   | no       |
  * | dodgeAvoidsLava  |   -   | no    | no     | yes   | yes    | yes   | no       |
- * | buys spells      |   no  | yes   | yes    | yes   | yes    | plan  | yes      |
- * | comboChance      |   -   | 0     | 0      | 0.5   | 0.9    | 1     | -        |
+ * | buys spells      |   no  | yes   | yes    | yes   | plan   | plan  | yes      |
+ * | comboChance      |   -   | 0     | 0      | 0.9   | 0.9    | 1     | -        |
  * | thrustAttack     |   -   | no    | no     | yes   | yes    | yes   | no       |
  * | threatChance     |   -   | 0.35  | 0.8    | 1     | 1      | 1     | -        |
  * | threatEscape     |   -   | no    | no     | yes   | yes    | yes   | -        |
  * | useCover         |   -   | no    | no     | yes   | yes    | yes   | -        |
- * | teleportSave     |   -   | 0.1   | 0.35   | 0.8   | 1      | 1     | -        |
+ * | teleportSave     |   -   | 0.1   | 0.35   | 1     | 1      | 1     | -        |
  * | saveLookahead    |   -   | no    | no     | yes   | yes    | yes   | -        |
- * | momentumAware    |   -   | no    | no     | no    | yes    | yes   | -        |
- * | teleportDodge    |   -   | 0     | 0      | 0.5   | 1      | 1     | -        |
- * | teleportOffense  |   -   | 0     | 0      | 0     | 0.1    | 0.5   | -        |
- * | scourgeMinValue  |   -   | -     | -      | 0.6   | 0.5    | 0.45  | -        |
- * | scourgeMinHp     |   -   | 0     | 0      | 250   | 220    | 200   | -        |
- * | edgePressure     |   -   | no    | no     | no    | no     | yes   | -        |
+ * | momentumAware    |   -   | no    | no     | yes   | yes    | yes   | -        |
+ * | teleportDodge    |   -   | 0     | 0      | 1     | 1      | 1     | -        |
+ * | teleportOffense  |   -   | 0     | 0      | 0.1   | 0.1    | 0.5   | -        |
+ * | scourgeMinValue  |   -   | -     | -      | 0.5   | 0.5    | 0.45  | -        |
+ * | scourgeMinHp     |   -   | 0     | 0      | 220   | 220    | 200   | -        |
+ * | edgePressure     |   -   | no    | no     | no    | yes    | yes   | -        |
  * | frictionLead     |   -   | no    | no     | no    | no     | yes   | -        |
  * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
  *
@@ -65,11 +70,11 @@
  * leave), weighted up when the push would end in lava; never below scourgeMinHp unless the
  * blast would kill.
  *
- * Uber: edgePressure picks the target with the best kill chance (near the edge, high
- * knockback points) and keeps to its arena-centre side, so hits push out. frictionLead leads
- * knocked targets with their decaying slide. shotGate skips shots a target can easily walk
- * out of. It buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades)
- * as gold allows each shop phase.
+ * edgePressure (Brutal, Uber) picks the target with the best kill chance (near the edge, high
+ * knockback points) and keeps to its arena-centre side, so hits push out. 'plan' (Brutal, Uber)
+ * buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades) as gold allows
+ * each shop phase. Uber only: frictionLead leads knocked targets with their decaying slide;
+ * shotGate skips shots a target can easily walk out of.
  *
  * useCover: a bolt whose flight hits a pillar before reaching us is no threat, so the bot
  * stays in a pillar's cover instead of stepping out of it, and dodges toward cover. Every
@@ -210,9 +215,9 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   medium: {
     ...ORIGINAL,
-    thinkInterval: 0.5,
-    reactionDelay: 0.25,
-    aimErrorRad: 0.1,
+    thinkInterval: 0.35,
+    reactionDelay: 0.22,
+    aimErrorRad: 0.08,
     leadChance: 0.5,
     edgeMargin: 60,
     walkOffLava: true,
@@ -221,27 +226,33 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   hard: {
     ...ORIGINAL,
-    thinkInterval: 0.2,
+    thinkInterval: 0.1,
     reactionDelay: 0.18,
-    aimErrorRad: 0.05,
-    leadChance: 0.85,
+    aimErrorRad: 0.03,
+    leadChance: 0.95,
     leadWindup: true,
+    castChance: 0.25,
     rangeCheck: true,
-    escapeChance: 0.5,
-    edgeMargin: 110,
-    shrinkLookahead: 1.5,
+    dodgeThreshold: 2.5,
+    scourgeChance: 0.3,
+    scourgeRange: 240,
+    escapeChance: 1,
+    edgeMargin: 150,
+    shrinkLookahead: 3,
     walkOffLava: true,
     dodgeAvoidsLava: true,
-    comboChance: 0.5,
+    comboChance: 0.9,
     thrustAttack: true,
     threatChance: 1,
     threatEscape: true,
     useCover: true,
-    teleportSave: 0.8,
+    teleportSave: 1,
     saveLookahead: true,
-    teleportDodge: 0.5,
-    scourgeMinValue: 0.6,
-    scourgeMinHp: 250,
+    momentumAware: true,
+    teleportDodge: 1,
+    teleportOffense: 0.1,
+    scourgeMinValue: 0.5,
+    scourgeMinHp: 220,
   },
   brutal: {
     ...ORIGINAL,
@@ -272,6 +283,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     teleportOffense: 0.1,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
+    edgePressure: true,
+    buildPlan: 'plan',
   },
   uber: {
     ...ORIGINAL,
@@ -307,4 +320,18 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     shotGate: 0.3,
     buildPlan: 'plan',
   },
+}
+
+/**
+ * Round-based Elo per difficulty (Medium = 1000), measured by `npm run bots:elo`: Bradley–Terry
+ * fit over seeded 1v1 rounds, rounded to 25 (table and intervals: docs/PLAN.md §7). Rounds, not
+ * matches, are the unit: a first-to-5 match turns a 75% round edge into about 90% of matches.
+ * For a future human rating on the same scale. Dummy has no rating (it never acts).
+ */
+export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
+  easy: 350,
+  medium: 1000,
+  hard: 1750,
+  brutal: 1925,
+  uber: 2100,
 }

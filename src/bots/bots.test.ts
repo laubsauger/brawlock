@@ -91,10 +91,11 @@ describe('bots: presets', () => {
   })
 
   it('harder presets think at least as often as the original intervals', () => {
+    // Easy is the original AI for new players: it must never get faster (ladder: PLAN §7)
     expect(BOT_PRESETS.easy.thinkInterval).toBe(1.0)
-    expect(BOT_PRESETS.medium.thinkInterval).toBe(0.5)
-    expect(BOT_PRESETS.hard.thinkInterval).toBe(0.2)
-    expect(BOT_PRESETS.brutal.thinkInterval).toBeLessThan(BOT_PRESETS.hard.thinkInterval)
+    expect(BOT_PRESETS.medium.thinkInterval).toBeLessThanOrEqual(0.5)
+    expect(BOT_PRESETS.hard.thinkInterval).toBeLessThanOrEqual(0.2)
+    expect(BOT_PRESETS.brutal.thinkInterval).toBeLessThanOrEqual(BOT_PRESETS.hard.thinkInterval)
   })
 })
 

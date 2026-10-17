@@ -66,6 +66,8 @@ export interface Settings {
   netGraph: boolean
   /** key legend at the bottom left of the match HUD */
   showHints: boolean
+  /** a move during a cast windup cancels the cast (original / Dota); off: the move waits for the spell */
+  moveCancelsCast: boolean
   /** colourblind-safe player palette plus a shape per player (game/playerPalette.ts) */
   colorblindPalette: boolean
   /**
@@ -159,6 +161,7 @@ const defaultSettings: Settings = {
   soundStyle: 'hybrid',
   netGraph: false,
   showHints: true,
+  moveCancelsCast: true,
   colorblindPalette: false,
   netMode: 'predict',
 }

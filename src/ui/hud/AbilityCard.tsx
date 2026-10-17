@@ -8,6 +8,7 @@ import { slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled } from '../lib/ticker'
 import { localView } from '../lib/view'
 import { Kbd } from '../widgets'
+import { hasClip, loadMediaIndex, posterUrl, saveData, showClip, stopClip } from '../lib/abilityMedia'
 import { readShop } from './shopView'
 import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type OfferState } from './shopOffers'
 
@@ -43,6 +44,8 @@ const SHOW_DELAY_MS = 150
 const HIDE_GRACE_MS = 90
 const GAP = 10
 const MARGIN = 8
+/** px kept free at the top for the clock and score row (when the card fits below it) */
+const TOP_HUD = 64
 
 let target: CardTarget | null = null
 const subs = new Set<() => void>()
@@ -79,6 +82,8 @@ export function abilityCardProps(get: () => Omit<CardTarget, 'anchor' | 'edge'> 
   const open = (el: HTMLElement) => {
     const t = get()
     if (!t) return
+    // the clip index loads on the first hover, while the card's show delay runs
+    if (t.kind !== 'mastery') void loadMediaIndex()
     window.clearTimeout(hideTimer)
     window.clearTimeout(showTimer)
     const anchor = rectOf(el)
@@ -246,7 +251,9 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
 /** Card position for a size: beside the dock edge or above the anchor, flipped and clamped to the viewport. */
 export function placeCard(t: Pick<CardTarget, 'side' | 'anchor' | 'edge'>, w: number, h: number, vw: number, vh: number): { x: number; y: number } {
   const clampX = (x: number) => Math.min(Math.max(MARGIN, x), vw - w - MARGIN)
-  const clampY = (y: number) => Math.min(Math.max(MARGIN, y), vh - h - MARGIN)
+  // stay below the clock and score row when the screen is tall enough for it
+  const top = Math.max(MARGIN, Math.min(TOP_HUD, vh - h - MARGIN))
+  const clampY = (y: number) => Math.min(Math.max(top, y), vh - h - MARGIN)
   const a = t.anchor
   const midY = (a.top + a.bottom) / 2
   if (t.side === 'left' || t.side === 'right') {
@@ -278,6 +285,38 @@ function Pips({ level, max }: { level: number; max: number }) {
         <i key={i} data-on={i < level} />
       ))}
     </span>
+  )
+}
+
+/**
+ * The card's preview: the poster at once, the shared clip over it once it
+ * plays (Save-Data: poster only). No entry in the clip index, or nothing
+ * loads: the slot collapses rather than showing a broken box.
+ */
+function AbilityMedia({ id }: { id: string }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [listed, setListed] = useState<boolean | undefined>(() => hasClip(id))
+  const [posterOk, setPosterOk] = useState(true)
+  const [clipOk, setClipOk] = useState(true)
+  useEffect(() => {
+    let alive = true
+    void loadMediaIndex().then((ids) => alive && setListed(ids.has(id)))
+    return () => {
+      alive = false
+    }
+  }, [id])
+  useEffect(() => {
+    const el = box.current
+    if (!listed || !el || saveData()) return
+    showClip(el, id, () => setClipOk(false))
+    // card hidden or switched: pause, drop the clip, free the decoder
+    return () => stopClip()
+  }, [id, listed])
+  if (listed === false || (!posterOk && (!clipOk || saveData()))) return null
+  return (
+    <div ref={box} className="ability-media">
+      {posterOk && <img src={posterUrl(id)} width={300} height={169} loading="lazy" decoding="async" alt="" onError={() => setPosterOk(false)} />}
+    </div>
   )
 }
 
@@ -324,7 +363,8 @@ function Card({ t }: { t: CardTarget }) {
       role="tooltip"
       data-ability-card={model.icon}
     >
-      {/* future media slot (a short clip or still) goes here, above the header, full card width */}
+      {/* preview clip: full card width, fixed 300x169 box (no layout shift), masteries have none */}
+      {t.kind !== 'mastery' && <AbilityMedia id={model.icon} />}
       <header className="ability-card-head">
         <span className="tile-icon shrink-0" style={{ width: 48, height: 48 }}>
           <Sigil id={model.icon} size={42} />

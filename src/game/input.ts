@@ -15,6 +15,11 @@
  *     normal  - key enters targeting; left click casts, right click / Esc cancels
  *   Spells without a target point (Scourge) always cast at once.
  * - stop / hold: 'stop' at once, also cancels any aiming
+ * - "Move cancels cast" (settings.moveCancelsCast, default on = original): when
+ *   off, a move issued while your warlock winds up a cast is held here, not
+ *   sent; the latest held move goes out the moment the windup ends (fired or
+ *   cancelled). Client-side only: the sim and the protocol are unchanged, and
+ *   both net modes read the same queue.
  * - recenter (Space), scoreboard (hold), shop, character sheet, Esc menu
  * Keys are ignored while typing in a text field, while the in-match menu or
  * settings are open, and when Ctrl / Cmd / Alt is held (browser shortcuts).
@@ -64,6 +69,7 @@ const queue: InputCommand[] = []
 const listeners = new Set<(cmd: InputCommand) => void>()
 
 function push(cmd: InputCommand): void {
+  if (cmd.kind === 'cast') notePendingCast(cmd.slot)
   queue.push(cmd)
   for (const cb of listeners) {
     try {
@@ -71,6 +77,76 @@ function push(cmd: InputCommand): void {
     } catch (e) {
       console.error('[input] onCommand listener failed', e)
     }
+  }
+}
+
+/** Move held back during a cast windup (moveCancelsCast off): only the latest counts. */
+let heldMove: { x: number; y: number } | null = null
+
+/**
+ * A cast just sent that the state does not show yet (the sim runs it next
+ * tick; a client sees it a round trip later): moves wait for it too, until it
+ * appears and ends, or this deadline passes (the cast was refused).
+ */
+let pendingCast: { until: number; seen: boolean } | null = null
+
+function notePendingCast(slot: number): void {
+  const s = frame.curr
+  const pawn = s?.pawns.find((p) => p.owner === frame.localPlayer)
+  const id = pawn?.slots[slot]
+  const def = id ? spellDef(id) : undefined
+  // nothing to wait for: empty slot, on cooldown, or an instant spell (no windup)
+  if (!pawn || !def || (pawn.cooldowns[slot] ?? 0) > 0 || def.immediate || def.castPoint <= 0) return
+  const rtt = Math.max(0, frame.net.rttMs || 0)
+  pendingCast = { until: performance.now() + def.castPoint * 1000 + rtt + 250, seen: false }
+}
+
+/** The local warlock is winding up a cast (turning to face, or counting down the cast point), or one is on its way. */
+function localWindup(now = performance.now()): boolean {
+  const s = frame.curr
+  const pawn = s?.pawns.find((p) => p.owner === frame.localPlayer)
+  if (!pawn?.alive) {
+    pendingCast = null
+    return false
+  }
+  if (pawn.cast) {
+    if (pendingCast) pendingCast.seen = true
+    return true
+  }
+  // the cast showed up and is over, or never came in time
+  if (pendingCast && (pendingCast.seen || now >= pendingCast.until)) pendingCast = null
+  return !!pendingCast
+}
+
+function movesCancelCasts(): boolean {
+  return useGame.getState().settings.moveCancelsCast ?? true
+}
+
+/**
+ * A move order for the local warlock. Shows on the move marker at once; goes
+ * out now, or (moveCancelsCast off, during a windup) as soon as the windup ends.
+ */
+export function requestMove(x: number, y: number, now = performance.now()): void {
+  const m = inputViz.move
+  m.x = x
+  m.y = y
+  m.at = now
+  m.seq++
+  if (!movesCancelCasts() && localWindup()) {
+    heldMove = { x, y }
+    return
+  }
+  heldMove = null
+  push({ kind: 'move', x, y })
+}
+
+/** The held move, once the windup is over (called whenever the session drains). */
+function releaseHeldMove(): void {
+  if (!heldMove) return
+  if (movesCancelCasts() || !localWindup()) {
+    const { x, y } = heldMove
+    heldMove = null
+    push({ kind: 'move', x, y })
   }
 }
 
@@ -171,12 +247,7 @@ export const input: InputApi = {
       lastAim.x = c.x
       lastAim.y = c.y
       lastAim.has = true
-      const m = inputViz.move
-      m.x = c.x
-      m.y = c.y
-      m.at = now
-      m.seq++
-      push({ kind: 'move', x: c.x, y: c.y })
+      requestMove(c.x, c.y, now)
     }
 
     const stopHold = () => {
@@ -267,6 +338,9 @@ export const input: InputApi = {
         case 'stop':
         case 'hold':
           clearAim()
+          // stop wins over a move waiting for the windup
+          heldMove = null
+          pendingCast = null
           push({ kind: 'stop' })
           break
         case 'recenter':
@@ -307,6 +381,8 @@ export const input: InputApi = {
     return () => {
       stopHold()
       clearAim()
+      heldMove = null
+      pendingCast = null
       el.removeEventListener('contextmenu', onContextMenu)
       el.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerUp)
@@ -316,9 +392,15 @@ export const input: InputApi = {
     }
   },
   issue(cmd) {
+    if (cmd.kind === 'stop') {
+      heldMove = null
+      pendingCast = null
+    }
     push(cmd)
   },
   drain() {
+    // once per sim tick: a move held for a windup goes out the tick the windup ends
+    releaseHeldMove()
     return queue.splice(0, queue.length)
   },
   onCommand(cb) {

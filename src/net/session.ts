@@ -143,7 +143,8 @@ export interface SessionDeps {
 
 export interface SessionApi {
   openOffline(): void
-  openHost(): Promise<void>
+  /** `dedicated`: host without a seat of its own (the dedicated server, src/net/dedicated.ts). */
+  openHost(opts?: { dedicated?: boolean }): Promise<void>
   /** Join a room by code (typed text or invite link is normalized; invalid input lands in lobby.error). */
   join(code: string): Promise<void>
   addBot(difficulty: BotDifficulty): void
@@ -469,7 +470,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
    */
   function updatePings(): void {
     if (role !== 'host') return
-    const next: Record<PlayerId, number> = { [localPlayer]: 0 }
+    const next: Record<PlayerId, number> = localPlayer >= 0 ? { [localPlayer]: 0 } : {}
     for (const p of peers) if (p.playerId !== null) next[p.playerId] = Math.round(p.t.rtt)
     setPings(next)
     const ul: Record<PlayerId, number> = {}
@@ -563,15 +564,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     ui.setScreen('menu')
   }
 
-  function openLobby(r: NetRole, status: LobbyView['status']): void {
+  /** `seat`: false for a dedicated server, which hosts without playing (localPlayer -1). */
+  function openLobby(r: NetRole, status: LobbyView['status'], seat = true): void {
     role = r
     settings = { ...deps.defaultSettings }
-    localPlayer = 0
+    localPlayer = seat ? 0 : -1
     slots = []
     ready = {}
-    pings = r === 'host' ? { 0: 0 } : {}
+    pings = r === 'host' && seat ? { 0: 0 } : {}
     const me = deps.profile()
-    addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
+    if (seat) addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
     ui.setResult(null)
     ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null })
     publishLobby()
@@ -916,6 +918,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
    * RTT), then moved one tick per evaluation.
    */
   function updateHostDelay(m: HostMatch, jump = false): void {
+    // nothing to equalize when the host does not play (dedicated server, spectating host)
+    if (!m.humans.has(localPlayer)) {
+      m.fair.delay = 0
+      return
+    }
     const oneWay: number[] = []
     for (const p of peers) {
       const id = p.playerId
@@ -1399,10 +1406,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       openLobby('offline', 'open')
     },
 
-    async openHost() {
+    async openHost(opts) {
       teardown()
       const my = ++epoch
-      openLobby('host', 'connecting')
+      openLobby('host', 'connecting', !opts?.dedicated)
       let ep: HostEndpoint
       try {
         ep = await deps.net.host()
