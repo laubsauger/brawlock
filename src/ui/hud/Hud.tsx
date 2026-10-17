@@ -8,7 +8,7 @@ import { music, sfx } from '../lib/sound'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, KillCallout, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
-import { TopCenter, displayRound } from './TopBar'
+import { ShrinkWarning, TopCenter, displayRound } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { Gold, ProtectChip, Vitals } from './Vitals'
 import { Button, KeyCaps } from '../widgets'
@@ -336,7 +336,11 @@ export function Hud() {
       <div className="absolute top-0 right-0 left-0 flex justify-center">
         <div className="hud-scale flex origin-top flex-col items-center">
           <TopCenter />
-          <KillCallout />
+          {/* at most one row under the clock: the shrink warning and your KO callout share it */}
+          <div className="mt-0.5 flex items-center justify-center gap-2">
+            <ShrinkWarning />
+            <KillCallout />
+          </div>
         </div>
       </div>
 

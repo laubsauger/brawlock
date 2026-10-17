@@ -16,6 +16,11 @@ import { isLocationSafeAtLayer } from '../sim'
 import { AUDIO_ASSETS } from './assets'
 import { HYBRID, type SampleLayer } from './hybrid'
 import { SampleBank } from './samples'
+import { TICK_HZ } from '../sim/types'
+import { announcements, matchAnnouncer, type Announcement, type AnnouncerLine } from '../game/announcer'
+import type { AssetId } from './assets'
+
+export type AnnouncerVoice = 'maverick' | 'arena'
 
 export type AudioMode = 'synth' | 'hybrid'
 
@@ -169,6 +174,11 @@ export const UI_LEVEL = 0.8
 export const MUSIC_LEVEL = 2.9
 /** lava ambience on the SFX bus: well under the music (calibrated with offline renders) */
 export const AMB_LEVEL = 0.11
+/** announcer lines (-16 LUFS files) on their bus: clear over a busy fight (offline renders) */
+export const ANNOUNCER_LEVEL = 1.25
+/** effects dip under an announcer line: -4 dB for about 0.6 s */
+const DUCK_GAIN = 0.63
+const DUCK_HOLD = 0.6
 const SFX_REVERB_SEND = 0.16
 const MUSIC_REVERB_SEND = 0.3
 /** gain ramp time constant: short enough to feel instant, long enough to never click */
@@ -180,6 +190,8 @@ export interface Volumes {
   music: number
   /** lava ambience, independent of effects (default 1) */
   ambience?: number
+  /** announcer voice (default 0.8) */
+  announcer?: number
   muted: boolean
 }
 
@@ -205,10 +217,14 @@ export interface Graph {
   music: GainNode
   /** lava ambience bus (own volume slider), beside sfx */
   amb: GainNode
+  /** announcer voice bus (own volume slider) */
+  announcer: GainNode
+  /** effects duck under an announcer line (between sfx and the master) */
+  duck: GainNode
 }
 
 /** Bus gains for the user's volume settings (pure; shared with offline level checks). */
-export function busGains(v: Volumes): { master: number; sfx: number; ui: number; music: number; amb: number } {
+export function busGains(v: Volumes): { master: number; sfx: number; ui: number; music: number; amb: number; announcer: number } {
   return {
     master: v.muted ? 0 : curve(v.master),
     sfx: curve(v.sfx) * SFX_LEVEL,
@@ -216,13 +232,15 @@ export function busGains(v: Volumes): { master: number; sfx: number; ui: number;
     music: curve(v.music) * MUSIC_LEVEL,
     // same calibration as the sfx bus it used to share
     amb: curve(v.ambience ?? 1) * SFX_LEVEL,
+    announcer: curve(v.announcer ?? 0.8) * ANNOUNCER_LEVEL,
   }
 }
 
 /**
  * The bus graph on any context (live, or offline for level checks):
  *
- *   voices ─▶ sfx ─┬───────────────▶ master ─▶ glue comp ─▶ limiter ─▶ soft clip ─▶ out
+ *   voices ─▶ sfx ─▶ duck ─┬────────▶ master ─▶ glue comp ─▶ limiter ─▶ soft clip ─▶ out
+ *   announcer ─────────────────────────▶ master (effects duck under a line)
  *   lava ───▶ amb ─┤                    ▲
  *                  └▶ send ─▶ reverb ─┘ ▲
  *   ui ────────────────────────────────┘ │
@@ -259,11 +277,15 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   reverb.buffer = impulseResponse(ctx, 1.8)
   reverb.connect(master)
   const sfx = ctx.createGain()
-  sfx.connect(master)
+  const duck = ctx.createGain()
+  sfx.connect(duck)
+  duck.connect(master)
   const sfxSend = ctx.createGain()
   sfxSend.gain.value = SFX_REVERB_SEND
-  sfx.connect(sfxSend)
+  duck.connect(sfxSend)
   sfxSend.connect(reverb)
+  const announcer = ctx.createGain()
+  announcer.connect(master)
   const amb = ctx.createGain()
   amb.connect(master)
   amb.connect(sfxSend)
@@ -275,7 +297,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   musicSend.gain.value = MUSIC_REVERB_SEND
   music.connect(musicSend)
   musicSend.connect(reverb)
-  return { ctx, synth, master, sfx, ui, music, amb }
+  return { ctx, synth, master, sfx, ui, music, amb, announcer, duck }
 }
 
 export class AudioEngine {
@@ -297,6 +319,8 @@ export class AudioEngine {
   private fading: MusicLayer[] = []
   private amb: AmbienceLayer | null = null
   private modeNow: AudioMode = initialMode()
+  private voice: AnnouncerVoice = 'maverick'
+  private simClock = { sim: 0, ctx: 0 }
   readonly samples = new SampleBank()
   private ambFading: AmbienceLayer[] = []
   private timer: ReturnType<typeof setInterval> | null = null
@@ -328,7 +352,8 @@ export class AudioEngine {
     this.resume()
     this.applyMusic()
     this.samples.onLoaded = () => this.refreshBeds()
-    if (this.modeNow === 'hybrid') setTimeout(() => this.loadSamples(), SAMPLE_LOAD_DELAY * 1000)
+    // recordings layer in only in hybrid mode, but the announcer's voice is needed either way
+    setTimeout(() => this.loadSamples(), SAMPLE_LOAD_DELAY * 1000)
   }
 
   private loadSamples(): void {
@@ -406,9 +431,18 @@ export class AudioEngine {
     set(g.ui.gain, b.ui)
     set(g.music.gain, b.music)
     set(g.amb.gain, b.amb)
+    set(g.announcer.gain, b.announcer)
   }
 
   playEvents(events: readonly SimEvent[], listener: ListenerLike): void {
+    // the announcer runs whether or not audio is unlocked: the HUD banner shows its lines
+    const tick = listener.state?.tick
+    if (tick !== undefined) {
+      const now = tick / TICK_HZ
+      this.simClock = { sim: now, ctx: this.g?.ctx.currentTime ?? 0 }
+      const a = matchAnnouncer.update(events, now, listener.localPlayer ?? null)
+      if (a) this.announce(a)
+    }
     for (const e of events) {
       if (e.type === 'phase' && (e.phase === 'fight' || e.phase === 'shop')) {
         this.shrinks = 0
@@ -422,6 +456,39 @@ export class AudioEngine {
     if (events.length > 0) for (const c of planEvents(events, listener, this.memory)) this.play(c)
     this.followLoops(listener)
     this.followEdge(listener)
+  }
+
+  /** A line the announcer chose: to the HUD banner, and the voice when audio runs. */
+  private announce(a: Announcement): void {
+    announcements.emit(a)
+    const g = this.g
+    if (!g || g.ctx.state !== 'running' || this.vol.muted) return
+    const buffer = this.samples.get(announcerAsset(this.voice, a.line))
+    if (!buffer) return
+    const now = g.ctx.currentTime
+    const src = g.ctx.createBufferSource()
+    src.buffer = buffer
+    src.connect(g.announcer)
+    src.start(now + 0.01)
+    src.stop(now + 0.01 + buffer.duration + 0.05)
+    // effects dip under the line, then come back
+    const d = g.duck.gain
+    d.cancelScheduledValues(now)
+    d.setValueAtTime(d.value, now)
+    d.setTargetAtTime(DUCK_GAIN, now, 0.03)
+    d.setTargetAtTime(1, now + DUCK_HOLD, 0.15)
+  }
+
+  /** Announcer voice (Settings > Audio). */
+  setAnnouncerVoice(voice: AnnouncerVoice): void {
+    this.voice = voice
+    matchAnnouncer.lineLength = (line) => this.samples.get(announcerAsset(voice, line))?.duration ?? AUDIO_ASSETS[announcerAsset(voice, line)].duration
+  }
+
+  /** Sim time now, from the last tick we saw plus the audio clock since. */
+  private simNow(): number {
+    const g = this.g
+    return this.simClock.sim + (g ? g.ctx.currentTime - this.simClock.ctx : 0)
   }
 
   /** Swell the edge sizzle as the local pawn nears lava, panned toward it. */
@@ -650,6 +717,11 @@ export class AudioEngine {
     if (g.ctx.state === 'running') {
       this.current?.schedule(g.ctx.currentTime + 0.25)
       this.amb?.schedule(g.ctx.currentTime + 0.25)
+      // a queued announcer line starts once the previous one ended, even between event ticks
+      if (this.simClock.sim > 0) {
+        const a = matchAnnouncer.next(this.simNow())
+        if (a) this.announce(a)
+      }
     }
     this.fading = this.fading.filter((l) => !l.stopped)
     this.ambFading = this.ambFading.filter((l) => !l.stopped)
@@ -744,3 +816,9 @@ export function playLayer(
   v.buffers.push({ node: src, speed: rate })
   if (end + 0.01 > v.stopAt) v.stopAt = end + 0.01
 }
+
+/** Asset id of an announcer line in a voice. */
+export function announcerAsset(voice: AnnouncerVoice, line: AnnouncerLine): AssetId {
+  return `announcer/${voice}_${line}` as AssetId
+}
+

@@ -5,6 +5,7 @@ import { AudioEngine, VOICES, busGains } from './engine'
 import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
 import { PROJECTILE_BEHAVIORS, SPELL_BEHAVIORS } from '../sim/spells'
 import { MusicLayer } from './music'
+import { announcements, matchAnnouncer } from '../game/announcer'
 import { AmbienceLayer, edgeProximity } from './ambience'
 import { isLocationSafeAtLayer } from '../sim'
 import { createSynth, RECIPES, Voice, type SfxId } from './synth'
@@ -461,12 +462,12 @@ describe('audio: recordings (hybrid mode)', () => {
     vi.useRealTimers()
   })
 
-  it('every asset a hybrid layer uses ships as Opus and AAC, and every shipped file is credited CC0', async () => {
+  it('every asset a hybrid layer uses ships as Opus and AAC, and every shipped file is credited (CC0, or generated for the announcer)', async () => {
     // node's fs without node typings in the app tsconfig
     const fs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as {
       existsSync(p: URL): boolean
       readdirSync(p: URL): string[]
-      statSync(p: URL): { size: number }
+      statSync(p: URL): { size: number; isDirectory(): boolean }
     }
     const dir = new URL('../../public/audio/', import.meta.url)
     const file = (name: string) => new URL(name, dir)
@@ -481,13 +482,23 @@ describe('audio: recordings (hybrid mode)', () => {
     }
     for (const [id, a] of Object.entries(AUDIO_ASSETS)) {
       const credit = AUDIO_CREDITS[a.credit]
-      expect(credit?.license, id).toBe('CC0')
+      expect(credit, `${id} has no credit`).toBeDefined()
+      // the only non-CC0 class: the announcer, generated with ElevenLabs on the user's account;
+      // every downloaded recording stays CC0, and no recording may claim the generated class
+      if (id.startsWith('announcer/')) expect(credit.license, id).toBe('ElevenLabs')
+      else expect(credit.license, id).toBe('CC0')
+      expect(fs.existsSync(file(`${id}.ogg`)), `${id}.ogg`).toBe(true)
+      expect(fs.existsSync(file(`${id}.m4a`)), `${id}.m4a`).toBe(true)
       expect(credit.creator.length, id).toBeGreaterThan(0)
       expect(credit.url, id).toMatch(/^https:\/\//)
     }
     // the shipped set stays small
     let bytes = 0
-    for (const f of fs.readdirSync(dir)) bytes += fs.statSync(file(f)).size
+    for (const f of fs.readdirSync(dir)) {
+      const st = fs.statSync(file(f))
+      if (st.isDirectory()) for (const g of fs.readdirSync(file(`${f}/`))) bytes += fs.statSync(file(`${f}/${g}`)).size
+      else bytes += st.size
+    }
     expect(bytes).toBeLessThan(6e6)
   })
 
@@ -511,6 +522,52 @@ describe('audio: recordings (hybrid mode)', () => {
     e.play({ ...fire, delay: 0.5 })
     expect(decoded().length).toBe(layered)
     expect(e.mode).toBe('synth')
+    vi.runAllTimers()
+  })
+})
+
+describe('audio: announcer', () => {
+  afterEach(() => {
+    delete (globalThis as { AudioContext?: unknown }).AudioContext
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    matchAnnouncer.reset()
+  })
+
+  const kill = (tick: number): { events: SimEvent[]; listener: Parameters<typeof audio.playEvents>[1] } => ({
+    events: [{ type: 'death', pawn: 2, owner: 1, killer: 0 }],
+    listener: { x: 0, y: 0, halfWidth: 1000, localPlayer: 0, state: { pawns: [], tick } },
+  })
+
+  it('the HUD gets the same line even while audio is locked (no AudioContext)', () => {
+    const heard: string[] = []
+    const off = announcements.subscribe((a) => heard.push(a.text))
+    const k = kill(600)
+    audio.playEvents(k.events, k.listener)
+    off()
+    expect(heard).toEqual(['First Blood!'])
+  })
+
+  it('with audio running, a line plays on the announcer bus and ducks the effects', async () => {
+    vi.useFakeTimers()
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
+    vi.stubGlobal('fetch', async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }))
+    const e = new AudioEngine()
+    e.setAnnouncerVoice('maverick')
+    e.unlock()
+    const m = MockAudioContext.instances.at(-1)!
+    await e.samples.load(m as never, '/')
+    const before = m.sources().length
+    const k = kill(600)
+    e.playEvents(k.events, k.listener)
+    const voice = m.sources().slice(before).find((n) => (n as unknown as { outputs: unknown[] }).outputs.length > 0)
+    expect(voice).toBeDefined()
+    // the duck stage dips by -4 dB
+    const duckDips = m.nodes
+      .filter((n) => n.kind === 'gain')
+      .flatMap((n) => (n as unknown as { gain: { calls: { fn: string; v: number }[] } }).gain.calls)
+      .filter((c) => c.fn === 'setTarget' && Math.abs(c.v - 0.63) < 1e-9)
+    expect(duckDips.length).toBeGreaterThan(0)
     vi.runAllTimers()
   })
 })

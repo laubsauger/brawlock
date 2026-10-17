@@ -30,7 +30,8 @@ function useAudioSettings() {
     const apply = () => {
       const s = useGame.getState().settings
       try {
-        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, muted: s.muted || forcedMute })
+        audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, announcer: s.announcerVolume ?? 0.8, muted: s.muted || forcedMute })
+        audio.setAnnouncerVoice(s.announcerVoice ?? 'maverick')
         // sound style: saved choice, unless ?audio=synth forces synthesis for this session
         const want = forcedSynth ? 'synth' : (s.soundStyle ?? 'hybrid')
         if (want !== mode && want !== audio.getMode()) audio.setMode(want)
@@ -89,6 +90,9 @@ function useUiScale() {
       // score strip width (unscaled px) that stays centered and clear of the open right dock: it wraps instead
       const clear = window.innerWidth - 10 - dockRight * scale - half - 12
       root.setProperty('--strip-max-w', `${Math.round(Math.max(300, (2 * clear) / scale))}px`)
+      // top HUD row (unscaled px): the full width minus room for the connection readout (left)
+      // and the fullscreen icon / kill feed (right), kept symmetric so the clock stays centred
+      root.setProperty('--top-row-w', `${Math.round(Math.max(480, (window.innerWidth - 2 * 190) / scale))}px`)
       root.setProperty('--dock-left-w', `${Math.round(Math.max(240, Math.min(330, (half - 120) / scale)))}px`)
     }
     apply()

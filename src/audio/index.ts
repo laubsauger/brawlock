@@ -40,13 +40,13 @@ export interface Listener {
    * latest state (pass the whole SimState): places events that carry only entity ids
    * (cast, castStart, death) and gives projectile travel loops their flight
    */
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena'>>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick'>>
 }
 
 export interface AudioApi {
   /** Create / resume the AudioContext. Call from a user gesture. Safe to call repeatedly. */
   unlock(): void
-  setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; muted: boolean }): void
+  setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; announcer?: number; muted: boolean }): void
   /** Play SFX for sim events from one tick. */
   playEvents(events: SimEvent[], listener: Listener): void
   ui(sound: UiSound): void
@@ -63,6 +63,11 @@ export interface AudioApi {
    */
   setMode(mode: 'synth' | 'hybrid'): void
   getMode(): 'synth' | 'hybrid'
+  /**
+   * Announcer voice (Settings > Audio > Announcer voice): 'maverick' (default) or 'arena'.
+   * Lines themselves come from sim events (src/game/announcer.ts, shared with the HUD banner).
+   */
+  setAnnouncerVoice(voice: 'maverick' | 'arena'): void
 }
 
 /** Credits for every shipped recording (all CC0; credited as a courtesy). */
@@ -80,6 +85,7 @@ const UI_SFX: Record<UiSound, SfxId> = {
 }
 
 const engine = new AudioEngine()
+engine.setAnnouncerVoice('maverick')
 
 export const audio: AudioApi = {
   unlock() {
@@ -102,6 +108,9 @@ export const audio: AudioApi = {
   },
   setMode(mode) {
     engine.setMode(mode)
+  },
+  setAnnouncerVoice(voice) {
+    engine.setAnnouncerVoice(voice)
   },
   getMode() {
     return engine.mode

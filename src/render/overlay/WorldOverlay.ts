@@ -41,7 +41,7 @@ const KB_FULL = 1000
 const PLATE_PITCH = 30
 const PLATE_PAD_X = 14
 /** room a kill stamp takes above its plate, for de-collision */
-const STAMP_H = 22
+const STAMP_H = 28
 /** horizontal slack: plates may touch at their faint padding before they count as overlapping */
 const PLATE_SLACK_X = 8
 /** a plate moves up at most ~2 plate heights; past that a clump is allowed to overlap */
@@ -156,10 +156,10 @@ const css = `
 .bl-plate .mult{position:absolute;left:84px;top:-8px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap;padding:0 3px;border-radius:3px;background:rgba(12,7,7,.5)}
 .bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
 .bl-stampw{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;pointer-events:none}
-.bl-stamp{display:flex;align-items:center;gap:4px;white-space:nowrap;padding:2px 7px 2px 5px;border-radius:6px;background:rgba(12,7,7,.62);box-shadow:0 0 10px 3px rgba(12,7,7,.35),inset 0 0 0 1px rgba(255,214,150,.22);font-size:12px;font-weight:900;letter-spacing:.02em;color:#f4e6d2;text-shadow:0 0 2px #000,0 1px 1px #000;will-change:transform,opacity}
-.bl-stamp svg{width:13px;height:13px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
+.bl-stamp{display:flex;align-items:center;gap:5px;white-space:nowrap;padding:3px 9px 3px 6px;border-radius:7px;background:rgba(12,7,7,.62);box-shadow:0 0 12px 4px rgba(12,7,7,.35),inset 0 0 0 1px rgba(255,214,150,.22);font-size:15.5px;font-weight:900;letter-spacing:.02em;color:#f4e6d2;text-shadow:0 0 2px #000,0 1px 1px #000;will-change:transform,opacity}
+.bl-stamp svg{width:17px;height:17px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
 .bl-stamp .kn{text-shadow:0 0 2px #000,0 1px 1px #000,0 0 6px rgba(0,0,0,.8)}
-.bl-stamp .kc{color:#ffd27a;font-size:13px}
+.bl-stamp .kc{color:#ffd27a;font-size:17px}
 .bl-pips{position:absolute;right:calc(100% - 2px);top:3px;display:flex;gap:1px;opacity:.78;pointer-events:none}
 .bl-pips svg{width:9px;height:9px;color:#e9d8c2}
 .bl-pips b{font-size:9px;font-weight:900;color:#e9d8c2;line-height:9px;margin-left:1px;text-shadow:0 0 2px #000}

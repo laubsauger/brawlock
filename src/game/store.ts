@@ -42,6 +42,9 @@ export interface Settings {
   sfxVolume: number
   musicVolume: number
   ambienceVolume: number
+  /** announcer voice lines (First Blood, multi-kills, streaks) */
+  announcerVolume: number
+  announcerVoice: 'maverick' | 'arena'
   muted: boolean
   playerName: string
   showPerf: boolean
@@ -141,6 +144,8 @@ const defaultSettings: Settings = {
   sfxVolume: 1,
   musicVolume: 0.6,
   ambienceVolume: 1,
+  announcerVolume: 0.8,
+  announcerVoice: 'maverick',
   muted: false,
   playerName: 'Warlock',
   showPerf: false,

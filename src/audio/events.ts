@@ -11,7 +11,7 @@ export interface ListenerLike {
   y: number
   halfWidth: number
   localPlayer?: PlayerId
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena'>>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick'>>
 }
 
 /** One automation point of a moving sound, seconds after its start. */

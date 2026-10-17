@@ -16,7 +16,8 @@ export interface AudioAsset {
 export interface AudioCredit {
   title: string
   creator: string
-  license: 'CC0'
+  /** CC0 recordings (credited as a courtesy) or our own ElevenLabs generations */
+  license: 'CC0' | 'ElevenLabs'
   url: string
 }
 
@@ -67,6 +68,7 @@ export const AUDIO_CREDITS: readonly AudioCredit[] = [
   { title: "Hit 4", creator: "ihitokage", license: 'CC0', url: "https://freesound.org/people/ihitokage/sounds/395358" },
   { title: "Thud2.wav", creator: "BMacZero", license: 'CC0', url: "https://freesound.org/people/BMacZero/sounds/96137" },
   { title: "Thud3.wav", creator: "BMacZero", license: 'CC0', url: "https://freesound.org/people/BMacZero/sounds/96138" },
+  { title: 'Announcer voice generated with ElevenLabs', creator: 'ElevenLabs text-to-speech (voices Maverick and Daniel)', license: 'ElevenLabs', url: 'https://elevenlabs.io' },
 ]
 
 export const AUDIO_ASSETS = {
@@ -116,6 +118,29 @@ export const AUDIO_ASSETS = {
   hit_b: { loop: false, duration: 0.485, credit: 42 },
   thud_a: { loop: false, duration: 0.556, credit: 43 },
   thud_b: { loop: false, duration: 0.424, credit: 44 },
+  // announcer pack (art/tools/gen_announcer.mjs + process_announcer.py)
+  'announcer/maverick_first_blood': { loop: false, duration: 1.011, credit: 45 },
+  'announcer/maverick_double_kill': { loop: false, duration: 1.159, credit: 45 },
+  'announcer/maverick_triple_kill': { loop: false, duration: 1.161, credit: 45 },
+  'announcer/maverick_multi_kill': { loop: false, duration: 1.35, credit: 45 },
+  'announcer/maverick_mega_kill': { loop: false, duration: 1.378, credit: 45 },
+  'announcer/maverick_ultra_kill': { loop: false, duration: 1.09, credit: 45 },
+  'announcer/maverick_monster_kill': { loop: false, duration: 1.193, credit: 45 },
+  'announcer/maverick_killing_spree': { loop: false, duration: 1.463, credit: 45 },
+  'announcer/maverick_rampage': { loop: false, duration: 1.053, credit: 45 },
+  'announcer/maverick_unstoppable': { loop: false, duration: 1.227, credit: 45 },
+  'announcer/maverick_godlike': { loop: false, duration: 1.041, credit: 45 },
+  'announcer/arena_first_blood': { loop: false, duration: 1.089, credit: 45 },
+  'announcer/arena_double_kill': { loop: false, duration: 0.997, credit: 45 },
+  'announcer/arena_triple_kill': { loop: false, duration: 1.043, credit: 45 },
+  'announcer/arena_multi_kill': { loop: false, duration: 1.038, credit: 45 },
+  'announcer/arena_mega_kill': { loop: false, duration: 1.038, credit: 45 },
+  'announcer/arena_ultra_kill': { loop: false, duration: 1.119, credit: 45 },
+  'announcer/arena_monster_kill': { loop: false, duration: 1.166, credit: 45 },
+  'announcer/arena_killing_spree': { loop: false, duration: 1.254, credit: 45 },
+  'announcer/arena_rampage': { loop: false, duration: 1.093, credit: 45 },
+  'announcer/arena_unstoppable': { loop: false, duration: 1.08, credit: 45 },
+  'announcer/arena_godlike': { loop: false, duration: 0.925, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

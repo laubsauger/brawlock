@@ -56,12 +56,3 @@ describe('kill stamps credit the killer', () => {
     expect(k.pipsOf(KILLER_PAWN)).toBe(0)
   })
 })
-
-describe('streak wording', () => {
-  it('names quick multi-kills the way the HUD callout reads them', async () => {
-    const { streakWord } = await import('./killStamps')
-    expect(streakWord(1)).toBe('')
-    expect(streakWord(2)).toBe('Double')
-    expect(streakWord(3)).toBe('Triple')
-  })
-})

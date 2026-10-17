@@ -304,6 +304,22 @@ export function SettingsModal() {
             <Slider label="Ambience volume" value={s.ambienceVolume} onChange={(ambienceVolume) => setSettings({ ambienceVolume })} />
           </div>
         </Row>
+        <Row label="Announcer" hint="First Blood, multi-kills and kill streaks">
+          <div className="w-56">
+            <Slider label="Announcer volume" value={s.announcerVolume ?? 0.8} onChange={(announcerVolume) => setSettings({ announcerVolume })} />
+          </div>
+        </Row>
+        <Row label="Announcer voice" hint={(s.announcerVoice ?? 'maverick') === 'arena' ? 'A deep, gruff arena voice' : 'The heroic default voice'}>
+          <Segmented
+            label="Announcer voice"
+            value={s.announcerVoice ?? 'maverick'}
+            options={[
+              { value: 'maverick', label: 'Maverick' },
+              { value: 'arena', label: 'Arena' },
+            ]}
+            onChange={(announcerVoice) => setSettings({ announcerVoice })}
+          />
+        </Row>
         <Row
           label="Sound style"
           hint={forcedSynth ? 'Synth only for this session (?audio=synth in the address)' : s.soundStyle === 'synth' ? 'Every sound synthesized live' : 'Recorded layers (lava, fire, impacts) over the synthesized sounds'}

@@ -105,7 +105,8 @@ export function SplashScreen() {
     try {
       audio.unlock()
       const s = useGame.getState().settings
-      audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, muted: s.muted || forcedMute })
+      audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, announcer: s.announcerVolume ?? 0.8, muted: s.muted || forcedMute })
+      audio.setAnnouncerVoice(s.announcerVoice ?? 'maverick')
       audio.ui('ready')
     } catch {
       /* audio is optional */

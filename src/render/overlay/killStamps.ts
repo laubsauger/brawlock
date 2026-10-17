@@ -78,8 +78,3 @@ export class KillStamps {
     this.stamps.clear()
   }
 }
-
-/** "", "Double", "Triple", ... for a streak count (shared with the HUD callout wording). */
-export function streakWord(count: number): string {
-  return count >= 5 ? 'Rampage' : (['', '', 'Double', 'Triple', 'Quadruple'][count] ?? '')
-}

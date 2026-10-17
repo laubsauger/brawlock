@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sigil } from '../icons'
 import { displayName } from '../data/catalog'
-import { MULTI_WINDOW, streakWord } from '../../render/overlay/killStamps'
+import { useGame } from '../../game/store'
+import { announcements, type Announcement } from '../../game/announcer'
+import { frame } from '../../game/frame'
+import { slotColor, slotGlyph, slotName } from '../lib/view'
 
 /**
  * Center banners and the killfeed. Both are driven imperatively by the HUD
@@ -51,50 +54,88 @@ export function Skull({ size = 16, color = 'currentColor' }: { size?: number; co
   )
 }
 
-/** how long the callout stays, and how close kills must be to count as a streak */
+/** how long the callout and an announcer line stay */
 const MYKILL_MS = 1500
 
+/** An announcer line as the banner shows it: the spoken words, and whose it is. */
+export interface AnnouncerBanner {
+  text: string
+  player: number
+}
+
 /**
- * "Knocked out Thorn" under the score strip when you get a kill, wherever it
- * happened (a push that lands in the lava off-screen too). Quick kills stack
- * into "Double knockout" (same window as the overhead stamps).
+ * What the row under the clock shows: your knockout ("Knocked out Thorn")
+ * with your own announcer line on top of it, word for word what the voice
+ * says ("Double Kill!", from game/announcer), and lines earned by others
+ * ("First Blood!", "Rampage!") as a separate chip naming them.
+ */
+export function calloutLines(kill: MyKill | null, line: AnnouncerBanner | null, local: number): { top: string | null; main: MyKill | null; other: AnnouncerBanner | null } {
+  const mine = !!line && line.player === local
+  return { top: mine ? line.text : null, main: kill, other: line && !mine ? line : null }
+}
+
+/**
+ * Under the clock: "Knocked out Thorn" when you get a kill, wherever it
+ * happened (a push that lands in the lava off-screen too), and the announcer's
+ * lines as the voice speaks them (also with sound off or still locked).
  */
 export function KillCallout() {
-  const [shown, setShown] = useState<(MyKill & { count: number; key: number }) | null>(null)
+  const shopOpen = useGame((s) => s.shopOpen)
+  const [kill, setKill] = useState<(MyKill & { key: number }) | null>(null)
+  const [line, setLine] = useState<(AnnouncerBanner & { key: number }) | null>(null)
   useEffect(() => {
-    let timer = 0
-    let lastAt = -Infinity
-    let count = 0
+    let killTimer = 0
+    let lineTimer = 0
     let n = 0
     announce.myKill = (v) => {
-      const now = performance.now()
-      count = now - lastAt <= MULTI_WINDOW * 1000 ? count + 1 : 1
-      lastAt = now
-      setShown({ ...v, count, key: ++n })
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => setShown(null), MYKILL_MS)
+      setKill({ ...v, key: ++n })
+      window.clearTimeout(killTimer)
+      killTimer = window.setTimeout(() => setKill(null), MYKILL_MS)
     }
+    const off = announcements.subscribe((a: Announcement) => {
+      setLine({ text: a.text, player: a.player, key: ++n })
+      window.clearTimeout(lineTimer)
+      lineTimer = window.setTimeout(() => setLine(null), MYKILL_MS)
+    })
     return () => {
-      window.clearTimeout(timer)
+      window.clearTimeout(killTimer)
+      window.clearTimeout(lineTimer)
+      off()
       announce.myKill = () => {}
     }
   }, [])
-  if (!shown) return null
-  const streak = streakWord(shown.count)
+  const { top, main, other } = calloutLines(kill, line, frame.localPlayer)
+  const state = frame.curr
   return (
-    <div key={shown.key} className="kill-callout pop-in" role="status" aria-live="polite">
-      <Skull size={20} color="#f3e4cf" />
-      <span className="flex flex-col items-start leading-tight">
-        {streak && <span className="kill-callout-streak">{streak} knockout</span>}
-        <span>
-          Knocked out{' '}
-          <b style={{ color: shown.color }}>
-            {shown.glyph && <span className="mr-0.5">{shown.glyph}</span>}
-            {shown.name}
+    <>
+      {(top || main) && (
+        <div key={`${kill?.key ?? 0}:${top ? line?.key : 0}`} className="kill-callout pop-in" role="status" aria-live="polite">
+          <Skull size={20} color="#f3e4cf" />
+          {/* with the shop docks open there is room for one line only (the docks start right below) */}
+          <span className={`flex leading-tight ${shopOpen ? 'flex-row items-baseline gap-1.5' : 'flex-col items-start'}`}>
+            {top && <span className="kill-callout-streak">{top}</span>}
+            {main && (
+              <span>
+                {top && shopOpen ? '' : 'Knocked out '}
+                <b style={{ color: main.color }}>
+                  {main.glyph && <span className="mr-0.5">{main.glyph}</span>}
+                  {main.name}
+                </b>
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      {other && (
+        <div key={`o${line?.key}`} className="kill-callout pop-in" role="status" aria-live="polite">
+          <span className="kill-callout-streak">{other.text}</span>
+          <b style={{ color: slotColor(state, other.player) }}>
+            {slotGlyph(state, other.player) && <span className="mr-0.5">{slotGlyph(state, other.player)}</span>}
+            {slotName(state, other.player)}
           </b>
-        </span>
-      </span>
-    </div>
+        </div>
+      )}
+    </>
   )
 }
 

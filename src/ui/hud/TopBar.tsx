@@ -1,6 +1,5 @@
 import { useRef } from 'react'
 import { frame } from '../../game/frame'
-import { useGame } from '../../game/store'
 import type { Phase, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { usePolled, useTick } from '../lib/ticker'
@@ -31,12 +30,15 @@ function clock(secs: number): string {
 /** Phase start tick, for an elapsed clock in open-ended phases (fight in rounds mode). */
 const phaseClock = { phase: '' as Phase | '', startTick: 0 }
 
-export function PhasePlate() {
+/**
+ * The clock plate: round (with a quiet "first to N" under it), time left and
+ * the phase. Text is written from the shared rAF, no React renders per frame.
+ */
+export function PhasePlate({ winScore }: { winScore?: number }) {
   const round = useRef<HTMLSpanElement>(null)
   const timer = useRef<HTMLSpanElement>(null)
   const phase = useRef<HTMLSpanElement>(null)
-  const shrink = useRef<HTMLDivElement>(null)
-  const last = useRef({ round: '', timer: '', phase: '', shrink: '', hot: false })
+  const last = useRef({ round: '', timer: '', phase: '' })
 
   useTick(() => {
     const s = frame.curr
@@ -57,7 +59,28 @@ export function PhasePlate() {
 
     const t = s.phaseTicksLeft >= 0 ? clock(Math.ceil(s.phaseTicksLeft / TICK_HZ)) : clock((s.tick - phaseClock.startTick) / TICK_HZ)
     if (t !== l.timer && timer.current) timer.current.textContent = l.timer = t
+  })
 
+  return (
+    <div className="hud-plate hud-top flex h-9 shrink-0 items-center gap-3 px-4">
+      <span className="flex flex-col items-end leading-none">
+        <span ref={round} className="text-[0.86rem] font-semibold text-ash" />
+        {winScore ? <span className="mt-0.5 text-[0.66rem] font-semibold whitespace-nowrap text-ash/75">first to {winScore}</span> : null}
+      </span>
+      <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
+      <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
+    </div>
+  )
+}
+
+/** "Arena shrinks in 4s" (hot pulse in the last 3 s); shares the row under the clock with the KO callout. */
+export function ShrinkWarning() {
+  const ref = useRef<HTMLDivElement>(null)
+  const last = useRef({ text: '', hot: false })
+  useTick(() => {
+    const s = frame.curr
+    const el = ref.current
+    if (!s || !el) return
     let sh = ''
     let hot = false
     if (s.phase === 'fight' && s.arena.nextShrinkTick >= 0) {
@@ -67,28 +90,19 @@ export function PhasePlate() {
         hot = secs <= 3
       }
     }
-    if (sh !== l.shrink && shrink.current) {
-      shrink.current.textContent = l.shrink = sh
+    const l = last.current
+    if (sh !== l.text) {
+      el.textContent = l.text = sh
       // the pulsing hot copy (::after) reads the same text
-      shrink.current.dataset.text = sh
-      shrink.current.style.visibility = sh ? 'visible' : 'hidden'
+      el.dataset.text = sh
+      el.style.display = sh ? '' : 'none'
     }
-    if (hot !== l.hot && shrink.current) {
-      shrink.current.dataset.on = String(hot)
+    if (hot !== l.hot) {
+      el.dataset.on = String(hot)
       l.hot = hot
     }
   })
-
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="hud-plate hud-top flex h-9 items-center gap-3 px-4">
-        <span ref={round} className="text-[0.9rem] font-semibold text-ash" />
-        <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
-        <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
-      </div>
-      <div ref={shrink} className="shrink-warn hud-backing mt-0.5 text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ visibility: 'hidden' }} />
-    </div>
-  )
+  return <div ref={ref} className="shrink-warn hud-backing text-[0.85rem] leading-tight font-semibold text-[#ffbfa8]" style={{ display: 'none' }} />
 }
 
 interface StripPlayer {
@@ -137,20 +151,31 @@ function useScoreRefs(id: number) {
   return { score, root }
 }
 
-function ScorePill({ p, local }: { p: StripPlayer; local: boolean }) {
+/** normal: up to 2 a side; compact: 3; tight: 4-5 (short names, smaller type) */
+type Density = 'normal' | 'compact' | 'tight'
+const PILL: Record<Density, { box: string; name: string; score: string; bar: string }> = {
+  normal: { box: 'h-9 gap-2 pr-2.5 pl-1.5', name: 'max-w-[8.5rem] text-[0.95rem]', score: 'text-[1.1rem]', bar: 'h-5 w-1.5' },
+  compact: { box: 'h-9 gap-1.5 pr-2 pl-1.5', name: 'max-w-[5.6rem] text-[0.88rem]', score: 'text-[1.05rem]', bar: 'h-5 w-1.5' },
+  tight: { box: 'h-9 gap-1 pr-1.5 pl-1', name: 'max-w-[3.9rem] text-[0.8rem]', score: 'text-[0.98rem]', bar: 'h-4 w-1' },
+}
+
+function ScorePill({ p, local, density = 'normal', inGroup = false }: { p: StripPlayer; local: boolean; density?: Density; inGroup?: boolean }) {
   const { score, root } = useScoreRefs(p.id)
+  const d = PILL[density]
   return (
     <div
       ref={root}
-      className="hud-plate flex items-center gap-2 rounded-[5px] py-1 pr-2.5 pl-1.5 transition-opacity"
+      // inside a team frame (2 px padding each side) a pill is 4 px shorter, so the group matches the clock height
+      className={`hud-plate flex shrink-0 items-center rounded-[5px] transition-opacity ${inGroup ? d.box.replace('h-9', 'h-8') : d.box}`}
       style={local ? { boxShadow: `inset 0 0 0 1px ${p.color}aa, 0 6px 24px rgba(0,0,0,.45)` } : undefined}
+      title={p.name}
     >
-      <span className="h-5 w-1.5 rounded-sm" style={{ background: p.color, boxShadow: `0 0 8px ${p.color}` }} aria-hidden />
-      <span className="max-w-[8.5rem] truncate text-[0.95rem] font-semibold">
+      <span className={`shrink-0 rounded-sm ${d.bar}`} style={{ background: p.color, boxShadow: `0 0 8px ${p.color}` }} aria-hidden />
+      <span className={`truncate font-semibold ${d.name}`}>
         {p.glyph && <span className="mr-1" style={{ color: p.color }} aria-hidden>{p.glyph}</span>}
         {p.name}
       </span>
-      <span ref={score} className="tabular inline-block text-[1.1rem] font-bold text-gold">
+      <span ref={score} className={`tabular inline-block font-bold text-gold ${d.score}`}>
         0
       </span>
     </div>
@@ -191,17 +216,24 @@ function teamsOf(ps: StripPlayer[]): [number, StripPlayer[]][] {
   return [...groups]
 }
 
-/** One team in the score strip: a team-colour frame with the team's name, its players' pills inside. */
-function TeamGroup({ team, players, local }: { team: number; players: StripPlayer[]; local: number }) {
+/** One team: a team-colour frame with the team's name on the outer edge, its players' pills inside. */
+function TeamGroup({ team, players, local, side, density }: { team: number; players: StripPlayer[]; local: number; side: 'left' | 'right'; density: Density }) {
   const color = teamColor(team)
   return (
-    <div className="flex max-w-full items-stretch overflow-hidden rounded-[6px]" style={{ boxShadow: `inset 0 0 0 1.5px ${color}cc, 0 6px 24px rgba(0,0,0,.45)` }} aria-label={`${teamName(team)} team`}>
-      <span className="hud-text-shadow flex items-center px-2 text-[0.78rem] font-bold tracking-wide uppercase" style={{ background: `${color}55`, color: '#fff3e0' }}>
+    <div
+      className={`flex max-w-full items-stretch overflow-hidden rounded-[6px] ${side === 'right' ? 'flex-row-reverse' : ''}`}
+      style={{ boxShadow: `inset 0 0 0 1.5px ${color}cc, 0 6px 24px rgba(0,0,0,.45)` }}
+      aria-label={`${teamName(team)} team`}
+    >
+      <span
+        className={`hud-text-shadow flex items-center font-bold tracking-wide uppercase ${density === 'tight' ? 'px-1 text-[0.62rem] [writing-mode:vertical-rl] rotate-180' : 'px-2 text-[0.74rem]'}`}
+        style={{ background: `${color}55`, color: '#fff3e0' }}
+      >
         {teamName(team)}
       </span>
-      <div className="flex flex-wrap gap-0.5 p-0.5">
+      <div className={`flex flex-wrap gap-0.5 p-0.5 ${side === 'right' ? 'flex-row' : 'justify-end'}`}>
         {players.map((p) => (
-          <ScorePill key={p.id} p={p} local={p.id === local} />
+          <ScorePill key={p.id} p={p} local={p.id === local} density={density} inGroup />
         ))}
       </div>
     </div>
@@ -209,47 +241,83 @@ function TeamGroup({ team, players, local }: { team: number; players: StripPlaye
 }
 
 /**
- * Top of the HUD, broadcast style. 1v1: both players flank the round clock
- * (you on the left). More players: the clock, then a strip of score pills.
+ * Split the players around the clock. You sit on the left, nearest the clock.
+ * Teams: your team on the left, the others on the right (more teams
+ * alternate sides). FFA: everyone else alternates right / left in slot order,
+ * so pills never jump around when scores change. Left lists run outer ->
+ * inner (you last), right lists inner -> outer.
+ */
+export function splitSides<P extends { id: number; team: number }>(players: P[], local: number, teams: boolean): { left: P[]; right: P[] } {
+  const me = players.find((p) => p.id === local)
+  if (teams) {
+    const order: number[] = []
+    for (const p of players) if (!order.includes(p.team)) order.push(p.team)
+    const myTeam = me?.team ?? order[0]
+    const others = order.filter((t) => t !== myTeam)
+    const leftTeams = [myTeam]
+    const rightTeams: number[] = []
+    others.forEach((t, i) => (i % 2 === 0 ? rightTeams : leftTeams).push(t))
+    // left: outer teams first, your team innermost with you nearest the clock
+    const left = leftTeams
+      .slice()
+      .reverse()
+      .flatMap((t) => {
+        const ps = players.filter((p) => p.team === t && p.id !== local)
+        return t === myTeam && me ? [...ps, me] : ps
+      })
+    const right = rightTeams.flatMap((t) => players.filter((p) => p.team === t))
+    return { left, right }
+  }
+  const others = players.filter((p) => p.id !== local)
+  const right: P[] = []
+  const leftInner: P[] = []
+  others.forEach((p, i) => (i % 2 === 0 ? right : leftInner).push(p))
+  const left = [...leftInner.reverse(), ...(me ? [me] : [])]
+  return { left, right }
+}
+
+/** One side of the top row; teams render as team-framed groups (label on the outer edge). */
+function Side({ players, side, local, teams, density }: { players: StripPlayer[]; side: 'left' | 'right'; local: number; teams: boolean; density: Density }) {
+  const groups = teams ? teamsOf(players) : null
+  return (
+    <div className={`flex min-w-0 flex-1 flex-wrap items-start gap-1 ${side === 'left' ? 'justify-end' : 'justify-start'}`} aria-label={side === 'left' ? 'Scores, your side' : 'Scores'}>
+      {groups
+        ? groups.map(([team, ps]) => <TeamGroup key={team} team={team} players={ps} local={local} side={side} density={density} />)
+        : players.map((p) => <ScorePill key={p.id} p={p} local={p.id === local} density={density} />)}
+    </div>
+  )
+}
+
+/**
+ * Top of the HUD, one row: score pills to the left and right of the clock
+ * (you on the left, nearest the clock), "first to N" inside the clock plate.
+ * 1v1 keeps the broadcast look. Many players make the pills compact; a side
+ * wraps to a second row only when it really does not fit.
  */
 export function TopCenter() {
   const players = usePolled(readPlayers, playersKey, 2)
   const local = frame.localPlayer
   const winScore = frame.curr?.settings.winScore
   const teamMode = frame.curr?.settings.teamMode
-  // with the shop open the strip wraps to rows rather than run under the right dock
-  const shopOpen = useGame((s) => s.shopOpen)
-  const stripStyle = shopOpen ? { maxWidth: 'var(--strip-max-w)' } : undefined
-  if (players.length === 2) {
+  const teams = !!teamMode && teamMode !== 'ffa'
+  if (players.length === 2 && !teams) {
     const [a, b] = players[1].id === local ? [players[1], players[0]] : players
     return (
-      <div className="flex flex-col items-center gap-0.5" aria-label="Scores">
-        <div className="flex items-start gap-1">
-          <BroadcastSide p={a} side="left" local={a.id === local} />
-          <PhasePlate />
-          <BroadcastSide p={b} side="right" local={b.id === local} />
-        </div>
-        {winScore ? <span className="hud-backing hud-text-shadow mt-0.5 text-[0.75rem] leading-tight font-semibold text-ash">First to {winScore}</span> : null}
+      <div className="flex items-start gap-1" aria-label="Scores">
+        <BroadcastSide p={a} side="left" local={a.id === local} />
+        <PhasePlate winScore={winScore} />
+        <BroadcastSide p={b} side="right" local={b.id === local} />
       </div>
     )
   }
+  const { left, right } = splitSides(players, local, teams)
+  const perSide = Math.max(left.length, right.length)
+  const density: Density = perSide >= 4 ? 'tight' : perSide >= 3 ? 'compact' : 'normal'
   return (
-    <div className="flex flex-col items-center gap-1">
-      <PhasePlate />
-      {teamMode && teamMode !== 'ffa' ? (
-        <div className="flex flex-wrap justify-center gap-2" style={stripStyle} aria-label="Scores">
-          {teamsOf(players).map(([team, ps]) => (
-            <TeamGroup key={team} team={team} players={ps} local={local} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-wrap justify-center gap-1" style={stripStyle} aria-label="Scores">
-          {players.map((p) => (
-            <ScorePill key={p.id} p={p} local={p.id === local} />
-          ))}
-        </div>
-      )}
-      {winScore ? <span className="hud-backing hud-text-shadow text-[0.82rem] font-semibold text-ash">First to {winScore}</span> : null}
+    <div className="flex w-[var(--top-row-w)] max-w-[var(--top-row-w)] items-start justify-center gap-1">
+      <Side players={left} side="left" local={local} teams={teams} density={density} />
+      <PhasePlate winScore={winScore} />
+      <Side players={right} side="right" local={local} teams={teams} density={density} />
     </div>
   )
 }
