@@ -65,13 +65,14 @@ export function roomCodeFromUrl(): string | null {
  */
 const serverUrl = typeof location === 'undefined' ? null : serverUrlFrom(location.search)
 
-/** `?net=classic` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
+/** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
   if (typeof location !== 'undefined') {
     const v = new URLSearchParams(location.search).get('net')
-    if (v === 'classic' || v === 'predict') return v
+    if (v === 'classic' || v === 'predict' || v === 'snapshot') return v
   }
-  return useGame.getState().settings.netMode === 'classic' ? 'classic' : 'predict'
+  const m = useGame.getState().settings.netMode
+  return m === 'classic' || m === 'snapshot' ? m : 'predict'
 }
 
 /** Feeds game/stats.ts: one tracker per match, recorded at game over. */

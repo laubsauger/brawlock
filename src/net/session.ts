@@ -53,12 +53,14 @@ import {
   type PeerNetStats,
 } from './netstats'
 import { LeadClock, Predictor, type LocalFrame } from './predict'
+import { ArrivalClock, HASH_EVERY, HEARTBEAT_TICKS, REDUNDANCY, StreamFeed, StreamHistory, quantizeCmds, type StreamTick } from './stream'
 import {
   EVENT_REDUNDANCY_TICKS,
   PROTOCOL_VERSION,
   decode,
   encode,
   encodeSnap,
+  encodeStreamPacket,
   sanitizeColor,
   sanitizeFrames,
   sanitizeMetric,
@@ -71,7 +73,12 @@ import {
 } from './protocol'
 import type { HostEndpoint, NetFactory, Transport, UnreliableMode } from './transport'
 
-export type NetMode = 'predict' | 'classic'
+/**
+ * 'predict' (default): prediction on the input stream (stream.ts): the host sends the
+ * confirmed inputs, every peer steps the same sim. 'snapshot': prediction on full
+ * snapshots (the M1 path, fallback). 'classic': interpolated snapshots, no prediction.
+ */
+export type NetMode = 'predict' | 'snapshot' | 'classic'
 
 // ---------------------------------------------------------------------------
 // Ports
@@ -139,6 +146,8 @@ export interface SessionDeps {
   netMode?: () => NetMode
   /** cap of the host fairness delay, ticks (default HOST_DELAY_CAP_TICKS; 0 disables it) */
   hostDelayCapTicks?: number
+  /** host relays stamped input frames to the other players on arrival (prediction hints); default true */
+  inputHints?: boolean
 }
 
 export interface SessionApi {
@@ -200,6 +209,12 @@ export interface SessionDebug {
   /** clock pulses handled since the session was created, and wall ms spent in them */
   pulses: number
   pulseMs: number
+  /** client, predict mode: the confirmed timeline from the input stream (-1 when not streaming) */
+  streamTick: number
+  streamChecks: number
+  streamDesyncs: number
+  /** host: clients receiving the input stream */
+  streamPeers: number
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +268,8 @@ const HOST_DELAY_EVAL_TICKS = 60
 const CHECK_MS = 500
 /** the host is always the lobby's first slot */
 const HOST_PLAYER_ID = 0
+/** a checkpoint hash rides this many stream packets (loss) */
+const HASH_REPEAT_TICKS = 8
 
 // ---------------------------------------------------------------------------
 
@@ -272,6 +289,13 @@ interface RemotePeer {
   report: Extract<Msg, { t: 'nstat' }> | null
   reportAt: number
   desyncAt: number
+  /** input stream: this client asked for it (`need`); steps to resend from; keyframe due */
+  stream: boolean
+  needFrom: number
+  keyframe: boolean
+  /** stream packets sent (counter), and the `to` of the last three, newest first */
+  streamN: number
+  sentTo: number[]
   /** match id this peer received `start` for */
   matchId: number
   helloTimer: ReturnType<typeof setTimeout> | null
@@ -303,6 +327,9 @@ interface HostMatch {
   recent: TickEvents[]
   /** inputs stepped since the last snapshot went out (snap.in) */
   stepped: PlayerInput[]
+  /** confirmed steps for the input stream, and the newest checkpoint hash [tick, hash] */
+  history: StreamHistory
+  hash: [number, number] | null
   /** host's own net mode at match start */
   netMode: NetMode
   fair: HostFairness
@@ -338,6 +365,31 @@ interface ClientMatch {
   check: { prev: { n: number; state: SimState } | null; last: number; checks: number; desyncs: number; desyncAt: number }
   /** one-shot pulse for the tick that applies an own command (wakeClient) */
   wake: ReturnType<typeof setTimeout> | null
+  /** predict mode: the confirmed timeline stepped from the input stream; null in other modes */
+  stream: ClientStream | null
+}
+
+/** Client side of the input stream (stream.ts). */
+interface ClientStream {
+  /** confirmed state: the host's state for state.tick (ours, stepped in place) */
+  state: SimState
+  feed: StreamFeed
+  /** highest own input seq that `state` includes */
+  ack: number
+  arrival: ArrivalClock
+  loss: LossTracker
+  lastAt: number
+  /** checkpoint hashes: ours and the host's, by tick */
+  hashes: Map<number, number>
+  hostHashes: Map<number, number>
+  /** newest checkpoint already compared (a host hash rides several packets) */
+  checkedTo: number
+  checks: number
+  desyncs: number
+  desyncAt: number
+  /** last `need` sent (gap repair / keyframe request), and whether a keyframe is due */
+  needAt: number
+  keyframeAsked: boolean
 }
 
 function errMsg(e: unknown): string {
@@ -415,7 +467,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let statsView: NetStatsView | null = null
   const grades = new Map<PlayerId, GradeTracker>()
   const gradeCbs = new Set<(e: NetGradeEvent) => void>()
-  const netMode = (): NetMode => (deps.netMode?.() === 'classic' ? 'classic' : 'predict')
+  const netMode = (): NetMode => {
+    const v = deps.netMode?.()
+    return v === 'classic' || v === 'snapshot' ? v : 'predict'
+  }
   /** clock pulse count and cost (debug) */
   const pulseStats = { n: 0, ms: 0 }
   const metered = (run: () => void) => {
@@ -602,6 +657,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       report: null,
       reportAt: -1,
       desyncAt: -Infinity,
+      stream: false,
+      needFrom: -1,
+      keyframe: false,
+      streamN: 0,
+      sentTo: [],
       matchId: -1,
       helloTimer: null,
     }
@@ -628,6 +688,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (m.t === 'hello') onHello(p, m)
     else if (m.t === 'input') onInput(p, m)
     else if (m.t === 'nstat') onReport(p, m)
+    else if (m.t === 'need') onNeed(p, m)
     else if (m.t === 'ready') {
       if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
     }
@@ -648,6 +709,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     p.upLoss = new LossTracker()
     p.report = null
     p.reportAt = -1
+    p.stream = false
+    p.needFrom = -1
+    p.keyframe = false
+    p.streamN = 0
+    p.sentTo = []
     p.t.sendReliable(
       encode({
         t: 'start',
@@ -710,17 +776,41 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!mt || id === null || m.match !== mt.id || p.matchId !== mt.id) return
     if (!mt.humans.has(id) || mt.disconnected.has(id)) return
     if (typeof m.n === 'number') p.upLoss.track(m.n)
+    let hints: [number, InputCommand[]][] | null = null
     for (const f of p.receiver.accept(sanitizeFrames(m.inputs))) {
-      if (m.s === 1) schedule(p, mt, f)
-      else for (const c of f.cmds) if (p.queued.length < MAX_QUEUED_CMDS) p.queued.push(c)
+      if (m.s === 1) {
+        const at = schedule(p, mt, f)
+        if (f.cmds.length) (hints ??= []).push([at, f.cmds])
+      } else for (const c of f.cmds) if (p.queued.length < MAX_QUEUED_CMDS) p.queued.push(c)
     }
+    if (hints) relayHints(mt, id, hints, p)
+  }
+
+  /** Prediction hints: a player's stamped frames, to every other streaming client, on arrival. */
+  function relayHints(mt: HostMatch, player: PlayerId, frames: [number, InputCommand[]][], from: RemotePeer | null): void {
+    if (deps.inputHints === false) return
+    let data: string | null = null
+    for (const q of peers) {
+      if (q === from || !q.stream || q.matchId !== mt.id || q.playerId === null) continue
+      data ??= encode({ t: 'hint', m: mt.id, p: player, f: frames })
+      q.t.sendUnreliable(data)
+    }
+  }
+
+  /** Stream mode: a client wants steps from a tick (start, gap) or a keyframe (desync). */
+  function onNeed(p: RemotePeer, m: Extract<Msg, { t: 'need' }>): void {
+    const mt = match
+    if (!mt || p.playerId === null || m.m !== mt.id || p.matchId !== mt.id) return
+    p.stream = true
+    if (m.k === 1 || !Number.isInteger(m.from) || !mt.history.covers(m.from)) p.keyframe = true
+    else p.needFrom = p.needFrom < 0 ? m.from : Math.min(p.needFrom, m.from)
   }
 
   /**
    * A stamped frame runs in the step from its tick: held while early (up to
    * MAX_HOLD_TICKS), applied in the next step when late. Never reordered.
    */
-  function schedule(p: RemotePeer, mt: HostMatch, f: InputFrame): void {
+  function schedule(p: RemotePeer, mt: HostMatch, f: InputFrame): number {
     const next = mt.state.tick
     if (p.sched.length >= MAX_SCHED_FRAMES) {
       for (const x of p.sched) x.at = next
@@ -732,6 +822,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (at < p.lastAt) at = p.lastAt
     p.lastAt = at
     p.sched.push({ at, seq: f.seq, cmds: f.cmds })
+    return at
   }
 
   function onReport(p: RemotePeer, m: Extract<Msg, { t: 'nstat' }>): void {
@@ -811,7 +902,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const cur = m.state
     const tick = cur.tick
     const inputs: PlayerInput[] = []
-    const local = deps.input.drain()
+    const local = quantizeCmds(deps.input.drain())
     const f = m.fair
     if (local.length && m.humans.has(localPlayer)) {
       if (f.pred) {
@@ -819,6 +910,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const frame = { seq: ++f.seq, tick: f.pred.stampNext(), cmds: local }
         f.queue.push(frame)
         f.pred.local(frame)
+        relayHints(m, localPlayer, [[frame.tick, local]], null)
       } else inputs.push({ player: localPlayer, tick, cmds: local })
     }
     if (f.queue.length && f.queue[0].tick <= tick) {
@@ -830,6 +922,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       inputs.push({ player: localPlayer, tick, cmds })
     }
+    let acks: Map<PlayerId, number> | undefined
     for (const p of peers) {
       if (p.playerId === null || p.matchId !== m.id) continue
       let cmds = p.queued
@@ -837,11 +930,13 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (cmds.length) {
         inputs.push({ player: p.playerId, tick, cmds })
         p.queued = []
+        // the stream tells the client which of its frames this step includes
+        ;(acks ??= new Map()).set(p.playerId, ackOf(p))
       }
     }
     for (const [id, bot] of m.bots) {
       try {
-        const cmds = bot.think(cur)
+        const cmds = quantizeCmds(bot.think(cur))
         if (cmds.length) inputs.push({ player: id, tick, cmds })
       } catch (e) {
         console.error(`[session] bot ${id} crashed, its pawn idles`, e)
@@ -853,7 +948,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     // the same deep copy as structuredClone, ~4× cheaper)
     const next = cloneState(cur)
     const patched = m.connectedPatch.size > 0
+    let patches: [PlayerId, boolean][] | undefined
     if (m.connectedPatch.size) {
+      patches = [...m.connectedPatch]
       for (const [id, c] of m.connectedPatch) {
         const sc = next.scores.find((s) => s.id === id)
         if (sc) sc.connected = c
@@ -863,10 +960,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     deps.step(next, inputs)
     m.state = next
     if (inputs.length) for (const i of inputs) m.stepped.push(i)
+    const step: StreamTick = { tick, inputs }
+    if (acks) step.acks = acks
+    if (patches) step.patches = patches
+    m.history.push(step)
 
     rec?.observe(next, next.events)
     if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
-    if (m.netMode === 'predict' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
+    if (m.netMode !== 'classic' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
     if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
     if (f.pred) {
       // the host's view: its own delayed inputs predicted, display ticks `delay` ahead
@@ -886,8 +987,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       deps.audio.playEvents(next.events, listenerFor(next, localPlayer))
     }
     while (m.recent.length && m.recent[0].tick <= next.tick - EVENT_REDUNDANCY_TICKS) m.recent.shift()
-    if (peers.length) sendSnapshots(m, next)
-    else m.stepped.length = 0
+    sendToPeers(m, next)
 
     if (m.endAt < 0 && next.phase === 'gameOver') {
       m.endAt = at + GAME_OVER_LINGER_MS
@@ -895,8 +995,32 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
   }
 
+  /** Highest input seq of this peer that the authoritative state includes (sched frames wait). */
+  function ackOf(p: RemotePeer): number {
+    return p.sched.length ? p.sched[0].seq - 1 : p.receiver.lastSeq
+  }
+
+  /**
+   * After every step: the input stream to the clients that stream, snapshots to the
+   * rest (snapshot / classic mode, spectators) and as keyframes. The stream goes out
+   * the same tick it is stepped: no batching, nobody waits for anybody's inputs.
+   */
+  function sendToPeers(m: HostMatch, s: SimState): void {
+    let snaps = false
+    let streams = false
+    for (const p of peers) {
+      if (p.playerId === null || p.matchId !== m.id) continue
+      if (p.stream && !p.keyframe) streams = true
+      else snaps = true
+    }
+    if (snaps) sendSnapshots(m, s)
+    else m.stepped.length = 0
+    if (streams) sendStream(m, s)
+  }
+
   function sendSnapshots(m: HostMatch, s: SimState): void {
-    if (s.tick % m.interval !== 0) return
+    const keyframes = peers.some((p) => p.keyframe && p.matchId === m.id)
+    if (s.tick % m.interval !== 0 && !keyframes) return
     const stateJson = stateJsonWithoutEvents(s)
     if (stateJson.length > SNAP_BIG) m.interval = 2
     else if (stateJson.length < SNAP_SMALL) m.interval = 1
@@ -905,10 +1029,57 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.stepped.length = 0
     const n = ++m.snapN
     for (const p of peers) {
-      if (p.playerId === null || p.matchId !== m.id) continue
+      if (p.playerId === null || p.matchId !== m.id || (p.stream && !p.keyframe)) continue
       // frames still waiting for their tick are not in this state
-      const ack = p.sched.length ? p.sched[0].seq - 1 : p.receiver.lastSeq
-      p.t.sendUnreliable(encodeSnap(m.id, n, m.interval, ack, evJson, stateJson, inJson))
+      p.t.sendUnreliable(encodeSnap(m.id, n, m.interval, ackOf(p), evJson, stateJson, inJson))
+      // a keyframe restarts the stream at this state's tick
+      p.keyframe = false
+    }
+  }
+
+  /** The newest REDUNDANCY steps every tick (shared body), a resend from `needFrom` once. */
+  function sendStream(m: HostMatch, s: SimState): void {
+    const to = s.tick
+    const h = m.history
+    if (h.end !== to) return
+    // checkpoint hash: computed only when someone streams, repeated a few ticks against loss
+    if (to % HASH_EVERY === 0) m.hash = [to, hashState({ ...s, events: [] })]
+    const hashJson = m.hash && to - m.hash[0] < HASH_REPEAT_TICKS ? `,"h":${JSON.stringify(m.hash)}` : ''
+    const bodies = new Map<number, string>()
+    const body = (from: number) => {
+      let b = bodies.get(from)
+      if (b === undefined) {
+        const { i, c } = h.slice(from, to)
+        b = `"to":${to},"r":${to - from}${i.length ? `,"i":${JSON.stringify(i)}` : ''}${c.length ? `,"c":${JSON.stringify(c)}` : ''}${hashJson}`
+        bodies.set(from, b)
+      }
+      return b
+    }
+    const recent = Math.max(to - REDUNDANCY, h.start)
+    // a step with inputs goes out the tick it is stepped; empty stretches as a heartbeat
+    const content = h.hasContent(recent, to) || to % HASH_EVERY === 0
+    for (const p of peers) {
+      if (p.playerId === null || p.matchId !== m.id || !p.stream || p.keyframe) continue
+      let from: number
+      if (p.needFrom >= 0 && p.needFrom < recent) {
+        if (!h.covers(p.needFrom)) {
+          p.keyframe = true
+          p.needFrom = -1
+          continue
+        }
+        from = p.needFrom
+      } else {
+        const last = p.sentTo.length ? p.sentTo[0] : -1
+        if (!content && p.needFrom < 0 && last >= 0 && to - last < HEARTBEAT_TICKS) continue
+        // reach back three packets: empty steps ride as many packets as steps with inputs
+        // (the range costs nothing, empty steps are implied)
+        const back = p.sentTo.length >= 2 ? p.sentTo[p.sentTo.length - 1] : recent
+        from = Math.max(Math.min(recent, back), h.start)
+      }
+      p.needFrom = -1
+      p.sentTo.unshift(to)
+      if (p.sentTo.length > 2) p.sentTo.length = 2
+      p.t.sendUnreliable(encodeStreamPacket(m.id, ++p.streamN, ackOf(p), body(from)))
     }
   }
 
@@ -1029,9 +1200,24 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const now = deps.now()
         noteAck(cm, m.ack, now)
         cm.sender.ack(m.ack)
+        if (cm.stream) {
+          onKeyframe(cm, cm.stream, m, now)
+          break
+        }
         cm.buffer.push(m, now)
         if (cm.pred) cm.pred.offer(m.state, m.ack, m.ev, confirmsPrediction(cm, cm.pred, m))
         checkDeterminism(cm, m, now)
+        break
+      }
+      case 'is': {
+        const cm = cmatch
+        if (cm?.stream && m.m === cm.id) onStream(cm, cm.stream, m)
+        break
+      }
+      case 'hint': {
+        const cm = cmatch
+        if (!cm?.pred || m.m !== cm.id || !Array.isArray(m.f)) return
+        for (const f of m.f) if (Array.isArray(f) && typeof f[0] === 'number' && Array.isArray(f[1])) cm.pred.hint(m.p, f[0], f[1])
         break
       }
       case 'end':
@@ -1068,6 +1254,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const now = deps.now()
     // spectators have nothing to predict: they watch the smooth delayed stream
     const mode: NetMode = m.localPlayer >= 0 ? netMode() : 'classic'
+    const predicting = mode !== 'classic'
     const cm: ClientMatch = {
       id: m.match,
       localPlayer: m.localPlayer,
@@ -1078,7 +1265,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       lastStats: -Infinity,
       stop: null,
       netMode: mode,
-      pred: mode === 'predict' ? new Predictor(m.localPlayer, deps.step, cloneState, deps.now) : null,
+      pred: predicting ? new Predictor(m.localPlayer, deps.step, cloneState, deps.now) : null,
       clock: new LeadClock(),
       inN: 0,
       sentAt: new Map(),
@@ -1087,6 +1274,36 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rebases: 0,
       check: { prev: null, last: -Infinity, checks: 0, desyncs: 0, desyncAt: -Infinity },
       wake: null,
+      stream: null,
+    }
+    if (mode === 'predict') {
+      // the start state is deterministic: build it locally and ask for the stream from tick 0
+      // (a host further along answers with a keyframe)
+      try {
+        const state = deps.createMatch(m.settings, m.slots, m.seed)
+        cm.stream = {
+          state,
+          feed: new StreamFeed(),
+          ack: 0,
+          arrival: new ArrivalClock(),
+          loss: new LossTracker(),
+          lastAt: -Infinity,
+          hashes: new Map(),
+          hostHashes: new Map(),
+          checkedTo: -1,
+          checks: 0,
+          desyncs: 0,
+          desyncAt: -Infinity,
+          needAt: now,
+          keyframeAsked: false,
+        }
+        cm.stream.feed.reset(state.tick)
+        cm.pred!.offer(cloneState(state), 0)
+        link?.sendReliable(encode({ t: 'need', m: m.match, from: state.tick }))
+      } catch (e) {
+        console.warn('[session] input stream unavailable, using snapshots', e)
+        cm.stream = null
+      }
     }
     cmatch = cm
     ready = {}
@@ -1163,7 +1380,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   }
 
   function clientInputTick(cm: ClientMatch, now: number): void {
-    const cmds = deps.input.drain()
+    const cmds = quantizeCmds(deps.input.drain())
     const t = link
     if (cm.localPlayer < 0 || !t) return
     const b = cm.buffer
@@ -1191,10 +1408,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     // a command issued between pulses waits ≤ 1 pulse, not a whole tick
     predictInput(cm, now, resend)
     const b = cm.buffer
+    const arrivals = cm.stream ? cm.stream.arrival : b
     const t = link
-    if (t && !Number.isNaN(b.baseMs)) {
+    if (t && !Number.isNaN(arrivals.baseMs)) {
       cm.clock.feedLate(pred.stats.lateFrames, now)
-      cm.clock.update(now, b.baseMs, t.rtt, b.jitterMs)
+      cm.clock.update(now, arrivals.baseMs, t.rtt, arrivals.jitterMs)
       pred.advance(Math.floor(cm.clock.tickAt(now)), (display, events) => {
         out.pushState(display, cm.clock.timeOf(display.tick))
         out.pushEvents(display.tick, events)
@@ -1206,16 +1424,17 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         cm.corr.add(now, pred.stats.ownCorrection)
       }
     }
-    if (rec) b.pull(now, (state, _at, evs) => rec.observe(state, evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events)))
+    // stream mode records the confirmed timeline as it is stepped (advanceConfirmed)
+    if (rec && !cm.stream) b.pull(now, (state, _at, evs) => rec.observe(state, evs.length === 1 ? evs[0].events : evs.flatMap((e) => e.events)))
     if (now - cm.lastStats >= NET_STATS_MS) {
       cm.lastStats = now
-      out.setNet(link?.rtt ?? 0, b.lossPct)
+      out.setNet(link?.rtt ?? 0, cm.stream ? (cm.stream.loss.pct ?? 0) : b.lossPct)
     }
   }
 
   /** Own commands: applied in the next predicted step, stamped with that tick, sent at once. */
   function predictInput(cm: ClientMatch, now: number, resend: boolean): void {
-    const cmds = deps.input.drain()
+    const cmds = quantizeCmds(deps.input.drain())
     const t = link
     const pred = cm.pred
     if (cm.localPlayer < 0 || !t || !pred) return
@@ -1262,6 +1481,124 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (JSON.stringify(stepped.get(t) ?? []) !== JSON.stringify(pred.ownAt(t))) return false
     }
     return !pred.lateBefore(b.tick, m.ack)
+  }
+
+  /**
+   * Stream mode: a packet of confirmed steps. Step the confirmed state as far as the
+   * steps reach, hand it to the predictor (a rollback only when the steps contain
+   * something the prediction did not have), compare checkpoint hashes, ask for gaps.
+   */
+  function onStream(cm: ClientMatch, st: ClientStream, m: Extract<Msg, { t: 'is' }>): void {
+    const now = deps.now()
+    if (typeof m.to !== 'number' || typeof m.r !== 'number') return
+    st.arrival.push(m.to, now)
+    st.loss.track(m.n)
+    st.lastAt = now
+    if (typeof m.a === 'number') {
+      noteAck(cm, m.a, now)
+      cm.sender.ack(m.a)
+    }
+    if (Array.isArray(m.h) && typeof m.h[0] === 'number' && typeof m.h[1] === 'number' && m.h[0] > st.checkedTo) st.hostHashes.set(m.h[0], m.h[1])
+    st.feed.accept(m.to - m.r, m.to, Array.isArray(m.i) ? m.i : [], Array.isArray(m.c) ? m.c : [])
+    advanceConfirmed(cm, st, now)
+    const gap = st.feed.gap()
+    if (gap !== null) askStream(cm, st, now, gap, false)
+  }
+
+  /** `need`: steps from `from` (gap) or a keyframe; repeated at most every ~RTT. */
+  function askStream(cm: ClientMatch, st: ClientStream, now: number, from: number, keyframe: boolean): void {
+    const t = link
+    if (!t || now - st.needAt < Math.max(60, t.rtt * 1.2)) return
+    st.needAt = now
+    t.sendUnreliable(encode(keyframe ? { t: 'need', m: cm.id, from, k: 1 } : { t: 'need', m: cm.id, from }))
+  }
+
+  function advanceConfirmed(cm: ClientMatch, st: ClientStream, now: number): void {
+    const pred = cm.pred
+    if (!pred) return
+    const events: TickEvents[] = []
+    let confirms = st.desyncs === 0
+    let stepped = 0
+    for (;;) {
+      const step = st.feed.take()
+      if (!step) break
+      const s = st.state
+      if (confirms) confirms = !step.patches && stepWasPredicted(pred, step, cm.localPlayer)
+      if (step.patches) {
+        for (const [id, on] of step.patches) {
+          const sc = s.scores.find((x) => x.id === id)
+          if (sc) sc.connected = on
+        }
+      }
+      deps.step(s, step.inputs)
+      const q = step.acks?.get(cm.localPlayer)
+      if (q !== undefined && q > st.ack) st.ack = q
+      rec?.observe(s, s.events)
+      if (s.events.length) events.push({ tick: s.tick, events: s.events })
+      if (s.tick % HASH_EVERY === 0) st.hashes.set(s.tick, hashState({ ...s, events: [] }))
+      stepped++
+    }
+    if (stepped === 0) return
+    checkHashes(cm, st, now)
+    // own frames stamped before the confirmed tick must all be in it
+    if (confirms && pred.lateBefore(st.state.tick, st.ack)) confirms = false
+    pred.offer(cloneState(st.state), st.ack, events, confirms)
+  }
+
+  /** The prediction already applied exactly this step: own frames at their stamps, hinted inputs at theirs. */
+  function stepWasPredicted(pred: Predictor, step: StreamTick, me: PlayerId): boolean {
+    let own = false
+    for (const inp of step.inputs) {
+      const expected = inp.player === me ? pred.ownAt(step.tick) : pred.hintAt(step.tick, inp.player)
+      if (!expected || JSON.stringify(expected) !== JSON.stringify(inp.cmds)) return false
+      if (inp.player === me) own = true
+    }
+    if (!own && pred.ownAt(step.tick).length) return false
+    for (const p of pred.hintedAt(step.tick)) if (!step.inputs.some((i) => i.player === p)) return false
+    return true
+  }
+
+  function checkHashes(cm: ClientMatch, st: ClientStream, now: number): void {
+    for (const [tick, host] of st.hostHashes) {
+      const mine = st.hashes.get(tick)
+      if (mine === undefined) {
+        if (tick < st.state.tick - 2 * HASH_EVERY) st.hostHashes.delete(tick)
+        continue
+      }
+      st.hostHashes.delete(tick)
+      if (tick > st.checkedTo) st.checkedTo = tick
+      st.checks++
+      if (mine !== host) {
+        if (st.desyncs === 0) console.warn(`[session] state hash mismatch at tick ${tick}: asking for a keyframe`)
+        st.desyncs++
+        st.desyncAt = now
+        st.keyframeAsked = true
+        st.needAt = -Infinity
+        askStream(cm, st, now, st.feed.next, true)
+      }
+    }
+    for (const tick of st.hashes.keys()) if (tick < st.state.tick - 2 * HASH_EVERY) st.hashes.delete(tick)
+  }
+
+  /** Stream mode: a snapshot is a keyframe (join, reconnect, gap beyond the host's history, desync heal). */
+  function onKeyframe(cm: ClientMatch, st: ClientStream, m: Extract<Msg, { t: 'snap' }>, now: number): void {
+    // an older snapshot than our confirmed state is only useful when we asked for one
+    if (m.state.tick < st.feed.next && !st.keyframeAsked) return
+    if (m.state.tick <= st.state.tick && !st.keyframeAsked) return
+    st.state = cloneState(m.state)
+    st.state.events = []
+    st.feed.reset(m.state.tick)
+    st.ack = m.ack
+    st.keyframeAsked = false
+    st.hashes.clear()
+    st.hostHashes.clear()
+    st.checkedTo = m.state.tick
+    st.lastAt = now
+    st.arrival.push(m.state.tick, now)
+    cm.pred?.offer(m.state, m.ack, m.ev)
+    advanceConfirmed(cm, st, now)
+    // keep the stream coming from here
+    askStream(cm, st, now, st.feed.next, false)
   }
 
   /**
@@ -1358,20 +1695,25 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       const t = link
       const cm = cmatch
       const b = cm?.buffer
-      const fresh = b !== undefined && b.latestTick >= 0
+      const st = cm?.stream ?? null
+      const fresh = st ? st.lastAt > -Infinity : b !== undefined && b.latestTick >= 0
+      const downLoss = st ? st.loss.pct : fresh ? b!.lossPct : null
+      const checks = st ? st.checks + st.desyncs : cm ? cm.check.checks + cm.check.desyncs : 0
+      const desyncs = st ? st.desyncs : (cm?.check.desyncs ?? 0)
+      const desyncAt = st ? st.desyncAt : (cm?.check.desyncAt ?? -Infinity)
       const row = graded(
         {
           playerId: HOST_PLAYER_ID,
           rttMs: t.rtt > 0 ? t.rtt : null,
           jitterMs: t.rtt > 0 ? t.rttJitter : null,
-          lossPct: cm ? worst(fresh ? b!.lossPct : null, upLossSeen) : null,
-          snapshotAgeMs: fresh ? now - b!.latestAt : null,
+          lossPct: cm ? worst(downLoss, upLossSeen) : null,
+          snapshotAgeMs: fresh ? now - (st ? st.lastAt : b!.latestAt) : null,
           channel: channelOf(t.unreliableMode),
           inputAckLagMs: cm?.ackLagMs ?? null,
           correctionPx: cm?.pred ? cm.corr.value(now) : null,
-          desyncs: cm && cm.check.checks + cm.check.desyncs > 0 ? cm.check.desyncs : null,
+          desyncs: cm && checks > 0 ? desyncs : null,
         },
-        cm !== null && now - cm.check.desyncAt < DESYNC_HOLD_MS,
+        cm !== null && now - desyncAt < DESYNC_HOLD_MS,
       )
       statsView = { role: 'client', peers: [row] }
       if (cm) {
@@ -1379,7 +1721,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           encode({
             t: 'nstat',
             match: cm.id,
-            dl: fresh ? b!.lossPct : null,
+            dl: downLoss,
             sa: row.snapshotAgeMs,
             al: row.inputAckLagMs,
             cp: row.correctionPx,
@@ -1571,6 +1913,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         connectedPatch: new Map(),
         recent: [],
         stepped: [],
+        history: new StreamHistory(),
+        hash: null,
         netMode: role === 'host' ? netMode() : 'classic',
         fair: { delay: 0, seq: 0, queue: [], applied: 0, pred: null },
         snapN: 0,
@@ -1591,7 +1935,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       publishLobby()
       rec?.start({ localPlayer, slots: mSlots, settings: mSettings })
       for (const p of peers) if (p.playerId !== null) sendStart(p, m)
-      if (m.netMode === 'predict') updateHostDelay(m, true)
+      if (m.netMode !== 'classic') updateHostDelay(m, true)
       deps.input.drain()
       out.reset()
       out.setLocalPlayer(localPlayer)
@@ -1712,6 +2056,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         hostDelayTicks: match?.fair.delay ?? 0,
         pulses: pulseStats.n,
         pulseMs: pulseStats.ms,
+        streamTick: cm?.stream ? cm.stream.state.tick : -1,
+        streamChecks: cm?.stream?.checks ?? 0,
+        streamDesyncs: cm?.stream?.desyncs ?? 0,
+        streamPeers: peers.filter((p) => p.stream && match !== null && p.matchId === match.id).length,
       }
     },
   }

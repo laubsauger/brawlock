@@ -26,6 +26,13 @@
  *                  prediction correction (game units), determinism check failures (null = n/a)
  *   host → client  pings {pings, ul?}               per-player RTT in ms, ~1 Hz (lobby and match);
  *                                                   ul = per-player uplink loss % seen by the host
+ *   host → client  is    {m, n, a, to, r, i?, c?, h?}   input stream (stream.ts): the confirmed
+ *                  steps [to - r, to), sent the tick they are stepped (empty stretches as a
+ *                  heartbeat); a = this client's applied input seq. To clients that asked with `need`.
+ *   client → host  need  {m, from, k?}   stream mode: send steps from tick `from` (start,
+ *                  gap repair); k = 1: send a keyframe snapshot (desync heal)
+ *   host → client  hint  {m, p, f}   another player's stamped input frames, relayed on
+ *                  arrival before they are stepped ([tick, cmds][]): prediction hints
  *   host → client  snap  {match, n, iv, ack, ev, in?, state}
  *     n     snapshot counter (loss stats), iv snapshot interval in ticks
  *     ack   highest input seq the host applied for this client
@@ -39,10 +46,11 @@
  */
 import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { TickEvents } from '../game/frame'
+import type { WireInput, WirePatch } from './stream'
 import type { MatchResult } from '../game/store'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -84,6 +92,9 @@ export type Msg =
       ds: number | null
     }
   | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; in?: PlayerInput[]; state: SimState }
+  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; h?: [number, number] }
+  | { t: 'need'; m: number; from: number; k?: 1 }
+  | { t: 'hint'; m: number; p: PlayerId; f: [number, InputCommand[]][] }
   | { t: 'end'; match: number; result: MatchResult }
   | { t: 'screen'; screen: 'lobby' }
   | { t: 'notice'; text: string }
@@ -101,6 +112,9 @@ const TYPES = new Set<Msg['t']>([
   'input',
   'nstat',
   'snap',
+  'is',
+  'need',
+  'hint',
   'end',
   'screen',
   'notice',
@@ -135,6 +149,14 @@ export function decode(data: string): Msg | null {
 export function encodeSnap(match: number, n: number, iv: number, ack: number, evJson: string, stateJson: string, inJson?: string): string {
   const inputs = inJson === undefined ? '' : `,"in":${inJson}`
   return `{"t":"snap","match":${match},"n":${n},"iv":${iv},"ack":${ack},"ev":${evJson}${inputs},"state":${stateJson}}`
+}
+
+/**
+ * Stream packet encoder: `body` is the JSON after the per-client fields (`"to":…,"r":…`
+ * plus optional i / c / h), built once per tick and shared by every client.
+ */
+export function encodeStreamPacket(match: number, n: number, ack: number, body: string): string {
+  return `{"t":"is","m":${match},"n":${n},"a":${ack},${body}}`
 }
 
 /** A reported link metric: finite, clamped to 0..1e6, else null. */

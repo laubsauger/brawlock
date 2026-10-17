@@ -71,11 +71,12 @@ export interface Settings {
   /** colourblind-safe player palette plus a shape per player (game/playerPalette.ts) */
   colorblindPalette: boolean
   /**
-   * online netcode, read at every match start: 'predict' = client-side prediction
-   * (own inputs react at once), 'classic' = interpolated host snapshots (escape
-   * hatch). `?net=classic` / `?net=predict` in the URL overrides it.
+   * online netcode, read at every match start: 'predict' = client-side prediction on
+   * the host's input stream (own inputs react at once, ~5-20 KB/s), 'snapshot' =
+   * prediction on full snapshots (fallback), 'classic' = interpolated host snapshots
+   * (escape hatch). `?net=predict|snapshot|classic` in the URL overrides it.
    */
-  netMode: 'predict' | 'classic'
+  netMode: 'predict' | 'snapshot' | 'classic'
 }
 
 export type NetRole = 'offline' | 'host' | 'client'

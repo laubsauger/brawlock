@@ -33,8 +33,13 @@ import { EVENT_REDUNDANCY_TICKS, type TickEvents } from './protocol'
 
 const DT_MS = 1000 / TICK_HZ
 
-/** Prediction never runs more than this many ticks past the newest snapshot (caps re-sim cost). */
-export const MAX_AHEAD_TICKS = 20
+/**
+ * Prediction never runs more than this many ticks past the newest confirmed state
+ * (caps re-sim cost and blind prediction through a stalled link). It must cover
+ * RTT + margin + the confirmed state's age, or the display pins to the cap: 30 ticks
+ * covers RTT up to ~380 ms.
+ */
+export const MAX_AHEAD_TICKS = 30
 /**
  * A snapshot that confirms the prediction (only own frames, at their stamps) skips
  * the rollback; one happens at least this often anyway, so a wrong "confirmed" can
@@ -92,6 +97,12 @@ export class Predictor {
   private sim: SimState | null = null
   private pending: { state: SimState; ack: number } | null = null
   private baseTick = -1
+  /** the newest base (never mutated): re-simulated from when a hint arrives */
+  private baseState: SimState | null = null
+  private baseAck = 0
+  /** other players' input frames relayed before they are confirmed: tick → player → cmds */
+  private hints = new Map<number, Map<PlayerId, InputCommand[]>>()
+  private hintsDirty = false
   private frames: LocalFrame[] = []
   private lateSeen = 0
   private offsets = new Map<number, Offset>()
@@ -175,11 +186,43 @@ export class Predictor {
     const sim = this.sim
     if (confirms && !this.pending && sim && state.tick <= sim.tick && state.tick - this.rebasedAt < FORCE_REBASE_TICKS) {
       this.baseTick = state.tick
+      this.baseState = state
+      this.baseAck = ack
       this.frames = this.frames.filter((f) => f.seq > ack)
+      this.dropHints(state.tick)
       this.stats.confirms++
       return
     }
     this.pending = { state, ack }
+  }
+
+  /**
+   * Another player's input frame, relayed by the host before it is stepped there
+   * (it will run in the step from `tick`): predicted at that tick instead of
+   * waiting for the confirmation. A wrong hint is corrected by the confirmed stream.
+   */
+  hint(player: PlayerId, tick: number, cmds: InputCommand[]): void {
+    if (player === this.player || tick < this.baseTick || cmds.length === 0) return
+    let at = this.hints.get(tick)
+    if (!at) this.hints.set(tick, (at = new Map()))
+    const prev = at.get(player)
+    at.set(player, prev ? prev.concat(cmds) : cmds)
+    this.hintsDirty = true
+  }
+
+  /** Hinted commands of `player` for the step from `tick`, if any. */
+  hintAt(tick: number, player: PlayerId): InputCommand[] | undefined {
+    return this.hints.get(tick)?.get(player)
+  }
+
+  /** Players with hints for the step from `tick`. */
+  hintedAt(tick: number): PlayerId[] {
+    const at = this.hints.get(tick)
+    return at ? [...at.keys()] : []
+  }
+
+  private dropHints(before: number): void {
+    for (const t of this.hints.keys()) if (t < before) this.hints.delete(t)
   }
 
   /**
@@ -189,6 +232,9 @@ export class Predictor {
    * play for it. Display states are fresh copies; the caller may keep them.
    */
   advance(target: number, emit: (display: SimState, events: SimEvent[]) => void): void {
+    // new hints change the predicted ticks: re-simulate them from the current base
+    if (!this.pending && this.hintsDirty && this.baseState) this.pending = { state: this.baseState, ack: this.baseAck }
+    this.hintsDirty = false
     if (this.pending) this.rebase()
     const sim = this.sim
     if (!sim) return
@@ -206,6 +252,9 @@ export class Predictor {
     const t0 = this.clock()
     const { state, ack } = this.pending!
     this.pending = null
+    this.baseState = state
+    this.baseAck = ack
+    this.dropHints(state.tick)
     this.frames = this.frames.filter((f) => f.seq > ack)
     // a frame stamped before this snapshot's tick that the host has not applied came in late
     for (const f of this.frames) {
@@ -248,7 +297,10 @@ export class Predictor {
       if (!cmds) cmds = []
       for (const c of f.cmds) cmds.push(c)
     }
-    this.step(state, cmds ? [{ player: this.player, tick: t, cmds }] : [])
+    const inputs: PlayerInput[] = cmds ? [{ player: this.player, tick: t, cmds }] : []
+    const hinted = this.hints.get(t)
+    if (hinted) for (const [player, c] of hinted) inputs.push({ player, tick: t, cmds: c })
+    this.step(state, inputs)
   }
 
   /** Visual continuity: the displayed position stays where it was and the error decays. */
