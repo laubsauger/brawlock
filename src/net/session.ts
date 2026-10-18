@@ -75,6 +75,9 @@ import {
   type TickEvents,
 } from './protocol'
 import type { HostEndpoint, NetFactory, Transport, UnreliableMode } from './transport'
+import { PLAYER_COLORS, planPlayerColor } from './lobbyColors'
+export { PLAYER_COLORS } from './lobbyColors'
+import { isLobbyVoteChoice, isLobbyVoteSetting, LOBBY_VOTE_MS, settleLobbyVote, type LobbyVoteChoice, type LobbyVoteResult, type LobbyVoteSetting, type LobbyVoteView, type LobbyVoteWire } from './lobbyVotes'
 
 /**
  * 'predict' (default): prediction on the input stream (stream.ts): the host sends the
@@ -179,6 +182,9 @@ export interface SessionApi {
   join(code: string): Promise<void>
   /** Change the local seat's display label, preserving its profile and device identities. */
   setDisplayName(name: string): void
+  setPlayerColor(color: number): void
+  startLobbyVote(setting: LobbyVoteSetting): void
+  castLobbyVote(id: number, choice: LobbyVoteChoice): void
   addBot(difficulty: BotDifficulty): void
   removeSlot(player: PlayerId): void
   setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): void
@@ -256,19 +262,6 @@ export interface SessionDebug {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Strong, distinct player colors on a dark arena. One per slot. */
-export const PLAYER_COLORS = [
-  0xff3b30, // red
-  0x2e7bff, // blue
-  0x14e0c8, // teal
-  0xa24bff, // purple
-  0xffd60a, // yellow
-  0xff8c1a, // orange
-  0x34c759, // green
-  0xff4fa3, // pink
-  0xe8e8f0, // white
-  0xa86b32, // brown
-]
 export const MAX_PLAYERS = 10
 
 const DT_MS = 1000 / TICK_HZ
@@ -499,6 +492,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let epoch = 0
   let slots: PlayerSlot[] = []
   let settings: MatchSettings = { ...deps.defaultSettings }
+  let vote: LobbyVoteView | null = null
+  let voteResult: LobbyVoteResult | null = null
+  let voteCounter = 0
+  let voteTimer: ReturnType<typeof setInterval> | null = null
+  let voteIdentities = new Map<number, string | undefined>()
+  let voteProposer: number | null = null
   let localPlayer: PlayerId = 0
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   let ready: Record<PlayerId, boolean> = {}
@@ -584,8 +583,63 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   }
 
   function publishLobby(): void {
-    ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer, ready: { ...ready }, pings: { ...pings } })
-    if (role === 'host') broadcast(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings })
+    if (vote) {
+      vote.eligible = vote.eligible.filter((id) => slots.some((s) => s.id === id && s.kind === 'human' && s.profileId === voteIdentities.get(id)))
+      for (const id of Object.keys(vote.votes).map(Number)) if (!vote.eligible.includes(id)) delete vote.votes[id]
+      if (voteProposer !== null && !vote.eligible.includes(voteProposer)) cancelVote()
+    }
+    ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer, ready: { ...ready }, pings: { ...pings }, vote: vote ? { ...vote, eligible: [...vote.eligible], votes: { ...vote.votes } } : null, voteResult })
+    if (role === 'host') broadcast(lobbyMsg())
+  }
+
+  function clearVote(): void {
+    if (voteTimer !== null) clearInterval(voteTimer)
+    voteTimer = null
+    vote = null
+    voteIdentities.clear()
+    voteProposer = null
+  }
+
+  function cancelVote(): void {
+    if (vote) voteResult = { id: vote.id, setting: vote.setting, value: settings[vote.setting], reason: 'cancelled' }
+    clearVote()
+  }
+
+  function beginVote(setting: LobbyVoteSetting, proposer: number): void {
+    if (!canEdit() || role !== 'host' || roomInfo.quick || vote || !isLobbyVoteSetting(setting)) return
+    const humans = slots.filter((s) => s.kind === 'human')
+    if (humans.length < 2 || !humans.some((s) => s.id === proposer)) return
+    vote = { id: ++voteCounter, setting, current: settings[setting], closesAt: deps.now() + LOBBY_VOTE_MS, eligible: humans.map((s) => s.id), votes: {} }
+    voteIdentities = new Map(humans.map((s) => [s.id, s.profileId]))
+    voteProposer = proposer
+    voteResult = null
+    voteTimer = setInterval(() => {
+      if (!vote || deps.now() < vote.closesAt) return
+      voteResult = settleLobbyVote(vote)
+      settings = { ...settings, [voteResult.setting]: voteResult.value }
+      clearVote()
+      publishLobby()
+    }, 50)
+    publishLobby()
+  }
+
+  function castVote(player: number, id: number, choice: LobbyVoteChoice): void {
+    if (!canEdit() || !vote || vote.id !== id || deps.now() >= vote.closesAt || !isLobbyVoteChoice(choice) || !vote.eligible.includes(player)) return
+    const slot = slots.find((s) => s.id === player && s.kind === 'human')
+    if (!slot || slot.profileId !== voteIdentities.get(player) || vote.votes[player] === choice) return
+    vote.votes = { ...vote.votes, [player]: choice }
+    publishLobby()
+  }
+
+  function changeColor(player: number, color: number): void {
+    if (!canEdit()) return
+    const patches = planPlayerColor(slots, player, color)
+    if (!patches?.length) return
+    slots = slots.map((s) => {
+      const patch = patches.find((p) => p.player === s.id)
+      return patch ? { ...s, color: patch.color } : s
+    })
+    publishLobby()
   }
 
   function renameSlot(id: PlayerId, name: string): void {
@@ -603,7 +657,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   /** Dedicated server: the lobby message with the owner and the room state. */
   function lobbyMsg(): Msg {
-    return { t: 'lobby', slots, settings, ready, pings, owner: ownerId(), room: roomStateNow() }
+    const wireVote: LobbyVoteWire | null = vote ? { id: vote.id, setting: vote.setting, current: vote.current, eligible: vote.eligible, votes: vote.votes, inMs: Math.max(0, vote.closesAt - deps.now()) } : null
+    return { t: 'lobby', slots, settings, ready, pings, vote: wireVote, voteResult, ...(dedicated ? { owner: ownerId(), room: roomStateNow() } : {}) }
   }
 
   function roomStateNow(): RoomState {
@@ -679,6 +734,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   /** Drop every connection, loop and timer. Leaves the store's lobby fields to the caller. */
   function teardown(): void {
     epoch++
+    clearVote()
+    voteResult = null
+    ui.setLobby({ vote: null, voteResult: null })
     if (match) {
       match.stop?.()
       match = null
@@ -804,6 +862,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       renameSlot(p.playerId, p.name)
     }
     else if (m.t === 'input') onInput(p, m)
+    else if (m.t === 'color' && p.playerId !== null) changeColor(p.playerId, m.color)
+    else if (m.t === 'vote' && p.playerId !== null) castVote(p.playerId, m.id, m.choice)
     else if (m.t === 'nstat') onReport(p, m)
     else if (m.t === 'need') onNeed(p, m)
     else if (m.t === 'ctl') onCtl(p, m)
@@ -899,7 +959,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       renameSlot(back, p.name)
       p.t.sendReliable(encode(welcomeFor(back)))
-      p.t.sendReliable(encode(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings }))
+      p.t.sendReliable(encode(lobbyMsg()))
       if (match) sendStart(p, match)
       showNotice(`${p.name} reconnected`, true)
       return
@@ -983,6 +1043,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         break
       case 'settings':
         api.updateSettings(sanitizeSettingsPatch(m.settings, deps.defaultSettings))
+        break
+      case 'vote':
+        if (isLobbyVoteSetting(m.setting)) beginVote(m.setting, p.playerId)
         break
       case 'start':
         api.startMatch()
@@ -1469,6 +1532,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           localPlayer,
           ready: { ...ready },
           pings: { ...pings },
+          vote: m.vote ? { id: m.vote.id, setting: m.vote.setting, current: m.vote.current, eligible: m.vote.eligible, votes: m.vote.votes, closesAt: deps.now() + m.vote.inMs } : null,
+          voteResult: m.voteResult ?? null,
           role: serverRoom && owner === localPlayer && localPlayer >= 0 ? 'host' : 'client',
           // a P2P host sends no room state: a plain room
           ...roomView(serverRoom ? m.room : undefined, deps.now()),
@@ -2159,6 +2224,23 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       else if (isAuthority() && localPlayer >= 0) renameSlot(localPlayer, label)
     },
 
+    setPlayerColor(color) {
+      if (role === 'client') link?.sendReliable(encode({ t: 'color', color }))
+      else if (isAuthority() && localPlayer >= 0) changeColor(localPlayer, color)
+    },
+
+    startLobbyVote(setting) {
+      if (!isLobbyVoteSetting(setting)) return
+      if (ownerCtl({ t: 'ctl', op: 'vote', setting })) return
+      if (role === 'host' && !dedicated) beginVote(setting, localPlayer)
+    },
+
+    castLobbyVote(id, choice) {
+      if (!Number.isInteger(id) || !isLobbyVoteChoice(choice)) return
+      if (role === 'client') link?.sendReliable(encode({ t: 'vote', id, choice }))
+      else if (isAuthority() && localPlayer >= 0) castVote(localPlayer, id, choice)
+    },
+
     addBot(difficulty) {
       if (ownerCtl({ t: 'ctl', op: 'addBot', difficulty })) return
       if (!canEdit() || slots.length >= MAX_PLAYERS) return
@@ -2207,13 +2289,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     updateSettings(patch) {
       if (ownerCtl({ t: 'ctl', op: 'settings', settings: patch })) return
       if (!canEdit()) return
+      const cancelsVote = vote && Object.hasOwn(patch, vote.setting) && patch[vote.setting] !== settings[vote.setting]
       settings = { ...settings, ...patch }
+      if (cancelsVote) cancelVote()
       publishLobby()
     },
 
     startMatch() {
       if (ownerCtl({ t: 'ctl', op: 'start' })) return
-      if (!isAuthority() || match || slots.length === 0) return
+      if (!isAuthority() || match || vote || slots.length === 0) return
+      voteResult = null
       const seed = Math.floor(deps.random() * 0x100000000) >>> 0
       const mSlots = slots.map((s) => ({ ...s }))
       const mSettings = { ...settings }

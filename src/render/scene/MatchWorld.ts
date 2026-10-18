@@ -9,6 +9,7 @@ import { CameraReach, EDGE_SPEED, reachFor } from '../cameraReach'
 import { PawnLocator } from '../overlay/PawnLocator'
 import { renderPrefs } from '../prefs'
 import { victoryCameraOffset, victoryCameraWeight } from '../victoryCamera'
+import { victoryStyle } from '../character/victoryPose'
 import { createWarlock, warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
@@ -1086,7 +1087,7 @@ export class MatchWorld {
         for (const [, v] of living) {
           if (match && this.lastCamera) {
             const facing = this.victoryShot?.facing ?? Math.atan2(-this.lastCamera.position.z / S - v.y, this.lastCamera.position.x / S - v.x)
-            v.celebrate(facing)
+            v.celebrate(facing, victoryStyle(curr.round, v.owner))
           }
           if (fx <= 0 || this.reducedMotion.matches) continue
           const c = v.identityColor

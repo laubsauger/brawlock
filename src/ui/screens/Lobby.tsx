@@ -18,6 +18,8 @@ import { useLinks } from '../lib/netmonitor'
 import { useMatchRenderReady } from '../MatchLayer'
 import type { PeerNet } from '../lib/netstats'
 import { BOT_ELO } from '../../bots'
+import { PlayerColorPicker } from './PlayerColorPicker'
+import { LobbyVote } from './LobbyVote'
 
 const DIFFICULTY_LABEL: Record<BotDifficulty, string> = {
   dummy: 'Dummy',
@@ -52,7 +54,7 @@ function pcListingText(l: ReturnType<typeof session.listing>, on: boolean): stri
   if (!on || !l || l.status === 'off') return 'Shows this game in Browse games; players join your PC directly'
   if (l.status === 'pending') return 'Listing in Browse games…'
   if (l.status === 'error') return `Not listed: ${l.error ?? 'the game server did not answer'}`
-  return `Listed in Browse games${l.regionStatus ? ` (${l.regionStatus.label})` : ''}`
+  return 'Listed in Browse · hosted on your PC'
 }
 
 function statusLine(l: LobbyView, humans: number): { text: string; tone: 'idle' | 'wait' | 'ok' | 'error' } {
@@ -152,7 +154,7 @@ function PlayerCard({
   const glyph = playerGlyph(slot, shown, cb)
   return (
     <li
-      className="card-in relative flex items-center gap-3.5 rounded-lg px-3 py-2.5"
+      className="card-in relative flex flex-wrap items-center gap-3.5 rounded-lg px-3 py-2.5 sm:flex-nowrap"
       style={{ background: `linear-gradient(90deg, ${color}1f, rgba(0,0,0,.22) 45%)`, boxShadow: `inset 3px 0 0 ${color}, inset 0 0 0 1px rgba(255,170,100,.08)` }}
     >
       <span
@@ -160,7 +162,7 @@ function PlayerCard({
         style={{ background: `linear-gradient(135deg, ${color}, ${color}77)`, boxShadow: `0 0 16px ${color}66, inset 0 0 0 1px rgba(255,255,255,.3)` }}
         aria-hidden
       />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-24 flex-1 sm:min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate text-[1.15rem] font-bold">
             {glyph && <span className="mr-1.5" style={{ color }} aria-hidden>{glyph}</span>}
@@ -299,6 +301,7 @@ export function Lobby() {
   const encounters = useEncounters()
   const online = lobby.role !== 'offline'
   const localReady = !!lobby.ready?.[lobby.localPlayer]
+  const localSlot = lobby.slots.find((slot) => slot.id === lobby.localPlayer && slot.kind === 'human')
 
   const links = useLinks()
   // how the room runs, once it is open (stable from then on)
@@ -324,7 +327,7 @@ export function Lobby() {
   const ready = lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
 
   return (
-    <div className="screen-in flex h-full flex-col px-[max(16px,4vw)] py-[max(16px,3vh)]">
+    <div className="screen-in flex h-full flex-col overflow-y-auto px-[max(16px,4vw)] py-[max(16px,3vh)] lg:overflow-hidden">
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-end gap-4">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Lobby</h1>
@@ -352,8 +355,10 @@ export function Lobby() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-        <section className="panel flex min-h-0 flex-col p-6" aria-label="Players">
+      <LobbyVote />
+
+      <div className="grid shrink-0 grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+        <section className="panel flex min-h-80 max-h-[70vh] flex-col p-6 lg:min-h-0 lg:max-h-none" aria-label="Players">
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="section-title text-[1.9rem]">Warlocks</h2>
             <span className="tabular text-ash">
@@ -379,6 +384,9 @@ export function Lobby() {
             ))}
             {lobby.slots.length === 0 && <li className="py-6 text-ash">{lobby.status === 'error' ? 'No players.' : 'Setting up the lobby…'}</li>}
           </ul>
+          {localSlot && <div className="mt-4 border-t border-[rgba(255,170,100,0.1)] pt-3">
+            <PlayerColorPicker local={localSlot} slots={lobby.slots} editable={lobby.status === 'open'} />
+          </div>}
           {canEdit && (
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[rgba(255,170,100,0.1)] pt-4">
               <select
@@ -402,8 +410,8 @@ export function Lobby() {
           )}
         </section>
 
-        <section className="panel flex min-h-0 flex-col p-6" aria-label="Match options">
-          <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+        <section className="panel flex min-h-0 max-h-[70vh] flex-col p-6 lg:max-h-none" aria-label="Match options">
+          <div className="-ml-2 min-h-0 flex-1 overflow-y-auto pl-2 pr-2">
             {(lobby.role === 'host' || (lobby.role === 'client' && lobby.roomCode)) && <InviteCard code={lobby.roomCode} url={lobby.joinUrl} host={lobby.role === 'host'} />}
             {((transport === 'server' && (lobby.quick || lobby.role === 'host')) || (transport === 'p2p' && lobby.role === 'host' && regions.length > 0)) && (
               <div className="mb-6 flex items-center justify-between gap-4 rounded-lg bg-[rgba(0,0,0,0.25)] px-4 py-3">
@@ -416,7 +424,7 @@ export function Lobby() {
                 <Switch label="Listed publicly" checked={lobby.quick ? true : !!lobby.public} disabled={!!lobby.quick} onChange={(v) => session.setPublic(v)} />
               </div>
             )}
-            <MatchOptions settings={lobby.settings} editable={canEdit} />
+            <MatchOptions settings={lobby.settings} editable={canEdit} voting={lobby.role === 'host' && !lobby.quick && humans >= 2 && lobby.status === 'open'} activeVote={lobby.vote ?? null} />
           </div>
         </section>
       </div>
@@ -437,12 +445,12 @@ export function Lobby() {
             <Button
               variant="primary"
               size="lg"
-              disabled={!ready || !warm.ready}
+              disabled={!ready || !warm.ready || !!lobby.vote}
               sound="ready"
               onClick={startMatch}
-              title={!ready ? 'Add a bot or wait for a friend' : !warm.ready ? 'Loading the arena so the match starts without a hitch' : undefined}
+              title={lobby.vote ? 'Wait for the lobby vote to finish' : !ready ? 'Add a bot or wait for a friend' : !warm.ready ? 'Loading the arena so the match starts without a hitch' : undefined}
               data-testid="start-match"
-              data-ready={ready && warm.ready}
+              data-ready={ready && warm.ready && !lobby.vote}
             >
               {ready && !warm.ready ? (
                 <>

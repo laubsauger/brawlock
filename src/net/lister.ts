@@ -8,6 +8,7 @@
  */
 import type { ListingInfo } from './listings'
 import { ServerError, type Online } from './online'
+import type { MatchSettings, PlayerSlot } from '../sim/types'
 
 const MIN_BEAT_MS = 2000
 const RETRY_MS = 15_000
@@ -33,6 +34,34 @@ const realTimers: ListerTimers = {
 }
 
 type Target = { region: string; info: ListingInfo }
+
+/** Public P2P rooms remain discoverable even with every seat occupied by bots or humans. */
+export function p2pListingTarget(input: {
+  listed: { code: string; region: string } | null
+  role: string
+  status: string
+  code: string | null
+  public: boolean
+  transport: 'server' | 'p2p' | null
+  slots: readonly Pick<PlayerSlot, 'kind'>[]
+  settings: MatchSettings
+  screen: string
+  host: string
+  max: number
+  joinable: number
+}): Target | null {
+  const { listed } = input
+  if (!listed || !input.public || input.role !== 'host' || input.status !== 'open' || input.code !== listed.code || input.transport !== 'p2p') return null
+  const humans = input.slots.filter((slot) => slot.kind === 'human').length
+  return {
+    region: listed.region,
+    info: {
+      code: listed.code, host: input.host, humans, bots: input.slots.length - humans, max: input.max, joinable: input.joinable,
+      phase: input.screen === 'match' ? 'match' : input.screen === 'results' ? 'results' : 'lobby',
+      teamMode: input.settings.teamMode, gameMode: input.settings.gameMode, winScore: input.settings.winScore,
+    },
+  }
+}
 
 export class Lister {
   private target: Target | null = null

@@ -55,11 +55,12 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack])
 
-  const join = (code: string) => {
+  const join = (room: PublicRoom) => {
+    const code = room.code
     sfx('click')
     if (failed) setLobby({ status: 'idle', error: null })
     setJoining(code)
-    const problem = joinRoom(code, () => setJoining(null))
+    const problem = joinRoom(code, () => setJoining(null), room.kind === 'p2p' ? { kind: 'p2p' } : { kind: 'server', region: room.region.id })
     if (problem) {
       setJoining(null)
       setLobby({ status: 'error', error: problem.problem })
@@ -122,7 +123,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                       <RegionPing s={r.region} withName />
                     )}
                   </span>
-                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={full || joining !== null} onClick={() => join(r.code)} title={joinTitle}>
+                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={full || joining !== null} onClick={() => join(r)} title={joinTitle}>
                     {joining === r.code ? 'Joining…' : full ? 'Full' : joinLabel}
                   </Button>
                 </li>

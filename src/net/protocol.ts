@@ -56,9 +56,10 @@ import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput,
 import type { TickEvents } from '../game/frame'
 import { decodeCmd, encodeCmd, type WireCmd, type WireInput, type WirePatch, type WireSlot } from './stream'
 import type { MatchResult } from '../game/store'
+import type { LobbyVoteChoice, LobbyVoteSetting, LobbyVoteWire, LobbyVoteResult } from './lobbyVotes'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -95,6 +96,8 @@ export interface RoomState {
 export type Msg =
   | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null; device?: string; build?: string }
   | { t: 'rename'; name: string }
+  | { t: 'color'; color: number }
+  | { t: 'vote'; id: number; choice: LobbyVoteChoice }
   | { t: 'welcome'; playerId: PlayerId; server?: { build: string } }
   | {
       t: 'lobby'
@@ -102,6 +105,8 @@ export type Msg =
       settings: MatchSettings
       ready: Record<PlayerId, boolean>
       pings: Record<PlayerId, number>
+      vote?: LobbyVoteWire | null
+      voteResult?: LobbyVoteResult | null
       /** dedicated server: the room owner's seat (-1 none) */
       owner?: PlayerId
       /** dedicated server: how the room is listed and run */
@@ -109,7 +114,8 @@ export type Msg =
     }
   | {
       t: 'ctl'
-      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby' | 'visibility'
+      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby' | 'visibility' | 'vote'
+      setting?: LobbyVoteSetting
       player?: PlayerId
       difficulty?: BotDifficulty
       team?: number
@@ -147,6 +153,8 @@ export type Msg =
 const TYPES = new Set<Msg['t']>([
   'hello',
   'rename',
+  'color',
+  'vote',
   'welcome',
   'lobby',
   'ready',

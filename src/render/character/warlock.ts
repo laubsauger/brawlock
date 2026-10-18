@@ -15,6 +15,7 @@ import { CAST_HANDS, castCategory, windupHiddenFrom, type CastCategory, type Cas
 import { frame } from '../../game/frame'
 import { syncFootprint } from './debug'
 import { DeathMotion, LaunchMotion, deathHop } from './impactMotion'
+import { newVictoryPose, sampleVictoryPose, type VictoryStyle } from './victoryPose'
 
 const TAU = Math.PI * 2
 function angDiff(a: number, b: number): number {
@@ -181,6 +182,9 @@ export class CC0Warlock implements WarlockHandle {
   private deathSpin = 0
   private victory = false
   private victoryFacing: number | null = null
+  private victoryStyle: VictoryStyle = 'summon'
+  private victoryAge = 0
+  private victoryPose = newVictoryPose()
   private motionIntensity = 1
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   private recoilT = 1
@@ -369,14 +373,17 @@ export class CC0Warlock implements WarlockHandle {
     if (this.death.beginRound(round)) this.revive()
   }
 
-  celebrate(facing: number): void {
+  celebrate(facing: number, style: VictoryStyle = 'summon'): void {
     if (this.dead) return
     this.victory = true
     this.victoryFacing = facing
+    this.victoryStyle = style
+    this.victoryAge = 0
     this.castPhase = 'none'
     this.gpu.castCharge = 0
     this.locomotion = ''
-    this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: 0.6 })
+    // A survivor still airborne finishes the existing launch before posing.
+    if (!this.tumbling) this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: this.motionIntensity > 0 ? 0.6 : 0, restart: true, at: 0.4 })
   }
 
   // ------------------------------------------------------------------ events
@@ -684,6 +691,10 @@ export class CC0Warlock implements WarlockHandle {
     for (let i = 0; i < events.length; i++) this.onEvent(events[i], p)
     if (!p.alive && !this.dead) this.die(p.lavaTicks > 0 ? 'lava' : 'ash', p.vx - p.walkVx, p.vy - p.walkVy)
     if (p.alive && this.dead && !this.death.confirmed) this.revive()
+    if (this.victory && !this.dead && !this.tumbling) {
+      this.victoryAge += dt
+      sampleVictoryPose(this.victoryStyle, this.victoryAge, this.motionIntensity, this.victoryPose)
+    }
 
     // a windup we missed the event for (late join, skipped snapshot)
     const running = !!p.cast && p.cast.started !== false
@@ -799,8 +810,8 @@ export class CC0Warlock implements WarlockHandle {
     } else if (this.castPhase === 'backswing') {
       this.releaseT += dt
       if (walk > 30 || this.releaseT > 0.24 + 0.34) this.endCast(walk > 30 ? 0.08 : 0.25)
-    } else if (this.victory && !this.dead) {
-      this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: 0.6 })
+    } else if (this.victory && !this.dead && !this.tumbling) {
+      this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: this.motionIntensity > 0 ? 0.6 : 0 })
     } else if (!this.dead && !this.tumbling && this.anim.upper.currentName !== this.anim.lower.currentName) {
       this.anim.upperFollow(0.2)
     }
@@ -816,6 +827,7 @@ export class CC0Warlock implements WarlockHandle {
     if (!this.dead) {
       this.recoilT += dt
       this.yawG.position.y = !this.tumbling && this.recoilT < 0.2 ? Math.sin(Math.PI * this.recoilT / 0.2) * 0.045 * this.recoilK * this.motionIntensity : 0
+      if (this.victory && !this.tumbling) this.yawG.position.y += this.victoryPose.bounce
     }
     // detail 2 (offscreen): the skeleton advances at ~15 Hz with the summed dt
     this.animAcc += dt
@@ -915,10 +927,11 @@ export class CC0Warlock implements WarlockHandle {
       const ch = g.castCharge
       const rt = this.releaseT
       const live = !this.dead && !this.tumbling
-      const tOverhead = live && this.victory ? 0.82 + 0.035 * Math.sin(this.t * 4) * this.motionIntensity : live && cat === 'aoe' && ph === 'windup' && !this.hidden ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
-      const tCross = live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0
-      const tFlare = live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0
-      const tBeam = live && cat === 'beam' && ph !== 'none' ? 1 : 0
+      const victory = live && this.victory ? this.victoryPose : null
+      const tOverhead = victory ? victory.overhead : live && cat === 'aoe' && ph === 'windup' && !this.hidden ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
+      const tCross = victory ? victory.cross : live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0
+      const tFlare = victory ? victory.flare : live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0
+      const tBeam = victory ? victory.beam : live && cat === 'beam' && ph !== 'none' ? 1 : 0
       const tGround = live && cat === 'ground' && (ph === 'release' || ph === 'backswing') ? Math.max(0, 1 - Math.max(0, rt - 0.2) / 0.35) : 0
       const tSky = live && cat === 'sky' && ph === 'windup' ? ch : 0
       const rate = ph === 'release' ? 28 : 12
@@ -970,6 +983,19 @@ export class CC0Warlock implements WarlockHandle {
         this.rotBone('spine_03', X, 0.16 * P.ground)
       }
       if (P.sky > 1e-3) this.rotBone('upperarm_r', Z, -0.4 * P.sky)
+      if (victory) {
+        this.rotBone('pelvis', Z, victory.sway)
+        this.rotBone('spine_02', Y, victory.twist)
+        this.rotBone('spine_03', Z, -victory.sway * 0.6)
+        this.rotBone('thigh_l', X, victory.knee)
+        this.rotBone('thigh_r', X, -victory.knee)
+        this.rotBone('calf_l', X, Math.max(0, -victory.knee) * 0.8)
+        this.rotBone('calf_r', X, Math.max(0, victory.knee) * 0.8)
+        this.rotBone('upperarm_l', X, victory.armWave)
+        this.rotBone('upperarm_r', X, -victory.armWave)
+        this.rotBone('lowerarm_l', X, -victory.elbowL)
+        this.rotBone('lowerarm_r', X, -victory.elbowR)
+      }
       // facing cue: standing idle, both hands come up in front of the robe (a
       // ready stance) with a faint glow; from above they point the way
       const ih = g.idleHands

@@ -4,8 +4,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { LISTING_TTL_MS, ListingDirectory, type ListingInfo } from './listings'
-import { Lister, type ListerTimers } from './lister'
+import { Lister, p2pListingTarget, type ListerTimers } from './lister'
 import { ServerError, type Online } from './online'
+import { DEFAULT_SETTINGS } from '../sim/config'
 
 const INFO: ListingInfo = { code: 'ABCDE', host: 'Mira', humans: 1, bots: 2, max: 10, phase: 'lobby', teamMode: 'ffa', gameMode: 'rounds', winScore: 5 }
 
@@ -16,6 +17,29 @@ function directory(limits: Partial<ConstructorParameters<typeof ListingDirectory
 }
 
 describe('listing directory (server)', () => {
+  it('publishes full bot-filled P2P rooms in lobby, match and results with their real reservable seats', () => {
+    const input = {
+      listed: { code: INFO.code, region: 'us-west' }, code: INFO.code, role: 'host', status: 'open', public: true,
+      transport: 'p2p' as const, slots: [{ kind: 'human' as const }, ...Array.from({ length: 9 }, () => ({ kind: 'bot' as const }))],
+      settings: DEFAULT_SETTINGS, host: INFO.host, max: 10, joinable: 9,
+    }
+    const { dir } = directory()
+    for (const screen of ['lobby', 'match', 'results']) {
+      const target = p2pListingTarget({ ...input, screen })!
+      expect(target.info).toMatchObject({ humans: 1, bots: 9, max: 10, joinable: 9, phase: screen })
+      const listed = dir.create('ip', target.info)
+      if (!listed.ok) throw new Error(listed.error)
+      expect(dir.list()).toMatchObject([{ kind: 'p2p', code: INFO.code, joinable: 9 }])
+      expect(dir.remove(listed.id, { token: listed.token }).ok).toBe(true)
+    }
+    // Full humans remain discoverable to a disconnected participant; browser disables new joins.
+    expect(p2pListingTarget({ ...input, screen: 'match', slots: Array.from({ length: 10 }, () => ({ kind: 'human' as const })), joinable: 0 })?.info).toMatchObject({ humans: 10, bots: 0, joinable: 0 })
+    for (const patch of [{ public: false }, { transport: 'server' as const }, { role: 'client' }, { status: 'error' }, { code: 'OTHER' }]) {
+      expect(p2pListingTarget({ ...input, screen: 'lobby', ...patch })).toBeNull()
+    }
+    expect(dir.create('ip', { ...INFO, joinable: -1 })).toMatchObject({ ok: false, error: 'bad joinable' })
+    expect(dir.create('ip', { ...INFO, joinable: 11 })).toMatchObject({ ok: false, error: 'bad joinable' })
+  })
   /** Why: the browser must only show rooms whose host is still there: a host that stops sending heartbeats drops off within the TTL. */
   it('create, heartbeat, expire, delete', () => {
     const { dir, advance } = directory()

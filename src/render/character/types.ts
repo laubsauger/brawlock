@@ -3,6 +3,7 @@ import type { PawnState, SimEvent } from '../../sim/types'
 import type { CastFrom, WarlockStyle } from './config'
 import type { StaffVariant } from './geometry'
 import type { WorldCtx } from '../scene/world'
+import type { VictoryStyle } from './victoryPose'
 
 /**
  * Death looks (deathFx). Picked automatically from the sim 'death' event's
@@ -96,7 +97,7 @@ export interface WarlockHandle {
   /** Extra recoil / throw exaggeration, scaled by FX intensity and reduced motion. */
   setMotionIntensity(intensity: number): void
   /** Face a camera-space direction and raise both hands without changing simulation facing. */
-  celebrate(facing: number): void
+  celebrate(facing: number, style?: VictoryStyle): void
   /**
    * Force / override the death look (also starts the death if the pawn is still
    * alive here). (dx, dy) = push direction for blown-back kinds. `edge` sets the

@@ -95,6 +95,8 @@ export interface Settings {
 export type NetRole = 'offline' | 'host' | 'client'
 
 export interface LobbyView {
+  vote?: import('../net/lobbyVotes').LobbyVoteView | null
+  voteResult?: import('../net/lobbyVotes').LobbyVoteResult | null
   role: NetRole
   /** shareable join link (host only) */
   joinUrl: string | null

@@ -86,7 +86,7 @@ export const OBSTACLE_RADII: readonly (readonly number[])[] = [
 export const SPAWN_OBSTACLES = true
 
 // --- rounds / shop -------------------------------------------------------------
-export const ROUND_END_SECONDS = 2
+export const ROUND_END_SECONDS = 3
 /** deathmatch: round length and respawn delay (ModeDeathmatch) */
 export const DM_ROUND_SECONDS = 60
 export const DM_RESPAWN_SECONDS = 10

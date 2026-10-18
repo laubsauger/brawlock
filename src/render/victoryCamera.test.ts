@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { victoryCameraOffset, victoryCameraWeight } from './victoryCamera'
+import { ROUND_END_SECONDS } from '../sim/config'
 
 describe('winner shot', () => {
   it('starts and ends at the gameplay camera, with a continuous hold between', () => {
-    expect(victoryCameraWeight(0, 2)).toBe(0)
+    expect(victoryCameraWeight(0, ROUND_END_SECONDS)).toBe(0)
     expect(victoryCameraWeight(1, 1)).toBe(1)
-    expect(victoryCameraWeight(2, 0)).toBe(0)
-    for (let age = 0; age <= 2; age += 1 / 120) {
-      const before = victoryCameraWeight(age, 2 - age)
-      const after = victoryCameraWeight(age + 1 / 120, 2 - age - 1 / 120)
+    expect(victoryCameraWeight(2, 1)).toBe(1)
+    expect(victoryCameraWeight(ROUND_END_SECONDS, 0)).toBe(0)
+    for (let age = 0; age <= ROUND_END_SECONDS; age += 1 / 120) {
+      const before = victoryCameraWeight(age, ROUND_END_SECONDS - age)
+      const after = victoryCameraWeight(age + 1 / 120, ROUND_END_SECONDS - age - 1 / 120)
       expect(Math.abs(after - before)).toBeLessThan(0.03)
     }
   })

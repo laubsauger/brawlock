@@ -7,6 +7,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { session, type HostResult } from '../game/session'
+import type { RoomRoute } from '../net/rejoin'
 import { useGame } from '../game/store'
 import { parseRoomCode } from '../net/code'
 import { tutorial } from './lib/onboarding'
@@ -95,13 +96,13 @@ export function hostOnServer(region: string, listed = false): void {
 }
 
 /** Join by room code (typed, pasted with dashes / spaces, or a whole ?room= link). */
-export function joinRoom(text: string, onCancel?: () => void): { problem: string } | null {
+export function joinRoom(text: string, onCancel?: () => void, route?: RoomRoute): { problem: string } | null {
   const r = parseRoomCode(text)
   if ('problem' in r) return r
   rememberPendingRoom(r.code)
   tutorial.request({
     label: 'Join game',
-    run: () => { void session.join(r.code).finally(() => clearPendingRoom(r.code)) },
+    run: () => { void session.join(r.code, route).finally(() => clearPendingRoom(r.code)) },
     cancel: () => { clearPendingRoom(r.code); onCancel?.() },
   })
   return null

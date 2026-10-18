@@ -11,10 +11,11 @@ import { online, session, type LeaderboardPage, type Period, type PublicBoardRow
 import { hex } from '../lib/view'
 import { ago, duration, readCareer, readEncounterList, readHistory, readLeaderboard, useStats } from '../lib/stats'
 import { exportReplay, importReplay, useReplayIds, watchReplay } from '../lib/replays'
-import { REPLAY_EXT } from '../../game/replay/format'
+import { REPLAY_EXT, type ReplayMeta } from '../../game/replay/format'
+import { replays } from '../../game/replay/store'
 import { chooseName, NAME_MAX } from '../lib/name'
 
-type Tab = 'matches' | 'stats' | 'rivals' | 'board'
+type Tab = 'matches' | 'stats' | 'rivals' | 'board' | 'replays'
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   // opaque plate: the 3D backdrop must not bleed through the numbers
@@ -51,6 +52,7 @@ function ImportReplay() {
         ref={ref}
         type="file"
         accept={REPLAY_EXT}
+        aria-label="Import replay file"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
@@ -58,11 +60,36 @@ function ImportReplay() {
           if (f) void importReplay(f)
         }}
       />
-      <button type="button" className="text-[0.9rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => ref.current?.click()}>
-        Import a replay ({REPLAY_EXT})
-      </button>
+      <Button size="sm" onClick={() => ref.current?.click()}>Import replay <span className="font-ui text-xs text-ash">{REPLAY_EXT}</span></Button>
     </div>
   )
+}
+
+/** Includes imported files even when they have no match-history record on this device. */
+function Replays() {
+  const [library, setLibrary] = useState<ReplayMeta[] | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = () => void replays.list().then((list) => { if (live) setLibrary(list) })
+    load()
+    const off = replays.onChange(load)
+    return () => { live = false; off() }
+  }, [])
+  return <div className="flex flex-col gap-3" data-testid="replay-library">
+    <ImportReplay />
+    {library === null ? <Empty>Loading saved replays…</Empty>
+      : library.length === 0 ? <Empty>No saved replays yet. Import a shared {REPLAY_EXT} file, or finish a match to save one here.</Empty>
+        : <ul className="flex flex-col gap-2">{library.map((replay) => <li key={replay.id} className="flex flex-wrap items-center justify-between gap-3 rounded bg-black/25 px-3 py-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="break-words font-semibold">{replay.players.map((player) => player.name).join(' · ')}</span>
+            <span className="text-sm text-ash">{ago(replay.date)} · {duration(replay.durationSec)} · {replay.rounds} {replay.rounds === 1 ? 'round' : 'rounds'}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" onClick={() => void watchReplay(replay.id)}>Watch</Button>
+            <Button size="sm" variant="ghost" onClick={() => void exportReplay(replay.id)}>Export</Button>
+          </div>
+        </li>)}</ul>}
+  </div>
 }
 
 function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: string | null) => void }) {
@@ -402,7 +429,7 @@ function LocalBoard() {
   return (
     <div>
       <p className="mb-3 text-[0.98rem] text-ash">
-        Players you have played, rated from the matches on this device. A global leaderboard arrives with dedicated servers.
+        Players you have played, rated from matches saved on this device.{online.configured && ' Choose Global for the dedicated-server standings.'}
       </p>
       {rows.length === 0 ? (
         <Empty>Finish a match to get a rating.</Empty>
@@ -593,8 +620,8 @@ function GlobalBoard() {
 }
 
 /** Leaderboard: this device's local ratings, or (server builds) the global casual board. */
-function Board() {
-  const [scope, setScope] = useState<'device' | 'global'>('device')
+function Board({ initialScope = 'device' }: { initialScope?: 'device' | 'global' }) {
+  const [scope, setScope] = useState<'device' | 'global'>(initialScope)
   return (
     <div className="flex flex-col gap-3">
       {online.configured && (
@@ -613,11 +640,11 @@ function Board() {
   )
 }
 
-export function Profile({ onBack }: { onBack: () => void }) {
+export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'device' }: { onBack: () => void; initialTab?: Tab; initialBoardScope?: 'device' | 'global' }) {
   const career = useStats(readCareer)
   const name = useGame((s) => s.settings.playerName)
   const [draft, setDraft] = useState(name)
-  const [tab, setTab] = useState<Tab>('matches')
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [openMatch, setOpenMatch] = useState<string | null>(null)
 
   useEffect(() => {
@@ -635,13 +662,14 @@ export function Profile({ onBack }: { onBack: () => void }) {
     { id: 'stats', label: 'Stats' },
     { id: 'rivals', label: 'Rivals' },
     { id: 'board', label: 'Leaderboard' },
+    { id: 'replays', label: 'Replays' },
   ]
 
   return (
     <div className="screen-in flex h-full flex-col px-[max(16px,5vw)] py-[max(16px,4vh)]">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-5">
-          <h1 className="display text-6xl leading-none text-[#ffd890]">Your record</h1>
+          <h1 className="display text-6xl leading-none text-[#ffd890]">{tab === 'replays' ? 'Watch replay' : tab === 'board' ? 'Leaderboards' : 'Your record'}</h1>
           <input
             className="field w-56 text-[1.15rem] font-semibold"
             aria-label="Your name"
@@ -658,7 +686,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
         </Button>
       </header>
 
-      <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      {tab !== 'replays' && tab !== 'board' && <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         <Tile label="Matches" value={String(c?.games ?? 0)} />
         <Tile label="Wins" value={String(c?.wins ?? 0)} sub={c ? `${pct(c.wins, c.games)} win rate` : undefined} />
         <Tile label="Kills / deaths" value={kd} sub={c ? `${c.kills} / ${c.deaths}` : undefined} />
@@ -667,10 +695,10 @@ export function Profile({ onBack }: { onBack: () => void }) {
         <Tile label="Time in the arena" value={c ? duration(c.seconds) : '0:00'} sub={c ? `${c.rounds} rounds` : undefined} />
         <Tile label="Against players" value={c ? `${c.vsHumans.wins}–${c.vsHumans.games - c.vsHumans.wins}` : '–'} sub={c ? pct(c.vsHumans.wins, c.vsHumans.games) : undefined} />
         <Tile label="Against bots" value={c ? `${c.vsBots.wins}–${c.vsBots.games - c.vsBots.wins}` : '–'} sub={c ? pct(c.vsBots.wins, c.vsBots.games) : undefined} />
-      </div>
+      </div>}
 
       <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5">
-        <div className="mb-3 flex gap-1" role="tablist">
+        <div className="mb-3 flex flex-wrap gap-1" role="tablist">
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
@@ -689,7 +717,8 @@ export function Profile({ onBack }: { onBack: () => void }) {
             />
           )}
           {tab === 'rivals' && <Rivals />}
-          {tab === 'board' && <Board />}
+          {tab === 'board' && <Board initialScope={initialBoardScope} />}
+          {tab === 'replays' && <Replays />}
         </div>
       </section>
     </div>

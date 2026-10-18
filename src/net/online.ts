@@ -23,6 +23,7 @@ import type { RoomSummary } from './dedicated'
 import type { Period, PublicBoardRow } from './leaderboard'
 import type { ListingInfo } from './listings'
 import type { BotDifficulty } from '../sim/types'
+import type { RoomRoute } from './rejoin'
 
 /** one request; the first probe of a region takes COLD_SAMPLES of them back to back */
 const REQUEST_TIMEOUT_MS = 2500
@@ -407,6 +408,22 @@ export class Online {
     return (await this.find(code)) !== null
   }
 
+  /** Exact original server for reconnects: never routes to a different region or P2P. */
+  async roomExists(regionId: string, code: string): Promise<boolean> {
+    const region = await this.usable(regionId)
+    let res
+    try {
+      res = await this.fetch(`${httpBase(region.url)}/rooms/${encodeURIComponent(code)}`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
+    } catch {
+      this.markDown(region.id)
+      throw new ServerError('unavailable', `Could not reach the ${region.label} server.`)
+    }
+    if (res.status === 404) return false
+    const body = await res.json() as { exists?: boolean; error?: string }
+    if (!res.ok) throw failure(res.status, body, `Could not look up this game on ${region.label}.`)
+    return body.exists === true
+  }
+
   // -------------------------------------------------------------------------
 
   private fresh(id: string, maxAgeMs: number): Promise<RegionStatus> {
@@ -493,7 +510,12 @@ function best(xs: (RegionStatus | null)[]): RegionStatus | null {
  * through this factory is peer-to-peer (server rooms are created with
  * Online.createRoom and then joined). `onRoute` learns where each join went.
  */
-export function hybridNet(p2p: NetFactory, online: Online, server: (url: string) => NetFactory, onRoute?: (region: ServerRegion | null) => void): NetFactory {
+export interface HybridNetFactory extends NetFactory {
+  /** A known browser/rejoin destination; never looks up or substitutes another backend. */
+  joinAt(code: string, route: RoomRoute, onStatus?: (msg: string) => void): Promise<Transport>
+}
+
+export function hybridNet(p2p: NetFactory, online: Online, server: (url: string) => NetFactory, onRoute?: (region: ServerRegion | null) => void): HybridNetFactory {
   return {
     host(): Promise<HostEndpoint> {
       onRoute?.(null)
@@ -503,6 +525,16 @@ export function hybridNet(p2p: NetFactory, online: Online, server: (url: string)
       const r = online.configured ? await online.find(code) : null
       onRoute?.(r)
       return r ? server(r.url).join(code, onStatus) : p2p.join(code, onStatus)
+    },
+    joinAt(code, route, onStatus) {
+      if (route.kind === 'p2p') {
+        onRoute?.(null)
+        return p2p.join(code, onStatus)
+      }
+      const region = online.regions.find((r) => r.id === route.region)
+      if (!region) return Promise.reject(new ServerError('unavailable', 'The original game server is not configured in this build.'))
+      onRoute?.(region)
+      return server(region.url).join(code, onStatus)
     },
   }
 }

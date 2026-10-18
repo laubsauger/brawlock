@@ -404,6 +404,10 @@ export class Predictor {
  * matches at most one played event with the same key within ±FUZZ ticks (nearest
  * tick first) and each played event is matched at most once, so per-tick series
  * (lava damage) stay one-to-one. Unmatched events are new: recorded and returned.
+ * A matched record moves to the tick it matched at (unless the authority already fixed
+ * it), so an event that drifts a little with every rebase stays one event: an own input
+ * that reached the host late is re-predicted at each newer confirmed tick until its ack,
+ * which moves its cast a few ticks per rebase, more than ±FUZZ in total.
  */
 interface Played {
   key: string
@@ -453,6 +457,13 @@ export class EventLedger {
         if (auth ? e.auth : e.pass === this.pass) continue
         // the same kind of event somewhere else is another event (two explosions)
         if ((e.x - x) * (e.x - x) + (e.y - y) * (e.y - y) > MATCH_DIST * MATCH_DIST) continue
+        // follow the event to its newest timing; the authority's timing is final
+        if (d !== 0 && (auth || !e.auth)) {
+          list.splice(list.indexOf(e), 1)
+          let at = this.played.get(t)
+          if (!at) this.played.set(t, (at = []))
+          at.push(e)
+        }
         if (auth) e.auth = true
         else e.pass = this.pass
         return true

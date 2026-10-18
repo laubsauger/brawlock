@@ -24,14 +24,14 @@ import { Online, ServerError, hybridNet, parseRegions, type LeaderboardPage, typ
 import type { Period } from '../net/leaderboard'
 import type { BotDifficulty } from '../sim/types'
 import { getDeviceId } from './device'
-import { Lister, type ListerState } from '../net/lister'
-import type { ListingInfo } from '../net/listings'
+import { Lister, p2pListingTarget, type ListerState } from '../net/lister'
+import { RejoinController, type RoomRoute } from '../net/rejoin'
 import { MAX_PLAYERS } from '../net/session'
 import { createSession, type MatchRecorder, type NetMode, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
-import { getProfile } from './profile'
+import { getProfile, setPreferredColor } from './profile'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
@@ -40,6 +40,7 @@ export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
 export type { Period, PublicBoardRow } from '../net/leaderboard'
 export type { ListerState } from '../net/lister'
+export type { RoomRoute, RejoinView } from '../net/rejoin'
 export type { RoomSummary } from '../net/dedicated'
 export { ServerError } from '../net/online'
 export type { NetStatsView, PeerNetStats, NetGrade, NetGradeEvent, NetGradeReason } from '../net/netstats'
@@ -96,6 +97,9 @@ if (online.configured) void online.probe()
 
 /** Region of the current room's server, set by every join / host (null: peer-to-peer). */
 let routed: ServerRegion | null = null
+/** Consumed by exactly one dial. Explicit browser/rejoin routes never change backend. */
+let nextJoinRoute: RoomRoute | null = null
+const network = hybridNet(peerNet, online, (url) => wsNet(url), (region) => { routed = region })
 
 /** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
@@ -167,9 +171,14 @@ const impl = createSession({
   step,
   createBot,
   defaultSettings: DEFAULT_SETTINGS,
-  net: hybridNet(peerNet, online, (url) => wsNet(url), (r) => {
-    routed = r
-  }),
+  net: {
+    host: () => network.host(),
+    join(code, onStatus) {
+      const route = nextJoinRoute
+      nextJoinRoute = null
+      return route ? network.joinAt(code, route, onStatus) : network.join(code, onStatus)
+    },
+  },
   startClock,
   now: () => performance.now(),
   random: Math.random,
@@ -238,7 +247,28 @@ function opened(t: 'server' | 'p2p'): boolean {
   return l.status === 'open' && l.role !== 'offline' && impl.transport() === t
 }
 
-export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats'> & HostingApi
+export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join'> & HostingApi & {
+  join(code: string, route?: RoomRoute): Promise<void>
+}
+
+async function joinRoom(code: string, route?: RoomRoute): Promise<void> {
+  nextJoinRoute = route ?? null
+  await impl.join(code)
+  nextJoinRoute = null
+}
+
+/** Rediscovery is read-only; the player must explicitly click Rejoin. */
+export const rejoin = new RejoinController({
+  identity: () => ({ profileId: getProfile().id, deviceId: getDeviceId() }),
+  exists: async (target) => target.route.kind === 'server'
+    ? online.roomExists(target.route.region, target.code)
+    : (await online.browse()).some((room) => room.kind === 'p2p' && room.code === target.code),
+  join: async (target) => {
+    await joinRoom(target.code, target.route)
+    const lobby = useGame.getState().lobby
+    return { ok: lobby.status === 'open' && impl.transport() === target.route.kind, error: lobby.error ?? undefined }
+  },
+})
 
 /** The region a server request goes to: the given choice or the region setting; auto = lowest ping. */
 async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
@@ -249,8 +279,12 @@ async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
 }
 
 export const session: GameSession = {
-  openOffline: impl.openOffline,
+  openOffline() {
+    rejoin.dismiss()
+    impl.openOffline()
+  },
   async openHost() {
+    rejoin.dismiss()
     await impl.openHost()
     if (opened('p2p')) return { ok: true, mode: 'p2p', region: null }
     const l = useGame.getState().lobby
@@ -258,6 +292,7 @@ export const session: GameSession = {
     return hostFailed('p2p', 'unavailable', l.error ?? 'Could not host peer-to-peer.', null, await serverOption())
   },
   async openHostServer(choice) {
+    rejoin.dismiss()
     const want = choice ?? useGame.getState().settings.serverRegion ?? 'auto'
     if (!online.configured) return hostFailed('server', 'unavailable', 'This build has no game server.', null, P2P_OPTION)
     const region = await online.choose(want)
@@ -269,7 +304,7 @@ export const session: GameSession = {
       const reason = e instanceof ServerError ? e.reason : 'error'
       return hostFailed('server', reason, e instanceof Error ? e.message : String(e), online.region(region.id), P2P_OPTION)
     }
-    await impl.join(code)
+    await joinRoom(code, { kind: 'server', region: region.id })
     if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
     const l = useGame.getState().lobby
     if (l.status !== 'error') return hostFailed('server', 'cancelled', CANCELLED, online.region(region.id), P2P_OPTION)
@@ -279,6 +314,7 @@ export const session: GameSession = {
     return impl.transport() === 'server' && routed ? online.region(routed.id) : null
   },
   async quickPlay(opts = {}) {
+    rejoin.dismiss()
     let region: RegionStatus
     let code: string
     try {
@@ -288,7 +324,7 @@ export const session: GameSession = {
       const reason = e instanceof ServerError ? e.reason : 'error'
       return hostFailed('server', reason, e instanceof Error ? e.message : String(e), null, P2P_OPTION)
     }
-    await impl.join(code)
+    await joinRoom(code, { kind: 'server', region: region.id })
     if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
     const l = useGame.getState().lobby
     if (l.status !== 'error') return hostFailed('server', 'cancelled', 'Quick play was cancelled.', online.region(region.id), P2P_OPTION)
@@ -330,8 +366,14 @@ export const session: GameSession = {
     const st = lister.state()
     return { ...st, regionStatus: st.region ? online.region(st.region) : null }
   },
-  join: impl.join,
+  join(code, route) {
+    rejoin.dismiss()
+    return joinRoom(code, route)
+  },
   setDisplayName: impl.setDisplayName,
+  setPlayerColor: impl.setPlayerColor,
+  startLobbyVote: impl.startLobbyVote,
+  castLobbyVote: impl.castLobbyVote,
   addBot: impl.addBot,
   removeSlot: impl.removeSlot,
   setBotDifficulty: impl.setBotDifficulty,
@@ -341,7 +383,10 @@ export const session: GameSession = {
   rematch: impl.rematch,
   backToLobby: impl.backToLobby,
   setReady: impl.setReady,
-  leave: impl.leave,
+  leave() {
+    rejoin.dismiss()
+    impl.leave()
+  },
   netStats: impl.netStats,
   onNetGrade: impl.onNetGrade,
   transport: impl.transport,
@@ -353,21 +398,14 @@ const lister = new Lister(online)
 /** the P2P room whose "Listed publicly" switch is on, and the region it is listed on */
 let listed: { code: string; region: string } | null = null
 
-/** What the listing should say now, or null: not listed (switch off, not hosting, full). */
-function listingTarget(): { region: string; info: ListingInfo } | null {
+/** What the listing should say now, or null: switched off or no longer this P2P host. */
+function listingTarget(): ReturnType<typeof p2pListingTarget> {
   const st = useGame.getState()
   const l = st.lobby
-  if (!listed || l.role !== 'host' || l.status !== 'open' || l.roomCode !== listed.code || impl.transport() !== 'p2p') return null
-  // full: off the list until a seat frees
-  if (l.slots.length >= MAX_PLAYERS) return null
-  const humans = l.slots.filter((x) => x.kind === 'human').length
   const set = l.settings ?? DEFAULT_SETTINGS
-  // between matches and mid-match a joiner gets in (mid-match: watches, then plays the next one), like server rooms
-  const phase = st.screen === 'match' ? 'match' : st.screen === 'results' ? 'results' : 'lobby'
-  return {
-    region: listed.region,
-    info: { code: l.roomCode, host: getProfile().name, humans, bots: l.slots.length - humans, max: MAX_PLAYERS, phase, teamMode: set.teamMode, gameMode: set.gameMode, winScore: set.winScore },
-  }
+  return p2pListingTarget({ listed, role: l.role, status: l.status, code: l.roomCode, public: !!l.public,
+    transport: impl.transport(), slots: l.slots, settings: set, screen: st.screen, host: getProfile().name,
+    max: MAX_PLAYERS, joinable: impl.joinableSeats() })
 }
 
 function syncListing(): void {
@@ -377,6 +415,17 @@ function syncListing(): void {
   lister.want(listingTarget())
 }
 useGame.subscribe((s, prev) => {
+  if (s.lobby.status === 'open') {
+    const local = s.lobby.slots.find((slot) => slot.id === s.lobby.localPlayer && slot.kind === 'human' && slot.profileId === getProfile().id)
+    const previous = local && prev.lobby.slots.find((slot) => slot.id === local.id && slot.profileId === local.profileId)
+    if (local && previous?.color !== local.color) setPreferredColor(local.color)
+  }
+  if (s.lobby.status === 'open' && s.lobby.roomCode) {
+    const transport = impl.transport()
+    const route: RoomRoute | null = transport === 'server' && routed ? { kind: 'server', region: routed.id }
+      : transport === 'p2p' && s.lobby.role === 'client' ? { kind: 'p2p' } : null
+    if (route) rejoin.connected({ code: s.lobby.roomCode, route, profileId: getProfile().id, deviceId: getDeviceId() })
+  } else if (s.lobby.status === 'error' && prev.lobby.status === 'open') rejoin.disconnected()
   if (s.settings.playerName !== prev.settings.playerName) {
     impl.setDisplayName(s.settings.playerName)
     updateProfileNames([{ profileId: getProfile().id, name: s.settings.playerName }])

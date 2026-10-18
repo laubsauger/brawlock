@@ -150,6 +150,13 @@ describe('first-play onboarding', () => {
     useGame.getState().setSettings({ tutorialSeen: false })
     joinRoom('https://game.test/?room=krz-bw')
     tutorial.continue()
-    expect(session.join).toHaveBeenCalledWith('KRZBW')
+    expect(session.join).toHaveBeenCalledWith('KRZBW', undefined)
+  })
+
+  it.each([{ kind: 'p2p' }, { kind: 'server', region: 'us-west' }] as const)('preserves the selected $kind hosting mode through the guide', (route) => {
+    joinRoom('krz-bw', undefined, route)
+    expect(session.join).not.toHaveBeenCalled()
+    tutorial.continue()
+    expect(session.join).toHaveBeenCalledWith('KRZBW', route)
   })
 })

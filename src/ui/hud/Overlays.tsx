@@ -344,15 +344,24 @@ export function Scoreboard() {
  * --------------------------------------------------------------------- */
 
 export function EscMenu() {
-  const role = useGame((s) => s.lobby.role)
+  const lobby = useGame((s) => s.lobby)
+  const role = lobby.role
   const toggle = useGame((s) => s.toggle)
   const [confirm, setConfirm] = useState(false)
+  const [copied, setCopied] = useState(false)
   const offline = role === 'offline'
   return (
     <div className="scrim fade-in interactive pointer-events-auto absolute inset-0 z-40 grid place-items-center p-4">
       <div className="panel pop-in flex w-[min(380px,100%)] flex-col gap-3 p-7" role="dialog" aria-label="Menu">
         <h2 className="display text-5xl leading-none text-[#ffd890]">{offline ? 'Paused' : 'Menu'}</h2>
         <p className="mb-2 text-[0.95rem] text-ash">{offline ? 'The arena waits for you.' : 'The match keeps running while this is open.'}</p>
+        {!offline && lobby.roomCode && <div className="mb-1 flex items-center justify-between gap-3 rounded-lg border border-gold/20 bg-black/20 px-3 py-2" aria-label="Room invite">
+          <div><span className="block text-xs text-ash">Room code</span><strong className="tabular text-xl tracking-[.15em] text-gold">{lobby.roomCode}</strong></div>
+          <Button size="sm" sound={null} onClick={async () => {
+            try { await navigator.clipboard.writeText(lobby.roomCode!); setCopied(true); sfx('ready') }
+            catch { setCopied(false); sfx('error') }
+          }}>{copied ? 'Copied' : 'Copy code'}</Button>
+        </div>}
         {confirm ? (
           <>
             <p className="text-[1.05rem]">{role === 'host' ? 'Leaving ends the match for everyone.' : 'Leave this match and return to the main menu?'}</p>

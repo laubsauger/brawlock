@@ -25,6 +25,8 @@ export interface ListingInfo {
   humans: number
   bots: number
   max: number
+  /** Seats humans may claim, including replaceable bots. Full rooms stay discoverable for reconnects. */
+  joinable?: number
   phase: ListingPhase
   teamMode: TeamMode
   gameMode: GameMode
@@ -89,6 +91,11 @@ export function parseListing(v: unknown, maxSeats: number, partial = false): Par
   if (need('phase')) {
     if (!PHASES.includes(o.phase as ListingPhase)) return 'bad phase'
     out.phase = o.phase as ListingPhase
+  }
+  if (o.joinable !== undefined) {
+    const seats = int(o.joinable, 0, maxSeats)
+    if (seats === null) return 'bad joinable'
+    out.joinable = seats
   }
   if (need('teamMode')) {
     if (!TEAM_MODES.includes(o.teamMode as TeamMode)) return 'bad teamMode'
@@ -177,6 +184,7 @@ export class ListingDirectory {
       humans: l.humans,
       bots: l.bots,
       max: l.max,
+      ...(l.joinable !== undefined ? { joinable: l.joinable } : {}),
       phase: l.phase,
       teamMode: l.teamMode,
       gameMode: l.gameMode,

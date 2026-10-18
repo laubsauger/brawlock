@@ -9,7 +9,8 @@ import { createBot } from '../bots'
 import { FIREBALL_SLOT, cloneState, createMatch, hashState, step } from '../sim'
 import { killPawn } from '../sim/combat'
 import { startRound } from '../sim/mode'
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, SimEvent, SimState } from '../sim/types'
+import { ROUND_END_SECONDS, ticks } from '../sim/config'
+import type { InputCommand, MatchSettings, PlayerId, PlayerInput, SimEvent, SimState, SpellId } from '../sim/types'
 import type { Bot } from '../bots'
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
@@ -272,16 +273,19 @@ const RTT150: LinkOptions = { latencyMs: 65, jitterMs: 20, loss: 0.1, seed: 9 }
 
 describe('spectator wagers over the confirmed input stream', () => {
   it('settles duplicate dead-player wagers once at 160 ms RTT with 10% loss and rejects next-round stale resends', async () => {
+    const shopSeconds = 0.5
+    const roundWinTick = ticks(4)
+    const roundTwoKnockoutTick = roundWinTick + ticks(ROUND_END_SECONDS + shopSeconds + 0.5)
     const bettingMatch: SessionDeps['createMatch'] = (settings, slots, seed) => {
-      const state = createMatch({ ...settings, shopSeconds: 0.5, roundGold: 0, winGold: 0, killGold: 0 }, slots, seed)
+      const state = createMatch({ ...settings, shopSeconds, roundGold: 0, winGold: 0, killGold: 0 }, slots, seed)
       startRound(state)
       for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
       return state
     }
     const scriptedStep: SessionDeps['step'] = (state, inputs) => {
       // Identical authoritative/predicted fixture events; all economic transitions use real sim code.
-      if (state.round === 1 && state.tick === 240) killPawn(state, pawnOf(state, 4), 3, 'fireball')
-      if (state.round === 2 && state.tick === 420) {
+      if (state.round === 1 && state.tick === roundWinTick) killPawn(state, pawnOf(state, 4), 3, 'fireball')
+      if (state.round === 2 && state.tick === roundTwoKnockoutTick) {
         for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
       }
       step(state, inputs)
@@ -290,6 +294,7 @@ describe('spectator wagers over the confirmed input stream', () => {
     const r = await room({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 }, 4, opts, opts)
     const peers = [r.host, ...r.clients]
     try {
+      const startedAt = performance.now()
       r.host.session.startMatch()
       await vi.advanceTimersByTimeAsync(700)
       const bettors = peers.slice(0, 3)
@@ -302,7 +307,8 @@ describe('spectator wagers over the confirmed input stream', () => {
       const accepted = r.host.auth.at(-1)!
       expect(accepted.betting.bets.map((bet) => bet.player)).toEqual([0, 1, 2])
       expect(accepted.scores.slice(0, 3).map((s) => s.gold)).toEqual([29, 29, 29])
-      await vi.advanceTimersByTimeAsync(4300)
+      // Include the configured celebration pause, then allow confirmed delivery of round two's deaths.
+      await vi.advanceTimersByTimeAsync((roundTwoKnockoutTick + ticks(0.5)) * DT - (performance.now() - startedAt))
       const settled = r.host.auth.at(-1)!
       expect(settled.round).toBe(2)
       expect(settled.betting.lastSettlement).toMatchObject({
@@ -990,6 +996,174 @@ describe('event delivery (beam, explosion, death, damage)', () => {
         expect(all.some((e) => e.type === 'cast' && e.pawn === botPawn)).toBe(true)
         for (const t of ['damage', 'death'] as const) expect(all.some((e) => e.type === t)).toBe(true)
         console.log(`[delivery ${label} ${mode}] ${report.join(' | ')}`)
+        host.session.leave()
+        client.session.leave()
+      }
+    },
+    60000,
+  )
+})
+
+// ---------------------------------------------------------------------------
+// event delivery: fast repeats
+// ---------------------------------------------------------------------------
+
+/** match flow is authoritative-only and not part of the ledger's job */
+const FLOW = new Set<SimEvent['type']>(['phase', 'roundWin', 'gameOver', 'arenaShrink'])
+
+/**
+ * Strict one-to-one match of a peer's delivered events against the authority, per event
+ * type: same identity (eventKey), same spot (within 160 units, or both without one), and
+ * delivered from MAX_AHEAD_TICKS before to `late` ticks after the authoritative tick (an event
+ * revealed by the stream plays with the next displayed tick). Greedy in tick order, so
+ * a burst of identical events (Cluster's projectiles) pairs off by count. Returns, per
+ * type, the authoritative count, the unmatched authoritative events (drops) and the
+ * unmatched deliveries (extras: with only one player acting there is nothing to
+ * mispredict, so an extra is an event delivered twice).
+ */
+function strictDelivery(authStates: SimState[], got: { tick: number; e: SimEvent }[], upTo: number, late: number) {
+  const pos = (e: SimEvent): [number, number] => {
+    const o = e as unknown as Record<string, number>
+    return [o.x ?? o.fromX ?? NaN, o.y ?? o.fromY ?? NaN]
+  }
+  const auth = authStates.filter((st) => st.tick <= upTo).flatMap((st) => st.events.filter((e) => !FLOW.has(e.type)).map((e) => ({ tick: st.tick, e, key: eventKey(e) })))
+  const shown = got.filter((g) => !FLOW.has(g.e.type) && g.tick <= upTo + late).map((g) => ({ ...g, key: eventKey(g.e), used: false })).sort((a, b) => a.tick - b.tick)
+  const out: Record<string, { auth: number; drops: number; extras: number }> = {}
+  const row = (t: string) => (out[t] ??= { auth: 0, drops: 0, extras: 0 })
+  for (const a of auth) {
+    row(a.e.type).auth++
+    const [ax, ay] = pos(a.e)
+    const m = shown.find((g) => {
+      // Own actions play immediately even when loss delays their authoritative input.
+      // Use the predictor's actual lead bound and keep each match one-to-one.
+      if (g.used || g.key !== a.key || g.tick < a.tick - MAX_AHEAD_TICKS || g.tick > a.tick + late) return false
+      const [gx, gy] = pos(g.e)
+      return !(Math.hypot(ax - gx, ay - gy) > 160)
+    })
+    if (m) m.used = true
+    else row(a.e.type).drops++
+  }
+  for (const g of shown) if (!g.used && g.tick <= upTo) row(g.e.type).extras++
+  return out
+}
+
+describe('strict event delivery matching', () => {
+  it('allows bounded early prediction while preserving exact duplicate and missing-event counts', () => {
+    const state = createMatch(SETTINGS, [], 1)
+    const cast: SimEvent = { type: 'cast', pawn: 2, spell: 'splitter', x: 913.27, y: -0.01, level: 3 }
+    const main: SimEvent = { type: 'projectileSpawn', id: 24, spell: 'splitter' }
+    const child: SimEvent = { type: 'projectileSpawn', id: 25, spell: 'splitter' }
+    const auth = [{ ...state, tick: 651, events: [cast, main] }, { ...state, tick: 702, events: [child] }]
+    // Same spell on both the main bolt and a later child: match the early main first,
+    // rather than consuming the later child's delivery for the main's shared key.
+    const delivered = [{ tick: 639, e: cast }, { tick: 639, e: main }, { tick: 690, e: child }]
+    expect(strictDelivery(auth, delivered, 750, 60)).toEqual({
+      cast: { auth: 1, drops: 0, extras: 0 }, projectileSpawn: { auth: 2, drops: 0, extras: 0 },
+    })
+    expect(strictDelivery(auth, delivered.concat({ tick: 666, e: cast }, { tick: 666, e: main }), 750, 60)).toEqual({
+      cast: { auth: 1, drops: 0, extras: 1 }, projectileSpawn: { auth: 2, drops: 0, extras: 1 },
+    })
+    expect(strictDelivery(auth, delivered.slice(0, 1), 750, 60)).toEqual({
+      cast: { auth: 1, drops: 0, extras: 0 }, projectileSpawn: { auth: 2, drops: 2, extras: 0 },
+    })
+    expect(strictDelivery(auth, [{ tick: 639, e: { ...cast, x: cast.x + 161 } }], 750, 60).cast).toEqual({ auth: 1, drops: 1, extras: 1 })
+    expect(strictDelivery(auth, [{ tick: 651 - MAX_AHEAD_TICKS - 1, e: cast }], 750, 60).cast).toEqual({ auth: 1, drops: 1, extras: 1 })
+  })
+})
+
+/** Every pawn owns `spells` in slots 0.. (host only builds the match). */
+function loadoutMatch(spells: SpellId[], level = 3) {
+  return (settings: MatchSettings, slots: Parameters<typeof createMatch>[1], seed: number): SimState => {
+    const s = createMatch(settings, slots, seed)
+    for (const p of s.pawns) {
+      spells.forEach((sp, k) => {
+        p.slots[k] = sp
+        p.levels[k] = level
+      })
+    }
+    return s
+  }
+}
+
+describe('event delivery: fast repeats (Recharge chains, Cluster / Twin / Splitter)', () => {
+  /**
+   * Why: the ledger plays each event once across rollbacks by matching identity, spot and
+   * a few ticks. Real play repeats the same kind of event quickly: Recharge resets its own
+   * cooldown on a hit (cooldownReset, streak, chained casts), Cluster fires a fan of
+   * identical projectiles in one tick, Twin two, Splitter a spawner and its waves. None
+   * of them may be dropped, merged into one or delivered twice, on either peer, at
+   * 80 and 200 ms with 10 % loss. One player acts at a time (the other stands still), so
+   * nothing can be mispredicted and every extra delivery is a real duplicate.
+   */
+  it.each([
+    ['Recharge chains', 'RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 31 }],
+    ['Recharge chains', 'RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 32 }],
+    ['Cluster / Twin / Splitter', 'RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 33 }],
+    ['Cluster / Twin / Splitter', 'RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 34 }],
+  ] as [string, string, LinkOptions][])(
+    '%s at %s with 10 %% loss: 0 drops, 0 duplicates per event type on both peers',
+    async (scenario, label, link) => {
+      const recharge = scenario.startsWith('Recharge')
+      // Recharge keeps its real cooldown (its reset is the point); the bursts get theirs
+      // zeroed so a short test sees many casts, spaced 50 ticks apart like quick real play
+      const common = { netMode: 'predict' as NetMode, createMatch: loadoutMatch(recharge ? ['recharge'] : ['cluster', 'twin', 'splitter']), ...(recharge ? {} : { step: spamStep }) }
+      for (const actor of ['client', 'host'] as const) {
+        const { host, client } = await pair(link, common, common)
+        host.session.updateSettings({ shopSeconds: 1, winScore: 50, dmgMultiplier: 0.2, kbMultiplier: 0.25 })
+        host.session.startMatch()
+        await vi.advanceTimersByTimeAsync(1500)
+        const me = actor === 'client' ? client : host
+        const meId = actor === 'client' ? 1 : 0
+        for (let i = 0; i < 150; i++) {
+          const s = lastShown(me)
+          const foe = pawnOf(s, 1 - meId)
+          const self = pawnOf(s, meId)
+          // walk to 320 units from the (idle) foe, on its side towards the centre, then fire
+          const r = Math.hypot(foe.x, foe.y) || 1
+          const spot = { x: foe.x - (foe.x / r) * 320, y: foe.y - (foe.y / r) * 320 }
+          // a new cast only when the last one fired: re-casting during the cast point cancels
+          // it, and a remote peer cannot know that in advance (a misprediction, not this test)
+          if (self.cast) {
+            // casting: any new command would cancel it
+          } else if (Math.hypot(self.x - spot.x, self.y - spot.y) > 60) me.issue({ kind: 'move', ...spot })
+          else if (recharge) {
+            if (self.cooldowns[0] === 0 && i % 3 === 0) me.issue({ kind: 'cast', slot: 0, x: foe.x, y: foe.y })
+          } else if (i % 6 === 0) me.issue({ kind: 'cast', slot: (i / 6) % 3, x: foe.x, y: foe.y })
+          await vi.advanceTimersByTimeAsync(140)
+        }
+        await vi.advanceTimersByTimeAsync(2500)
+        const upTo = host.auth[host.auth.length - 1].tick - 120
+        const all = host.auth.filter((st) => st.tick <= upTo).flatMap((st) => st.events)
+        // the scenario happened: chained Recharge hits / bursts of identical projectiles, and
+        // no cast was cancelled (a remote peer cannot foresee a cancel: that would be a
+        // misprediction, outside what this test measures)
+        expect(all.filter((e) => e.type === 'castCancel')).toEqual([])
+        if (recharge) {
+          expect(all.filter((e) => e.type === 'cooldownReset').length).toBeGreaterThanOrEqual(3)
+          expect(all.filter((e) => e.type === 'streak').length).toBeGreaterThanOrEqual(3)
+        } else {
+          const perTick = new Map<number, number>()
+          for (const st of host.auth) for (const e of st.events) if (e.type === 'projectileSpawn' && e.spell === 'cluster') perTick.set(st.tick, (perTick.get(st.tick) ?? 0) + 1)
+          expect(Math.max(0, ...perTick.values())).toBeGreaterThanOrEqual(3)
+          for (const sp of ['cluster', 'twin', 'splitter']) expect(all.some((e) => e.type === 'projectileSpawn' && e.spell === sp)).toBe(true)
+        }
+        const report: string[] = []
+        for (const [who, p] of [
+          ['host', host],
+          ['client', client],
+        ] as const) {
+          for (const [chan, log] of [
+            ['pushEvents', p.pushedLog],
+            ['audio', p.heardLog],
+          ] as const) {
+            const d = strictDelivery(host.auth, log, upTo, 60)
+            const bad = Object.entries(d).filter(([, r]) => r.drops || r.extras)
+            report.push(`${who}/${chan} ${JSON.stringify(d)}`)
+            expect(bad, `${scenario} ${label}, ${actor} acting: ${who}/${chan}`).toEqual([])
+          }
+          expect(p.droppedBatches).toEqual([])
+        }
+        console.log(`[repeats ${scenario} ${label} ${actor} acting] ${report[0]} | ${report[2]}`)
         host.session.leave()
         client.session.leave()
       }

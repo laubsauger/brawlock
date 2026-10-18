@@ -20,7 +20,7 @@ import type { NetFactory } from './transport'
 import { wsNet } from './ws'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { createMemoryNet } from './memory'
-import { Lister } from './lister'
+import { Lister, p2pListingTarget } from './lister'
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
@@ -128,6 +128,58 @@ async function start(config: Record<string, unknown> = {}, build = 'dev-server',
 }
 
 describe('dedicated server (M4.1)', () => {
+  it('replicates owner-only timed votes and human-safe bot color swaps over real connections', async () => {
+    const { base } = await start()
+    const owner = headlessClient(base, { key: 'vote-owner', device: 'vote-owner-device', name: 'Owner', play: false })
+    const guest = headlessClient(base, { key: 'vote-guest', device: 'vote-guest-device', name: 'Guest', play: false })
+    try {
+      const code = await owner.online.createRoom('test')
+      await owner.session.join(code)
+      await guest.session.join(code)
+      await until(() => owner.lobby().slots.length === 2 && guest.lobby().slots.length === 2, 3000, 'two voting humans')
+      owner.session.addBot('easy')
+      await until(() => guest.lobby().slots.length === 3, 3000, 'the color donor bot')
+      const ownerId = owner.lobby().localPlayer
+      const guestId = guest.lobby().localPlayer
+      const ownerColor = owner.lobby().slots.find((s) => s.id === ownerId)!.color
+      const guestColor = guest.lobby().slots.find((s) => s.id === guestId)!.color
+      const bot = guest.lobby().slots.find((s) => s.kind === 'bot')!
+      guest.session.setPlayerColor(bot.color)
+      await until(() => owner.lobby().slots.find((s) => s.id === guestId)?.color === bot.color, 3000, 'the confirmed color swap')
+      expect(owner.lobby().slots.find((s) => s.id === bot.id)?.color).toBe(guestColor)
+      guest.session.setPlayerColor(ownerColor)
+      guest.session.startLobbyVote('startGold')
+      await new Promise((r) => setTimeout(r, 150))
+      expect(owner.lobby().slots.find((s) => s.id === guestId)?.color).toBe(bot.color)
+      expect(owner.lobby().slots.find((s) => s.id === ownerId)?.color).toBe(ownerColor)
+      expect(owner.lobby().vote).toBeNull()
+
+      owner.session.startLobbyVote('startGold')
+      await until(() => !!owner.lobby().vote && !!guest.lobby().vote, 3000, 'the authoritative vote')
+      const vote = owner.lobby().vote!
+      expect([...vote.eligible].sort()).toEqual([ownerId, guestId].sort())
+      owner.session.castLobbyVote(vote.id, 'high')
+      guest.session.castLobbyVote(vote.id, 'high')
+      await until(() => Object.keys(owner.lobby().vote?.votes ?? {}).length === 2, 3000, 'both identified ballots')
+      expect(owner.lobby().vote?.votes).toEqual({ [ownerId]: 'high', [guestId]: 'high' })
+      owner.session.startMatch()
+      await new Promise((r) => setTimeout(r, 100))
+      expect(owner.screen()).toBe('lobby')
+      expect(guest.screen()).toBe('lobby')
+      expect(owner.lobby().vote?.id).toBe(vote.id)
+      await until(() => owner.lobby().vote === null && guest.lobby().vote === null, 5000, 'the full ten-second vote deadline')
+      expect(owner.lobby().voteResult).toMatchObject({ id: vote.id, reason: 'won', value: 60 })
+      expect(guest.lobby().settings?.startGold).toBe(60)
+      expect(owner.lobby().settings?.startGold).toBe(60)
+      guest.session.setReady(true)
+      owner.session.startMatch()
+      await until(() => owner.screen() === 'match' && guest.screen() === 'match', 3000, 'starting after the vote closes')
+    } finally {
+      owner.session.leave()
+      guest.session.leave()
+    }
+  }, 20000)
+
   /**
    * Why: the priority feature. A player opens a room on the server, owns it (host
    * controls without hosting), plays a full match with bots in predict mode against the
@@ -608,17 +660,30 @@ describe('player-hosted rooms in Browse games (listings)', () => {
     await host.session.openHost()
     const code = host.lobby().roomCode!
     expect(host.session.transport()).toBe('p2p')
+    for (let i = 0; i < 9; i++) host.session.addBot('easy')
+    expect(host.lobby().slots).toHaveLength(10)
+    const listing = () => p2pListingTarget({
+      listed: { code, region: 'test' }, code, role: host.lobby().role, status: host.lobby().status, public: true,
+      transport: host.session.transport(), slots: host.lobby().slots, settings: host.lobby().settings!,
+      screen: host.screen(), host: 'Mira', max: 10, joinable: host.session.joinableSeats(),
+    })
     const lister = new Lister(host.online)
-    lister.want({ region: 'test', info: { ...INFO, code } as never })
+    lister.want(listing())
     await until(() => lister.state().status === 'listed', 3000, 'the listing')
     await new Promise((r) => setTimeout(r, 1100 / TIME_SCALE + 50))
     const rooms = await guest.online.browse()
     expect(rooms.map((r) => r.kind).sort()).toEqual(['p2p', 'server'])
     const pc = rooms.find((r) => r.kind === 'p2p')!
-    expect(pc).toMatchObject({ code, host: 'Mira', quick: false, region: { id: 'test' } })
+    expect(pc).toMatchObject({ code, host: 'Mira', quick: false, humans: 1, bots: 9, joinable: 9, phase: 'lobby', region: { id: 'test' } })
+    // Starting a full bot-filled match must not remove the P2P directory entry.
+    host.session.startMatch()
+    await until(() => host.screen() === 'match', 3000, 'the PC match')
+    lister.want(listing())
+    await new Promise((r) => setTimeout(r, 2100))
+    expect((await guest.online.browse()).find((r) => r.code === code)).toMatchObject({ kind: 'p2p', phase: 'match', joinable: 9 })
     // one click: a normal join by code, peer-to-peer (the server holds no such room)
     await guest.session.join(pc.code)
-    await until(() => host.lobby().slots.length === 2, 3000, 'Ann in the PC room')
+    await until(() => host.lobby().slots.filter((s) => s.kind === 'human').length === 2, 3000, 'Ann reserved a PC bot seat')
     expect(guest.session.transport()).toBe('p2p')
     expect(guest.routed()).toBeNull()
     expect(srv.core.stats().players).toBe(0)

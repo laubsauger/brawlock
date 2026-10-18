@@ -7,6 +7,7 @@ import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometr
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
 import { createWarlock, type CastArm, type DeathKind, type WarlockHandle } from '../character'
 import { RoundEpoch } from '../character/impactMotion'
+import type { VictoryStyle } from '../character/victoryPose'
 import { tweaks } from '../tweaks'
 import { COLLISION_RING_R } from '../scale'
 
@@ -425,8 +426,8 @@ export class PawnView {
     if (this.deathAt < 0) this.deathAt = this.ctx.uTime.value
   }
 
-  celebrate(facing: number): void {
-    this.warlock?.celebrate(facing)
+  celebrate(facing: number, style?: VictoryStyle): void {
+    this.warlock?.celebrate(facing, style)
   }
 
   get deathCauseId(): string {

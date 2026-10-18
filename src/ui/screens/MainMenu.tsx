@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd, Modal } from '../widgets'
@@ -6,7 +6,7 @@ import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
 import { PlaySetup } from './PlaySetup'
-import { online } from '../../game/session'
+import { online, rejoin } from '../../game/session'
 import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
 import { RegionPing } from '../RegionPing'
 import { sfx } from '../lib/sound'
@@ -175,6 +175,27 @@ function JoinRow({ onClose }: { onClose: () => void }) {
   )
 }
 
+function RejoinNotice() {
+  const room = useSyncExternalStore(rejoin.subscribe, rejoin.get, () => null)
+  if (!room) return null
+  const busy = room.status === 'checking' || room.status === 'joining'
+  const label = room.status === 'checking' ? 'Checking…' : room.status === 'joining' ? 'Joining…' : room.status === 'unavailable' ? 'Check again' : 'Join'
+  return <section className="mt-4 rounded border border-gold/30 bg-[#1c140e]/95 px-3 py-2.5" aria-label="Rejoin your game" data-testid="rejoin-game">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h2 className="font-semibold text-[#ffe0a9]">Rejoin your game</h2>
+        <span className="text-xs text-ash">{room.code} · {room.kind === 'server' ? 'Game server' : 'Player hosted'}</span>
+      </div>
+      <div className="flex gap-1.5">
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => { if (room.status === 'available') void rejoin.join(); else void rejoin.refresh() }}>{label}</Button>
+        <Button size="sm" variant="ghost" disabled={room.status === 'joining'} onClick={rejoin.dismiss}>Dismiss</Button>
+      </div>
+    </div>
+    <p className="mt-1.5 text-xs leading-snug text-ash">Return to the same room. If a round is underway, you may watch until the next round.</p>
+    {room.error && <p className="mt-1 text-xs leading-snug text-[#ffb08a]" role="status">{room.error}</p>}
+  </section>
+}
+
 export function MainMenu() {
   const name = useGame((s) => s.settings.playerName)
   const gpu = useGame((s) => s.gpu)
@@ -187,7 +208,7 @@ export function MainMenu() {
   const setScreen = useGame((s) => s.setScreen)
   const [playMode, setPlayMode] = useState<'offline' | 'online' | null>(null)
   const [joinOpen, setJoinOpen] = useState(false)
-  const [profileOpen, setProfileOpen] = useState(false)
+  const [profileTab, setProfileTab] = useState<'stats' | 'board' | 'replays' | null>(null)
   const [browseOpen, setBrowseOpen] = useState(false)
   const [nameOpen, setNameOpen] = useState(false)
   const fullscreen = useFullscreen()
@@ -195,7 +216,7 @@ export function MainMenu() {
   // menu entries rise in one after another whenever the menu shows
   useEffect(() => {
     staggerIn(navRef.current)
-  }, [profileOpen, browseOpen])
+  }, [profileTab, browseOpen])
   const [draft, setDraft] = useState(name)
   useEffect(() => {
     setDraft(name)
@@ -209,7 +230,7 @@ export function MainMenu() {
   const hostAction = lastHostAction()
   const dismissError = () => setLobby({ status: 'idle', error: null })
 
-  if (profileOpen) return <Profile onBack={() => setProfileOpen(false)} />
+  if (profileTab) return <Profile initialTab={profileTab} initialBoardScope={online.configured ? 'global' : 'device'} onBack={() => setProfileTab(null)} />
   if (browseOpen) return <>
     <BrowseGames onBack={() => setBrowseOpen(false)} onHost={() => setPlayMode('online')} />
     {playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
@@ -229,6 +250,8 @@ export function MainMenu() {
         <Wordmark />
         {/* the tagline makes room on short screens (1280x720 with the game-server options) */}
         <p className="hud-text-shadow mt-[min(1rem,2vh)] mb-[min(1.75rem,3vh)] max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4] [@media(max-height:780px)]:hidden">Knock rival warlocks into the lava. Last one standing takes the round.</p>
+
+        <RejoinNotice />
 
         {error && (
           <div role="alert" className="pop-in mb-5 flex items-start gap-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-3">
@@ -261,9 +284,13 @@ export function MainMenu() {
             <MenuGlyph kind="guide" /> How to play <span className="ml-auto font-ui text-sm font-normal text-ash">Four quick lessons</span>
           </Button>
           <div className="mt-1 grid grid-cols-3 gap-2.5">
-            <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileOpen(true)} aria-label="Your record">
-              <MenuGlyph kind="record" size={16} /> Record
+            <Button variant="ghost" size="sm" className="gap-1 px-1 text-[0.72rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileTab('stats')} aria-label="Your statistics">
+              <span className="hidden sm:inline-flex"><MenuGlyph kind="record" size={16} /></span> Stats
             </Button>
+            <Button variant="ghost" size="sm" className="px-1 text-[0.72rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileTab('board')} aria-label={online.configured ? 'Global leaderboards' : 'Leaderboard on this device'}>Leaderboards</Button>
+            <Button variant="ghost" size="sm" className="px-1 text-[0.72rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
+          </div>
+          <div className="flex items-center justify-center gap-4">
             <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => toggle('settingsOpen', true)}>
               <MenuGlyph kind="settings" size={16} /> Settings
             </Button>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { createMatch, step, cloneState, hashState } from './index'
-import { DEFAULT_SETTINGS } from './config'
+import { DEFAULT_SETTINGS, ROUND_END_SECONDS, ticks } from './config'
 import { cmd, newMatch, pawn, run, runUntil, slots } from './testkit'
 import type { InputCommand, Phase, PlayerInput, SimEvent, SimState } from './types'
 
@@ -43,7 +43,7 @@ describe('rounds mode (systems.md §7.2)', () => {
     expect(s.scores.map((x) => x.score)).toEqual([1, 0])
     expect(s.scores[0].gold).toBe(30) // round gold arrives at round end
 
-    const end = run(s, 120)
+    const end = run(s, ticks(ROUND_END_SECONDS))
     expect(phases(end)).toEqual(['shop'])
     expect(s.scores.map((x) => x.gold)).toEqual([40, 40])
     expect(s.arena.layer).toBe(14)
