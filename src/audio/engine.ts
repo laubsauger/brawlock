@@ -74,6 +74,8 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
   teleportIn: { max: 3, level: 1.0, bus: 'sfx' },
   lavaSizzle: { max: 1, level: 1.2, bus: 'sfx', minGap: 0.22 },
   death: { max: 2, level: 1.0, bus: 'sfx' },
+  // Personal reward stays dry and audible under announcer ducking; multikills share a bounded punch.
+  killConfirm: { max: 3, level: 0.95, bus: 'ui', minGap: 0.06 },
   obstacleBreak: { max: 3, level: 0.8, bus: 'sfx' },
   shrinkRumble: { max: 1, level: 0.9, bus: 'sfx', minGap: 1 },
   // phase 'fight' event and ui('fight') both trigger it: the gap plays it once

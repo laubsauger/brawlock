@@ -557,6 +557,18 @@ const death: Recipe = (v) => {
   tail(v, 0.03, 0.9, 220, 0.18)
 }
 
+/** Personal kill confirmation: dry slam, cracking body and a short rising dark-brass answer. */
+const killConfirm: Recipe = (v) => {
+  const body = v.drive(v.out, 2.6, 0.55)
+  click(v, 0, 0.48, 2300, body)
+  thump(v, 0, 175, 58, 0.2, 0.68, body, 'triangle')
+  burst(v, { noise: 'pink', freq: 880, to: 240, q: 0.8, attack: 0.001, decay: 0.18, gain: 2.2, dest: body })
+  burst(v, { at: 0.012, noise: 'crackle', freq: 1300, q: 0.7, attack: 0.001, decay: 0.12, gain: 0.8 })
+  brass(v, 0.025, [130.81, 196], 0.18, 0.42, [[0, 320], [0.025, 1500], [0.18, 280]])
+  brass(v, 0.13, [196, 261.63, 392], 0.28, 0.35, [[0, 500], [0.035, 1800], [0.28, 360]])
+  tail(v, 0.08, 0.27, 200, 0.13)
+}
+
 /** A pillar breaking: stone cracking, chunks clacking down, a thud. */
 const obstacleBreak: Recipe = (v) => {
   burst(v, { noise: 'crackle', freq: 1200, q: 0.9, attack: 0.001, decay: 0.2, gain: 2.8 })
@@ -1387,6 +1399,7 @@ export const RECIPES = {
   teleportIn,
   lavaSizzle,
   death,
+  killConfirm,
   obstacleBreak,
   shrinkRumble,
   roundStart,

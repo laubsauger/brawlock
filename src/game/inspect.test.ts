@@ -50,17 +50,66 @@ describe('spectating', () => {
 })
 
 describe('what the inspect card may show', () => {
-  it('allows other-player inspection in shop and while dead, but blocks a living fighter', () => {
+  it('reads the current replay frame in shops, never a cached future loadout after rewinding', () => {
+    resetFrame()
+    const s = newMatch()
+    s.pawns[1].slots[0] = 'fireball'
+    s.pawns[1].levels[0] = 4
+    pushState(s, 0)
+    expect(inspectedLoadout(s, -1, 1, 'replay')?.kit?.levels[0]).toBe(4)
+    expect(inspectedLoadout(s, -1, 1)).toEqual({ kind: 'unrevealed', kit: null })
+    resetFrame()
+    s.pawns[1].levels[0] = 1
+    pushState(s, 1)
+    expect(inspectedLoadout(s, -1, 1, 'replay')?.kit?.levels[0]).toBe(1)
+  })
+  it('allows existing seats to be inspected in shop, living combat and while watching', () => {
     const s = newMatch()
     expect(canInspect(s, 0, 1)).toBe(true)
     s.phase = 'fight'
-    expect(canInspect(s, 0, 1)).toBe(false)
-    expect(inspectedLoadout(s, 0, 1)).toBeNull()
+    expect(canInspect(s, 0, 1)).toBe(true)
     expect(canInspect(s, 0, 0)).toBe(true)
     s.pawns.find((p) => p.owner === 0)!.alive = false
     expect(canInspect(s, 0, 1)).toBe(true)
     expect(canInspect(s, -1, 1)).toBe(true)
     expect(canInspect(s, -1, 999)).toBe(false)
+    expect(inspectedLoadout(s, 0, 999)).toBeNull()
+    expect(canInspect(null, 0, 1)).toBe(false)
+  })
+
+  it('reveals an opponent combat kit and masteries to a living fighter without revealing enemy gold', () => {
+    resetFrame()
+    const s = newMatch()
+    const enemy = s.pawns.find((p) => p.owner === 1)!
+    const score = s.scores.find((p) => p.id === 1)!
+    enemy.slots[0] = 'fireball'
+    enemy.levels[0] = 3
+    score.masteries.range = 2
+    score.gold = 87
+    pushState(s, 0)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+
+    s.phase = 'fight'
+    s.round = 1
+    pushState(s, 1)
+    expect(s.pawns.find((p) => p.owner === 0)!.alive).toBe(true)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({
+      kind: 'live',
+      kit: { slots: enemy.slots, levels: enemy.levels, masteries: score.masteries },
+    })
+    expect(goldVisible(s, 0, 1)).toBe(false)
+
+    s.phase = 'shop'
+    enemy.levels[0] = 4
+    score.masteries.range = 3
+    pushState(s, 2)
+    const previous = inspectedLoadout(s, 0, 1)!
+    expect(previous.kind).toBe('lastRound')
+    expect(previous.kit!.levels[0]).toBe(3)
+    expect(previous.kit!.masteries.range).toBe(2)
+    expect(goldVisible(s, 0, 1)).toBe(false)
+    expect(inspectedLoadout(s, 1, 1)?.kit!.levels[0]).toBe(4)
+    resetFrame()
   })
 
   it('reveals only combat-committed builds in the next shop, even after zero-gold purchases', () => {

@@ -121,16 +121,27 @@ describe('audio: event mapping', () => {
   it('settles an exact bounty with two centered coins only for its collector, at fixed cost', () => {
     const death: SimEvent = { ...SAMPLES.death, killer: 0, bountyGold: 1 }
     const collect = planEvents([death], LISTENER)
-    expect(collect.map((c) => c.id)).toEqual(['death', 'uiBuy', 'streakTick'])
-    expect(collect.slice(1)).toMatchObject([{ pan: 0, delay: 0.13 }, { pan: 0, delay: 0.24 }])
+    expect(collect.map((c) => c.id)).toEqual(['death', 'killConfirm', 'uiBuy', 'streakTick'])
+    expect(collect.slice(2)).toMatchObject([{ pan: 0, delay: 0.13 }, { pan: 0, delay: 0.24 }])
     expect(planEvents([{ ...death, bountyGold: 1000 }], LISTENER)).toEqual(collect)
     for (const listener of [{ ...LISTENER, localPlayer: 1 }, { ...LISTENER, localPlayer: -1 }]) {
       expect(planEvents([death], listener).map((c) => c.id)).toEqual(['death'])
     }
     for (const bountyGold of [undefined, 0]) {
-      expect(planEvents([{ ...death, bountyGold }], LISTENER).map((c) => c.id)).toEqual(['death'])
+      expect(planEvents([{ ...death, bountyGold }], LISTENER).map((c) => c.id)).toEqual(['death', 'killConfirm'])
     }
     expect(planEvents([{ ...death, cause: 'disconnect' }], LISTENER).map((c) => c.id)).toEqual(['fade'])
+  })
+
+  it('gives only the credited killer a centered confirmation, even at a distant kill location', () => {
+    const event: SimEvent = { ...SAMPLES.death, x: 8000, y: -9000, cause: 'lava' }
+    expect(planEvents([event], LISTENER).filter((c) => c.id === 'killConfirm')).toEqual([{ id: 'killConfirm', pan: 0, gain: 1 }])
+    for (const localPlayer of [1, 2, -1, undefined]) {
+      expect(planEvents([event], { ...LISTENER, localPlayer }).some((c) => c.id === 'killConfirm')).toBe(false)
+    }
+    for (const variant of [{ ...event, killer: null }, { ...event, owner: 0 }, { ...event, cause: 'disconnect' }]) {
+      expect(planEvents([variant as SimEvent], LISTENER).some((c) => c.id === 'killConfirm')).toBe(false)
+    }
   })
 
   it('confirms a reflected ownership reversal privately, without rewarding mere blocks', () => {

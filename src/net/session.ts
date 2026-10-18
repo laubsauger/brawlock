@@ -1449,6 +1449,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     match = null
     const s = m.state
     const result: MatchResult = {
+      rating: dedicated
+        ? { status: 'unavailable', reason: 'The server did not supply an Elo result.' }
+        : { status: 'unrated', reason: 'Offline and player-hosted games do not affect global Elo.' },
       winners: m.winners ?? winnersOf(s),
       slots: s.slots,
       scores: s.scores,

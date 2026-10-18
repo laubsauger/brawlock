@@ -79,17 +79,17 @@ export function DeathFeedback() {
   return (
     <>
       <div ref={edge} className="pointer-events-none absolute inset-0" style={{ opacity: 0, background: 'radial-gradient(ellipse at center, transparent 40%, rgba(145, 20, 8, .7) 100%)' }} aria-hidden />
-      <div className="pointer-events-none absolute inset-x-3 flex flex-col items-center gap-2" style={{ bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 40px)' }}>
-        <div ref={panel} hidden className="hud-scale w-full max-w-[390px] origin-bottom rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-5 py-3 text-center shadow-[0_8px_40px_#0008]" role="status" aria-live="polite" aria-atomic="true">
+      <div className="pointer-events-none absolute inset-x-3 top-[clamp(230px,30vh,280px)] flex justify-center sm:top-[clamp(88px,20vh,190px)] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
+        <div ref={panel} hidden className="hud-scale w-full max-w-[360px] origin-top rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-4 py-3 text-center shadow-[0_8px_40px_#0008] max-sm:[@media(max-height:740px)]:py-2" role="status" aria-live="polite" aria-atomic="true">
           <div className="flex items-center justify-center gap-2 text-[#ffb69a]">
             <Skull size={22} />
-            <span className="font-display text-xl font-bold tracking-wide">You were knocked out</span>
+            <span className="font-display text-xl font-bold tracking-wide max-sm:[@media(max-height:740px)]:text-base">You were knocked out</span>
           </div>
-          <p ref={recap} className="mt-1 break-words text-[0.95rem] font-semibold text-[#f5ddcc]" />
-          <p ref={next} className="mt-1 text-sm tabular-nums text-ash" aria-live="off" />
+          <p ref={recap} className="mt-1 break-words text-[0.95rem] font-semibold text-[#f5ddcc] max-sm:[@media(max-height:740px)]:text-xs" />
+          <p ref={next} className="mt-1 text-sm tabular-nums text-ash max-sm:[@media(max-height:740px)]:text-xs" aria-live="off" />
         </div>
-        <SpectatorBets />
       </div>
+      <SpectatorBets />
     </>
   )
 }

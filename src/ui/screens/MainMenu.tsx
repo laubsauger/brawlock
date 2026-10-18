@@ -15,6 +15,7 @@ import { staggerIn } from '../lib/motion'
 import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
 import { tutorial } from '../lib/onboarding'
+import { quickPlayAvailability } from '../lib/quickPlay'
 
 function MenuEntry({
   title,
@@ -71,15 +72,37 @@ function QuickPlayEntry() {
   const choice = useRegionChoice()
   const region = pickRegion(statuses, choice)
   const problem = regionProblem(region)
+  const regionId = region?.state === 'up' ? region.id : null
+  const [availability, setAvailability] = useState<{ region: string; text: string } | null>(null)
+  useEffect(() => {
+    if (!regionId) return
+    let live = true
+    let busy = false
+    const refresh = async () => {
+      if (busy) return
+      busy = true
+      try {
+        const rooms = await online.browseRegion(regionId)
+        if (live) setAvailability({ region: regionId, text: quickPlayAvailability(rooms, regionId) })
+      } catch {
+        if (live) setAvailability({ region: regionId, text: 'Open-game count unavailable' })
+      } finally { busy = false }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [regionId])
   return (
     <MenuEntry
+      primary
       title="Quick play"
       sub={
-        <span className="flex items-center gap-2">
-          <span>Jump into a game ·</span>
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>{regionId && availability?.region === regionId ? availability.text : 'Checking open games…'}</span>
           {region ? <RegionPing s={region} withName /> : '…'}
         </span>
       }
+      note="New games: 10 players · Brutal bots"
       disabled={!!problem}
       hint={problem ?? `Join an open game on the game server in ${region?.label}, or start one with bots`}
       onClick={() => region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
@@ -275,8 +298,8 @@ export function MainMenu() {
         )}
 
         <nav ref={navRef} className="mt-6 flex flex-col gap-2.5" aria-label="Main menu">
-          <MenuEntry primary title="Play" sub="Set up a game · solo or with friends" onClick={() => setPlayMode('offline')} testId="play" />
           {online.configured && <QuickPlayEntry />}
+          <MenuEntry primary={!online.configured} title="Play" sub="Set up a game · solo or with friends" onClick={() => setPlayMode('offline')} testId="play" />
           {online.configured && <MenuEntry title="Browse games" sub="Find a game or host your own" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
           <Button variant="ghost" className="justify-start text-ash" aria-expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)}>Join by code</Button>
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}

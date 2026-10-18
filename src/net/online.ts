@@ -264,17 +264,8 @@ export class Online {
   async browse(): Promise<PublicRoom[]> {
     const lists = await Promise.all(
       this.regions.map(async (r) => {
-        const s = await this.fresh(r.id, ROUTE_TTL_UP_MS)
-        if (s.state !== 'up') return []
         try {
-          const res = await this.fetch(`${httpBase(r.url)}/rooms?public=1`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
-          const body = res.ok ? ((await res.json()) as { rooms?: unknown; listings?: unknown }) : null
-          const region = this.copy(this.st.get(r.id)!)
-          const rows = (v: unknown) => (Array.isArray(v) ? (v as RoomSummary[]).filter((x) => typeof x?.code === 'string') : [])
-          return [
-            ...rows(body?.rooms).map((x): PublicRoom => ({ ...x, kind: 'server', region })),
-            ...rows(body?.listings).map((x): PublicRoom => ({ ...x, quick: false, kind: 'p2p', region })),
-          ]
+          return await this.browseRegion(r.id)
         } catch {
           return []
         }
@@ -282,6 +273,26 @@ export class Online {
     )
     const phase = (x: PublicRoom) => (x.phase === 'lobby' ? 0 : x.phase === 'results' ? 1 : 2)
     return lists.flat().sort((a, b) => phase(a) - phase(b) || (a.region.rttMs ?? Infinity) - (b.region.rttMs ?? Infinity) || b.humans - a.humans)
+  }
+
+  /** One region's public list. Throws on failure so a count cannot mistake an outage for zero games. */
+  async browseRegion(regionId: string): Promise<PublicRoom[]> {
+    await this.usable(regionId)
+    const region = this.copy(this.st.get(regionId)!)
+    let res
+    try {
+      res = await this.fetch(`${httpBase(region.url)}/rooms?public=1`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
+    } catch {
+      throw new ServerError('unavailable', `Could not list games in ${region.label}.`)
+    }
+    const body = await res.json() as { rooms?: unknown; listings?: unknown; error?: string } | null
+    if (!res.ok) throw failure(res.status, body, `Could not list games in ${region.label}.`)
+    if (!body || !Array.isArray(body.rooms)) throw new ServerError('error', `The ${region.label} server sent an invalid game list.`)
+    const rows = (v: unknown) => (Array.isArray(v) ? (v as RoomSummary[]).filter((x) => typeof x?.code === 'string') : [])
+    return [
+      ...rows(body.rooms).map((x): PublicRoom => ({ ...x, kind: 'server', region })),
+      ...rows(body.listings).map((x): PublicRoom => ({ ...x, quick: false, kind: 'p2p', region })),
+    ]
   }
 
   /** List a player-hosted room on a region (Browse games). Throws ServerError. */

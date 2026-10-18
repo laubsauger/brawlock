@@ -38,6 +38,13 @@ export interface HybridDef {
 }
 
 export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
+  killConfirm: {
+    layers: [
+      { assets: ['thud_a', 'thud_b'], gain: 0.65, rate: [0.85, 0.95] },
+      { assets: ['impact_energy'], gain: 0.22, rate: [0.9, 1] },
+    ],
+    trim: 0.82,
+  },
   // --- fire --------------------------------------------------------------------
   fireballCast: { layers: [{ assets: ['fire_whoosh_a', 'fire_whoosh_b'], gain: 0.55, rate: [0.95, 1.12] }], synth: 0.7, trim: 1.12 },
   fireballTravel: { layers: [{ assets: ['fire_loop'], gain: 1.29, rate: [0.9, 1.1], loop: true }], synth: 0.8, trim: 1.01 },

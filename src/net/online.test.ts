@@ -7,6 +7,18 @@ const regions = [{ id: 'us-west', label: 'US West', url: 'wss://west.test' }, { 
 const response = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
 
 describe('known room rediscovery and routing', () => {
+  it('reads availability only in the selected region and exposes failures rather than an empty count', async () => {
+    let status = 200
+    const fetch = vi.fn(async (url: string) => url.endsWith('/health')
+      ? response(200, { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-test' })
+      : response(status, { rooms: [{ code: 'ABCDE', joinable: 9, quick: true, phase: 'lobby' }], listings: [] }))
+    const online = new Online({ regions, build: 'dev-test', fetch })
+    expect(await online.browseRegion('eu')).toMatchObject([{ code: 'ABCDE', kind: 'server', region: { id: 'eu' } }])
+    expect(fetch.mock.calls.every(([url]) => url.startsWith('https://eu.test/'))).toBe(true)
+    status = 503
+    await expect(online.browseRegion('eu')).rejects.toMatchObject({ reason: 'full' })
+    await expect(online.browseRegion('missing')).rejects.toMatchObject({ reason: 'unavailable' })
+  })
   it('looks up only the original server and cannot mistake a same-code room elsewhere for it', async () => {
     const fetch = vi.fn(async (url: string) => url.endsWith('/health')
       ? response(200, { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-test' })

@@ -154,7 +154,7 @@ export class ServerMatchTracker implements MatchRecorder {
   private active = false
 
   constructor(
-    private readonly onDone: (m: FinishedMatch) => void,
+    private readonly onDone: (m: FinishedMatch, result: MatchResult) => void,
     private readonly onName?: (device: string, name: string) => void,
   ) {}
 
@@ -262,7 +262,7 @@ export class ServerMatchTracker implements MatchRecorder {
       bots: this.bots,
       seats: [...this.seats.values()].map((s) => ({ ...s })),
       ranked: this.ranked,
-    })
+    }, result)
   }
 
   abort(): void {

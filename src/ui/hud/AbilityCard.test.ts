@@ -86,23 +86,41 @@ describe('progression respects inspection privacy and effective owner stats', ()
     const def = spellDef('grip')!
     const historicalMax = secs(attr(def, 'duration', SPELL_MAX_LEVEL) * masteryFactor('duration', 1))
     expect(html).toMatch(new RegExp(`<td[^>]*>${historicalMax}</td>`))
+    for (const hiddenMastery of [5, 6]) {
+      const hiddenMax = secs(attr(def, 'duration', SPELL_MAX_LEVEL) * masteryFactor('duration', hiddenMastery))
+      expect(html).not.toMatch(new RegExp(`<td[^>]*>${hiddenMax}</td>`))
+    }
     expect(html).not.toContain('Upgrade to level')
     expect(html).toContain('Owned level 2 of 7')
   })
 
-  it('renders no opponent details or future table in first shop or during living combat', () => {
+  it('keeps the first shop private, then shows own and opponent progression during living combat and spectating', () => {
     const s = newMatch()
     s.pawns[1].slots[0] = 'boomerang'
     s.pawns[1].levels[0] = 2
+    s.pawns[0].slots[4] = 'shield'
+    s.pawns[0].levels[4] = 3
+    s.scores[0].masteries.duration = 2
     pushState(s, 0)
     const t = target('boomerang', { context: 'inspect', player: 1, slot: 0 })
     expect(render(t)).toBe('')
     s.phase = 'fight'
     s.round = 1
     pushState(s, 1)
-    expect(render(t)).toBe('')
+    const alive = render(t)
+    expect(alive).toContain('Owned level 2 of 7')
+    expect(alive).toContain('Full level progression')
+    expect(alive).toContain('aria-label="Level 7"')
+    expect(alive).not.toContain('Upgrade to level')
+    const own = render(target('shield', { context: 'inspect', player: 0, slot: 4 }))
+    expect(own).toContain('Owned level 3 of 7')
+    expect(own).toContain('Full level progression')
+    expect(own).toContain(secs(attr(spellDef('shield')!, 'duration', 3) * masteryFactor('duration', 2)))
     s.pawns[0].alive = false
-    expect(render(t)).toContain('Full level progression')
+    const dead = render(t)
+    expect(dead).toContain('Owned level 2 of 7')
+    expect(dead).toContain('Full level progression')
+    expect(dead).toContain('aria-label="Level 7"')
   })
 
   it('explains target-dependent stats and gives the scrollable card pointer and keyboard access', () => {

@@ -7,7 +7,7 @@
  *   configured bots and settings
  * - results: a rematch follows after rematchMs while humans are connected
  * Quick-play rooms (`quick`, M4.3) are public and have no owner; the server runs them.
- * Up to `seats` humans (8); bots top the table up to `fill` players (4) when fewer:
+ * Up to `seats` humans (10); bots top the table up to `fill` players (10) when fewer:
  * - two or more humans: the match starts after startMs
  * - one human: the match starts after fillMs
  * - arrivals reserve bot seats during a match and start playing next round;
@@ -43,7 +43,9 @@ export interface RoomOptions {
   /** listed in the public room browser from the start (quick-play rooms always are) */
   public?: boolean
   /** every finished match, with the device ids of its human seats */
-  onMatch?: (m: FinishedMatch) => void
+  onMatch?: (m: FinishedMatch, result: MatchResult) => void
+  /** Explicit server rating policy; absent when the caller supplies no policy. */
+  elo?: { enabled: boolean; minSeconds: number }
   /** a connected device's display label, including lobby changes before the next match */
   onName?: (device: string, name: string) => void
   log?: (msg: string) => void
@@ -78,6 +80,8 @@ export interface RoomSummary {
   teamMode: MatchSettings['teamMode']
   gameMode: MatchSettings['gameMode']
   winScore: number
+  /** Rating availability and minimum duration; never exposes device identities. */
+  elo?: { enabled: boolean; minSeconds: number }
 }
 
 export interface RoomDeps {
@@ -195,7 +199,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     clientKey: () => 'dedicated-server',
     netMode: () => 'predict',
     build: deps.build,
-    ...(opts.onMatch ? { recorder: new ServerMatchTracker((m) => opts.onMatch!(m), opts.onName) } : {}),
+    ...(opts.onMatch ? { recorder: new ServerMatchTracker((m, result) => opts.onMatch!(m, result), opts.onName) } : {}),
   })
   const quick = opts.quick ?? null
 
@@ -330,6 +334,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         teamMode: st.teamMode,
         gameMode: st.gameMode,
         winScore: st.winScore,
+        ...(opts.elo ? { elo: { ...opts.elo } } : {}),
       }
     },
     peers: () => session.debug().peers,

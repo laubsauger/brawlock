@@ -346,6 +346,9 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     // Your own knockout stays centered and distinct even when the camera is panned away.
     if (e.owner === c.listener.localPlayer) return [cue('death', CENTRE, 1.15, { stopKey: windupKey(e.pawn) })]
     const out = [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn) })]
+    // A credited kill is a personal reward, independent of distance or the spectator camera.
+    const local = c.listener.localPlayer
+    if (local !== undefined && local >= 0 && e.killer === local) out.push(cue('killConfirm', CENTRE))
     // The exact authoritative bounty is separate from ordinary kill/round gold.
     // A quiet two-part coin settle belongs only to its collector.
     if (e.killer === c.listener.localPlayer && e.bountyGold && e.bountyGold > 0) {

@@ -10,10 +10,9 @@
  */
 import type { PlayerSlot, SimState } from '../sim/types'
 
-/** Opponent builds are readable between rounds and while watching, never while fighting. */
-export function canInspect(state: SimState | null, local: number, player: number): boolean {
+/** Any current seat can be inspected; inspectedLoadout keeps shop purchases private. */
+export function canInspect(state: SimState | null, _local: number, player: number): boolean {
   return !!state?.slots.some((s) => s.id === player)
-    && (player === local || state.phase !== 'fight' || isSpectating(state, local))
 }
 
 export interface InspectedKit {
@@ -58,9 +57,10 @@ export function resetRevealedLoadouts(): void {
 }
 
 /** The only source of kits for opponent UI, including scoreboard icons and hover cards. */
-export function inspectedLoadout(state: SimState | null, local: number, player: number): InspectedLoadout | null {
+export function inspectedLoadout(state: SimState | null, local: number, player: number, source: 'live' | 'replay' = 'live'): InspectedLoadout | null {
   if (!state || !canInspect(state, local, player)) return null
-  if (player === local || state.phase === 'fight' || state.phase === 'gameOver') {
+  // A replay is read-only history: always use its current frame, including after a seek.
+  if (source === 'replay' || player === local || state.phase === 'fight' || state.phase === 'gameOver') {
     return { kind: 'live', kit: copyKit(state, player) }
   }
   const previous = state.round === committedRound ? committed.get(player) : null

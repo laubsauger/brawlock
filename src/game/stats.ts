@@ -134,6 +134,8 @@ export interface Award {
 }
 
 export interface MatchRecord {
+  /** Server-confirmed rating outcome; absent on historical records without confirmation. */
+  rating?: import('../net/rating').MatchRating
   id: string
   /** ms since epoch, local clock */
   date: number
@@ -644,6 +646,7 @@ export class MatchTracker {
       kills: split(this.killPairs),
       damage: split(this.dmgPairs),
       firstBlood: this.firstBlood,
+      ...(result.rating ? { rating: { ...result.rating } } : {}),
     }
     rec.awards = matchAwards(rec)
     return rec
@@ -998,6 +1001,12 @@ function isRecord(v: unknown): v is MatchRecord {
   return !!o && typeof o.date === 'number' && Array.isArray(o.participants) && Array.isArray(o.winners)
 }
 
+function cleanMatchRating(value: unknown): MatchRecord['rating'] {
+  const rating = obj(value)
+  if (!rating || (rating.status !== 'rated' && rating.status !== 'unrated' && rating.status !== 'unavailable')) return undefined
+  return { status: rating.status, ...(typeof rating.reason === 'string' ? { reason: rating.reason } : {}) }
+}
+
 /** Clean the v2 additions of a stored record (v1 records simply have none). */
 function cleanRecord(r: MatchRecord): MatchRecord {
   const participants = r.participants.map((p) => {
@@ -1008,6 +1017,9 @@ function cleanRecord(r: MatchRecord): MatchRecord {
   })
   const awards = cleanAwards(r.awards)
   const out: MatchRecord = { ...r, participants }
+  const rating = cleanMatchRating(r.rating)
+  if (rating) out.rating = rating
+  else delete out.rating
   if (awards) out.awards = awards
   else delete out.awards
   return out

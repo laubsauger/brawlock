@@ -176,7 +176,7 @@ function warlockAt(clientX: number, clientY: number): number {
 }
 
 /** Plain left click: inspect (and, while watching, follow) the warlock under it; empty ground closes the card. */
-export function inspectClick(clientX: number, clientY: number): void {
+export function inspectClick(clientX: number, clientY: number, opts: { follow?: boolean } = {}): void {
   const who = warlockAt(clientX, clientY)
   if (who < 0) {
     inspectStore.set({ inspect: -1 })
@@ -184,7 +184,7 @@ export function inspectClick(clientX: number, clientY: number): void {
   }
   if (!canInspect(frame.curr, frame.localPlayer, who)) return
   inspectStore.toggleInspect(who)
-  if (isSpectating(frame.curr, frame.localPlayer) && who !== frame.localPlayer) inspectStore.set({ follow: who })
+  if (opts.follow !== false && isSpectating(frame.curr, frame.localPlayer) && who !== frame.localPlayer) inspectStore.set({ follow: who })
 }
 
 /** Spectating keys; true when the key was used. */

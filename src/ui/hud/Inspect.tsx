@@ -43,7 +43,7 @@ const EMPTY: LoadoutView = { ok: false, name: '', color: '#ccc', glyph: '', spel
 function readLoadout(player: number): LoadoutView {
   const s = frame.curr
   if (!s || player < 0) return EMPTY
-  const loadout = inspectedLoadout(s, frame.localPlayer, player)
+  const loadout = inspectedLoadout(s, frame.localPlayer, player, useGame.getState().screen === 'replay' ? 'replay' : 'live')
   if (!loadout) return EMPTY
   const slot = s.slots.find((x) => x.id === player)
   const pawn = s.pawns.find((p) => p.owner === player)
@@ -96,7 +96,7 @@ function Pips({ level, max }: { level: number; max: number }) {
  */
 export function Loadout({ player, size = 26, cards = false }: { player: number; size?: number; cards?: boolean }) {
   const v = useLoadout(player)
-  if (!v.ok) return <span className="text-sm text-ash">Inspect while shopping or spectating</span>
+  if (!v.ok) return <span className="text-sm text-ash">Loadout unavailable</span>
   if (v.kind === 'unrevealed') return <span className="text-sm text-ash">{inspectionLabel(v.kind)}</span>
   const icon = (id: string | null, level: number, slot: number, kind: 'spell' | 'item') => {
     const max = kind === 'spell' ? SPELL_MAX_LEVEL : (itemDef(id)?.maxLevel ?? 1)

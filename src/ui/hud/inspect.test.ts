@@ -48,24 +48,40 @@ describe('opponent loadout presentation', () => {
     expect(markup).not.toContain('Range mastery 5 of')
   })
 
-  it('blocks enemy scoreboard kits while alive, then exposes live kits while spectating', () => {
+  it('shows own and opponent live scoreboard kits while alive and keeps them live while spectating', () => {
     const s = newMatch()
     frame.localPlayer = 0
     s.phase = 'fight'
     s.round = 1
+    s.pawns[0].slots[0] = 'boomerang'
+    s.pawns[0].levels[0] = 3
+    s.scores[0].masteries.range = 1
     s.pawns[1].slots[0] = 'lightning'
-    s.pawns[1].levels[0] = 1
+    s.pawns[1].levels[0] = 2
+    s.scores[1].masteries.range = 4
     pushState(s, 0)
     const alive = renderToStaticMarkup(createElement(Scoreboard))
-    expect(alive).not.toContain('lightning.png')
-    expect(alive).not.toContain('title="Inspect p1"')
-    expect(alive).toContain('Inspect while shopping or spectating')
+    expect(alive).toContain('boomerang.png')
+    expect(alive).toContain('lightning.png')
+    expect(alive).toContain('title="Inspect p1"')
+    expect(alive).toContain('Current loadout')
+    expect(alive).toContain('Range mastery 1 of')
+    expect(alive).toContain('Range mastery 4 of')
+    const own = renderToStaticMarkup(createElement(Loadout, { player: 0, cards: true }))
+    const opponent = renderToStaticMarkup(createElement(Loadout, { player: 1, cards: true }))
+    const spellPips = (markup: string) => markup.match(/class="loadout-pips"[^>]*>(.*?)<\/span>/)?.[1].match(/data-on="true"/g) ?? []
+    expect(own).toContain('boomerang.png')
+    expect(spellPips(own)).toHaveLength(3)
+    expect(opponent).toContain('lightning.png')
+    expect(spellPips(opponent)).toHaveLength(2)
     s.pawns[0].alive = false
     s.pawns[1].slots[1] = 'teleport'
     s.pawns[1].levels[1] = 1
     const dead = renderToStaticMarkup(createElement(Scoreboard))
     expect(dead).toContain('lightning.png')
     expect(dead).toContain('teleport.png')
+    expect(dead).toContain('boomerang.png')
+    expect(dead).toContain('Current loadout')
     expect(dead).toContain('title="Watch p1"')
   })
 
@@ -96,7 +112,7 @@ describe('opponent loadout presentation', () => {
     expect(replacement).not.toContain('Range mastery 3')
   })
 
-  it('rechecks historical and combat visibility even before a stale live poll refreshes', () => {
+  it('rechecks shop privacy and restores live combat kits even before a stale poll refreshes', () => {
     let held: unknown
     vi.spyOn(ticker, 'usePolled').mockImplementation((read) => {
       held ??= read()
@@ -106,24 +122,31 @@ describe('opponent loadout presentation', () => {
     frame.localPlayer = 0
     s.phase = 'fight'
     s.round = 1
+    s.scores[1].masteries.range = 1
     pushState(s, 0)
     s.pawns[0].alive = false
     // Next-round purchase while knocked out: visible to another spectator,
     // but it was not in this round's committed combat kit.
     s.pawns[1].slots[1] = 'teleport'
     s.pawns[1].levels[1] = 1
-    expect(renderToStaticMarkup(createElement(Loadout, { player: 1 }))).toContain('teleport.png')
+    s.scores[1].masteries.range = 4
+    const dead = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
+    expect(dead).toContain('teleport.png')
+    expect(dead).toContain('Range mastery 4 of')
     s.phase = 'shop'
     pushState(s, 1)
     const shop = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
     expect(shop).toContain('Last round · current purchases hidden')
     expect(shop).not.toContain('teleport.png')
+    expect(shop).toContain('Range mastery 1 of')
+    expect(shop).not.toContain('Range mastery 4 of')
     s.pawns[0].alive = true
     s.phase = 'fight'
     s.round = 2
     pushState(s, 2)
     const alive = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
-    expect(alive).toContain('Inspect while shopping or spectating')
-    expect(alive).not.toContain('.png')
+    expect(alive).toContain('Current loadout')
+    expect(alive).toContain('teleport.png')
+    expect(alive).toContain('Range mastery 4 of')
   })
 })

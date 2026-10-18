@@ -27,7 +27,7 @@ describe('personal betting presentation', () => {
     state.slots[1].profileId = 'replacement-device'
     state.slots[1].name = 'Replacement'
     pushState(state)
-    expect(markup()).toContain('Locked: Player 1')
+    expect(markup()).toContain('Your bet: Player 1 · 1 gold placed')
     expect(markup()).not.toContain('Replacement')
   })
 
@@ -53,7 +53,7 @@ describe('personal betting presentation', () => {
     state.slots[3].name = 'Renamed'
     frame.localPlayer = 3
     pushState(state)
-    expect(markup()).toContain('Locked: Player 1')
+    expect(markup()).toContain('Your bet: Player 1 · 1 gold placed')
   })
 
   it('labels team wagers with team names and the shared team palette', () => {
@@ -63,9 +63,31 @@ describe('personal betting presentation', () => {
     state.slots[2].team = 1
     pushState(state)
     const html = markup()
-    expect(html).toContain('Back the winning team')
+    expect(html).toContain('Bet on which team wins')
+    expect(html).toContain('Choose a team · costs 1 gold')
+    expect(html).toContain('up to 2 gold total back (1 gold profit)')
     expect(html).toContain('Red team')
     expect(html).toContain('Blue team')
     expect(html).not.toContain('Bet 1 gold on Player 1')
+    placeSpectateBet(state, 0, 1, 1)
+    pushState(state)
+    expect(markup()).toContain('Your bet: Red team')
+  })
+
+  it('distinguishes getting your stake back from making a profit', () => {
+    const state = setup()
+    placeSpectateBet(state, 0, 1, 1)
+    settleSpectateBets(state, [1])
+    state.phase = 'roundEnd'
+    pushState(state)
+    expect(markup()).toContain('1 gold returned (your stake)')
+    expect(markup()).not.toContain('+1 gold profit')
+    const contested = setup()
+    placeSpectateBet(contested, 0, 1, 1)
+    placeSpectateBet(contested, 3, 1, 2)
+    settleSpectateBets(contested, [1])
+    contested.phase = 'roundEnd'
+    pushState(contested)
+    expect(markup()).toContain('2 gold returned · +1 gold profit')
   })
 })

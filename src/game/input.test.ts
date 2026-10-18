@@ -179,20 +179,22 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
     expect(inspectStore.get().inspect).toBe(-1)
   })
 
-  it('does not inspect an opponent from the battlefield while alive, but does while down', async () => {
+  it('inspects an opponent while fighting without changing the camera, and follows while down', async () => {
     const { inspectStore } = await import('./inspect')
     frame.curr!.phase = 'fight'
     frame.cursor = { x: 410, y: 10, valid: true }
     fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
-    expect(inspectStore.get().inspect).toBe(-1)
+    expect(inspectStore.get().inspect).toBe(1)
+    expect(inspectStore.get().follow).toBe(-1)
     frame.curr!.pawns[0].alive = false
+    inspectStore.set({ inspect: -1 })
     fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
     expect(inspectStore.get().inspect).toBe(1)
     expect(inspectStore.get().follow).toBe(1)
     expect(input.drain()).toEqual([])
   })
 
-  it('applies the same combat restriction to nameplate clicks as ground picking', async () => {
+  it('inspects combat nameplates even when the ground cursor is invalid', async () => {
     const { inspectStore } = await import('./inspect')
     const originalDocument = g.document
     g.document = { querySelectorAll: () => [{ style: { display: '' }, dataset: { pawn: '101' }, getBoundingClientRect: () => ({ left: 0, top: 0, right: 20, bottom: 20 }) }] }
@@ -200,14 +202,23 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
       frame.cursor.valid = false // only the nameplate can resolve the target
       frame.curr!.phase = 'fight'
       inspectClick(10, 10)
-      expect(inspectStore.get().inspect).toBe(-1)
+      expect(inspectStore.get().inspect).toBe(1)
       frame.curr!.phase = 'shop'
       inspectClick(10, 10)
-      expect(inspectStore.get().inspect).toBe(1)
+      expect(inspectStore.get().inspect).toBe(-1)
     } finally {
       if (originalDocument === undefined) delete g.document
       else g.document = originalDocument
     }
+  })
+
+  it('allows replay inspection without changing spectator camera selection or issuing commands', async () => {
+    const { inspectStore } = await import('./inspect')
+    frame.localPlayer = -1
+    frame.cursor = { x: 410, y: 10, valid: true }
+    inspectClick(0, 0, { follow: false })
+    expect(inspectStore.get()).toEqual({ inspect: 1, follow: -1 })
+    expect(input.drain()).toEqual([])
   })
 
   it('closes the card on a click on empty ground', async () => {

@@ -14,7 +14,7 @@
  *   POST   /listings      list a player-hosted (P2P) room → 201 {id, token, ttlS, heartbeatS}
  *   PUT    /listings/:id  heartbeat {token, ...changes} → {ok} or {ok, gone} (list again)
  *   DELETE /listings/:id  {token} → unlisted at once (listings.ts; the server never connects to it)
- *   POST /quickplay?bots=hard  → {code, created, region}: an open quick-play room, or a new one
+ *   POST /quickplay?bots=brutal → {code, created, region}: an open quick-play room, or a new one
  *   GET  /leaderboard?period=all|week&region=&device=  {period, region, entries, you}
  *   GET  /players/:device  {found: true, ...} a device's public profile (rating, rank, totals,
  *                       recent matches), or {found: false} before its first counted match
@@ -32,6 +32,7 @@ import { PROTOCOL_VERSION, encode } from './protocol'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
 import { SocketTransport, type TextSocket } from './ws'
 import type { BotDifficulty, MatchSettings } from '../sim/types'
+import type { MatchRating } from './rating'
 
 export interface ServerConfig {
   build: string
@@ -80,7 +81,10 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   listsPerMin: 60,
   quickplaysPerMin: 20,
   boardReadsPerMin: 60,
-  quickplay: { fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 8, fill: 4, bots: 'hard' },
+  quickplay: {
+    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'brutal',
+    settings: { startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+  },
   leaderboardMinSeconds: LB_MIN_SECONDS,
   listingCreatesPerMin: 6,
   listingBeatsPerMin: 30,
@@ -217,12 +221,13 @@ export function createServerCore(
         code,
         bots: setup.bots ?? [],
         auto: setup.auto ?? false,
-        settings: setup.quick ? { botsReplaceLeavers: true, ...cfg.quickplay.settings, ...setup.settings } : setup.settings,
+        settings: setup.quick ? { botsReplaceLeavers: true, ...DEFAULT_SERVER_CONFIG.quickplay.settings, ...cfg.quickplay.settings, ...setup.settings } : setup.settings,
         autoStartMs: setup.autoStartMs,
         rematchMs: setup.rematchMs,
         ...(setup.quick ? { quick: { fillMs: cfg.quickplay.fillMs, startMs: cfg.quickplay.startMs, nextMs: cfg.quickplay.nextMs, seats: cfg.quickplay.seats, fill: cfg.quickplay.fill, bots: setup.quick } } : {}),
         public: setup.public,
-        onMatch: (m) => record(code, m),
+        elo: { enabled: !!store, minSeconds: cfg.leaderboardMinSeconds },
+        onMatch: (m, result) => { result.rating = record(code, m) },
         onName: (device, name) => {
           if (!store) return
           try {
@@ -241,20 +246,22 @@ export function createServerCore(
   }
 
   /** A finished server match: rated and stored when it counts (leaderboard.ts). */
-  function record(room: string, m: FinishedMatch): void {
-    if (!store) return
+  function record(room: string, m: FinishedMatch): MatchRating {
+    if (!store) return { status: 'unrated', reason: 'This server does not record global Elo.' }
     try {
       const devices = m.seats.map((x) => x.device)
       const settled = settleMatch(m, store.players(devices), clock(), cfg.region, cfg.leaderboardMinSeconds)
       if ('skipped' in settled) {
         log('info', 'leaderboard.skip', { room, reason: settled.skipped, humans: m.seats.length, ticks: m.ticks })
-        return
+        return { status: 'unrated', reason: settled.skipped }
       }
       store.commit({ at: clock(), region: cfg.region, room, ticks: m.ticks, rounds: m.rounds, humans: m.seats.length, bots: m.bots }, settled.results, settled.players)
       boardCache.clear()
       log('info', 'leaderboard.match', { room, players: settled.players.length, rounds: m.rounds })
+      return { status: 'rated' }
     } catch (e) {
       log('error', 'leaderboard.error', { room, error: String(e) })
+      return { status: 'unavailable', reason: 'The server could not save Elo for this match.' }
     }
   }
 
@@ -403,7 +410,7 @@ export function createServerCore(
           return json(503, { error: 'The server is full right now.' }, req.origin)
         }
         const want = url.searchParams.get('bots') as BotDifficulty | null
-        const bots = want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : 'hard'
+        const bots = want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : DEFAULT_SERVER_CONFIG.quickplay.bots
         const code = freeCode()
         creating.add(code)
         try {

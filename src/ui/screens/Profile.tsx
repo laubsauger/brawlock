@@ -14,6 +14,7 @@ import { exportReplay, importReplay, useReplayIds, watchReplay } from '../lib/re
 import { REPLAY_EXT, type ReplayMeta } from '../../game/replay/format'
 import { replays } from '../../game/replay/store'
 import { chooseName, NAME_MAX } from '../lib/name'
+import { historyEloLabel } from '../lib/elo'
 
 type Tab = 'matches' | 'stats' | 'rivals' | 'board' | 'replays'
 
@@ -117,7 +118,8 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
         const win = r.outcome === 'win'
         const others = [...r.participants].sort((a, b) => b.score - a.score)
         const open = openId === r.id
-        const detail = (r.awards?.length ?? 0) > 0 || !!me?.stats
+        const elo = historyEloLabel(r)
+        const detail = !!elo.title || (r.awards?.length ?? 0) > 0 || !!me?.stats
         const who = (id: number) => {
           const p = r.participants.find((x) => x.player === id)
           return { name: p?.name ?? '?', color: p ? hex(p.color) : '#ccc' }
@@ -137,6 +139,7 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
               <span className={`w-14 text-[1.05rem] font-bold ${win ? 'text-heal' : r.outcome === 'loss' ? 'text-[#ff9b8a]' : 'text-ash'}`}>
                 {win ? 'Win' : r.outcome === 'loss' ? 'Loss' : 'Watched'}
               </span>
+              <span className={`chip px-2 py-0.5 text-[0.68rem] ${elo.tone}`} title={elo.title} aria-label={`${elo.label}: ${elo.title}`}>{elo.label}</span>
               <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
                 {others.map((p) => (
                   <span key={p.player} className="flex items-center gap-1.5">
@@ -162,8 +165,9 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
             </div>
             {open && (
               <div className="pop-in flex flex-col gap-2 px-3 pb-3">
+                <p className="text-[0.85rem] leading-snug text-ash">{elo.title}</p>
                 {r.awards && r.awards.length > 0 && <AwardsStrip awards={r.awards} who={who} compact />}
-                {me?.stats ? <PlayerStatsDetail stats={me.stats} /> : <p className="text-[0.9rem] text-ash">Detailed stats are kept for your 30 most recent matches.</p>}
+                {me?.stats ? <PlayerStatsDetail stats={me.stats} /> : <p className="text-[0.9rem] text-ash">No detailed stats are stored for this match.</p>}
                 {replayIds.has(r.id) && (
                   <div className="flex gap-3 text-[0.9rem]">
                     <button type="button" className="text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => void watchReplay(r.id)}>

@@ -31,7 +31,7 @@ function read() {
   })
   return {
     round: state.round, phase: state.phase, choices,
-    selected: bet ? (pick?.name ?? bet.pick.name) : null,
+    selected: bet ? (pick && state.settings.teamMode !== 'ffa' ? `${teamName(teamOf(state, pick.id))} team` : pick?.name ?? bet.pick.name) : null,
     pot: state.betting.bets.length * BET_STAKE,
     affordable: score.gold >= BET_STAKE,
     teams: state.settings.teamMode !== 'ffa',
@@ -52,19 +52,24 @@ export function SpectatorBets() {
     sfx('click')
   }
   const result = value.payout
-  return <section data-testid="spectator-bets" className="interactive hud-scale w-full max-w-[390px] origin-bottom rounded border border-[#d6a44e]/30 bg-[#17100c]/95 px-3 py-2 text-sm shadow-lg" aria-label="Spectator betting">
+  return <div className="pointer-events-none absolute inset-x-3 flex justify-center sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:right-3 sm:[@media(max-height:520px)]:w-[min(52vw,440px)]" style={{ bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 18px)' }}>
+    <section data-testid="spectator-bets" className="interactive hud-scale w-full max-w-[440px] origin-bottom rounded border border-[#d6a44e]/30 bg-[#17100c]/95 px-3 py-2 text-sm shadow-lg" aria-label="Spectator betting">
     <div className="flex items-center justify-between gap-3">
-      <span className="font-semibold text-[#e7c58c]">{value.teams ? 'Back the winning team' : 'Back the winner'}</span>
-      <span className="tabular-nums text-gold">Pot ● {value.pot}</span>
+      <span className="font-semibold text-[#e7c58c]">{value.teams ? 'Bet on which team wins' : 'Bet on who wins'}</span>
+      <span className="shrink-0 text-xs tabular-nums text-gold">Total bets: {value.pot} gold</span>
     </div>
-    {result ? <p role="status" className="mt-1 text-bone">{result.correct ? 'Correct pick' : result.amount > 0 ? 'Stake returned' : 'Pick lost'} · {result.amount} gold returned{value.bountyAdded > 0 ? ` · ${value.bountyAdded} added to bounties` : ''}</p>
-      : value.selected ? <p role="status" className="mt-1 text-bone">Locked: {value.selected} · {BET_STAKE} gold</p>
+    {result ? <p role="status" className="mt-1 text-bone">{result.correct ? result.amount > BET_STAKE ? `You won: ${result.amount} gold returned · +${result.amount - BET_STAKE} gold profit` : `Correct pick · ${result.amount} gold returned (your stake)` : result.amount > 0 ? `Bet refunded: ${result.amount} gold` : `You lost your ${BET_STAKE} gold bet`}{value.bountyAdded > 0 ? ` · ${value.bountyAdded} gold added to bounties` : ''}</p>
+      : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed</p>
         : value.phase === 'roundEnd' ? <p className="mt-1 text-ash">Betting closed for this round</p>
           : !value.affordable ? <p className="mt-1 text-ash">You need {BET_STAKE} gold to bet</p>
-            : <div className="mt-2 flex flex-wrap gap-1.5">{value.choices.map((choice) => <button key={choice.player} type="button" className="flex min-w-0 items-center gap-2 rounded border border-white/15 bg-white/5 px-2 py-1 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. Your pick locks for this round.`}>
+            : value.choices.length === 0 ? <p className="mt-1 text-ash">Betting closed for this round</p>
+            : <><p className="mt-1 text-bone">Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold</p>
+              <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto overscroll-contain">{value.choices.map((choice) => <button key={choice.player} type="button" className="flex min-w-0 max-w-full flex-[1_1_150px] items-center gap-2 rounded border border-white/15 bg-white/5 px-2 py-1 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. One bet per round; it cannot be changed.`}>
               <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} />
-              <span className="max-w-32 truncate">{choice.name}</span><span className="text-gold">● {BET_STAKE}</span>
-            </button>)}</div>}
-    <p className="mt-1 text-[0.7rem] leading-snug text-ash" title="Correct picks get their stake back. Bonus gold is paid in bet order while the pot lasts.">One locked pick · up to {BET_MAX_RETURN} gold back{value.bounty ? ' · remainder funds winner bounties' : ' · unmatched stakes returned'}</p>
-  </section>
+              <span className="shrink-0 text-gold">Bet {BET_STAKE} gold ·</span><span className="min-w-0 max-w-40 truncate">{choice.name}</span>
+            </button>)}</div></>}
+    <p className="mt-2 text-xs leading-snug text-bone" title="Correct bets get their gold back. Profit is paid in bet order while other bets cover it.">Win: up to {BET_MAX_RETURN} gold total back ({BET_MAX_RETURN - BET_STAKE} gold profit)</p>
+    <p className="mt-1 text-[0.7rem] leading-snug text-ash">Wrong pick: lose {BET_STAKE} gold. One bet per round · profit depends on other bets.{value.bounty ? ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
+    </section>
+  </div>
 }

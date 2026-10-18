@@ -5,6 +5,7 @@ import { Button, Kbd } from '../widgets'
 import { RegionPing } from '../RegionPing'
 import { sfx } from '../lib/sound'
 import { joinRoom } from '../flow'
+import { liveEloLabel } from '../lib/elo'
 
 /** how often the list refreshes (the server caches it ~1 s and allows 60 lists a minute) */
 export const BROWSE_REFRESH_MS = 4000
@@ -95,6 +96,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
           <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto pr-1" data-testid="browse-list">
             {rooms.map((r) => {
               const st = STATUS[r.phase] ?? STATUS.match
+              const elo = liveEloLabel(r)
               const full = r.humans >= r.max
               const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
               const watch = r.phase === 'match' && r.joinable === 0
@@ -107,7 +109,10 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                       {r.quick ? 'Quick play' : r.host ? `${r.host}'s game` : 'Open game'}
                       {r.kind === 'p2p' && <span className="ml-2 align-middle text-[0.78rem] font-semibold tracking-wide text-ash uppercase">Player-hosted</span>}
                     </span>
-                    <span className="text-[0.86rem] text-ash">{roomMode(r)}</span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.86rem] text-ash">
+                      <span>{roomMode(r)}</span>
+                      <span className={`chip px-2 py-0.5 text-[0.68rem] ${elo.tone}`} title={elo.title} aria-label={`${elo.label}: ${elo.title}`}>{elo.label}</span>
+                    </span>
                   </span>
                   <span className="tabular w-36 text-[0.95rem] text-[#e6d3b8]" title={`${r.humans} players, ${r.bots} bots, ${r.max} seats`}>
                     {r.humans} {r.humans === 1 ? 'player' : 'players'}

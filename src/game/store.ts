@@ -127,6 +127,8 @@ export interface LobbyView {
 }
 
 export interface MatchResult {
+  /** Authoritative global Elo verdict; absent on older saved results. */
+  rating?: import('../net/rating').MatchRating
   winners: PlayerId[]
   slots: PlayerSlot[]
   scores: PlayerScore[]

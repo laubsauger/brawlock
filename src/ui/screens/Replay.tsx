@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { audio } from '../../audio'
 import { eventsSince, frame } from '../../game/frame'
+import { inspectClick } from '../../game/input'
+import { inspectStore } from '../../game/inspect'
 import { REPLAY_SPEEDS, replayViewer, type ViewerView } from '../../game/replay/viewer'
 import { TICK_HZ } from '../../sim'
 import { announce, Killfeed } from '../hud/Announce'
 import { Scoreboard } from '../hud/Overlays'
+import { InspectCard } from '../hud/Inspect'
+import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
 import { TopCenter } from '../hud/TopBar'
 import { exitReplay, exportReplay } from '../lib/replays'
 import { isTypingTarget } from '../lib/keys'
@@ -38,13 +42,14 @@ function useViewer(): ViewerView {
 
 /**
  * Replay viewer: the match scene re-simulated from a local replay, with the score plate,
- * kill feed and (Tab) scoreboard, and playback controls. Read-only: no shop, no input.
+ * kill feed, loadout inspection, (Tab) scoreboard and playback controls. No gameplay commands.
  */
 export function Replay() {
   const v = useViewer()
 
   // camera + sound sinks for the viewer while this screen is up
   useEffect(() => {
+    inspectStore.reset()
     replayViewer.sinks = {
       cameraFocus: setCameraFocus,
       audio: (events, listener) => {
@@ -56,6 +61,8 @@ export function Replay() {
       },
     }
     return () => {
+      inspectStore.reset()
+      hideAbilityCard()
       replayViewer.sinks = {}
       setCameraFocus(null)
     }
@@ -101,7 +108,10 @@ export function Replay() {
         e.preventDefault()
         const step = (e.shiftKey ? 6 : 1) * SKIP_SECONDS * TICK_HZ
         replayViewer.seek(replayViewer.tick() + (k === 'arrowleft' ? -step : step))
-      } else if (k === 'escape') exitReplay()
+      } else if (k === 'escape') {
+        if (inspectStore.get().inspect >= 0) inspectStore.set({ inspect: -1 })
+        else exitReplay()
+      }
       else if (k === 'tab') {
         e.preventDefault()
         setScores(true)
@@ -135,7 +145,7 @@ export function Replay() {
   })
 
   // free camera: drag the scene; wheel zooms in every mode
-  const drag = useRef<{ x: number; y: number } | null>(null)
+  const drag = useRef<{ x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
 
   // the timeline and clock move every frame: written straight to the DOM (no React state)
   const fill = useRef<HTMLDivElement>(null)
@@ -181,15 +191,25 @@ export function Replay() {
       className="fade-in relative h-full overflow-hidden"
       onWheel={(e) => zoomCamera(Math.sign(e.deltaY))}
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget && replayViewer.get().follow < 0) drag.current = { x: e.clientX, y: e.clientY }
+        if (e.button === 0 && e.target === e.currentTarget && replayViewer.get().status === 'ready') {
+          drag.current = { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, moved: false }
+          e.currentTarget.setPointerCapture(e.pointerId)
+        }
       }}
       onPointerMove={(e) => {
         const d = drag.current
         if (!d) return
-        replayViewer.pan(-(e.clientX - d.x) * DRAG_UNITS, (e.clientY - d.y) * DRAG_UNITS)
-        drag.current = { x: e.clientX, y: e.clientY }
+        if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 5) d.moved = true
+        if (d.moved && replayViewer.get().follow < 0) replayViewer.pan(-(e.clientX - d.x) * DRAG_UNITS, (e.clientY - d.y) * DRAG_UNITS)
+        d.x = e.clientX
+        d.y = e.clientY
       }}
-      onPointerUp={() => (drag.current = null)}
+      onPointerUp={(e) => {
+        const d = drag.current
+        drag.current = null
+        if (d && !d.moved && replayViewer.get().status === 'ready') inspectClick(e.clientX, e.clientY, { follow: false })
+      }}
+      onPointerCancel={() => (drag.current = null)}
       onPointerLeave={() => (drag.current = null)}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -221,9 +241,10 @@ export function Replay() {
         </div>
       )}
       {v.status === 'loading' && <div className="absolute inset-0 flex items-center justify-center text-ash">Loading replay…</div>}
+      {v.status === 'ready' && <><InspectCard /><AbilityCardHost /></>}
       {scores && (
-        <div className="pointer-events-none">
-          <Scoreboard />
+        <div>
+          <Scoreboard onWatch={(player) => replayViewer.follow(player)} />
         </div>
       )}
 

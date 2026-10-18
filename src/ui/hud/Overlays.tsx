@@ -250,7 +250,7 @@ function readBoard(): BoardRow[] {
     .sort((a, b) => b.score - a.score || b.kills - a.kills || a.id - b.id)
 }
 
-export function Scoreboard() {
+export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } = {}) {
   const rows = usePolled(readBoard, (r) => JSON.stringify(r), 4)
   const role = useGame((s) => s.lobby.role)
   const pings = useGame((s) => s.lobby.pings)
@@ -288,7 +288,7 @@ export function Scoreboard() {
               <th className="pb-2 text-right font-semibold" title="Damage dealt this round">
                 Damage
               </th>
-              <th className="pb-2 pl-5 font-semibold" title="Inspect while shopping or spectating. Shopping shows last round; current purchases stay hidden.">
+              <th className="pb-2 pl-5 font-semibold" title="Click a player to inspect their loadout. During live shopping, current purchases stay hidden until combat.">
                 Loadout
               </th>
               <th className="pb-2 pl-4 text-right font-semibold">Ping</th>
@@ -300,11 +300,14 @@ export function Scoreboard() {
                 key={r.id}
                 className={`scoreboard-row border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''} ${r.alive ? '' : 'text-bone/55'}`}
                 style={{ boxShadow: `inset 3px 0 0 ${r.color}` }}
-                title={!canInspect(state, local, r.id) ? 'Inspect while shopping or spectating' : spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
+                title={!canInspect(state, local, r.id) ? 'Loadout unavailable' : spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
                 onClick={() => {
                   if (!canInspect(frame.curr, frame.localPlayer, r.id)) return
                   inspectStore.set({ inspect: r.id })
-                  if (spectating && r.alive && r.id !== local) inspectStore.set({ follow: r.id })
+                  if (spectating && r.alive && r.id !== local) {
+                    if (onWatch) onWatch(r.id)
+                    else inspectStore.set({ follow: r.id })
+                  }
                 }}
               >
                 <td className="py-2 pl-3">

@@ -376,6 +376,27 @@ describe('dedicated server (M4.1)', () => {
 })
 
 describe('public rooms and quick play (M4.3)', () => {
+  it('fills a default quick game to ten with Brutal bots, uses modest gold rewards and reuses it for a newcomer', async () => {
+    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 400, startMs: 100 } })
+    const a = headlessClient(base, { key: 'full-house-a', device: 'full-house-device-a', play: false })
+    const b = headlessClient(base, { key: 'full-house-b', device: 'full-house-device-b', play: false })
+    try {
+      const opened = await a.online.quickPlay('test')
+      await a.session.join(opened.code)
+      expect(srv.core.room(opened.code)!.summary().elo).toEqual({ enabled: false, minSeconds: 120 })
+      await until(() => a.screen() === 'match' && a.lobby().slots.length === 10, 8000, 'a full-house quick start')
+      expect(a.lobby().settings).toMatchObject({ startGold: 40, roundGold: 12, killGold: 2, winGold: 3 })
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(9)
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
+      await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
+      expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(40)
+      expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
+      await b.session.join(opened.code)
+      await until(() => a.lobby().slots.filter((s) => s.kind === 'human').length === 2, 3000, 'a human replacing a full-house bot')
+      expect(a.lobby().slots).toHaveLength(10)
+      expect(srv.core.stats().rooms).toBe(1)
+    } finally { a.session.leave(); b.session.leave() }
+  }, 15000)
   const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 }
   const quick = (q: Record<string, unknown>) => ({ quickplay: { fillMs: 2000, startMs: 1000, nextMs: 2000, seats: 8, fill: 4, bots: 'easy', ...q } })
 
@@ -579,7 +600,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 8, fill: 4 })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'brutal', settings: { startGold: 40, roundGold: 12, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 
@@ -778,7 +799,9 @@ describe('leaderboard over the server (M4.3)', () => {
     await until(() => cs[0].lobby().slots.length === humans.length + bots && cs[0].lobby().settings?.winScore === 1, 3000, 'lobby set up')
     cs[0].session.startMatch()
     await until(() => cs.every((c) => c.screen() === 'results'), 60000, 'the match to finish')
+    const results = cs.map((c) => c.results.at(-1)!)
     for (const c of cs) c.session.leave()
+    return results
   }
 
   /**
@@ -795,12 +818,14 @@ describe('leaderboard over the server (M4.3)', () => {
     const ann = { key: 'ann', device: 'device-ann-0001', name: 'Ann' }
     const bob = { key: 'bob', device: 'device-bob-0001', name: 'Bob' }
     // alone with bots: not counted
-    await playMatch(base, [ann], 2)
+    const solo = await playMatch(base, [ann], 2)
+    expect(solo[0].rating).toEqual({ status: 'unrated', reason: 'fewer than 2 humans' })
     await until(() => events.some((e) => e.startsWith('leaderboard.skip')), 3000, 'the skip')
     expect(events).toContain('leaderboard.skip:fewer than 2 humans')
     expect(((await (await fetch(`${http}/leaderboard`)).json()) as { entries: unknown[] }).entries).toEqual([])
     // two humans and a bot: counted
-    await playMatch(base, [ann, bob], 1)
+    const rated = await playMatch(base, [ann, bob], 1)
+    expect(rated.map((r) => r.rating)).toEqual([{ status: 'rated' }, { status: 'rated' }])
     await until(() => events.includes('leaderboard.match'), 3000, 'the recorded match')
     const read = async (h: string) => {
       const res = await fetch(`${h}/leaderboard?period=all&device=${ann.device}`)
@@ -829,6 +854,7 @@ describe('leaderboard over the server (M4.3)', () => {
     const renamedClient = headlessClient(base, { ...ann, play: false })
     const renameRoom = await renamedClient.online.createRoom('test')
     await renamedClient.session.join(renameRoom)
+    expect(srv.core.room(renameRoom)!.summary().elo).toEqual({ enabled: true, minSeconds: 1 })
     renamedClient.session.setDisplayName('Ann renamed')
     await until(() => renamedClient.lobby().slots.some((s) => s.name === 'Ann renamed'), 3000, 'the current lobby rename')
     const renamed = await read(http)

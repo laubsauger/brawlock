@@ -123,6 +123,64 @@ describe('elo', () => {
 })
 
 describe('local stats', () => {
+  it.each([
+    { status: 'rated' },
+    { status: 'unrated', reason: 'Not enough human players' },
+    { status: 'unavailable', reason: 'Rating service unavailable' },
+  ] as const)('round-trips the confirmed $status outcome from result through tracker and storage', (rating) => {
+    const kv = memKV()
+    const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE)]
+    const tracker = new MatchTracker({ localPlayer: 0, slots, settings })
+    const result = { winners: [0], slots, scores: [score(0, 3, 1, 0), score(1, 0, 0, 1)], rounds: 3, rating: { ...rating } }
+    const record = tracker.finish(result, 1000)
+    expect(record.rating).toEqual(rating)
+    expect(record.rating).not.toBe(result.rating)
+    recordMatch(record, ME, kv)
+    const loaded = getMatchHistory(10, kv)[0]
+    expect(loaded.rating).toEqual(rating)
+    expect(loaded.outcome).toBe('win')
+    expect(loaded.participants.map((p) => p.profileId)).toEqual([ME, ALICE])
+  })
+
+  it('preserves legacy records without inventing a rating outcome during load or subsequent saves', () => {
+    const kv = memKV()
+    const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE)]
+    const legacy = playMatch(slots, [0], [score(0, 3, 1, 0), score(1, 0, 0, 1)], [[0, 1]], [], 1000)
+    expect(Object.hasOwn(legacy, 'rating')).toBe(false)
+    recordMatch(legacy, ME, kv)
+    expect(Object.hasOwn(getMatchHistory(10, kv)[0], 'rating')).toBe(false)
+    const next = playMatch(slots, [1], [score(0, 0, 0, 1), score(1, 3, 1, 0)], [[1, 0]], [], 2000)
+    next.rating = { status: 'rated' }
+    recordMatch(next, ME, kv)
+    const records = getMatchHistory(10, kv)
+    expect(records[0].rating).toEqual({ status: 'rated' })
+    expect(Object.hasOwn(records[1], 'rating')).toBe(false)
+    const saved = JSON.parse(kv.data['brawlock.stats.v1'])
+    expect(Object.hasOwn(saved.history[1], 'rating')).toBe(false)
+  })
+
+  it('loads only valid rating statuses and string reasons without altering the rest of history', () => {
+    const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE)]
+    const record = playMatch(slots, [0], [score(0, 3, 1, 0), score(1, 0, 0, 1)], [[0, 1]], [], 1000)
+    const ratings = [
+      { status: 'rated', reason: 'Confirmed', privatePayload: 7 },
+      { status: 'unrated', reason: 15 },
+      { status: 'unavailable', reason: '' },
+      { status: 'pending', reason: 'Unknown status' },
+      { reason: 'No status' },
+      'rated',
+      null,
+    ]
+    const kv = memKV({ 'brawlock.stats.v1': JSON.stringify({ v: 2, history: ratings.map((rating) => ({ ...record, rating })) }) })
+    const loaded = getMatchHistory(10, kv)
+    expect(loaded).toHaveLength(ratings.length)
+    expect(loaded.slice(0, 3).map((r) => r.rating)).toEqual([
+      { status: 'rated', reason: 'Confirmed' }, { status: 'unrated' }, { status: 'unavailable', reason: '' },
+    ])
+    expect(loaded.slice(3).every((r) => !Object.hasOwn(r, 'rating'))).toBe(true)
+    expect(loaded.every((r) => r.id === record.id && r.outcome === 'win')).toBe(true)
+  })
+
   it('keeps names as labels: renames preserve totals, equal names remain distinct, and history stays historical', () => {
     const kv = memKV()
     const me = slot(0, 'Same name', ME)

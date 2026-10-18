@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { SpellId } from '../../sim'
 import { frame } from '../../game/frame'
 import { inspectedLoadout } from '../../game/inspect'
+import { useGame } from '../../game/store'
 import { Sigil } from '../icons'
 import { COLUMNS, MASTERIES, MASTERY_COST, MASTERY_HUE, MASTERY_MAX_LEVEL, displayName, hueFor, isPassive, itemDef, masteryValue, spellDef, type MasteryId } from '../data/catalog'
 import { abilityDelta, abilityStats, maxLevelOf, type AbilityStat, type AbilityStatContext, type StatDelta } from '../data/abilityStats'
@@ -203,7 +204,7 @@ const pct = (id: MasteryId, lvl: number) => {
 
 function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | null {
   const view = localView()
-  const kit = t.context === 'inspect' && t.player != null ? inspectedLoadout(frame.curr, frame.localPlayer, t.player)?.kit : null
+  const kit = t.context === 'inspect' && t.player != null ? inspectedLoadout(frame.curr, frame.localPlayer, t.player, useGame.getState().screen === 'replay' ? 'replay' : 'live')?.kit : null
   if (t.context === 'inspect' && (!kit || t.slot == null || kit.slots[t.slot] !== t.id)) return null
   const context: AbilityStatContext = t.context === 'inspect'
     ? { masteries: kit!.masteries, loadout: kit!, damageMultiplier: frame.curr!.settings.dmgMultiplier, knockbackMultiplier: frame.curr!.settings.kbMultiplier }

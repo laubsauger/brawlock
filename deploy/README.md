@@ -98,7 +98,7 @@ The netcode id is a hash of `src/sim` and `src/net`, so a UI-only Pages deploy k
 | Per IP (M4.3) | 60 public-list reads/min, 20 quick plays/min, 60 leaderboard / profile reads/min |
 | Player-hosted listings | per IP 6 created/min, 30 heartbeats/min, 3 live; 500 per server; 30 s without a heartbeat drops one; bodies up to 4 KB. In memory: a restart drops them and the hosts list again within ~10 s |
 | Origins | `ALLOWED_ORIGINS` (`https://laubsauger.github.io`) for `POST /rooms`, `POST /quickplay`, the WebSocket and CORS reads (`/health` ping, lists, leaderboard). Empty = any |
-| Quick play | `QUICKPLAY_SEATS` (8): humans per room at most. `QUICKPLAY_BOT_FILL` (4): bots top the table up to this many players. `QUICKPLAY_BOTS` (`hard`): default bot difficulty. Set them in `ecosystem.config.cjs` `env` to change them |
+| Quick play | `QUICKPLAY_SEATS` (10): humans per room at most. `QUICKPLAY_BOT_FILL` (10): bots fill the table until replaced between rounds. `QUICKPLAY_BOTS` (`brutal`): default difficulty. Gold defaults: 40 starting, 12 per round, 2 per kill, 3 per win. Seat/fill/difficulty overrides belong in `ecosystem.config.cjs` `env` |
 
 ## Bandwidth (DigitalOcean)
 
