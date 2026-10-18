@@ -53,7 +53,12 @@ export interface PeerNetStats {
 export interface NetStatsView {
   role: 'host' | 'client'
   peers: PeerNetStats[]
+  /** the link goes to (role client) or this process is (role host) a dedicated server */
+  server?: boolean
 }
+
+/** Client row playerId when the host is a dedicated server (it has no seat). */
+export const SERVER_PLAYER_ID = -1
 
 export interface NetGradeEvent {
   playerId: PlayerId

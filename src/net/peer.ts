@@ -27,17 +27,35 @@ import { recoverFromChunkError } from '../lib/staleBuild'
 
 type PeerCtor = typeof import('peerjs').Peer
 
+const PEER_LOAD_FAILED = 'Could not load the networking code. Check your internet connection and reload the page.'
+/** the chunk-error reload normally replaces the page at once; it is skipped when one ran < 30 s ago */
+const RELOAD_GRACE_MS = 5000
+/** a stalled chunk download must not leave hosting / joining on "connecting" forever */
+const PEER_LOAD_TIMEOUT_MS = 15000
+
 let peerCtor: Promise<PeerCtor> | null = null
 export function loadPeer(): Promise<PeerCtor> {
   peerCtor ??= import('peerjs')
-    .then((m) => m.Peer)
+    .then((m) => {
+      // a failed chunk whose vite:preloadError was handled (staleBuild) resolves undefined
+      if (!m?.Peer) throw new Error(PEER_LOAD_FAILED)
+      return m.Peer
+    })
     .catch((e: unknown) => {
       peerCtor = null
-      // a deploy replaced this chunk: reload into the new build (keeps the room code)
-      if (recoverFromChunkError(e)) return new Promise<PeerCtor>(() => {})
+      // a deploy replaced this chunk: reload into the new build (keeps the room code). If
+      // that reload does not happen (it ran moments ago), fail readably instead of hanging.
+      if (recoverFromChunkError(e)) return new Promise<PeerCtor>((_, reject) => setTimeout(() => reject(new Error(PEER_LOAD_FAILED)), RELOAD_GRACE_MS))
       throw e
     })
-  return peerCtor
+  const p = peerCtor
+  return new Promise<PeerCtor>((resolve, reject) => {
+    const t = setTimeout(() => {
+      if (peerCtor === p) peerCtor = null
+      reject(new Error(PEER_LOAD_FAILED))
+    }, PEER_LOAD_TIMEOUT_MS)
+    p.then(resolve, reject).finally(() => clearTimeout(t))
+  })
 }
 
 /** SCTP stream id of the raw gameplay channel. Must match on both sides; < 1024 for every browser. */

@@ -262,6 +262,8 @@ export type SimEvent =
       kb: number
       /** damage soaked by Rush (already subtracted from amount) */
       absorbed?: number
+      /** what dealt it: spell id, 'lava', 'obstacle' (always set by the sim) */
+      cause?: string
     }
   | { type: 'heal'; target: EntityId; amount: number; x: number; y: number }
   | { type: 'teleport'; pawn: EntityId; fromX: number; fromY: number; toX: number; toY: number }
@@ -284,7 +286,8 @@ export type SimEvent =
       x?: number
       y?: number
     }
-  | { type: 'obstacleDestroyed'; id: EntityId; x: number; y: number }
+  /** by = the player whose hit broke it (null: no player, e.g. an explosion chain) */
+  | { type: 'obstacleDestroyed'; id: EntityId; x: number; y: number; by?: PlayerId | null }
   | { type: 'arenaShrink'; layer: number }
   | { type: 'phase'; phase: Phase; round: number }
   | { type: 'roundWin'; team: number; players: PlayerId[] }

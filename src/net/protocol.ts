@@ -3,9 +3,15 @@
  * (predict.ts). JSON text frames.
  *
  * Reliable channel (ordered):
- *   client → host  hello   {name, version, key, profileId, color}   first message after connect
- *                          key: per-tab reconnect secret; profileId: stable per-browser player id
- *   host → client  welcome {playerId}                 slot assigned
+ *   client → host  hello   {name, version, key, profileId, color, device?, build?}   first message after connect
+ *                          key: per-tab reconnect secret; profileId: stable per-browser player id;
+ *                          device: persistent anonymous device id (reconnect after a browser
+ *                          restart, future ranked); build: client build id (dedicated servers
+ *                          refuse other release builds)
+ *   host → client  welcome {playerId, server?}        slot assigned; server = {build}: a dedicated
+ *                          server hosts this room (it has no seat; the first human owns the room)
+ *   client → host  ctl     {op, player?, difficulty?, team?, settings?}   room owner's lobby
+ *                          controls on a dedicated server (add bots, settings, start, rematch)
  *   host → client  lobby   {slots, settings, ready, pings}   on every lobby change
  *   client → host  ready   {ready}                    "wants a rematch" toggle on the results screen
  *   host → client  start   {match, seed, slots, settings, localPlayer}   per client; -1 = spectator
@@ -44,7 +50,7 @@
  * Ping / pong live one layer down, in transport.ts ('#p<t>' / '#q<t>' frames on
  * the unreliable path), so every link measures RTT without app involvement.
  */
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
+import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { TickEvents } from '../game/frame'
 import type { WireInput, WirePatch } from './stream'
 import type { MatchResult } from '../game/store'
@@ -69,14 +75,24 @@ export interface InputFrame {
 export type { TickEvents }
 
 export type Msg =
-  | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null }
-  | { t: 'welcome'; playerId: PlayerId }
+  | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null; device?: string; build?: string }
+  | { t: 'welcome'; playerId: PlayerId; server?: { build: string } }
   | {
       t: 'lobby'
       slots: PlayerSlot[]
       settings: MatchSettings
       ready: Record<PlayerId, boolean>
       pings: Record<PlayerId, number>
+      /** dedicated server: the room owner's seat (-1 none) */
+      owner?: PlayerId
+    }
+  | {
+      t: 'ctl'
+      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby'
+      player?: PlayerId
+      difficulty?: BotDifficulty
+      team?: number
+      settings?: Partial<MatchSettings>
     }
   | { t: 'ready'; ready: boolean }
   | { t: 'pings'; pings: Record<PlayerId, number>; ul?: Record<PlayerId, number> }
@@ -111,6 +127,7 @@ const TYPES = new Set<Msg['t']>([
   'start',
   'input',
   'nstat',
+  'ctl',
   'snap',
   'is',
   'need',
@@ -243,6 +260,23 @@ export function sanitizeFrames(frames: unknown): InputFrame[] {
   }
   out.sort((a, b) => a.seq - b.seq)
   return out
+}
+
+/**
+ * A room owner's settings change (dedicated server, `ctl`): only known keys, each with
+ * the default's type; strings short. createMatch sanitizes numeric ranges.
+ */
+export function sanitizeSettingsPatch(patch: unknown, defaults: MatchSettings): Partial<MatchSettings> {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return {}
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (!(k in defaults)) continue
+    const d = (defaults as unknown as Record<string, unknown>)[k]
+    if (typeof d === 'number' && isNum(v)) out[k] = v
+    else if (typeof d === 'boolean' && typeof v === 'boolean') out[k] = v
+    else if (typeof d === 'string' && typeof v === 'string' && v.length <= 16) out[k] = v
+  }
+  return out as Partial<MatchSettings>
 }
 
 export function sanitizeName(name: unknown): string {

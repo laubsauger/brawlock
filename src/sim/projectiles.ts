@@ -123,7 +123,7 @@ export function damageHitBody(state: SimState, proj: ProjectileState, hit: Colli
   const o = hit.other
   if (o.kind === 'pawn') receiveDamage(state, o.pawn, { ...info, cause: proj.spell })
   else if (o.kind === 'projectile') damageProjectile(state, o.proj, proj.id)
-  else damageObstacle(state, o.obstacle, info.amount)
+  else damageObstacle(state, o.obstacle, info.amount, proj.owner)
 }
 
 // Behavior registry lookup, installed by spells/index.ts (avoids an import cycle).

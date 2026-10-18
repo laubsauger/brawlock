@@ -43,6 +43,8 @@ export interface Settings {
   cameraReach: 'short' | 'normal' | 'far'
   /** 0.25..2, edge-pan speed factor (render prefs) */
   edgePanSpeed: number
+  /** game-server region for hosting on the server: 'auto' (lowest ping) or a region id */
+  serverRegion: string
   /** point at the screen edge to pan the camera (render prefs) */
   edgePan: boolean
   masterVolume: number
@@ -154,6 +156,7 @@ const defaultSettings: Settings = {
   resolutionScale: 1,
   cameraReach: 'normal',
   edgePanSpeed: 1,
+  serverRegion: 'auto',
   edgePan: true,
   masterVolume: 0.8,
   sfxVolume: 1,

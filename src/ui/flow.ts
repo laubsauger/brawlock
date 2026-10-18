@@ -5,7 +5,8 @@
  * lobby.error on a fatal error). These helpers only close in-match overlays
  * and keep the few UI-owned transitions in one place.
  */
-import { session } from '../game/session'
+import { useSyncExternalStore } from 'react'
+import { session, type HostResult } from '../game/session'
 import { useGame } from '../game/store'
 import { parseRoomCode } from '../net/code'
 
@@ -21,8 +22,37 @@ export function playOffline(): void {
   session.openOffline()
 }
 
+/** The last host attempt's outcome, so a failure can offer the other mode in one click. */
+let lastHost: HostResult | null = null
+const hostSubs = new Set<() => void>()
+function setLastHost(r: HostResult | null) {
+  lastHost = r
+  for (const f of hostSubs) f()
+}
+export function lastHostResult(): HostResult | null {
+  return lastHost
+}
+/** React: the last host outcome (re-renders when an attempt finishes). */
+export function useLastHostResult(): HostResult | null {
+  return useSyncExternalStore(
+    (cb) => {
+      hostSubs.add(cb)
+      return () => hostSubs.delete(cb)
+    },
+    () => lastHost,
+  )
+}
+
+/** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
 export function hostGame(): void {
-  void session.openHost()
+  setLastHost(null)
+  void session.openHost().then(setLastHost)
+}
+
+/** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
+export function hostOnServer(region: string): void {
+  setLastHost(null)
+  void session.openHostServer(region).then(setLastHost)
 }
 
 /** Join by room code (typed, pasted with dashes / spaces, or a whole ?room= link). */

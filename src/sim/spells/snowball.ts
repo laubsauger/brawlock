@@ -48,7 +48,7 @@ export const snowballProjectile: ProjectileBehavior = {
     const o = hit.other
     const d = p.data
     if (o.kind === 'obstacle') {
-      damageObstacle(state, o.obstacle, d.damageMax)
+      damageObstacle(state, o.obstacle, d.damageMax, p.owner)
       destroyProjectile(state, p, hit.otherId, hit.x, hit.y)
       return
     }

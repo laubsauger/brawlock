@@ -85,8 +85,8 @@ export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo
     }
     pawn.lastHitter = info.source
   }
-  if (absorbed > 0) state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb, absorbed })
-  else state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb })
+  if (absorbed > 0) state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb, absorbed, cause: info.cause })
+  else state.events.push({ type: 'damage', target: pawn.id, amount, source: info.source, x: pawn.x, y: pawn.y, kb, cause: info.cause })
   const life = pawn.hp - amount
   if (life > 1) pawn.hp = life
   else killPawn(state, pawn, info.source ?? pawn.lastHitter, info.cause, kb)
@@ -201,12 +201,12 @@ export function destroyProjectile(
 }
 
 /** Obstacle:receiveDamage. At 0 HP it explodes for 5-10 damage to ALL pawns within 300. */
-export function damageObstacle(state: SimState, ob: ObstacleState, amount: number): void {
+export function damageObstacle(state: SimState, ob: ObstacleState, amount: number, by: PlayerId | null = null): void {
   if (!isCombat(state) || ob.hp <= 0 || !(amount > 0)) return
   ob.hp -= amount
   if (ob.hp > 0) return
   ob.hp = 0
-  state.events.push({ type: 'obstacleDestroyed', id: ob.id, x: ob.x, y: ob.y })
+  state.events.push({ type: 'obstacleDestroyed', id: ob.id, x: ob.x, y: ob.y, by })
   state.events.push({ type: 'explosion', x: ob.x, y: ob.y, radius: OBSTACLE_EXPLODE_RADIUS, spell: 'obstacle' })
   for (const pawn of state.pawns) {
     if (!pawn.alive) continue

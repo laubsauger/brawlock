@@ -1,19 +1,24 @@
-// Dedicated server prototype (M4, docs/M4.md): HTTP server whose WebSocket upgrades at
-// /<ROOM CODE> join that room. Node glue only (plain JS: @types/node is not a project
-// dependency yet); framing, transport and room logic are typed code in src/net.
+// Dedicated server (M4.1, docs/M4.md §11): Node glue for the typed core in src/net/server.ts.
+// HTTP routes and WebSocket upgrades at /ws?room=CODE; framing in src/net/wsframe.ts.
+// Plain JS because @types/node is not a project dependency.
 import http from 'node:http'
 import { createHash } from 'node:crypto'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
-import { SocketTransport } from '../src/net/ws.ts'
-import { createRoom } from '../src/net/dedicated.ts'
-import { parseRoomCode } from '../src/net/code.ts'
+import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
 import { startClock } from '../src/net/clock.ts'
 import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
 import { createBot } from '../src/bots/index.ts'
 
 const MAX_MESSAGE_BYTES = 64 * 1024
+/** netcode compatibility id baked in at build time (vite / esbuild define), else from the env */
+export const NET_BUILD = typeof __NET_ID__ !== 'undefined' ? __NET_ID__ : (process.env.NET_ID ?? 'dev-local')
 
-/** A raw upgraded socket as a TextSocket (src/net/ws.ts). */
+/** JSON lines on stdout (pm2 collects them). */
+export function jsonLog(level, event, fields = {}) {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields }))
+}
+
+/** An upgraded socket as a TextSocket (src/net/ws.ts). */
 function wrapSocket(socket, log) {
   const decoder = new FrameDecoder(MAX_MESSAGE_BYTES)
   let textCb = null
@@ -30,8 +35,9 @@ function wrapSocket(socket, log) {
     try {
       msgs = decoder.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
     } catch (e) {
-      log(`ws protocol error: ${e.message}`)
+      log('warn', 'ws.protocol', { error: e.message })
       socket.destroy()
+      finish()
       return
     }
     for (const m of msgs) {
@@ -69,63 +75,76 @@ function wrapSocket(socket, log) {
 }
 
 /**
- * Start a server. Rooms are created on first join of their code and run `bots` and
- * `settings`. Returns the bound port and a close() that ends every room and socket.
+ * Start a server. opts: port, host, build, config (ServerConfig overrides), trustProxy
+ * (take the client IP from X-Forwarded-For: behind the local nginx), timeScale (tests),
+ * log. Returns { port, core, room(code), createRoom(opts), close() }.
  */
 export async function startServer(opts = {}) {
-  const { port = 5350, host = '127.0.0.1', bots = ['hard'], settings, autoStartMs, rematchMs, timeScale = 1, log = (m) => console.log(m) } = opts
-  const deps = {
-    createMatch,
-    step,
-    createBot,
-    defaultSettings: DEFAULT_SETTINGS,
-    // timeScale > 1 (tests): sim time runs faster than wall time; clients must use the same scale
-    startClock: timeScale === 1 ? startClock : (onPulse) => startClock((t) => onPulse(t * timeScale)),
-    now: () => performance.now() * timeScale,
-    random: Math.random,
+  const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog } = opts
+  const core = createServerCore(
+    { ...DEFAULT_SERVER_CONFIG, ...config, build },
+    {
+      createMatch,
+      step,
+      createBot,
+      defaultSettings: DEFAULT_SETTINGS,
+      // timeScale > 1 (tests): sim time runs faster than wall time; clients must use the same scale
+      startClock: timeScale === 1 ? startClock : (onPulse) => startClock((t) => onPulse(t * timeScale)),
+      now: () => performance.now() * timeScale,
+      random: Math.random,
+      build,
+      log,
+    },
+  )
+  const ipOf = (req) => {
+    const fwd = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : ''
+    return fwd || req.socket.remoteAddress || 'unknown'
   }
-  const rooms = new Map()
   const sockets = new Set()
-  const roomFor = (code) => {
-    let r = rooms.get(code)
-    if (!r) {
-      r = createRoom({ code, bots, settings, autoStartMs, rematchMs, log }, deps)
-      rooms.set(code, r)
-      log(`room ${code} opened`)
+  const server = http.createServer(async (req, res) => {
+    try {
+      const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null })
+      res.writeHead(r.status, r.headers)
+      res.end(r.body)
+    } catch (e) {
+      log('error', 'http.error', { error: String(e) })
+      res.writeHead(500, { 'content-type': 'application/json' })
+      res.end('{"error":"internal"}')
     }
-    return r
-  }
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' })
-    res.end(`brawlock dedicated server prototype, ${rooms.size} room(s)\n`)
+    req.resume()
   })
-  server.on('upgrade', async (req, socket) => {
+  server.on('upgrade', (req, socket) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
-    const parsed = parseRoomCode(decodeURIComponent((req.url ?? '/').replace(/^\//, '')))
+    const ip = ipOf(req)
     const key = req.headers['sec-websocket-key']
-    if ('problem' in parsed || typeof key !== 'string' || String(req.headers.upgrade).toLowerCase() !== 'websocket') {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+    const admission = core.admit(req.url ?? '/', ip, req.headers.origin ?? null)
+    if (admission.kind === 'refuse' || typeof key !== 'string' || String(req.headers.upgrade).toLowerCase() !== 'websocket') {
+      const status = admission.kind === 'refuse' ? `${admission.status} ${admission.reason}` : '400 Bad Request'
+      socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`)
       return
     }
     const acceptKey = createHash('sha1').update(key + WS_GUID).digest('base64')
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey}\r\n\r\n`)
     socket.setNoDelay(true)
-    const text = wrapSocket(socket, log)
-    const room = await roomFor(parsed.code)
-    room.accept(new SocketTransport(text))
+    core.attach(admission, wrapSocket(socket, log), ip)
   })
   await new Promise((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, host, resolve)
   })
+  const sweeper = setInterval(() => core.sweep(), 5000)
+  log('info', 'server.start', { port: server.address().port, host, build, region: config.region ?? '' })
   return {
     port: server.address().port,
+    core,
     async room(code) {
-      return roomFor(code)
+      return core.room(code) ?? core.createRoom({ code })
     },
+    createRoom: (o) => core.createRoom(o),
     async close() {
-      for (const r of rooms.values()) (await r).close()
+      clearInterval(sweeper)
+      core.close()
       for (const s of sockets) s.destroy()
       await new Promise((resolve) => server.close(resolve))
     },

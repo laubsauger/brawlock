@@ -47,6 +47,7 @@ import {
   STATS_MS,
   WindowMax,
   DESYNC_HOLD_MS,
+  SERVER_PLAYER_ID,
   gradeOf,
   type NetGradeEvent,
   type NetStatsView,
@@ -66,6 +67,7 @@ import {
   sanitizeMetric,
   sanitizeName,
   sanitizeProfileId,
+  sanitizeSettingsPatch,
   stateJsonWithoutEvents,
   type InputFrame,
   type Msg,
@@ -148,6 +150,10 @@ export interface SessionDeps {
   hostDelayCapTicks?: number
   /** host relays stamped input frames to the other players on arrival (prediction hints); default true */
   inputHints?: boolean
+  /** persistent anonymous device id (game/device.ts): reconnect after a browser restart, future ranked */
+  device?: () => string
+  /** this build's id (vite define __BUILD_ID__, 'dev-…' for dev builds); dedicated servers refuse other release builds */
+  build?: string
 }
 
 export interface SessionApi {
@@ -177,6 +183,8 @@ export interface SessionApi {
   netStats(): NetStatsView | null
   /** Fires when a link's grade changes (with hysteresis). Returns unsubscribe. */
   onNetGrade(cb: (e: NetGradeEvent) => void): () => void
+  /** How the current room runs: through a dedicated server or peer-to-peer; null offline / idle. */
+  transport(): 'server' | 'p2p' | null
 }
 
 export interface SessionDebug {
@@ -268,6 +276,13 @@ const HOST_DELAY_EVAL_TICKS = 60
 const CHECK_MS = 500
 /** the host is always the lobby's first slot */
 const HOST_PLAYER_ID = 0
+const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
+
+/** Release builds carry a commit id; dev builds ('dev-…') match anything. */
+function isRelease(build: string | undefined): build is string {
+  return typeof build === 'string' && build.length > 0 && !build.startsWith('dev-')
+}
+
 /** a checkpoint hash rides this many stream packets (loss) */
 const HASH_REPEAT_TICKS = 8
 
@@ -450,6 +465,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let endpoint: HostEndpoint | null = null
   let peers: RemotePeer[] = []
   const slotKeys = new Map<PlayerId, string>()
+  /** persistent device id per seat: a returning device reclaims a disconnected seat */
+  const slotDevices = new Map<PlayerId, string>()
+  /** host without a seat (dedicated server): the first connected human owns the room */
+  let dedicated = false
+  // client: the room runs on a dedicated server; its owner seat; the code joined
+  let serverRoom = false
+  let owner: PlayerId = -1
+  let joinedCode: string | null = null
   let unsubScreen: (() => void) | null = null
   let matchCounter = 0
   let match: HostMatch | null = null
@@ -516,7 +539,21 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function publishLobby(): void {
     ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer, ready: { ...ready }, pings: { ...pings } })
-    if (role === 'host') broadcast({ t: 'lobby', slots, settings, ready, pings })
+    if (role === 'host') broadcast(dedicated ? { t: 'lobby', slots, settings, ready, pings, owner: ownerId() } : { t: 'lobby', slots, settings, ready, pings })
+  }
+
+  /** Dedicated server: the first connected human seat owns the room (lobby controls). */
+  function ownerId(): PlayerId {
+    if (!dedicated) return -1
+    const gone = match?.disconnected
+    return slots.find((s) => s.kind === 'human' && !gone?.has(s.id))?.id ?? -1
+  }
+
+  /** Client in a server room that owns it: lobby actions go to the server as `ctl`. */
+  function ownerCtl(msg: Extract<Msg, { t: 'ctl' }>): boolean {
+    if (role !== 'client' || !serverRoom || owner !== localPlayer || localPlayer < 0 || !link) return false
+    link.sendReliable(encode(msg))
+    return true
   }
 
   /**
@@ -587,6 +624,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     unsubScreen?.()
     unsubScreen = null
     slotKeys.clear()
+    slotDevices.clear()
+    dedicated = false
+    serverRoom = false
+    owner = -1
+    joinedCode = null
     stopClientMatch()
     link?.close()
     link = null
@@ -689,6 +731,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     else if (m.t === 'input') onInput(p, m)
     else if (m.t === 'nstat') onReport(p, m)
     else if (m.t === 'need') onNeed(p, m)
+    else if (m.t === 'ctl') onCtl(p, m)
     else if (m.t === 'ready') {
       if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
     }
@@ -734,21 +777,30 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, `Version mismatch (host v${PROTOCOL_VERSION}, you v${String(m.version)}). Reload the page to update.`)
       return
     }
+    // a dedicated server runs one release; every other release build would mispredict
+    if (dedicated && isRelease(deps.build) && isRelease(m.build) && m.build !== deps.build) {
+      rejectPeer(p, 'This server runs a different version of the game. Reload the page; if that does not help, the server is being updated.')
+      return
+    }
     p.name = sanitizeName(m.name)
     p.key = typeof m.key === 'string' ? m.key.slice(0, 64) : ''
+    const device = sanitizeProfileId(m.device)
 
-    // a reloaded / reconnected client takes its pawn back
-    if (match && p.key) {
+    // a reloaded / reconnected client takes its pawn back (same tab key, or same device
+    // after a browser restart)
+    if (match && (p.key || device)) {
       const m2 = match
-      const back = [...m2.disconnected].find((id) => slotKeys.get(id) === p.key)
+      const gone = [...m2.disconnected]
+      const back = gone.find((id) => p.key && slotKeys.get(id) === p.key) ?? gone.find((id) => device && slotDevices.get(id) === device)
       if (back !== undefined) {
         peers = peers.filter((x) => x === p || x.playerId !== back)
         p.playerId = back
+        slotKeys.set(back, p.key)
         m2.disconnected.delete(back)
         if (m2.takeover.delete(back)) m2.bots.delete(back)
         m2.connectedPatch.set(back, true)
-        p.t.sendReliable(encode({ t: 'welcome', playerId: back }))
-        p.t.sendReliable(encode({ t: 'lobby', slots, settings, ready, pings }))
+        p.t.sendReliable(encode(welcomeFor(back)))
+        p.t.sendReliable(encode(dedicated ? { t: 'lobby', slots, settings, ready, pings, owner: ownerId() } : { t: 'lobby', slots, settings, ready, pings }))
         sendStart(p, m2)
         showNotice(`${p.name} reconnected`, true)
         return
@@ -762,12 +814,50 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const profileId = sanitizeProfileId(m.profileId)
     const slot = addSlot({ name: p.name, kind: 'human', ...(profileId ? { profileId } : {}) }, sanitizeColor(m.color))
     slotKeys.set(slot.id, p.key)
+    if (device) slotDevices.set(slot.id, device)
     p.playerId = slot.id
-    p.t.sendReliable(encode({ t: 'welcome', playerId: slot.id }))
+    p.t.sendReliable(encode(welcomeFor(slot.id)))
     publishLobby()
     // joined mid-match: spectate now, play from the next match
     if (match) sendStart(p, match)
     showNotice(`${p.name} joined`)
+  }
+
+  function welcomeFor(id: PlayerId): Msg {
+    return dedicated ? { t: 'welcome', playerId: id, server: { build: deps.build ?? 'unknown' } } : { t: 'welcome', playerId: id }
+  }
+
+  /** Dedicated server: the room owner's lobby controls (validated, then the host API). */
+  function onCtl(p: RemotePeer, m: Extract<Msg, { t: 'ctl' }>): void {
+    if (!dedicated || p.playerId === null || p.playerId !== ownerId()) return
+    const player = Number.isInteger(m.player) ? (m.player as PlayerId) : -1
+    const difficulty = BOT_DIFFICULTIES.includes(m.difficulty as BotDifficulty) ? (m.difficulty as BotDifficulty) : null
+    switch (m.op) {
+      case 'addBot':
+        if (difficulty) api.addBot(difficulty)
+        break
+      case 'removeSlot':
+        if (player !== p.playerId) api.removeSlot(player)
+        break
+      case 'setBotDifficulty':
+        if (difficulty) api.setBotDifficulty(player, difficulty)
+        break
+      case 'setTeam':
+        if (typeof m.team === 'number') api.setTeam(player, m.team)
+        break
+      case 'settings':
+        api.updateSettings(sanitizeSettingsPatch(m.settings, deps.defaultSettings))
+        break
+      case 'start':
+        api.startMatch()
+        break
+      case 'rematch':
+        if (!match || ui.screen() === 'results') api.rematch()
+        break
+      case 'lobby':
+        api.backToLobby()
+        break
+    }
   }
 
   function onInput(p: RemotePeer, m: Extract<Msg, { t: 'input' }>): void {
@@ -864,9 +954,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         }
       }
       showNotice(text, true)
+      // the room owner may have changed
+      if (dedicated) publishLobby()
     } else {
       slots = slots.filter((s) => s.id !== id)
       slotKeys.delete(id)
+      slotDevices.delete(id)
       publishLobby()
       showNotice(`${p.name} left`, true)
     }
@@ -1174,7 +1267,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     switch (m.t) {
       case 'welcome':
         localPlayer = m.playerId
-        ui.setLobby({ localPlayer, status: 'open', notice: null })
+        // a dedicated server hosts the room: the invite link is a server room link too
+        serverRoom = !!m.server
+        ui.setLobby({ localPlayer, status: 'open', notice: null, ...(serverRoom && joinedCode ? { joinUrl: deps.joinUrl(joinedCode) } : {}) })
         if (welcomeTimer) clearTimeout(welcomeTimer)
         welcomeTimer = null
         welcomeDone?.()
@@ -1185,7 +1280,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         settings = m.settings
         ready = m.ready ?? {}
         pings = m.pings ?? {}
-        ui.setLobby({ slots: m.slots, settings: m.settings, localPlayer, ready: { ...ready }, pings: { ...pings } })
+        owner = typeof m.owner === 'number' ? m.owner : -1
+        // the owner of a server room gets the host's lobby controls (sent to the server as ctl)
+        ui.setLobby({
+          slots: m.slots,
+          settings: m.settings,
+          localPlayer,
+          ready: { ...ready },
+          pings: { ...pings },
+          role: serverRoom && owner === localPlayer && localPlayer >= 0 ? 'host' : 'client',
+        })
         break
       case 'pings':
         setPings(m.pings ?? {})
@@ -1690,7 +1794,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           ),
         )
       }
-      statsView = { role: 'host', peers: rows }
+      statsView = dedicated ? { role: 'host', peers: rows, server: true } : { role: 'host', peers: rows }
     } else if (role === 'client' && link) {
       const t = link
       const cm = cmatch
@@ -1703,7 +1807,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       const desyncAt = st ? st.desyncAt : (cm?.check.desyncAt ?? -Infinity)
       const row = graded(
         {
-          playerId: HOST_PLAYER_ID,
+          // a dedicated server has no seat: the connection monitor labels it as the server
+          playerId: serverRoom ? SERVER_PLAYER_ID : HOST_PLAYER_ID,
           rttMs: t.rtt > 0 ? t.rtt : null,
           jitterMs: t.rtt > 0 ? t.rttJitter : null,
           lossPct: cm ? worst(downLoss, upLossSeen) : null,
@@ -1715,7 +1820,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         },
         cm !== null && now - desyncAt < DESYNC_HOLD_MS,
       )
-      statsView = { role: 'client', peers: [row] }
+      statsView = serverRoom ? { role: 'client', peers: [row], server: true } : { role: 'client', peers: [row] }
       if (cm) {
         t.sendUnreliable(
           encode({
@@ -1752,6 +1857,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       teardown()
       const my = ++epoch
       openLobby('host', 'connecting', !opts?.dedicated)
+      dedicated = !!opts?.dedicated
       let ep: HostEndpoint
       try {
         ep = await deps.net.host()
@@ -1782,6 +1888,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       const code = parsed.code
       teardown()
       const my = ++epoch
+      joinedCode = code
       role = 'client'
       slots = []
       localPlayer = -1
@@ -1834,18 +1941,22 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
             key: deps.clientKey(),
             profileId: me.id,
             color: me.color,
+            ...(deps.device ? { device: deps.device() } : {}),
+            ...(deps.build ? { build: deps.build } : {}),
           }),
         )
       })
     },
 
     addBot(difficulty) {
+      if (ownerCtl({ t: 'ctl', op: 'addBot', difficulty })) return
       if (!canEdit() || slots.length >= MAX_PLAYERS) return
       addSlot({ name: botName(difficulty, slots), kind: 'bot', difficulty, profileId: botProfileId(difficulty) })
       publishLobby()
     },
 
     removeSlot(player) {
+      if (ownerCtl({ t: 'ctl', op: 'removeSlot', player })) return
       if (!canEdit() || player === localPlayer) return
       const s = slots.find((x) => x.id === player)
       if (!s) return
@@ -1863,6 +1974,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     },
 
     setBotDifficulty(player, difficulty) {
+      if (ownerCtl({ t: 'ctl', op: 'setBotDifficulty', player, difficulty })) return
       if (!canEdit()) return
       const s = slots.find((x) => x.id === player)
       if (!s || s.kind !== 'bot') return
@@ -1873,6 +1985,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     },
 
     setTeam(player, team) {
+      if (ownerCtl({ t: 'ctl', op: 'setTeam', player, team })) return
       if (!canEdit()) return
       const s = slots.find((x) => x.id === player)
       if (!s || !Number.isInteger(team) || team < 0 || team >= MAX_PLAYERS) return
@@ -1881,12 +1994,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     },
 
     updateSettings(patch) {
+      if (ownerCtl({ t: 'ctl', op: 'settings', settings: patch })) return
       if (!canEdit()) return
       settings = { ...settings, ...patch }
       publishLobby()
     },
 
     startMatch() {
+      if (ownerCtl({ t: 'ctl', op: 'start' })) return
       if (!isAuthority() || match || slots.length === 0) return
       const seed = Math.floor(deps.random() * 0x100000000) >>> 0
       const mSlots = slots.map((s) => ({ ...s }))
@@ -1963,6 +2078,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     },
 
     rematch() {
+      if (ownerCtl({ t: 'ctl', op: 'rematch' })) return
       if (role === 'client') {
         api.setReady(true)
         return
@@ -1973,6 +2089,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     },
 
     backToLobby() {
+      if (ownerCtl({ t: 'ctl', op: 'lobby' })) return
       if (role === 'client') {
         if (!cmatch) ui.setScreen('lobby')
         return
@@ -2022,6 +2139,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     netStats() {
       return statsView
+    },
+
+    transport() {
+      if (role === 'client') return link ? (serverRoom ? 'server' : 'p2p') : null
+      if (role === 'host') return dedicated ? 'server' : 'p2p'
+      return null
     },
 
     onNetGrade(cb) {

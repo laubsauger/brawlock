@@ -3,9 +3,9 @@
  *
  * One TCP stream carries everything, so both paths are the reliable one: the
  * transport starts in 'reliable' mode (no raw channel to wait for) and the same
- * ping probes measure RTT. Client side: `wsNet(url)` dials `<url>/<CODE>`, used when
- * the page has `?server=ws://host:port`. Server side: server/ wraps each accepted
- * socket in a TextSocket and hands a SocketTransport to the room (dedicated.ts).
+ * ping probes measure RTT. Client side: `wsNet(url)` dials `<url>/ws?room=<CODE>`
+ * (online.ts decides when). Server side: server/ wraps each accepted socket in a
+ * TextSocket and hands a SocketTransport to the room (server.ts, dedicated.ts).
  */
 import { BaseTransport, type HostEndpoint, type NetFactory, type Transport } from './transport'
 
@@ -123,7 +123,7 @@ export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as un
       return new Promise((resolve, reject) => {
         let ws: WebSocketLike
         try {
-          ws = new Ctor(`${serverUrl}/${code}`)
+          ws = new Ctor(`${serverUrl}/ws?room=${encodeURIComponent(code)}`)
         } catch {
           reject(new Error('Could not reach the server.'))
           return

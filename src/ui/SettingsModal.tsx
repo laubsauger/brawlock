@@ -8,6 +8,9 @@ import { toggleFullscreen, useFullscreen } from './lib/fullscreen'
 import { slotDragProps } from './lib/slotDnd'
 import { audio } from '../audio'
 import { chooseName } from './lib/name'
+import { online } from '../game/session'
+import { pickRegion, useRegionChoice, useRegions } from './lib/servers'
+import { RegionPing } from './screens/MainMenu'
 
 const FPS_CAPS = [
   { value: '0', label: 'Off' },
@@ -239,6 +242,37 @@ function Keybinds({ onCapture }: { onCapture: (on: boolean) => void }) {
   )
 }
 
+/**
+ * Game-server region (only in builds with a server): Auto picks the lowest
+ * ping among the regions that are up; each region shows its health and ping.
+ */
+function ServerRegionRow() {
+  const statuses = useRegions(5000)
+  const choice = useRegionChoice()
+  const setSettings = useGame((s) => s.setSettings)
+  const auto = pickRegion(statuses, 'auto')
+  const option = (value: string, label: ReactNode, right: ReactNode) => (
+    <button
+      key={value}
+      type="button"
+      className="region-opt flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left"
+      aria-pressed={choice === value}
+      onClick={() => setSettings({ serverRegion: value })}
+    >
+      <span className="font-semibold">{label}</span>
+      {right}
+    </button>
+  )
+  return (
+    <Row label="Game server region" hint="Used when you host on the game server. Auto picks the lowest ping.">
+      <div className="flex w-72 flex-col gap-1" role="group" aria-label="Game server region">
+        {option('auto', 'Auto (lowest ping)', <span className="text-[0.82rem] text-ash">{auto ? auto.label : '…'}</span>)}
+        {statuses.map((r) => option(r.id, r.label, <RegionPing s={r} />))}
+      </div>
+    </Row>
+  )
+}
+
 export function SettingsModal() {
   const s = useGame((st) => st.settings)
   const setSettings = useGame((st) => st.setSettings)
@@ -361,6 +395,12 @@ export function SettingsModal() {
         </Row>
         <Keybinds onCapture={setCapturing} />
       </Section>
+
+      {online.configured && (
+        <Section title="Online">
+          <ServerRegionRow />
+        </Section>
+      )}
 
       <Section title="Interface">
         <Row label="Player name">

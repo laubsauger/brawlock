@@ -104,7 +104,7 @@ export const homingProjectile: ProjectileBehavior = {
         receiveDamage(state, o.pawn, { amount: p.data.damage, source: p.owner, normal: { x: hit.nx, y: hit.ny }, cause: 'homing' })
       }
     } else if (o.kind === 'obstacle') {
-      damageObstacle(state, o.obstacle, p.data.damage)
+      damageObstacle(state, o.obstacle, p.data.damage, p.owner)
     }
     destroyProjectile(state, p, hit.otherId, hit.x, hit.y)
   },

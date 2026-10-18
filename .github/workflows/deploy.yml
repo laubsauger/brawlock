@@ -27,6 +27,9 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+        env:
+          # game-server regions (deploy/README.md "Adding a region"); remove to hide the server option
+          VITE_GAME_SERVERS: '[{"id":"us-west","label":"US West","url":"wss://brawlock.osc.link"}]'
 
       - uses: actions/upload-pages-artifact@v3
         with:

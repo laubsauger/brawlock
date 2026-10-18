@@ -1,11 +1,12 @@
 /**
- * Dedicated server room (M4 prototype, docs/M4.md): the normal host session
- * (session.ts, dedicated mode: no seat of its own) with headless ports, plus a tiny
- * room policy because nobody sits at the host to click Start:
+ * Dedicated server room (M4.1, docs/M4.md): the normal host session (session.ts,
+ * dedicated mode: no seat of its own) with headless ports. The first connected human
+ * owns the room and drives it with the host's lobby controls (`ctl`). Optional auto
+ * policy (`auto`, for the CLI and tests) for rooms without anyone clicking Start:
  * - the first human to join starts a countdown (autoStartMs); the match runs with the
  *   configured bots and settings
  * - results: a rematch follows after rematchMs while humans are connected
- * - everyone gone: back to the lobby, idle until the next join
+ * Always: a match nobody is connected to goes back to the lobby.
  * The same prediction, stamped inputs, snapshots and link monitor as P2P apply; the
  * server just never plays, so there is no host advantage to compensate.
  */
@@ -22,6 +23,8 @@ export interface RoomOptions {
   code: string
   bots: BotDifficulty[]
   settings?: Partial<MatchSettings>
+  /** start matches and rematches by themselves (CLI demo rooms, tests); owner rooms do not */
+  auto?: boolean
   /** first human joined → match starts after this long */
   autoStartMs?: number
   /** results → rematch after this long */
@@ -37,6 +40,8 @@ export interface RoomDeps {
   startClock: StartClock
   now: () => number
   random: () => number
+  /** this server's build id (welcome, version check) */
+  build?: string
 }
 
 export interface Room {
@@ -45,6 +50,8 @@ export interface Room {
   accept(t: Transport): void
   /** humans in the lobby */
   humans(): number
+  /** connected links (humans and spectators) */
+  peers(): number
   screen(): Screen
   results(): MatchResult[]
   netStats(): NetStatsView | null
@@ -130,11 +137,12 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     joinUrl: (code) => code,
     clientKey: () => 'dedicated-server',
     netMode: () => 'predict',
+    build: deps.build,
   })
 
   /** Lobby with humans: count down to a match. Results: rematch. Nobody left: idle. */
   function schedule(): void {
-    if (closed) return
+    if (closed || !opts.auto) return
     if (startTimer) clearTimeout(startTimer)
     startTimer = null
     const n = humans()
@@ -179,6 +187,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       else backlog.push(t)
     },
     humans,
+    peers: () => session.debug().peers,
     screen: () => screen,
     results: () => results,
     netStats: () => session.netStats(),

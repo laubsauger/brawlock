@@ -122,12 +122,21 @@ function record(snap: NetSnapshot): void {
 
 const nameOf = (id: number) => useGame.getState().lobby.slots.find((s) => s.id === id)?.name ?? `Player ${id + 1}`
 
+/**
+ * A server room runs over one WebSocket, which is always the reliable channel:
+ * that is how it works, not a fallback, so it never warns about it.
+ */
+function forWarnings(snap: NetSnapshot): NetSnapshot {
+  const viaServer = (session as unknown as { transport?: () => string | null }).transport?.() === 'server'
+  return viaServer ? { ...snap, peers: snap.peers.map((p) => (p.channel === 'reliable' ? { ...p, channel: null } : p)) } : snap
+}
+
 function sample(now: number): void {
   const snap = read(now)
   record(snap)
   // warnings only where they matter: in the lobby and in a match
   const screen = useGame.getState().screen
-  const toasts = screen === 'match' || screen === 'lobby' ? warn.update(snap, now, nameOf) : warn.update({ ...snap, role: 'offline' }, now, nameOf)
+  const toasts = screen === 'match' || screen === 'lobby' ? warn.update(forWarnings(snap), now, nameOf) : warn.update({ ...snap, role: 'offline' }, now, nameOf)
   for (const t of toasts) toast(t, 'warn')
   state = { snap, warnings: warn.active, flagged: new Set(warn.flagged) }
 }

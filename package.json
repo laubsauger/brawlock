@@ -10,7 +10,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "server": "vite-node server/main.mjs",
-    "bots:elo": "vite-node scripts/bots/elo.ts --"
+    "bots:elo": "vite-node scripts/bots/elo.ts --",
+    "server:build": "node scripts/build-server.mjs"
   },
   "dependencies": {
     "@react-three/fiber": "^9.8.2",

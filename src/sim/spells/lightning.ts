@@ -72,7 +72,7 @@ export const lightningSpell: SpellBehavior = {
         if (r.kind === 'pawn') {
           receiveDamage(state, r.pawn, { amount: damage, source: caster.owner, normal: { x: a.dx, y: a.dy }, knockbackFactor: attr(def, 'knockback_factor', level), cause: 'lightning' })
         } else if (r.kind === 'projectile') damageProjectile(state, r.proj, null)
-        else damageObstacle(state, r.obstacle, damage)
+        else damageObstacle(state, r.obstacle, damage, caster.owner)
       } else {
         blocked = true
       }

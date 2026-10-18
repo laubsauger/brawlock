@@ -3,7 +3,11 @@ import { BOT_DIFFICULTIES, useGame, type LobbyView } from '../../game/store'
 import { MAX_PLAYERS, session } from '../../game/session'
 import type { BotDifficulty, PlayerSlot, TeamMode } from '../../sim/types'
 import { Button, Crown, PingBars } from '../widgets'
-import { hostGame, leaveToMenu, setReady, startMatch } from '../flow'
+import { hostGame, hostOnServer, leaveToMenu, setReady, startMatch } from '../flow'
+import { online } from '../../game/session'
+import { pickRegion, regionProblem, useRegionChoice, useRegions } from '../lib/servers'
+import { useNet } from '../lib/netmonitor'
+import { usePolled } from '../lib/ticker'
 import { headToHead, useEncounters } from '../lib/stats'
 import { playerColor, playerGlyph, teamName } from '../lib/view'
 import { PLAYER_COLORS } from '../../net/session'
@@ -62,6 +66,33 @@ function teamText(mode: TeamMode | undefined, team: number): string {
   if (mode === 'ffa') return 'Free for all'
   if (mode === 'shuffle') return 'Shuffled each round'
   return `${teamName(team)} team`
+}
+
+/** a room hosted from your PC that has not opened after this long offers the game server instead */
+const SLOW_HOST_MS = 8000
+
+/**
+ * Hosting from your PC that hangs (the broker unreachable, a strict network):
+ * after a few seconds, offer the game server in one click, with its ping.
+ * Never switches by itself; builds without a server never show it.
+ */
+function SlowHostHint() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), SLOW_HOST_MS)
+    return () => window.clearTimeout(t)
+  }, [])
+  const statuses = useRegions(5000)
+  const choice = useRegionChoice()
+  if (!online.configured || !slow || session.transport() === 'server') return null
+  const region = pickRegion(statuses, choice)
+  if (!region || regionProblem(region)) return null
+  return (
+    <Button size="sm" onClick={() => hostOnServer(choice === 'auto' ? 'auto' : region.id)} data-testid="slow-host-server">
+      Taking long? Host on game server ({region.label}
+      {region.rttMs != null ? ` · ${region.rttMs} ms` : ''}) instead
+    </Button>
+  )
 }
 
 function PlayerCard({
@@ -247,6 +278,16 @@ export function Lobby() {
   const localReady = !!lobby.ready?.[lobby.localPlayer]
 
   const links = useLinks()
+  // how the room runs, once it is open (stable from then on)
+  const transport = usePolled(() => (lobby.role !== 'offline' && lobby.status === 'open' ? session.transport() : null), String, 2)
+  // server room: its region and your live ping to it (session.region(), polled with the transport)
+  const room = usePolled(() => (transport === 'server' ? session.region() : null), (r) => (r ? `${r.label}:${r.rttMs}` : ''), 2)
+  const serverName = room?.label ?? 'the game server'
+  const liveMs = useNet((s) => {
+    const ms = s.snap.peers.flatMap((p) => (p.rttMs == null ? [] : [Math.round(p.rttMs)]))
+    return ms.length ? Math.max(...ms) : null
+  }, String)
+  const serverMs = room?.rttMs ?? liveMs
   // the hidden match scene warms up while the lobby is open (App's MatchLayer); Start waits for it, 6 s at most
   const warm = useMatchRenderReady(6000)
   const canEdit = lobby.role !== 'client'
@@ -261,6 +302,21 @@ export function Lobby() {
         <div className="flex items-end gap-4">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Lobby</h1>
           <span className="chip mb-1.5">{ROLE_LABEL[lobby.role]}</span>
+          {transport && (
+            <span
+              className="chip mb-1.5 text-ash"
+              title={
+                transport === 'server'
+                  ? `Game server in ${serverName}: everyone connects to it, so each player's ping depends on how far they are from ${serverName}`
+                  : lobby.role === 'host'
+                    ? "You're hosting; friends connect directly to you (lowest ping nearby, may fail on strict networks)"
+                    : 'The host is running this room on their PC; you connect directly to them'
+              }
+              data-testid="lobby-transport"
+            >
+              {transport === 'server' ? `Server · ${serverName}${serverMs != null ? ` · ${serverMs} ms` : ''}` : lobby.role === 'host' ? 'Your PC' : "Host's PC"}
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="danger" sound="back" onClick={leaveToMenu}>
@@ -336,6 +392,7 @@ export function Lobby() {
           {status.tone === 'wait' && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-ember" aria-hidden />}
           {status.text}
         </p>
+        {lobby.role === 'host' && lobby.status === 'connecting' && <SlowHostHint />}
         <div className="flex gap-3">
           {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={hostGame}>Try again</Button>}
           {canEdit ? (
