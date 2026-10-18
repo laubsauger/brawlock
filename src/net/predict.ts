@@ -103,6 +103,7 @@ export class Predictor {
   /** other players' input frames relayed before they are confirmed: tick → player → cmds */
   private hints = new Map<number, Map<PlayerId, InputCommand[]>>()
   private hintsDirty = false
+  private plans = new Map<PlayerId, { asOf: number; frames: Map<number, InputCommand[]> }>()
   private frames: LocalFrame[] = []
   private lateSeen = 0
   private offsets = new Map<number, Offset>()
@@ -131,6 +132,8 @@ export class Predictor {
     private readonly step: Step,
     private readonly clone: Clone,
     private readonly clock: () => number = () => 0,
+    /** Joining or changing seats must not replay the previous controller's history. */
+    private readonly eventFloor = -1,
   ) {}
 
   /** Tick of the predicted state (the next own frame is stamped with it); -1 before the first snapshot. */
@@ -177,7 +180,7 @@ export class Predictor {
     // authoritative events: the ones no predicted timeline played yet (remote casts
     // revealed by this snapshot, match flow) play late, with the next displayed tick
     for (const e of events) {
-      if (e.tick <= this.authTick) continue
+      if (e.tick <= Math.max(this.authTick, this.eventFloor)) continue
       for (const ev of this.ledger.take(e.tick, e.events, true)) this.late.push(ev)
       this.authTick = e.tick
     }
@@ -212,17 +215,39 @@ export class Predictor {
 
   /** Hinted commands of `player` for the step from `tick`, if any. */
   hintAt(tick: number, player: PlayerId): InputCommand[] | undefined {
-    return this.hints.get(tick)?.get(player)
+    const hint = this.hints.get(tick)?.get(player)
+    const plan = this.plans.get(player)?.frames.get(tick)
+    return hint && plan ? plan.concat(hint) : hint ?? plan
   }
 
   /** Players with hints for the step from `tick`. */
   hintedAt(tick: number): PlayerId[] {
     const at = this.hints.get(tick)
-    return at ? [...at.keys()] : []
+    const players = new Set(at?.keys())
+    for (const [player, plan] of this.plans) if (plan.frames.has(tick)) players.add(player)
+    return [...players]
+  }
+
+  /** Exact bot orders already queued on the authority, including their execution ticks. */
+  plan(player: PlayerId, asOf: number, frames: readonly [number, InputCommand[]][]): void {
+    if (player === this.player || !Number.isInteger(asOf)) return
+    const prev = this.plans.get(player)
+    if (prev && asOf <= prev.asOf) return
+    const next = new Map<number, InputCommand[]>()
+    // Keep known past steps for rollback, replace the remaining future schedule.
+    if (prev) for (const [tick, cmds] of prev.frames) if (tick >= this.baseTick && tick < asOf) next.set(tick, cmds)
+    for (const [tick, cmds] of frames) {
+      if (!Number.isInteger(tick) || tick < Math.max(asOf, this.baseTick) || !Array.isArray(cmds) || !cmds.length) continue
+      next.set(tick, (next.get(tick) ?? []).concat(cmds))
+    }
+    const changed = JSON.stringify([...(prev?.frames ?? [])]) !== JSON.stringify([...next])
+    this.plans.set(player, { asOf, frames: next })
+    if (changed) this.hintsDirty = true
   }
 
   private dropHints(before: number): void {
     for (const t of this.hints.keys()) if (t < before) this.hints.delete(t)
+    for (const plan of this.plans.values()) for (const tick of plan.frames.keys()) if (tick < before) plan.frames.delete(tick)
   }
 
   /**
@@ -243,7 +268,7 @@ export class Predictor {
     if (sim.tick <= goal && sim.tick > this.shownTick) this.show(sim, [], emit)
     while (sim.tick < goal) {
       this.stepOne(sim)
-      const events = this.ledger.take(sim.tick, sim.events, false, AUTHORITATIVE_EVENTS)
+      const events = sim.tick > this.eventFloor ? this.ledger.take(sim.tick, sim.events, false, AUTHORITATIVE_EVENTS) : []
       this.show(sim, events, emit)
     }
   }
@@ -274,7 +299,7 @@ export class Predictor {
     let n = 0
     while (fresh.tick < to) {
       this.stepOne(fresh)
-      for (const e of this.ledger.take(fresh.tick, fresh.events, false, AUTHORITATIVE_EVENTS)) this.late.push(e)
+      if (fresh.tick > this.eventFloor) for (const e of this.ledger.take(fresh.tick, fresh.events, false, AUTHORITATIVE_EVENTS)) this.late.push(e)
       n++
     }
     this.stats.resimTicks = n
@@ -298,8 +323,7 @@ export class Predictor {
       for (const c of f.cmds) cmds.push(c)
     }
     const inputs: PlayerInput[] = cmds ? [{ player: this.player, tick: t, cmds }] : []
-    const hinted = this.hints.get(t)
-    if (hinted) for (const [player, c] of hinted) inputs.push({ player, tick: t, cmds: c })
+    for (const player of this.hintedAt(t)) inputs.push({ player, tick: t, cmds: this.hintAt(t, player)! })
     this.step(state, inputs)
   }
 

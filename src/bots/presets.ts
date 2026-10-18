@@ -42,6 +42,7 @@
  * | teleportDodge    |   -   | 0     | 0      | 1     | 1      | 1     | -        |
  * | teleportOffense  |   -   | 0     | 0      | 0.1   | 0.1    | 0.5   | -        |
  * | shieldReflect    |   -   | 0.1   | 0.35   | 1     | 1      | 1     | -        |
+ * | targetSense      |   -   | 0     | 0.4    | 0.8   | 1      | 1     | -        |
  * | scourgeMinValue  |   -   | -     | -      | 0.5   | 0.5    | 0.45  | -        |
  * | scourgeMinHp     |   -   | 0     | 0      | 220   | 220    | 200   | -        |
  * | edgePressure     |   -   | no    | no     | no    | yes    | yes   | -        |
@@ -76,6 +77,13 @@
  * buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades) as gold allows
  * each shop phase. Uber only: frictionLead leads knocked targets with their decaying slide;
  * shotGate skips shots a target can easily walk out of.
+ *
+ * targetSense (FFA, 2+ enemies): local opportunities beyond distance: finishing chances,
+ * threats, fading retaliation, and third-party pushes, weighed against nearby competition.
+ * A seeded personality varies risk, opportunism and target attachment. Score hysteresis
+ * stabilizes choices without a chase timer; smooth positioning utility trades firing range,
+ * crowd pressure, travel and health. Crowds can still be worthwhile when a finish is good.
+ * 0 = closest enemy, without the additional opportunity scoring.
  *
  * shieldReflect: chance per think to raise its own Shield (when it owns one) against a bolt on a
  * collision course that would reach the bubble while it is up (the Teleport-save scale). Every
@@ -155,6 +163,8 @@ export interface BotParams {
   teleportOffense: number
   /** chance per think to raise its own Shield against a bolt about to hit */
   shieldReflect: number
+  /** FFA target choice beyond distance: 0 = closest enemy (original), 1 = full opportunity score */
+  targetSense: number
   /** value-based Scourge (0 = the original per-think chance) */
   scourgeMinValue: number
   /** no Scourge below this HP unless it kills */
@@ -200,6 +210,7 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   teleportDodge: 0,
   teleportOffense: 0,
   shieldReflect: 0.1,
+  targetSense: 0,
   scourgeMinValue: 0,
   scourgeMinHp: 0,
   edgePressure: false,
@@ -234,6 +245,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     threatChance: 0.8,
     teleportSave: 0.35,
     shieldReflect: 0.35,
+    targetSense: 0.4,
   },
   hard: {
     ...ORIGINAL,
@@ -263,6 +275,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     teleportDodge: 1,
     teleportOffense: 0.1,
     shieldReflect: 1,
+    targetSense: 0.8,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
   },
@@ -294,6 +307,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     teleportDodge: 1,
     teleportOffense: 0.1,
     shieldReflect: 1,
+    targetSense: 1,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
     edgePressure: true,
@@ -327,6 +341,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     teleportDodge: 1,
     teleportOffense: 0.5,
     shieldReflect: 1,
+    targetSense: 1,
     scourgeMinValue: 0.45,
     scourgeMinHp: 200,
     edgePressure: true,

@@ -14,10 +14,11 @@ import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
+import { LivePool } from './livePool'
 import {
   InstPool, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle, floorH, glowG, hexRgb, kitAdopt, kitBegin, kitInit,
   kitRelease, light, rand,
-  palSat, tierCap, flashT, levelOf, tierOfLevel,
+  palSat, tierCap, flashT, levelOf, tierOfLevel, screenAngle,
 } from './kitB'
 
 // identity: pale gold-white (vfx/palette.ts)
@@ -48,6 +49,17 @@ const bubbles = new Map<number, Bubble>()
 let frameNo = 0
 const team: [number, number, number] = [1, 1, 1]
 const hv = new THREE.Vector3()
+// Three short filaments make the ownership reversal read as capture -> release.
+// Fixed storage and the existing sprite batch; no extra mesh or render pass.
+const REVERSAL_LIFE = 0.26
+const reversals = new LivePool(12, () => ({
+  born: 0, x: 0, y: 0, h: 0, dx: 0, dy: 0, rgb: [0, 0, 0] as [number, number, number],
+}), (a, b) => a.born < b.born)
+let motionQuery: MediaQueryList | null = null
+function reducedMotion(): boolean {
+  motionQuery ??= window.matchMedia('(prefers-reduced-motion: reduce)')
+  return motionQuery.matches
+}
 
 /**
  * Dome instance attributes:
@@ -154,10 +166,14 @@ registerSpellVfx({
   dispose() {
     pool = null
     bubbles.clear()
+    reversals.clear()
     kitRelease()
   },
   onEvent(e: SimEvent, ctx: VfxCtx): boolean | void {
     switch (e.type) {
+      case 'phase':
+        reversals.clear()
+        return
       case 'cast':
         if (e.spell !== SPELL) return
         castFlash(ctx, e.pawn, GOLD, 0.8)
@@ -195,6 +211,23 @@ registerSpellVfx({
         const info = ctx.pawn(e.pawn)
         const b = bubbles.get(e.pawn)
         const fh = floorH(ctx, e.x, e.y)
+        if (e.stolen && e.reflected && info && ctx.fx > 0 && !reducedMotion()) {
+          const dx = e.x - info.x
+          const dy = e.y - info.y
+          const length = Math.hypot(dx, dy)
+          // The contact normal is authoritative shield geometry. No velocity
+          // guess from a projectile that may already have hit or disappeared.
+          if (length > 0.001) {
+            const r = reversals.acquire()
+            r.born = ctx.now
+            r.x = e.x
+            r.y = e.y
+            r.h = fh + 40
+            r.dx = dx / length
+            r.dy = dy / length
+            hexRgb(ctx.colorOf(info.owner), r.rgb)
+          }
+        }
         if (info && b) {
           // ripple from the contact direction (three local: x, h, -y)
           const dx = e.x - info.x
@@ -237,6 +270,23 @@ registerSpellVfx({
   },
   frame(ctx: VfxCtx) {
     kitBegin(ctx)
+    reversals.sweep((r) => ctx.now >= r.born && ctx.now - r.born < REVERSAL_LIFE)
+    if (reversals.n > 0 && ctx.fx > 0 && !reducedMotion()) {
+      for (let i = 0; i < reversals.n; i++) {
+        const r = reversals.items[i]
+        const age = ctx.now - r.born
+        const capture = Math.min(1, age / 0.07)
+        const release = Math.max(0, (age - 0.07) / (REVERSAL_LIFE - 0.07))
+        const reach = age < 0.07 ? 42 * (1 - capture) : 190 * (1 - (1 - release) ** 2)
+        const width = age < 0.07 ? 30 * (1 - capture) : 8 + release * 14
+        const fade = Math.min(1, age / 0.025) * (1 - release) * ctx.fx
+        const rot = screenAngle(ctx, r.x, r.y, r.h, r.dx, r.dy)
+        for (let j = -1; j <= 1; j++) {
+          glowG(r.x + r.dx * reach - r.dy * j * width, r.y + r.dy * reach + r.dx * j * width,
+            r.h + j * 6, 12, r.rgb, fade * 1.4, 2.4, 0, age < 0.07 ? 2.2 : 4.5, rot)
+        }
+      }
+    }
     frameNo++
     for (const [id, b] of bubbles) if (frameNo - b.seen > 2) bubbles.delete(id)
   },

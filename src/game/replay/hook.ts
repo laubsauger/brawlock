@@ -9,7 +9,7 @@ import { replays, type ReplayLibrary } from './store'
 
 export interface ReplayHook {
   start(info: { localPlayer: PlayerId; slots: PlayerSlot[]; settings: MatchSettings; seed?: number }): void
-  step(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[]): void
+  step(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[], slots?: readonly PlayerSlot[]): void
   observe(state: SimState, events: readonly SimEvent[]): void
   /** saves the replay (async) and returns its id, or null when nothing was recorded here */
   finish(id: string | null, winners: readonly PlayerId[]): string | null
@@ -27,7 +27,7 @@ export function createReplayHook(netId: string, lib: ReplayLibrary = replays): R
   let saving: Promise<void> = Promise.resolve()
   return {
     start: (info) => rec.begin(info),
-    step: (before, inputs, patches) => rec.step(before, inputs, patches),
+    step: (before, inputs, patches, slots) => rec.step(before, inputs, patches, slots),
     observe: (state, events) => rec.observe(state, events),
     finish: (id, winners) => {
       const data = rec.finish(id ?? randomId(), netId, winners)

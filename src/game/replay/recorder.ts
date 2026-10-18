@@ -34,6 +34,8 @@ export class ReplayRecorder {
   private kills: [number, PlayerId | null, PlayerId][] = []
   /** state tick the next step must start from */
   private next = -1
+  /** Latest roster for library labels; start state and patches retain their original timeline. */
+  private roster: PlayerSlot[] = []
 
   begin(info: ReplayStartInfo): void {
     this.info = { ...info, slots: info.slots.map((s) => ({ ...s })), settings: { ...info.settings } }
@@ -44,6 +46,7 @@ export class ReplayRecorder {
     this.rounds = []
     this.kills = []
     this.next = -1
+    this.roster = info.slots.map((s) => ({ ...s }))
   }
 
   get recording(): boolean {
@@ -51,21 +54,23 @@ export class ReplayRecorder {
   }
 
   /** One confirmed step about to run from `before` (not yet patched). */
-  step(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[]): void {
+  step(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[], slots?: readonly PlayerSlot[]): void {
     if (!this.info) return
     if (!this.start) this.start = cloneState(before)
     else if (before.tick !== this.next) this.resyncs.push([before.tick, cloneState(before)])
     this.next = before.tick + 1
     const p = patches && patches.length ? patches.map(([id, on]) => [id, on ? 1 : 0] as [PlayerId, 0 | 1]) : undefined
-    if (inputs.length === 0 && !p) return
+    if (inputs.length === 0 && !p && !slots?.length) return
     const entry: ReplayStep = [before.tick, encodeInputs(inputs)]
     if (p) entry[2] = p
+    if (slots?.length) entry[3] = slots.map((s) => ({ ...s }))
     this.steps.push(entry)
   }
 
   /** The state after a step (and that step's events): checkpoints and timeline markers. */
   observe(state: SimState, events: readonly SimEvent[]): void {
     if (!this.info || !this.start) return
+    this.roster = state.slots
     if (state.tick % HASH_EVERY === 0) this.hashes.push([state.tick, replayHash(state)])
     for (const e of events) {
       if (e.type === 'phase' && e.phase === 'fight') this.rounds.push([state.tick, e.round])
@@ -88,7 +93,7 @@ export class ReplayRecorder {
       localPlayer: info.localPlayer,
       seed: info.seed ?? null,
       settings: info.settings,
-      slots: info.slots,
+      slots: this.roster.map((s) => ({ ...s })),
       start,
       endTick: this.next,
       steps: this.steps,

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { exp, float, fwidth, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, exp, float, fwidth, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
 import type { Node } from 'three/webgpu'
 import { loadSurface, type SurfaceMaps } from './textures'
@@ -85,6 +85,21 @@ export class Lava {
     const hot = mix(vec3(1.05, 0.2, 0.03), vec3(2.3, 0.8, 0.17), saturate(cracks.mul(molten).mul(1.4).add(shore.mul(0.25))))
     const k = saturate(cracks.mul(0.85).add(molten.mul(0.28)))
     let col = mix(crust, hot, k)
+
+    if (tier.lavaDetail && this.ctx.motion) {
+      // Existing Worley distance already gives rounded pockets. Let hot pockets swell,
+      // develop a thin molten lip and collapse out of phase: no additional texture fetch,
+      // geometry, particle pool or render pass. Low / reduced motion keep the quiet flow.
+      const cycle = t.mul(0.23).add(cA.r.mul(3.7)).add(cA.g.mul(2.1)).fract()
+      const radius = cycle.mul(0.32).add(0.035)
+      const width = fwidth(cA.a).add(0.012)
+      const lip = float(1).sub(smoothstep(0.012, width.add(0.012), abs(cA.a.sub(radius))))
+      const life = smoothstep(0.04, 0.18, cycle).mul(float(1).sub(smoothstep(0.68, 0.92, cycle)))
+      const pockets = smoothstep(0.5, 0.7, cA.g).mul(smoothstep(0.15, 0.5, heat.add(shore.mul(0.3))))
+      const bubble = life.mul(pockets).mul(this.ctx.uFx)
+      const dome = float(1).sub(smoothstep(0, radius, cA.a)).mul(bubble)
+      col = col.mul(float(1).sub(dome.mul(0.15))).add(vec3(0.8, 0.17, 0.025).mul(lip.mul(bubble)))
+    }
 
     // slow breathing, out of phase across the sea
     col = col.mul(sin(t.mul(1.1).add(heat.mul(9))).mul(0.12).add(0.9))

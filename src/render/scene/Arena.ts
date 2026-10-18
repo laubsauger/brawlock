@@ -48,11 +48,10 @@ import { TILE_GAP } from '../scale'
 
 /**
  * Calm floor albedo lift per theme (same cool palette). Measured floor
- * luminance at the gameplay camera (with the thinner edge band and flattened
- * mortar AO): temple and overgrown about +22 %, volcanic +44 % (it was 3.5x
- * darker than the others and dark robes sank into it).
+ * luminance at the gameplay camera. A final five-percent albedo lift keeps
+ * the texture and cool palette intact without raising lava bounce or bloom.
  */
-const FLOOR_LIFT = [1.15, 1.45, 1.15] as const
+const FLOOR_LIFT = [1.21, 1.52, 1.21] as const
 
 /**
  * Calm floor: the 45 degree bevels shade like the tile tops (normal pulled

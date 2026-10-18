@@ -7,11 +7,11 @@ import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, KillCallout, Killfeed } from './Announce'
-import { ItemGrid, SpellRow } from './SpellBar'
+import { ItemRow, SpellRow } from './SpellBar'
 import { ShrinkWarning, TopCenter, displayRound } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { InspectCard, SpectateChip } from './Inspect'
-import { Gold, ProtectChip, Vitals } from './Vitals'
+import { Gold, ProtectChip } from './Vitals'
 import { Button, KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
 import { matchRenderReady } from '../renderBridge'
@@ -21,13 +21,7 @@ import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { ANNOUNCER_TEXT, roundCall } from '../../game/announcer'
-
-interface HitMemory {
-  /** spell / item of the last sourced hit */
-  spell: string | null
-  /** last damage came from lava (no source) */
-  lava: boolean
-}
+import { DeathFeedback } from './DeathFeedback'
 
 /**
  * Turns phase changes and sim events into banners, sounds, music, auto shop
@@ -40,8 +34,6 @@ function useDirector() {
     lastTick: -1,
     count: 0,
     gameOverSeen: false,
-    /** per victim pawn id: what hit it last, for kill causes */
-    hits: new Map<number, HitMemory>(),
   })
 
   useEffect(() => {
@@ -64,42 +56,25 @@ function useDirector() {
     useGame.getState().toggle('shopOpen', false)
   }
 
-  /** One tick's events. Hits are read first: the sim emits 'damage' before 'projectileHit'. */
+  /** One authoritative tick's events. */
   const onBatch = (events: SimEvent[], state: SimState) => {
-    const s = st.current
     const local = frame.localPlayer
-    const projectileOn = new Map<number, string>()
-    let scourge = false
-    for (const e of events) {
-      if (e.type === 'projectileHit' && e.target != null) projectileOn.set(e.target, e.spell)
-      else if (e.type === 'explosion' && e.spell === 'scourge') scourge = true
-    }
     for (const e of events) {
       switch (e.type) {
-        case 'damage': {
-          const prev = s.hits.get(e.target) ?? { spell: null, lava: false }
-          if (e.source == null) s.hits.set(e.target, { spell: prev.spell, lava: true })
-          else s.hits.set(e.target, { spell: projectileOn.get(e.target) ?? (scourge ? 'scourge' : null), lava: false })
-          break
-        }
         case 'death': {
-          const hit = s.hits.get(e.pawn)
-          s.hits.delete(e.pawn)
+          if (e.cause === 'disconnect') break
           const victim = { name: slotName(state, e.owner), color: slotColor(state, e.owner), glyph: slotGlyph(state, e.owner) }
           const killer = e.killer != null && e.killer !== e.owner ? { name: slotName(state, e.killer), color: slotColor(state, e.killer), glyph: slotGlyph(state, e.killer) } : null
           announce.kill({
             killer,
             victim,
-            cause: hit?.spell ?? null,
-            lava: hit ? hit.lava : true,
+            cause: e.cause ?? null,
+            lava: e.cause === 'lava',
             local: e.owner === local || e.killer === local,
             myKill: !!killer && e.killer === local,
           })
           // your kill, wherever it happened (an off-screen push into the lava too)
           if (killer && e.killer === local) announce.myKill(victim)
-          if (e.owner === local && state.phase === 'fight') {
-            announce.banner('Knocked out', killer ? `${hit?.lava !== false ? 'Pushed into the lava' : 'Taken down'} by ${killer.name}` : 'The lava took you', 'danger', 2200)
-          }
           break
         }
         case 'roundWin': {
@@ -133,7 +108,6 @@ function useDirector() {
         break
       case 'shop':
         // the shop opens itself between rounds; it never blocks movement
-        st.current.hits.clear()
         store.toggle('shopOpen', true)
         music('shop')
         // SHOPTIME, as the original announced it; skipped when the phase is nearly over (late mount)
@@ -165,7 +139,6 @@ function useDirector() {
       s.lastTick = -1
       s.phase = null
       s.gameOverSeen = false
-      s.hits.clear()
     }
     for (const batch of eventsSince(s.lastTick)) {
       onBatch(batch.events, state)
@@ -192,33 +165,35 @@ function useDirector() {
   })
 }
 
-/** Red edge pulse at low HP; "knocked out" strip while dead. */
+/** Red edge pulse at low HP. Confirmed knockouts have their own feedback. */
 function StatusLayer() {
   const vignette = useRef<HTMLDivElement>(null)
-  const dead = useRef<HTMLDivElement>(null)
-  const last = useRef({ low: false, dead: false })
+  const last = useRef(false)
   useTick(() => {
     const s = frame.curr
     const pawn = s?.pawns.find((p) => p.owner === frame.localPlayer)
     const fighting = s?.phase === 'fight'
     const low = !!pawn && pawn.alive && fighting && pawn.hp / Math.max(1, pawn.maxHp) < 0.25
-    const isDead = !!pawn && !pawn.alive && fighting
-    const l = last.current
-    if (low !== l.low && vignette.current) vignette.current.dataset.on = String((l.low = low))
-    if (isDead !== l.dead && dead.current) {
-      dead.current.style.display = (l.dead = isDead) ? '' : 'none'
-      const msg = dead.current.firstElementChild
-      if (isDead && msg) msg.textContent = s?.settings.gameMode === 'deathmatch' ? 'Knocked out. You respawn in a few seconds.' : 'Knocked out. Watching the rest of the round.'
-    }
+    if (low !== last.current && vignette.current) vignette.current.dataset.on = String((last.current = low))
   })
   return (
-    <>
-      <div ref={vignette} className="low-hp-vignette" data-on="false" />
-      <div ref={dead} className="absolute right-0 left-0 text-center" style={{ display: 'none', bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 10px)' }}>
-        <span className="hud-backing hud-text-shadow text-lg font-semibold text-[#ffcfb8]">Knocked out. Watching the rest of the round.</span>
-      </div>
-    </>
+    <div ref={vignette} className="low-hp-vignette" data-on="false" />
   )
+}
+
+/** The session owns the transient notice's lifetime and broadcasts it to the room. */
+function SessionNotice() {
+  const notice = useGame((s) => s.lobby.notice)
+  const waiting = useGame((s) => s.lobby.waitingForRound)
+  return notice || waiting ? (
+    <div className="hud-scale absolute top-11 left-3 flex max-w-[min(28rem,calc(100%_-_1.5rem))] flex-col items-start gap-1.5 text-sm font-semibold text-[#e6d3b8] max-sm:top-24">
+      {waiting && <div className="rounded border border-gold/30 bg-obsidian/90 px-3 py-2" role="status" aria-live="polite">
+        <div className="text-gold">Joining next round</div>
+        <div className="mt-0.5 text-xs font-normal text-ash">Watching until this round ends</div>
+      </div>}
+      {notice && <div className="rounded border border-white/10 bg-obsidian/85 px-3 py-1.5" role="status" aria-live="polite" aria-atomic="true">{notice}</div>}
+    </div>
+  ) : null
 }
 
 /** Aiming in "on release" or "normal" cast mode: what is armed and how to fire or cancel it. */
@@ -338,6 +313,8 @@ export function Hud() {
   return (
     <div className="hud select-none">
       <StatusLayer />
+      <DeathFeedback />
+      <SessionNotice />
 
       <div className="absolute top-0 right-0 left-0 flex justify-center">
         <div className="hud-scale flex origin-top flex-col items-center">
@@ -365,18 +342,15 @@ export function Hud() {
       <AimHint />
       <InspectCard />
 
-      {/* Dota-style bottom cluster flush to the screen edge, centered or in the bottom-right corner */}
+      {/* One row of abilities and items, centered or in the bottom-right corner. */}
       <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
         <div className="hud-scale relative">
           <ProtectChip />
-          <div className="hud-plate hud-bottom flex items-end gap-3 px-3 pt-2 pb-2" data-layout={hudLayout}>
-            <div className="flex w-[342px] flex-col gap-1.5">
-              <Vitals />
-              <SpellRow />
-            </div>
-            <div className="flex flex-col items-end gap-1">
+          <div className="hud-plate hud-bottom" data-layout={hudLayout}>
+            <SpellRow />
+            <ItemRow />
+            <div className="hotbar-gold">
               <Gold />
-              <ItemGrid />
             </div>
           </div>
         </div>

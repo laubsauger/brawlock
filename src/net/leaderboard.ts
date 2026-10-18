@@ -1,6 +1,7 @@
 /**
  * Casual global leaderboard (M4.3): server rooms only. The dedicated server records each
- * finished match it ran; clients never report outcomes.
+ * finished match it ran; clients never report outcomes. Player-hosted (P2P) games, listed
+ * in Browse games or not, never reach it: the server does not run them.
  *
  * - Identity: the device id each human sent in `hello` (game/device.ts). It is never
  *   shown: the board shows the name and a short tag derived from it.
@@ -141,6 +142,7 @@ export function deviceTag(device: string): string {
  */
 export class ServerMatchTracker implements MatchRecorder {
   private seats = new Map<PlayerId, SeatStats>()
+  /** Bots present at the start, including seats humans take in later rounds. */
   private bots = 0
   private settings: MatchSettings | null = null
   /** seats a bot plays right now (their human left) */
@@ -151,7 +153,17 @@ export class ServerMatchTracker implements MatchRecorder {
   private alive = new Set<PlayerId>()
   private active = false
 
-  constructor(private readonly onDone: (m: FinishedMatch) => void) {}
+  constructor(
+    private readonly onDone: (m: FinishedMatch) => void,
+    private readonly onName?: (device: string, name: string) => void,
+  ) {}
+
+  displayName(slot: PlayerSlot, device?: string): void {
+    if (slot.kind !== 'human' || !device) return
+    const seat = this.seats.get(slot.id)
+    if (seat?.device === device) seat.name = slot.name
+    this.onName?.(device, slot.name)
+  }
 
   start(info: { slots: PlayerSlot[]; settings: MatchSettings; devices?: Record<PlayerId, string> }): void {
     this.seats.clear()
@@ -173,6 +185,12 @@ export class ServerMatchTracker implements MatchRecorder {
     else this.botted.delete(player)
   }
 
+  /** A bot seat becomes human between rounds; its earlier bot rounds stay excluded. */
+  join(slot: PlayerSlot, device?: string): void {
+    if (!this.active || slot.kind !== 'human' || !device || this.seats.has(slot.id)) return
+    this.seats.set(slot.id, { player: slot.id, device, name: slot.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false })
+  }
+
   private human(p: PlayerId | null): SeatStats | null {
     return p !== null && !this.botted.has(p) ? (this.seats.get(p) ?? null) : null
   }
@@ -182,7 +200,11 @@ export class ServerMatchTracker implements MatchRecorder {
     // teams (shuffle mode changes them per round) and survivors after these events
     this.team.clear()
     this.alive.clear()
-    for (const sl of state.slots) this.team.set(sl.id, sl.team)
+    for (const sl of state.slots) {
+      this.team.set(sl.id, sl.team)
+      const seat = this.seats.get(sl.id)
+      if (seat && sl.kind === 'human') seat.name = sl.name
+    }
     for (const p of state.pawns) if (p.alive) this.alive.add(p.owner)
     for (const e of events) {
       if (e.type === 'death') {
@@ -315,6 +337,8 @@ export interface BoardQuery {
 export interface LeaderboardStore {
   /** current rows of these devices */
   players(devices: string[]): Map<string, PlayerRow>
+  /** Refresh an existing player's display label; never creates a player or edits results. */
+  rename(device: string, name: string): boolean
   /** one finished match, atomically: its results and the updated players */
   commit(match: { at: number; region: string; room: string; ticks: number; rounds: number; humans: number; bots: number }, results: ResultRow[], players: PlayerRow[]): void
   /** best first: 'all' by rating, 'week' by rating gained this week */

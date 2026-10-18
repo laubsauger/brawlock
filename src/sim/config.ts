@@ -136,6 +136,8 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   friction: 0.96,
   shopSeconds: 25, // PLAN §2: original 30 felt long between rounds
   botsReplaceLeavers: true,
+  spectatorBets: true,
+  bounties: true,
 }
 
 /** Seconds to whole sim ticks (rounded to nearest). */

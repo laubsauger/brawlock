@@ -136,6 +136,8 @@ export interface WorldCtx {
   uTime: FloatUniform
   /** 0..1 fx intensity setting */
   uFx: FloatUniform
+  /** Decorative motion may be suppressed while cast progress remains readable. */
+  motion: boolean
   noise: THREE.DataTexture
   field: ArenaField
   glow: GlowLights
@@ -146,6 +148,7 @@ export function createWorldCtx(tier: TierConfig, fx: number): WorldCtx {
   return {
     uTime: uniform(0),
     uFx: uniform(fx),
+    motion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     noise: getNoiseTexture(),
     field: new ArenaField(),
     glow: new GlowLights(),

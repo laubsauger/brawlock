@@ -12,6 +12,30 @@ import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
 import { createBot } from '../src/bots/index.ts'
 
 const MAX_MESSAGE_BYTES = 64 * 1024
+/** HTTP request bodies (listings): small JSON objects */
+const MAX_BODY_BYTES = 4096
+
+/** The request body as text; '' without one, null when over MAX_BODY_BYTES. */
+function readBody(req) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return Promise.resolve('')
+  return new Promise((resolve) => {
+    const chunks = []
+    let size = 0
+    let done = false
+    const finish = (v) => {
+      if (done) return
+      done = true
+      resolve(v)
+    }
+    req.on('data', (c) => {
+      size += c.length
+      if (size > MAX_BODY_BYTES) finish(null)
+      else if (!done) chunks.push(c)
+    })
+    req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', () => finish(null))
+  })
+}
 /** netcode compatibility id baked in at build time (vite / esbuild define), else from the env */
 export const NET_BUILD = typeof __NET_ID__ !== 'undefined' ? __NET_ID__ : (process.env.NET_ID ?? 'dev-local')
 
@@ -111,7 +135,8 @@ export async function startServer(opts = {}) {
   const sockets = new Set()
   const server = http.createServer(async (req, res) => {
     try {
-      const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null })
+      const body = await readBody(req)
+      const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null, body })
       res.writeHead(r.status, r.headers)
       res.end(r.body)
     } catch (e) {

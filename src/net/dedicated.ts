@@ -10,8 +10,9 @@
  * Up to `seats` humans (8); bots top the table up to `fill` players (4) when fewer:
  * - two or more humans: the match starts after startMs
  * - one human: the match starts after fillMs
- * - results: after nextMs the next match starts; humans who join between matches
- *   replace bots first (at once), then take free seats
+ * - arrivals reserve bot seats during a match and start playing next round;
+ *   between matches they can also take free seats
+ * - results: after nextMs the next match starts
  * Always: a match nobody is connected to goes back to the lobby.
  * `onMatch` gets every finished match (the leaderboard, leaderboard.ts).
  * The same prediction, stamped inputs, snapshots and link monitor as P2P apply; the
@@ -43,6 +44,8 @@ export interface RoomOptions {
   public?: boolean
   /** every finished match, with the device ids of its human seats */
   onMatch?: (m: FinishedMatch) => void
+  /** a connected device's display label, including lobby changes before the next match */
+  onName?: (device: string, name: string) => void
   log?: (msg: string) => void
 }
 
@@ -68,6 +71,8 @@ export interface RoomSummary {
   humans: number
   bots: number
   max: number
+  /** available seats, including unclaimed bots playable next round; absent on player-hosted listings */
+  joinable?: number
   phase: Screen
   quick: boolean
   teamMode: MatchSettings['teamMode']
@@ -97,6 +102,8 @@ export interface Room {
   humans(): number
   /** seats taken (humans and bots) */
   seats(): number
+  /** seats a new human can take, including bot reservations for the next round */
+  joinableSeats(): number
   isPublic(): boolean
   isQuick(): boolean
   summary(): RoomSummary
@@ -188,7 +195,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     clientKey: () => 'dedicated-server',
     netMode: () => 'predict',
     build: deps.build,
-    ...(opts.onMatch ? { recorder: new ServerMatchTracker((m) => opts.onMatch!(m)) } : {}),
+    ...(opts.onMatch ? { recorder: new ServerMatchTracker((m) => opts.onMatch!(m), opts.onName) } : {}),
   })
   const quick = opts.quick ?? null
 
@@ -305,6 +312,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     },
     humans,
     seats: () => lobby.slots.length,
+    joinableSeats: () => session.joinableSeats(),
     isPublic: () => session.roomState().public,
     isQuick: () => !!quick,
     summary() {
@@ -316,6 +324,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         humans: humans(),
         bots: lobby.slots.length - humans(),
         max: quick ? Math.min(quick.seats, MAX_PLAYERS) : MAX_PLAYERS,
+        joinable: session.joinableSeats(),
         phase: screen,
         quick: !!quick,
         teamMode: st.teamMode,

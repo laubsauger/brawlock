@@ -95,6 +95,9 @@ export class ProceduralWarlock implements WarlockHandle {
   setStaff(_variant: StaffVariant | null): void {}
   setCastFrom(_from: CastFrom): void {}
   tumble(): void {}
+  setMotionIntensity(): void {}
+  celebrate(): void {}
+  beginRound(): void {}
   hitFlash(): void {}
   setDetail(): void {}
   levelUp(): void {

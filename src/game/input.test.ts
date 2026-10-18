@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { frame } from './frame'
-import { input, inputViz, requestMove } from './input'
+import { input, inputViz, inspectClick, requestMove } from './input'
 import { useGame } from './store'
 import type { SimState } from '../sim/types'
 
@@ -150,7 +150,7 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
     el = Object.assign(new EventTarget(), { dataset: {} as Record<string, string> })
     useGame.getState().setSettings({ keyPreset: 'brawlock', keybinds: {}, keybindsAlt: {}, castMode: 'normal' })
     frame.localPlayer = 0
-    frame.curr = { tick: 1, pawns: [pawn(0, 0), pawn(1, 400)], slots: [{ id: 0, team: 0 }, { id: 1, team: 1 }], scores: [], settings: { teamMode: 'ffa' } } as unknown as SimState
+    frame.curr = { tick: 1, phase: 'shop', pawns: [pawn(0, 0), pawn(1, 400)], slots: [{ id: 0, team: 0 }, { id: 1, team: 1 }], scores: [], settings: { teamMode: 'ffa' } } as unknown as SimState
     input.drain()
     detach = input.attach(el as unknown as HTMLElement)
   })
@@ -177,6 +177,37 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
     fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
     expect(input.drain()).toEqual([{ kind: 'cast', slot: 6, x: 410, y: 10 }])
     expect(inspectStore.get().inspect).toBe(-1)
+  })
+
+  it('does not inspect an opponent from the battlefield while alive, but does while down', async () => {
+    const { inspectStore } = await import('./inspect')
+    frame.curr!.phase = 'fight'
+    frame.cursor = { x: 410, y: 10, valid: true }
+    fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
+    expect(inspectStore.get().inspect).toBe(-1)
+    frame.curr!.pawns[0].alive = false
+    fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
+    expect(inspectStore.get().inspect).toBe(1)
+    expect(inspectStore.get().follow).toBe(1)
+    expect(input.drain()).toEqual([])
+  })
+
+  it('applies the same combat restriction to nameplate clicks as ground picking', async () => {
+    const { inspectStore } = await import('./inspect')
+    const originalDocument = g.document
+    g.document = { querySelectorAll: () => [{ style: { display: '' }, dataset: { pawn: '101' }, getBoundingClientRect: () => ({ left: 0, top: 0, right: 20, bottom: 20 }) }] }
+    try {
+      frame.cursor.valid = false // only the nameplate can resolve the target
+      frame.curr!.phase = 'fight'
+      inspectClick(10, 10)
+      expect(inspectStore.get().inspect).toBe(-1)
+      frame.curr!.phase = 'shop'
+      inspectClick(10, 10)
+      expect(inspectStore.get().inspect).toBe(1)
+    } finally {
+      if (originalDocument === undefined) delete g.document
+      else g.document = originalDocument
+    }
   })
 
   it('closes the card on a click on empty ground', async () => {

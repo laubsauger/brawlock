@@ -6,8 +6,8 @@
  * - synth: magical / abstract sounds (Homing, Twin, Gravity, Warpzone, Magnetize, Splitter,
  *   orbs, windups, cast inhale and snuff, UI, music) where the synth reads better and the
  *   timing must be exact.
- * `trim` rescales the whole hybrid voice so it lands at the synth version's loudness
- * (measured, see docs in the engine's VOICES), keeping the calibrated mix.
+ * `trim` scales the combined voice to fit the existing mix and limiter headroom.
+ * Body layers carry the impact; clicks, cloth and crackle stay behind them.
  */
 import type { AssetId } from './assets'
 import type { SfxId } from './synth'
@@ -33,7 +33,7 @@ export interface HybridDef {
   layers: readonly SampleLayer[]
   /** synth recipe gain in hybrid mode (1 = unchanged, 0 = the recording replaces it) */
   synth?: number
-  /** overall voice gain in hybrid mode so it matches the synth version's loudness */
+  /** overall voice gain in hybrid mode, after the recording and synth are combined */
   trim?: number
 }
 
@@ -111,22 +111,28 @@ export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
   // --- bodies ------------------------------------------------------------------
   hit: {
     layers: [
-      { assets: ['hit_a', 'hit_b'], gain: 0.21, rate: [0.9, 1.1] },
-      { assets: ['thud_a', 'thud_b'], gain: 0.48, rate: [0.85, 1], minParam: 0.8 },
-      { assets: ['cloth_flutter', 'swish'], gain: 0.21, rate: [0.9, 1.1], at: 0.03, minParam: 0.9 },
+      { assets: ['hit_a', 'hit_b'], gain: 0.16, rate: [0.85, 1] },
+      { assets: ['thud_a', 'thud_b'], gain: 0.6, rate: [0.85, 1], minParam: 0.8 },
+      { assets: ['cloth_flutter', 'swish'], gain: 0.13, rate: [0.9, 1.1], at: 0.03, minParam: 0.9 },
     ],
     synth: 0.75,
     trim: 0.98,
   },
-  impact: { layers: [{ assets: ['hit_a', 'hit_b'], gain: 0.14, rate: [0.95, 1.1] }], synth: 0.8, trim: 1.29 },
-  chargeSlam: { layers: [{ assets: ['thud_a', 'thud_b'], gain: 0.94, at: 0.03 }], synth: 0.8, trim: 0.99 },
+  impact: {
+    layers: [
+      { assets: ['thud_a', 'thud_b'], gain: 0.25, rate: [0.85, 0.98] },
+    ],
+    synth: 0.8,
+    trim: 1.1,
+  },
+  chargeSlam: { layers: [{ assets: ['thud_a', 'thud_b'], gain: 0.94, rate: [0.85, 1], at: 0.03 }], synth: 0.8, trim: 0.99 },
   dashBurst: { layers: [{ assets: ['cloth_flutter', 'swish'], gain: 0.44, rate: [0.9, 1.05] }], trim: 0.81 },
   fade: { layers: [{ assets: ['cloth_flap', 'swish'], gain: 0.08, rate: [0.9, 1.05] }], synth: 0.8, trim: 0.77 },
   death: {
     layers: [
-      { assets: ['thud_a'], gain: 1.6, rate: [0.7, 0.8] },
-      { assets: ['fire_burst'], gain: 0.65, rate: [0.6, 0.7], at: 0.05 },
-      { assets: ['coal_crackle'], gain: 0.76, slice: [1, 1.2], at: 0.15 },
+      { assets: ['thud_a'], gain: 1.4, rate: [0.75, 0.85] },
+      { assets: ['fire_burst'], gain: 0.5, rate: [0.7, 0.8], at: 0.05 },
+      { assets: ['coal_crackle'], gain: 0.48, slice: [0.6, 0.8], at: 0.15 },
     ],
     trim: 0.77,
   },

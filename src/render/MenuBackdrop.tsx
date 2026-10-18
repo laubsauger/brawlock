@@ -8,6 +8,8 @@ import { DT } from '../sim/types'
 import { S, TILE_TOP_H } from './coords'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
 import { createMenuStage, type MenuStage } from './menuStage'
+import { menuCameraAt } from './menuCamera'
+import { useMedia } from '../ui/lib/media'
 import { tierConfig } from './quality'
 import { RenderLoop } from './RenderLoop'
 import { MatchWorld } from './scene/MatchWorld'
@@ -15,8 +17,8 @@ import { createPrivateSource } from './source'
 
 /**
  * Animated backdrop for menu and lobby screens: a slow cinematic drift over a
- * corner of the platform, looking out across the lava to the caldera rim,
- * while three warlocks loiter and trade the odd Fireball (scripted calm stage,
+ * quiet sparring scene, looking out across the lava to the caldera rim,
+ * while two warlocks exchange attacks, returns and escapes (menuStage.ts,
  * menuStage.ts, private frame buffer: never touches match state).
  *
  * The menu panels sit on the left: the camera aims left of the action so the
@@ -35,25 +37,8 @@ export function MenuBackdrop({ className, style }: { className?: string; style?:
   )
 }
 
-/** camera shape (game units / degrees) */
-const CAM = {
-  /** back from the action toward the platform centre */
-  back: 1300,
-  height: 860,
-  /** aim this far past the action, out over the lava */
-  ahead: 170,
-  aimH: 0,
-  /** where the action sits on screen (0 = left edge): right of the menu panels at any aspect */
-  screenX: 0.66,
-  fov: 34,
-  /** slow drift: lateral sway (units) and its period (s) */
-  sway: 150,
-  swayT: 84,
-  dolly: 0.06,
-  dollyT: 61,
-}
-
 function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0]; fx: number }) {
+  const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
   const scene = useThree((s) => s.scene)
   const gl = useThree((s) => s.gl)
   const eff = useEffectiveQuality(quality)
@@ -76,7 +61,7 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     const r = gl as unknown as THREE.WebGPURenderer
     r.shadowMap.enabled = tierCfg.shadowMap > 0
     r.shadowMap.type = THREE.PCFShadowMap
-    const world = new MatchWorld({ source, tier: tierConfig(eff), fx, overlayParent: null, mode: 'menu', renderer: r })
+    const world = new MatchWorld({ source, tier: tierConfig(eff), fx, overlayParent: null, mode: 'menu', externalCamera: true, renderer: r })
     scene.add(world.root)
     scene.background = new THREE.Color(0x0b0604)
     scene.fogNode = world.fogNode
@@ -114,38 +99,24 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     }
     if (drive.acc > DT) drive.acc = 0
     const cam = state.camera as THREE.PerspectiveCamera
+    const { focus: f, out: u } = drive.stage
+    const aspect = state.size.width / Math.max(1, state.size.height)
+    const shot = menuCameraAt(drive.t, f, u, aspect, reducedMotion)
+    const { pos, aim } = tmp.current
+    pos.set(shot.x * S, (TILE_TOP_H + shot.height) * S, -shot.y * S)
+    aim.set(shot.aimX * S, TILE_TOP_H * S, -shot.aimY * S)
+    cam.position.copy(pos)
+    cam.lookAt(aim)
+    if (cam.fov !== shot.fov) {
+      cam.fov = shot.fov
+      cam.updateProjectionMatrix()
+    }
+    // Culling, shadows and VFX use the same camera that will render this frame.
     try {
-      world.update(dt, cam, state.size.width / Math.max(1, state.size.height))
+      world.update(dt, cam, aspect)
     } catch (err) {
       if (!updateErrorLogged) console.error('[render] menu world update threw', err)
       updateErrorLogged = true
-    }
-    // cinematic camera (after the world's own menu orbit, which it overrides)
-    const { focus: f, out: u } = drive.stage
-    const t = drive.t
-    const rx = u.y
-    const ry = -u.x
-    const sway = Math.sin((t / CAM.swayT) * Math.PI * 2) * CAM.sway
-    const back = CAM.back * (1 + Math.sin((t / CAM.dollyT) * Math.PI * 2) * CAM.dolly)
-    const cx = f.x - u.x * back + rx * sway
-    const cy = f.y - u.y * back + ry * sway
-    // aim left of the action by the angle that puts it at screenX (Hor+ aware)
-    const aspect = state.size.width / Math.max(1, state.size.height)
-    const lx = f.x + u.x * CAM.ahead + rx * sway * 0.35
-    const ly = f.y + u.y * CAM.ahead + ry * sway * 0.35
-    // depth of the aim point along the view (camera height counts: 3D distance)
-    const reach = Math.hypot(lx - cx, ly - cy, CAM.height - CAM.aimH)
-    const aimLeft = reach * (2 * CAM.screenX - 1) * Math.tan(((CAM.fov / 2) * Math.PI) / 180) * aspect
-    const ax = lx - rx * aimLeft
-    const ay = ly - ry * aimLeft
-    const { pos, aim } = tmp.current
-    pos.set(cx * S, (TILE_TOP_H + CAM.height) * S, -cy * S)
-    aim.set(ax * S, (TILE_TOP_H + CAM.aimH) * S, -ay * S)
-    cam.position.copy(pos)
-    cam.lookAt(aim)
-    if (cam.fov !== CAM.fov) {
-      cam.fov = CAM.fov
-      cam.updateProjectionMatrix()
     }
   })
   return null

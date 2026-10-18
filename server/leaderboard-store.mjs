@@ -93,6 +93,7 @@ export function openLeaderboard(file) {
       matches = excluded.matches, wins = excluded.wins, rounds_played = excluded.rounds_played,
       rounds_won = excluded.rounds_won, kills = excluded.kills, deaths = excluded.deaths, last_at = excluded.last_at`)
   const getPlayer = db.prepare('SELECT * FROM players WHERE device = ?')
+  const renamePlayer = db.prepare('UPDATE players SET name = ? WHERE device = ? AND name <> ?')
 
   // 'all': players by rating. 'week': players with results since ?, by rating gained then.
   // Region filter: devices with a result in that region (each server holds its own region).
@@ -120,6 +121,10 @@ export function openLeaderboard(file) {
   const args = (q) => (q.period === 'week' ? [q.since, ...(q.region ? [q.region] : [])] : q.region ? [q.region] : [])
 
   return {
+    rename(device, name) {
+      return renamePlayer.run(name, device, name).changes > 0
+    },
+
     players(devices) {
       const out = new Map()
       for (const d of devices) {

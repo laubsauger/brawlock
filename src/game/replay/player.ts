@@ -71,6 +71,10 @@ export class ReplayPlayer {
     const resync = this.resyncs.get(t)
     if (resync) this.cur = cloneState(resync)
     const rec = this.steps.get(t)
+    if (rec?.[3]) {
+      const slots = new Map(rec[3].map((s) => [s.id, { ...s }]))
+      this.cur.slots = this.cur.slots.map((s) => slots.get(s.id) ?? s)
+    }
     if (rec?.[2]) {
       for (const [id, on] of rec[2]) {
         const sc = this.cur.scores.find((s) => s.id === id)

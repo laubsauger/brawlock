@@ -28,7 +28,6 @@ import {
   vec3,
 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { layerRadius } from '../../arenaGeom'
 import { S } from '../../coords'
 import { getNoiseTexture } from '../noiseTexture'
@@ -55,6 +54,7 @@ import { fbm3, rng } from './rng'
 const LAVA_GAP = 620
 const SEG = 384
 const COL = 3 // segments per basalt column
+const DRESSING_SECTORS = 8
 
 interface ThemePal {
   rock: [number, number, number]
@@ -472,16 +472,24 @@ function fallMaterial(u: Uniforms): THREE.MeshBasicNodeMaterial {
   const flow = q.y.mul(3).sub(time.mul(0.55))
   const n1 = texture(noise, vec2(q.x.mul(0.35), flow.mul(0.5))).r
   const n2 = texture(noise, vec2(q.x.mul(0.8).add(0.3), flow.mul(1.3))).b
-  const edge = smoothstep(0, 0.3, q.x).mul(smoothstep(1, 0.7, q.x))
-  // bright core, cooler crusted streaks running down the sheet
-  const crust = smoothstep(0.08, 0.2, n2)
-  const streaks = sin(q.x.mul(19).add(n1.mul(5))).mul(0.5).add(0.5)
-  const heat = edge.mul(n1.mul(0.8).add(0.3)).mul(crust.mul(0.6).add(0.4)).mul(streaks.mul(0.6).add(0.4))
-  const col = mix(vec3(0.9, 0.12, 0.015), vec3(2.6, 0.85, 0.14), heat)
+  // Ragged, cooled banks frame narrower molten threads. A rounded cross-sheet
+  // light profile gives the existing shallow ribbon some depth at low camera angles.
+  const bank = n1.mul(0.035)
+  const edge = smoothstep(bank, bank.add(0.22), q.x)
+    .mul(float(1).sub(smoothstep(float(0.78).sub(bank), float(1).sub(bank), q.x)))
+  const crust = smoothstep(0.06, 0.22, n2)
+  const streaks = sin(q.x.mul(25).add(n1.mul(6)).add(q.y.mul(0.8))).mul(0.5).add(0.5)
+  const heat = edge.mul(n1.mul(0.45).add(0.55)).mul(crust.mul(0.5).add(0.5)).mul(streaks.mul(0.5).add(0.5))
+  const round = sin(q.x.mul(Math.PI)).mul(0.3).add(0.7)
+  const col = mix(vec3(0.16, 0.018, 0.003), vec3(2.0, 0.48, 0.055), heat).mul(round)
   const m = new THREE.MeshBasicNodeMaterial()
   m.name = 'LavaFall'
   m.positionNode = radial(u)
-  m.colorNode = col.mul(heat.add(0.15)).mul(u.fall)
+  m.colorNode = col.mul(u.fall)
+  // Keep the opaque pass: the tiny cutout removes ruler-straight sheet borders
+  // without adding a blended layer or hiding the rock silhouettes behind them.
+  m.opacityNode = edge
+  m.alphaTest = 0.08
   m.side = THREE.DoubleSide
   return m
 }
@@ -526,6 +534,96 @@ function skyMaterial(): THREE.MeshBasicNodeMaterial {
   return m
 }
 
+/** Coarse spatial batches keep every authored face while letting the normal renderer
+ * reject the far side of the caldera. Stone is static, so baking its instance transforms
+ * also offsets the draw-call cost of splitting the crystal instances and lava falls. */
+function sectorize(sources: THREE.Object3D[], stone: THREE.Material, crystal: THREE.Material, owned: THREE.BufferGeometry[]): THREE.Mesh[] {
+  const sectorAt = (x: number, z: number) => Math.floor(((Math.atan2(-z, x) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * DRESSING_SECTORS)
+  // RimRock uses triplanar surfaces and cavity only; pillar-specific UV/band
+  // channels are unnecessary in these static batches.
+  const attributes = ['position', 'normal', 'aInfo'] as const
+  const bins = Array.from({ length: DRESSING_SECTORS }, () => attributes.map(() => [] as number[]))
+  const crystals = Array.from({ length: DRESSING_SECTORS }, () => [] as THREE.Matrix4[])
+  const out: THREE.Mesh[] = []
+  let crystalGeometry: THREE.BufferGeometry | null = null
+  const matrix = new THREE.Matrix4()
+  for (const source of sources as THREE.Mesh[]) {
+    if (source.material === crystal && source instanceof THREE.InstancedMesh) {
+      crystalGeometry = source.geometry
+      for (let instance = 0; instance < source.count; instance++) {
+        source.getMatrixAt(instance, matrix)
+        crystals[sectorAt(matrix.elements[12], matrix.elements[14])].push(matrix.clone())
+      }
+      source.dispose()
+      continue
+    }
+    if (source.material !== stone) {
+      out.push(source)
+      continue
+    }
+    const count = source instanceof THREE.InstancedMesh ? source.count : 1
+    for (let instance = 0; instance < count; instance++) {
+      if (source instanceof THREE.InstancedMesh) source.getMatrixAt(instance, matrix)
+      else matrix.copy(source.matrix)
+      const geometry = source.geometry.clone().applyMatrix4(matrix)
+      const position = geometry.getAttribute('position')
+      const index = geometry.getIndex()
+      const vertices = index ? index.count : position.count
+      for (let offset = 0; offset < vertices; offset += 3) {
+        const ids = [0, 1, 2].map((corner) => index ? index.getX(offset + corner) : offset + corner)
+        const x = ids.reduce((sum, id) => sum + position.getX(id), 0) / 3
+        const z = ids.reduce((sum, id) => sum + position.getZ(id), 0) / 3
+        const target = bins[sectorAt(x, z)]
+        for (let slot = 0; slot < attributes.length; slot++) {
+          const attribute = geometry.getAttribute(attributes[slot])
+          for (const id of ids) for (let component = 0; component < attribute.itemSize; component++) {
+            target[slot].push(attribute.array[id * attribute.itemSize + component])
+          }
+        }
+      }
+      geometry.dispose()
+    }
+    if (source instanceof THREE.InstancedMesh) source.dispose()
+  }
+  for (let sector = 0; sector < DRESSING_SECTORS; sector++) {
+    if (bins[sector][0].length) {
+      const geometry = new THREE.BufferGeometry()
+      attributes.forEach((name, slot) => geometry.setAttribute(name, new THREE.Float32BufferAttribute(bins[sector][slot], 3)))
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+      owned.push(geometry)
+      const mesh = new THREE.Mesh(geometry, stone)
+      mesh.name = `rim-stone-${sector}`
+      out.push(mesh)
+    }
+    const transforms = crystals[sector]
+    if (transforms.length && crystalGeometry) {
+      const mesh = new THREE.InstancedMesh(crystalGeometry, crystal, transforms.length)
+      transforms.forEach((transform, index) => mesh.setMatrixAt(index, transform))
+      mesh.computeBoundingBox()
+      mesh.computeBoundingSphere()
+      mesh.name = `rim-crystals-${sector}`
+      out.push(mesh)
+    }
+  }
+  for (const mesh of out) {
+    mesh.frustumCulled = true
+    const bounds = mesh instanceof THREE.InstancedMesh ? mesh.boundingSphere : mesh.geometry.boundingSphere
+    if (!bounds) throw new Error(`Missing dressing bounds for ${mesh.name}`)
+    mesh.userData.radialBounds = bounds.clone()
+  }
+  return out
+}
+
+/** A radial shader shift can move any vertex by at most |shift|. Inflate the original
+ * sphere rather than accumulating padding, so repeated radius changes remain bounded. */
+function padRadialBounds(mesh: THREE.Mesh, shift: number): void {
+  const original = mesh.userData.radialBounds as THREE.Sphere
+  const sphere = mesh instanceof THREE.InstancedMesh ? mesh.boundingSphere! : mesh.geometry.boundingSphere!
+  sphere.copy(original)
+  sphere.radius += shift
+}
+
 // ------------------------------------------------------------------ build
 
 export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
@@ -567,10 +665,8 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
     const rim = rimShape(R, 1234)
     const Rc = rim.Rc
     const cliffGeo = cliffGeometry(rim)
-    builtGeos.push(cliffGeo)
     const cliff = new THREE.Mesh(cliffGeo, mats.rock)
     cliff.name = 'cliffs'
-    cliff.frustumCulled = false
     built.push(cliff)
 
     const rnd = rng(77)
@@ -600,16 +696,14 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
       if (fallJ.length >= 6) break
       if (fallJ.every((k) => Math.min(Math.abs(k - j), SEG - Math.abs(k - j)) > SEG / 9)) fallJ.push(j)
     }
-    if (fallJ.length) {
-      // one draw for all falls
-      const parts = fallJ.map((j) => fallGeometry(rim, j, 42 + rnd() * 36))
-      const g = mergeGeometries(parts)
-      for (const pg of parts) pg.dispose()
-      builtGeos.push(g)
-      const f = new THREE.Mesh(g, mats.fall)
-      f.name = 'lava-falls'
-      f.frustumCulled = false
-      built.push(f)
+    for (const [index, j] of fallJ.entries()) {
+      const geometry = fallGeometry(rim, j, 42 + rnd() * 36)
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+      builtGeos.push(geometry)
+      const fall = new THREE.Mesh(geometry, mats.fall)
+      fall.name = `lava-fall-${index}`
+      built.push(fall)
     }
     const nearFall = (a: number) => fallJ.some((j) => Math.abs(Math.atan2(Math.sin(a - (j / SEG) * Math.PI * 2), Math.cos(a - (j / SEG) * Math.PI * 2))) < 0.06)
 
@@ -653,7 +747,6 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
         m4.compose(tp, q, sc)
         mesh.setMatrixAt(i, m4)
       })
-      mesh.frustumCulled = false
       mesh.name = 'talus'
       built.push(mesh)
     }
@@ -670,7 +763,6 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
         m4.compose(tp, q, sc)
         mesh.setMatrixAt(i, m4)
       })
-      mesh.frustumCulled = false
       mesh.name = `spires-${k}`
       built.push(mesh)
     })
@@ -699,7 +791,6 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
       m4.compose(tp, q, sc)
       arches.setMatrixAt(i, m4)
     })
-    arches.frustumCulled = false
     arches.name = 'arches'
     built.push(arches)
 
@@ -749,11 +840,14 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
       m4.compose(tp, q, sc)
       cm.setMatrixAt(i, m4)
     })
-    cm.frustumCulled = false
     cm.name = 'rim-crystals'
     built.push(cm)
 
-    for (const o of built) world.add(o)
+    const sectors = sectorize(built, mats.rock, mats.crystal, builtGeos)
+    cliffGeo.dispose()
+    built.length = 0
+    built.push(...sectors)
+    for (const object of built) world.add(object)
   }
 
   const setTheme = (theme: number) => {
@@ -787,9 +881,11 @@ export function createArenaDressing(opts: ArenaDressingOpts): ArenaDressing {
     setTheme,
     setPlatformRadius(r: number) {
       u.shift.value = r - buildRadius
+      for (const object of built) padRadialBounds(object as THREE.Mesh, Math.abs(u.shift.value))
     },
     dispose() {
       disposed = true
+      for (const object of built) if (object instanceof THREE.InstancedMesh) object.dispose()
       for (const g of builtGeos) g.dispose()
       for (const g of [...spireGeos, archGeo, crystalGeo, boulderGeo, volcanoGeo, skyGeo]) g.dispose()
       for (const m of Object.values(mats)) m.dispose()

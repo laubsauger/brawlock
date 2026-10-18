@@ -7,6 +7,64 @@ import { GradeTracker, LossTracker, gradeOf } from './netstats'
 
 const hashNoEvents = (s: SimState) => hashState({ ...s, events: [] })
 
+describe('scheduled authoritative bot plans', () => {
+  it('suppresses pre-attachment death history but still delivers a new confirmed death once', () => {
+    const state = fight(2)
+    const floor = state.tick + 5
+    const pred = new Predictor(1, step, cloneState, () => 0, floor)
+    const death: SimEvent = { type: 'death', pawn: pawn(state, 1).id, owner: 1, killer: 0, cause: 'lava', x: 0, y: 0 }
+    const initial = cloneState(state)
+    initial.tick = floor
+    const events: SimEvent[] = []
+    pred.offer(initial, 0, [{ tick: floor - 1, events: [death] }, { tick: floor, events: [death] }])
+    pred.advance(floor + 1, (_s, e) => events.push(...e))
+    expect(events.filter((e) => e.type === 'death')).toHaveLength(0)
+    const next = cloneState(initial)
+    next.tick = floor + 1
+    pred.offer(next, 0, [{ tick: floor, events: [death] }, { tick: floor + 1, events: [death] }])
+    pred.advance(floor + 2, (_s, e) => events.push(...e))
+    pred.offer({ ...next, tick: floor + 2 }, 0, [{ tick: floor + 1, events: [death] }])
+    pred.advance(floor + 3, (_s, e) => events.push(...e))
+    expect(events.filter((e) => e.type === 'death')).toHaveLength(1)
+  })
+
+  it('replaces future orders, ignores reordered repeats, and cancels at handover', () => {
+    const state = fight(2)
+    const pred = new Predictor(1, step, cloneState)
+    const tick = state.tick
+    pred.offer(state, 0)
+    pred.advance(tick + 1, () => {})
+    const old: InputCommand[] = [{ kind: 'move', x: 800, y: 0 }]
+    const next: InputCommand[] = [{ kind: 'move', x: -800, y: 0 }]
+    pred.plan(0, tick + 1, [[tick + 5, old]])
+    pred.plan(0, tick + 2, [[tick + 6, next]])
+    pred.plan(0, tick + 1, [[tick + 5, old]])
+    expect(pred.hintAt(tick + 5, 0)).toBeUndefined()
+    expect(pred.hintAt(tick + 6, 0)).toEqual(next)
+    pred.advance(tick + 7, () => {})
+    pred.plan(0, tick + 3, [])
+    let display: SimState | undefined
+    pred.advance(tick + 8, (s) => { display = s })
+    expect(pred.hintAt(tick + 6, 0)).toBeUndefined()
+    expect(pawn(display!, 0).moveTarget).toBeNull()
+  })
+
+  it('retains elapsed planned steps needed for rollback when the pending queue empties', () => {
+    const state = fight(2)
+    const pred = new Predictor(1, step, cloneState)
+    const tick = state.tick
+    const cmds: InputCommand[] = [{ kind: 'move', x: 800, y: 0 }]
+    pred.offer(state, 0)
+    pred.advance(tick + 1, () => {})
+    pred.plan(0, tick + 1, [[tick + 3, cmds]])
+    pred.plan(0, tick + 4, [])
+    expect(pred.hintAt(tick + 3, 0)).toEqual(cmds)
+    let display: SimState | undefined
+    pred.advance(tick + 5, (s) => { display = s })
+    expect(pawn(display!, 0).moveTarget).toEqual({ x: 800, y: 0 })
+  })
+})
+
 interface Sent {
   frame: LocalFrame
   arrive: number

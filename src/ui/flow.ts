@@ -9,6 +9,7 @@ import { useSyncExternalStore } from 'react'
 import { session, type HostResult } from '../game/session'
 import { useGame } from '../game/store'
 import { parseRoomCode } from '../net/code'
+import { tutorial } from './lib/onboarding'
 
 function closeOverlays() {
   const s = useGame.getState()
@@ -19,7 +20,7 @@ function closeOverlays() {
 }
 
 export function playOffline(): void {
-  session.openOffline()
+  tutorial.request({ label: 'Play vs bots', run: () => session.openOffline() })
 }
 
 /** What the last attempt was, for the failure line ("Couldn't join quick play.") */
@@ -52,30 +53,45 @@ export function useLastHostResult(): HostResult | null {
 
 /** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
 export function hostGame(): void {
-  lastAction = 'pc'
-  setLastHost(null)
-  void session.openHost().then(setLastHost)
+  tutorial.request({
+    label: 'Host from your PC',
+    run: () => {
+      lastAction = 'pc'
+      setLastHost(null)
+      void session.openHost().then(setLastHost)
+    },
+  })
 }
 
 /** Quick play: an open game on the server (or a new one, filled with bots). */
 export function quickPlay(region: string): void {
-  lastAction = 'quick'
-  setLastHost(null)
-  void session.quickPlay({ region }).then(setLastHost)
+  tutorial.request({
+    label: 'Find a game',
+    run: () => {
+      lastAction = 'quick'
+      setLastHost(null)
+      void session.quickPlay({ region }).then(setLastHost)
+    },
+  })
 }
 
 /** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
 export function hostOnServer(region: string): void {
-  lastAction = 'server'
-  setLastHost(null)
-  void session.openHostServer(region).then(setLastHost)
+  tutorial.request({
+    label: 'Host on a server',
+    run: () => {
+      lastAction = 'server'
+      setLastHost(null)
+      void session.openHostServer(region).then(setLastHost)
+    },
+  })
 }
 
 /** Join by room code (typed, pasted with dashes / spaces, or a whole ?room= link). */
-export function joinRoom(text: string): { problem: string } | null {
+export function joinRoom(text: string, onCancel?: () => void): { problem: string } | null {
   const r = parseRoomCode(text)
   if ('problem' in r) return r
-  void session.join(r.code)
+  tutorial.request({ label: 'Join game', run: () => { void session.join(r.code) }, cancel: onCancel })
   return null
 }
 

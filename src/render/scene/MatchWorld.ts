@@ -8,6 +8,7 @@ import { cameraRig, devCamera, frameOffset, moveMarkers, spectateTarget } from '
 import { CameraReach, EDGE_SPEED, reachFor } from '../cameraReach'
 import { PawnLocator } from '../overlay/PawnLocator'
 import { renderPrefs } from '../prefs'
+import { victoryCameraOffset, victoryCameraWeight } from '../victoryCamera'
 import { createWarlock, warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
@@ -52,6 +53,8 @@ export interface MatchWorldOptions {
   overlayParent: HTMLElement | null
   /** 'menu' = slow orbit camera, no cursor, no overlay */
   mode: 'match' | 'menu'
+  /** The menu director supplies its own camera before update/culling. */
+  externalCamera?: boolean
   /** effective quality tier name (for VFX modules) */
   quality?: Quality
   /** the canvas renderer: staged texture uploads and material pre-warm */
@@ -186,6 +189,9 @@ export class MatchWorld {
   private lastCallout = -10
   private orbit = 0
   private deathFocus: { x: number; y: number; at: number } | null = null
+  private victoryShot: { pawn: number; at: number; facing: number } | null = null
+  private victoryAim = new THREE.PerspectiveCamera()
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   private spectateId = -1
   private lastLayer = -1
   private removedRing: { x: number; y: number }[] = []
@@ -647,6 +653,9 @@ export class MatchWorld {
         for (const m of spellVfxModules()) this.guard(m, 'beginFrame', () => m.beginFrame?.(this.vfx))
       }
       this.updateArena(curr, t, first, alpha)
+      // A keyframe can skip shop entirely. Advance life epochs before events,
+      // preserving any authoritative death that belongs to this new round.
+      for (const v of this.views.values()) v.beginRound(curr.round)
       if (!frozen) this.consumeEvents(curr, t, first)
       if (this.modulesOn) for (const m of spellVfxModules()) this.guard(m, 'frame', () => m.frame?.(this.vfx))
       this.updatePawns(prev, curr, alpha, t, dt)
@@ -794,6 +803,7 @@ export class MatchWorld {
     this.lastStateTick = -1
     this.lastLayer = -1
     this.deathFocus = null
+    this.victoryShot = null
     if (this.opts.mode === 'match') cameraRig.recenter()
   }
 
@@ -1048,10 +1058,11 @@ export class MatchWorld {
             this.lastCallout = t
             this.overlay?.callout('Melted', v.x, v.y, v.h + 120, t)
           }
-          if (match && v.owner === this.opts.source.buf.localPlayer) {
+          if (match && cause !== 'disconnect' && v.owner === this.opts.source.buf.localPlayer) {
             cameraRig.shake(0.9)
             this.deathFocus = { x: v.x, y: v.y, at: t }
           }
+          if (match && e.killer !== null && e.bountyGold && e.bountyGold > 0) this.bountyCollection(v, e.killer, e.bountyGold, t)
         }
         break
       }
@@ -1066,13 +1077,28 @@ export class MatchWorld {
       case 'gameOver': {
         const winners = e.type === 'roundWin' ? e.players : e.winners
         if (claimed) break
-        for (const v of this.views.values()) {
-          if (!winners.includes(v.owner) || !v.alive) continue
-          const n = this.particles.budget(60)
+        const living = [...this.views.entries()].filter(([, v]) => winners.includes(v.owner) && v.alive && !v.dead)
+        if (match && e.type === 'roundWin' && living.length === 1 && this.lastCamera) {
+          const [pawn, v] = living[0]
+          const facing = Math.atan2(-this.lastCamera.position.z / S - v.y, this.lastCamera.position.x / S - v.x) + 0.18
+          this.victoryShot = { pawn, at: t, facing }
+        }
+        for (const [, v] of living) {
+          if (match && this.lastCamera) {
+            const facing = this.victoryShot?.facing ?? Math.atan2(-this.lastCamera.position.z / S - v.y, this.lastCamera.position.x / S - v.x)
+            v.celebrate(facing)
+          }
+          if (fx <= 0 || this.reducedMotion.matches) continue
+          const c = v.identityColor
+          this.ground.spawn(RING_EXPAND, v.x, v.y, v.floorH + 2, 38, 205, 1.1, 7, (c.r * 1.5 + 0.6) * fx, (c.g * 1.5 + 0.4) * fx, (c.b * 1.5 + 0.2) * fx)
+          this.ground.spawn(RING_IMPLODE, v.x, v.y, v.floorH + 3, 22, 170, 0.65, 5, 2.4 * fx, 1.7 * fx, 0.65 * fx)
+          const n = this.particles.budget(Math.round(48 * fx))
           for (let i = 0; i < n; i++) {
-            const a = Math.random() * Math.PI * 2
-            const sp = 80 + Math.random() * 220
-            this.particles.spawn(v.x, v.y, v.h + 60, Math.cos(a) * sp, Math.sin(a) * sp, 380 + Math.random() * 420, 1.2 + Math.random() * 0.8, 9, 3, 3.2, 2.4, 0.9, -700, 0.6, 6)
+            const a = i * 2.39996
+            const radius = 45 + (i % 6) * 16
+            const ca = Math.cos(a)
+            const sa = Math.sin(a)
+            this.particles.spawn(v.x + ca * radius, v.y + sa * radius, v.h + 30 + (i % 8) * 19, -sa * 125 - ca * 35, ca * 125 - sa * 35, 210 + Math.random() * 190, 0.8 + Math.random() * 0.65, 8, 2, c.r * 1.8 + 1.2, c.g * 1.8 + 0.8, c.b * 1.8 + 0.35, -150, 0.5, 5)
           }
         }
         break
@@ -1202,6 +1228,31 @@ export class MatchWorld {
     const dy = y - cameraRig.fy
     const d = Math.hypot(dx, dy)
     if (d < 900) cameraRig.shake(amount * (1 - d / 900))
+  }
+
+  private bountyCollection(victim: PawnView, killer: number, amount: number, now: number): void {
+    let collector: PawnView | undefined
+    for (const v of this.views.values()) if (v.owner === killer) { collector = v; break }
+    if (!collector) return
+    this.overlay?.callout(`+${amount} bounty`, collector.x, collector.y, collector.h + 125, now)
+    const fx = this.opts.fx
+    if (fx <= 0 || this.reducedMotion.matches) return
+    // A fixed handful of gold facets crosses from the defeated holder to the
+    // collector. Payout size changes the label, never particle or voice cost.
+    const n = this.particles.budget(10)
+    for (let i = 0; i < n; i++) {
+      const angle = i * 2.39996
+      const ox = Math.cos(angle) * 15
+      const oy = Math.sin(angle) * 15
+      const life = 0.3 + (i % 3) * 0.035
+      const h = victim.h + 65 + (i % 3) * 8
+      const gravity = -850
+      this.particles.spawn(victim.x + ox, victim.y + oy, h,
+        (collector.x - victim.x - ox) / life, (collector.y - victim.y - oy) / life,
+        (collector.h + 85 - h - gravity * life * life * 0.5) / life,
+        life, 8, 2, 2.1 * fx, 1.25 * fx, 0.22 * fx, gravity, 0, -0.025)
+    }
+    this.ground.spawn(RING_IMPLODE, collector.x, collector.y, collector.floorH + 2, 24, 100, 0.4, 4, 1.2 * fx, 0.72 * fx, 0.15 * fx)
   }
 
   private flash(x: number, y: number, h: number, life: number, radius: number, size: number, r: number, g: number, b: number): void {
@@ -1766,6 +1817,7 @@ export class MatchWorld {
         }
       }
       // team identity (Shuffle re-teams every round): ring, trims, plate fill
+      v.name = this.slotOf(curr, p.owner)?.name ?? ''
       v.setIdentity(colorForPawn(curr, p.owner), slotColorOf(curr, p.owner))
       v.combat = curr.phase === 'fight'
       samplePawn(pp, p, alpha, this.sample)
@@ -1775,7 +1827,8 @@ export class MatchWorld {
         v.wardTarget = left < 0 || left > 180 ? 1 : 0.35 + 0.65 * (left / 180)
       } else v.wardTarget = 0
       const view = v
-      this.safe('pawn:update', () => view.update(p, this.sample, layer, t, dt))
+      view.beginRound(curr.round)
+      this.safe('pawn:update', () => view.update(p, this.sample, layer, t, dt, this.frameEvents))
       let pawnEvents: readonly SimEvent[] = this.frameEvents
       if (view.justSnapped) {
         // round-start reposition / respawn: no lingering trails or dust from the
@@ -2045,6 +2098,9 @@ export class MatchWorld {
     const c = this.windCol
     const h = this.windHot
     const k = Math.min(1, v.castFraction)
+    const gather = k * k
+    const motion = !this.reducedMotion.matches
+    const fx = this.ctx.uFx.value
     const t = this.ctx.uTime.value
     // geometry: the character's real arm bones (castArm), else an approximation
     // from the cast origin and facing; two-handed casts draw both arms
@@ -2053,7 +2109,9 @@ export class MatchWorld {
     if (nArms === 0) this.approxArm(v, p, this.armA)
     const arms = nArms === 2 ? 2 : 1
     const B = this.billboardsTop
-    const flick = 0.85 + Math.sin(t * 38) * 0.15
+    // A steady gathering cue replaces the old six-Hz flicker. Most energy arrives
+    // late in the windup; the spell palette keeps the hand readable through bloom.
+    const flick = 1 + (motion ? Math.sin(t * 7) * 0.04 * fx : 0)
     for (let ai = 0; ai < arms; ai++) {
       const arm = ai === 0 ? this.armA : this.armB
       // arm chain in game units (x, y ground, h height)
@@ -2072,7 +2130,7 @@ export class MatchWorld {
       if (!hide.includes('rings')) {
         const n = style?.ringCount ?? 3
         for (let i = 0; i < n; i++) {
-          const ph = (t * 1.7 + i / n) % 1
+          const ph = ((motion ? t * 0.75 : 0) + i / n + k * 0.22) % 1
           // shoulder -> elbow -> palm
           const seg = ph < 0.5 ? ph * 2 : (ph - 0.5) * 2
           const ax = ph < 0.5 ? sx : ex
@@ -2084,20 +2142,20 @@ export class MatchWorld {
           const px = ax + (bx - ax) * seg
           const py = ay + (by - ay) * seg
           const ph2 = ah + (bh - ah) * seg
-          const size = (78 - 40 * ph) * (0.8 + 0.5 * k)
-          const br = (0.8 + 2.6 * k) * (0.7 + 0.3 * ph) * flick
-          B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.3) * br, (c.g + h.g * 0.3) * br, (c.b + h.b * 0.3) * br, -2.6)
+          const size = (70 - 34 * ph) * (1.05 - 0.22 * k)
+          const br = (0.7 + 2.1 * gather) * (0.7 + 0.3 * ph) * flick
+          B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.12) * br, (c.g + h.g * 0.12) * br, (c.b + h.b * 0.12) * br, -2.6)
         }
       }
-      if (!hide.includes('spiral')) {
-        const ns = this.particles.budget(dt * (50 + 120 * k))
+      if (motion && !hide.includes('spiral')) {
+        const ns = this.particles.budget(dt * (36 + 84 * k) * fx)
         for (let i = 0; i < ns; i++) {
           const u = Math.random()
-          const th = t * 16 + u * 14
+          const th = t * 10 + u * 14
           const cx = ex + (ox - ex) * u
           const cy = ey + (oy - ey) * u
           const ch = eh + (oh - eh) * u
-          const r = 10 - u * 4
+          const r = (13 - u * 8) * (1 - gather * 0.3)
           const px = cx + Math.cos(th) * r * (rx / rl)
           const py = cy + Math.cos(th) * r * (ry / rl)
           const pz = ch + Math.sin(th) * r
@@ -2112,13 +2170,13 @@ export class MatchWorld {
     if (!mod && !hide.includes('orb')) {
       const os = style?.orbScale ?? 1
       // halo ~1.6x warlock radius at full charge, hot core in the palette core colour
-      B.add(this.wO.x, this.wO.y, this.wO.z, (50 + k * 130) * os * S, c.r * (0.9 + k * 2.2) * flick, c.g * (0.9 + k * 2.2) * flick, c.b * (0.9 + k * 2.2) * flick, 1.4)
-      B.add(this.wO.x, this.wO.y, this.wO.z, (18 + k * 46) * os * S, h.r * (1.6 + k * 2.4), h.g * (1.6 + k * 2.4), h.b * (1.6 + k * 2.4), 2.6)
-      const ni = this.particles.budget(dt * (30 + k * 90))
+      B.add(this.wO.x, this.wO.y, this.wO.z, (46 + k * 108) * os * S, c.r * (0.85 + gather * 2.1) * flick, c.g * (0.85 + gather * 2.1) * flick, c.b * (0.85 + gather * 2.1) * flick, 1.4)
+      B.add(this.wO.x, this.wO.y, this.wO.z, (18 + k * 36) * os * S, h.r * (1.5 + gather * 2.4), h.g * (1.5 + gather * 2.4), h.b * (1.5 + gather * 2.4), 2.6)
+      const ni = motion ? this.particles.budget(dt * (24 + k * 72) * fx) : 0
       for (let i = 0; i < ni; i++) {
         const a = Math.random() * Math.PI * 2
         const e = (Math.random() - 0.5) * 1.6
-        const r0 = (50 + Math.random() * 40) * os
+        const r0 = (52 + Math.random() * 36) * os * (1 - gather * 0.25)
         const dx = Math.cos(a) * Math.cos(e)
         const dy = Math.sin(a) * Math.cos(e)
         const dh = Math.sin(e)
@@ -2128,7 +2186,7 @@ export class MatchWorld {
       }
     }
     if (!hide.includes('ground')) {
-      v.setCastRing(k, c, 1)
+      v.setCastRing(k, c, 0.8 + gather * 0.2)
       this.ringFades.set(v, 1)
     }
     if (!hide.includes('light')) this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
@@ -2177,6 +2235,7 @@ export class MatchWorld {
   // ---------------------------------------------------------------- camera
 
   private updateCamera(camera: THREE.PerspectiveCamera, curr: SimState | null, dt: number, aspect: number, t: number): void {
+    if (this.opts.externalCamera) return
     if (this.opts.mode === 'menu') {
       this.orbit += dt * 0.05
       const R = 1900
@@ -2254,8 +2313,26 @@ export class MatchWorld {
       fx = devCamera.focus.x
       fy = devCamera.focus.y
     }
+    const shot = this.victoryShot
+    const winner = shot && curr?.phase === 'roundEnd' ? this.views.get(shot.pawn) : undefined
+    if (shot && curr?.phase !== 'roundEnd') this.victoryShot = null
+    if (winner && !devCamera.focus) {
+      fx = winner.x
+      fy = winner.y
+    }
     // screen shake and kick scale with the screen-shake setting only (not fx intensity)
     cameraRig.update(camera, fx, fy, dt, aspect, renderPrefs.shake)
+    if (shot && winner && curr && !devCamera.focus && !this.reducedMotion.matches) {
+      const weight = victoryCameraWeight(t - shot.at, curr.phaseTicksLeft / TICK_HZ)
+      const offset = victoryCameraOffset(shot.facing, aspect)
+      this.tmpV.set((winner.x + offset.x) * S, (winner.floorH + 90 + offset.height) * S, -(winner.y + offset.y) * S)
+      camera.position.lerp(this.tmpV, weight)
+      this.victoryAim.position.copy(camera.position)
+      this.victoryAim.lookAt(winner.x * S, (winner.floorH + 100) * S, -winner.y * S)
+      camera.quaternion.slerp(this.victoryAim.quaternion, weight)
+      camera.fov += (offset.fov - camera.fov) * weight
+      camera.updateProjectionMatrix()
+    }
     // matrices now, not at render: the cursor pick and the locator below use them
     camera.updateMatrixWorld()
     if (this.locator) {

@@ -404,11 +404,11 @@ export type Recipe = (v: Voice, p: number) => void
 const fireballCast: Recipe = (v, p) => {
   const k = clamp(p || 1, 0.4, 1.5)
   const r = 1 / Math.sqrt(k)
-  click(v, 0, 0.25, 2500)
-  whoosh(v, 0, 0.42 * k, 500 * r, 2400 * r, 1.1, 0.55)
-  whoosh(v, 0.01, 0.38 * k, 180 * r, 700 * r, 0.8, 0.5 * k, 'pink')
-  burst(v, { noise: 'crackle', freq: 3000, q: 0.8, attack: 0.02, decay: 0.35 * k, gain: 0.7 })
-  thump(v, 0, 150 * r, 60 * r, 0.18 * k, 0.35 * k, v.drive(v.out, 2, 0.55))
+  click(v, 0, 0.18, 2200)
+  whoosh(v, 0, 0.42 * k, 420 * r, 1800 * r, 0.9, 0.45)
+  whoosh(v, 0.01, 0.38 * k, 180 * r, 540 * r, 0.7, 0.65 * k, 'pink')
+  burst(v, { noise: 'crackle', freq: 2400, q: 0.8, attack: 0.02, decay: 0.28 * k, gain: 0.55 })
+  thump(v, 0, 190 * r, 85 * r, 0.18 * k, 0.28 * k, v.drive(v.out, 1.8, 0.55), 'triangle')
 }
 
 /**
@@ -428,13 +428,13 @@ const fireballTravel: Recipe = (v, p) => {
 /** p = size (1 fireball, 1.4 pillar blast) */
 const explosion: Recipe = (v, p) => {
   const s = clamp(p || 1, 0.5, 1.8)
-  const drv = v.drive(v.out, 2.5, 0.4)
-  click(v, 0, 0.5, 2000)
-  thump(v, 0, 110, 32, 0.45 + 0.3 * s, 0.45, drv)
-  burst(v, { noise: 'brown', type: 'lowpass', freq: 3200, to: 160, q: 0.7, attack: 0.002, decay: 0.6 + 0.4 * s, gain: 0.3 })
-  burst(v, { freq: 1500, q: 0.5, attack: 0.0005, decay: 0.04, gain: 1.2 })
-  burst(v, { noise: 'pink', freq: 1400, to: 350, q: 0.8, attack: 0.003, decay: 0.35 + 0.15 * s, gain: 4 })
-  burst(v, { at: 0.04, noise: 'crackle', freq: 2400, q: 0.8, attack: 0.04, decay: 0.55 + 0.3 * s, gain: 1.6 })
+  const drv = v.drive(v.out, 2, 0.4)
+  click(v, 0, 0.3, 1750)
+  thump(v, 0, 135, 50, 0.32 + 0.22 * s, 0.4, drv, 'triangle')
+  burst(v, { noise: 'brown', type: 'lowpass', freq: 1800, to: 160, q: 0.7, attack: 0.003, decay: 0.6 + 0.4 * s, gain: 0.4 })
+  burst(v, { freq: 1300, q: 0.5, attack: 0.001, decay: 0.035, gain: 0.85 })
+  burst(v, { noise: 'pink', freq: 950, to: 210, q: 0.65, attack: 0.004, decay: 0.35 + 0.15 * s, gain: 3.4 })
+  burst(v, { at: 0.04, noise: 'crackle', freq: 1800, q: 0.8, attack: 0.04, decay: 0.4 + 0.2 * s, gain: 1.2 })
   tail(v, 0.02, 0.7 + 0.5 * s, 130, 0.2 + 0.1 * s)
 }
 
@@ -448,17 +448,17 @@ const fizzle: Recipe = (v) => {
 /** A spell landing on a warlock. p = knockback intensity, ~0.2 graze .. 1 strong .. 1.6 huge */
 const hit: Recipe = (v, p) => {
   const k = clamp(p || 0.6, 0.2, 1.6)
-  click(v, 0, 0.55 + 0.3 * Math.min(k, 1), 2600)
-  const am = tremolo(v, 0, 0.2, 26 + 10 * v.rand(), 0.4, v.out)
-  burst(v, { noise: 'pink', freq: 1600, to: 480, q: 1.3, decay: 0.07 + 0.06 * k, gain: 4.5, dest: am })
-  burst(v, { at: 0.002, freq: 2300, q: 1.4, attack: 0.001, decay: 0.03, gain: 1.4 })
-  thump(v, 0, 160, 55, 0.1 + 0.08 * k, 0.06 + 0.1 * k, v.drive(v.out, 1.8, 0.5))
-  burst(v, { noise: 'crackle', freq: 1300, q: 0.9, attack: 0.003, decay: 0.1, gain: 1.6 * k })
-  tail(v, 0.01, 0.12 + 0.2 * k, 380, 0.04 + 0.05 * k)
+  click(v, 0, 0.38 + 0.18 * Math.min(k, 1), 2200)
+  // A broad, dry body keeps contact readable without the old rapid amplitude wobble.
+  burst(v, { noise: 'pink', freq: 1040, to: 260, q: 0.7, decay: 0.1 + 0.07 * k, gain: 3.4 })
+  burst(v, { at: 0.002, freq: 1700, q: 0.8, attack: 0.001, decay: 0.035, gain: 1.05 })
+  thump(v, 0, 180, 80, 0.13 + 0.08 * k, 0.1 + 0.12 * k, v.drive(v.out, 1.6, 0.5), 'triangle')
+  burst(v, { noise: 'crackle', freq: 900, q: 0.9, attack: 0.003, decay: 0.1, gain: 1.2 * k })
+  tail(v, 0.01, 0.12 + 0.2 * k, 280, 0.06 + 0.06 * k)
   if (k > 0.9) {
     // a launch: the body thrown across the arena
-    thump(v, 0.005, 90, 34, 0.35, 0.15 * (k - 0.6), v.drive(v.out, 2.2, 0.5))
-    whoosh(v, 0.03, 0.35, 300, 1300, 1, 0.5 * (k - 0.6), 'pink')
+    thump(v, 0.005, 120, 48, 0.28, 0.12 * (k - 0.6), v.drive(v.out, 2, 0.5), 'triangle')
+    whoosh(v, 0.03, 0.28, 200, 950, 0.8, 0.4 * (k - 0.6), 'pink')
   }
 }
 
@@ -474,19 +474,19 @@ const scourgeWindup: Recipe = (v, p) => {
   env.gain.linearRampToValueAtTime(0.4, v.at(d))
   env.gain.exponentialRampToValueAtTime(0.0005, v.at(d + 0.06))
   const am = tremolo(v, 0, d + 0.08, 6, 0.35, env)
-  if (am.lfo) v.glide(am.lfo.frequency, 0, 6, 20, d)
-  const lp = v.filter('lowpass', 160, 4, v.drive(am, 1.6, 0.5))
-  v.glide(lp.frequency, 0, 160, 1500, d)
-  for (const cents of [-12, 0, 12]) {
+  if (am.lfo) v.glide(am.lfo.frequency, 0, 6, 14, d)
+  const lp = v.filter('lowpass', 160, 1.1, v.drive(am, 1.6, 0.5))
+  v.glide(lp.frequency, 0, 160, 950, d)
+  for (const cents of [-9, 9]) {
     const o = v.osc('sawtooth', 60, 0, d + 0.08, lp, cents)
-    v.glide(o.frequency, 0, 60 * v.vary(0.03), 170, d)
+    v.glide(o.frequency, 0, 60 * v.vary(0.03), 130, d)
   }
   const ng = v.gain(0, v.out)
   ng.gain.setValueAtTime(0, v.at(0))
   ng.gain.linearRampToValueAtTime(0.16, v.at(d))
   ng.gain.exponentialRampToValueAtTime(0.0005, v.at(d + 0.05))
   const bp = v.filter('bandpass', 500, 1.4, ng)
-  v.glide(bp.frequency, 0, 500, 2200, d)
+  v.glide(bp.frequency, 0, 500, 1500, d)
   v.noise('pink', 0, d + 0.08, bp)
   burst(v, { noise: 'crackle', freq: 2000, q: 0.8, attack: d * 0.9, decay: 0.08, gain: 0.25 })
 }
@@ -498,13 +498,13 @@ const scourgeWindup: Recipe = (v, p) => {
 const scourgeBlast: Recipe = (v, p) => {
   const k = clamp(((p || 1) - 1) / 2, 0, 1)
   const drv = v.drive(v.out, 1.8 + 0.8 * k, 0.4)
-  click(v, 0, 0.6, 2200)
-  thump(v, 0, 120, 30, 0.4 + 0.2 * k, 0.3 + 0.15 * k, drv)
+  click(v, 0, 0.4, 1900)
+  thump(v, 0, 145, 52, 0.34 + 0.18 * k, 0.3 + 0.15 * k, drv, 'triangle')
   burst(v, { noise: 'brown', type: 'lowpass', freq: 4000, to: 200, q: 0.7, attack: 0.002, decay: 0.4 + 0.3 * k, gain: 0.3 })
-  burst(v, { noise: 'pink', freq: 1800, to: 400, q: 0.9, attack: 0.002, decay: 0.2 + 0.1 * k, gain: 1.8 + 1.2 * k })
+  burst(v, { noise: 'pink', freq: 1100, to: 260, q: 0.7, attack: 0.003, decay: 0.22 + 0.1 * k, gain: 1.8 + 1.2 * k })
   burst(v, { freq: 1400, q: 0.6, attack: 0.0005, decay: 0.05, gain: 1.1 })
-  clang(v, 0, 196, 0.5 + 0.4 * k, 0.12 + 0.1 * k, { ratio: 1.41, index: 4, partials: [1, 2.76, 5.4] })
-  whoosh(v, 0.02, 0.3 + 0.2 * k, 2500, 3200, 0.9, 0.5 + 0.7 * k, 'pink')
+  ring(v, 0, 122, [1, 1.47], [0.22 + 0.1 * k, 0.13 + 0.08 * k], 0.1 + 0.08 * k)
+  whoosh(v, 0.02, 0.3 + 0.2 * k, 650, 1800, 0.8, 0.5 + 0.7 * k, 'pink')
   burst(v, { at: 0.03, noise: 'crackle', freq: 3000, q: 0.8, attack: 0.02, decay: 0.25 + 0.2 * k, gain: 0.6 + 0.7 * k })
   tail(v, 0.02, 0.5 + 0.3 * k, 150, 0.12 + 0.08 * k)
 }
@@ -543,19 +543,18 @@ const lavaSizzle: Recipe = (v) => {
   plops(v, 0.02, 0.2, 2, 0.08)
 }
 
-/** A warlock dies: heavy saturated boom, the lava swallowing the body, a dark sting. */
+/** A warlock dies: a low-mid impact and short dark sting, without pitched bubble notes. */
 const death: Recipe = (v) => {
-  const drv = v.drive(v.out, 2.6, 0.45)
-  click(v, 0, 0.5, 1800)
-  thump(v, 0, 100, 28, 1.0, 0.5, drv)
-  burst(v, { noise: 'brown', type: 'lowpass', freq: 2600, to: 120, q: 0.7, attack: 0.002, decay: 1.3, gain: 0.35 })
-  burst(v, { freq: 1300, q: 0.6, attack: 0.0005, decay: 0.05, gain: 1.2 })
-  burst(v, { noise: 'pink', freq: 1100, to: 300, q: 0.8, attack: 0.003, decay: 0.5, gain: 3.5 })
-  whoosh(v, 0.05, 0.9, 1500, 6000, 0.7, 0.5)
-  burst(v, { at: 0.1, noise: 'crackle', freq: 2400, q: 0.8, attack: 0.08, decay: 1.3, gain: 1.4 })
-  plops(v, 0.2, 1.0, 6, 0.12)
-  brass(v, 0.02, [55, 58.27, 110], 0.7, 0.6, [[0, 300], [0.05, 1800], [0.7, 400]])
-  tail(v, 0.03, 1.5, 140, 0.25)
+  const drv = v.drive(v.out, 2, 0.45)
+  click(v, 0, 0.35, 1600)
+  thump(v, 0, 135, 44, 0.8, 0.48, drv, 'triangle')
+  burst(v, { noise: 'brown', type: 'lowpass', freq: 1000, to: 120, q: 0.7, attack: 0.003, decay: 1, gain: 0.48 })
+  burst(v, { freq: 1100, q: 0.6, attack: 0.001, decay: 0.04, gain: 0.85 })
+  burst(v, { noise: 'pink', freq: 700, to: 180, q: 0.7, attack: 0.004, decay: 0.5, gain: 3.1 })
+  whoosh(v, 0.05, 0.65, 350, 1300, 0.7, 0.55, 'pink')
+  burst(v, { at: 0.1, noise: 'crackle', freq: 1650, q: 0.8, attack: 0.06, decay: 0.8, gain: 1.05 })
+  brass(v, 0.02, [65.41, 98, 130.81], 0.45, 0.45, [[0, 260], [0.04, 900], [0.45, 260]])
+  tail(v, 0.03, 0.9, 220, 0.18)
 }
 
 /** A pillar breaking: stone cracking, chunks clacking down, a thud. */
@@ -622,10 +621,10 @@ const castGeneric: Recipe = (v) => {
 
 /** Generic projectile impact. */
 const impact: Recipe = (v) => {
-  click(v, 0, 0.45, 2600)
-  burst(v, { noise: 'pink', freq: 1300, to: 500, q: 1.1, decay: 0.09, gain: 2.2 })
-  thump(v, 0, 170, 65, 0.12, 0.2, v.drive(v.out, 1.8, 0.5))
-  tail(v, 0.01, 0.2, 320, 0.08)
+  click(v, 0, 0.28, 2200)
+  burst(v, { noise: 'pink', freq: 850, to: 240, q: 0.7, decay: 0.14, gain: 2.5 })
+  thump(v, 0, 190, 85, 0.17, 0.24, v.drive(v.out, 1.6, 0.5), 'triangle')
+  tail(v, 0.01, 0.2, 240, 0.1)
 }
 
 /** Cast point "inhale": a rising breath that a cancel snuffs out (fake casts read). p = seconds */
@@ -699,11 +698,11 @@ const swapWarp: Recipe = (v, p) => {
 
 /** Melee spell contact (Thrust, Windwalk charge): rushing air into a body slam. */
 const chargeSlam: Recipe = (v) => {
-  whoosh(v, 0, 0.12, 400, 2600, 1.2, 0.5, 'pink')
-  click(v, 0.03, 0.6, 2400)
-  burst(v, { at: 0.03, noise: 'pink', freq: 1500, q: 0.8, attack: 0.001, decay: 0.06, gain: 4 })
-  thump(v, 0.03, 110, 40, 0.25, 0.2, v.drive(v.out, 2.2, 0.5))
-  tail(v, 0.04, 0.25, 280, 0.12)
+  whoosh(v, 0, 0.12, 300, 1800, 0.8, 0.4, 'pink')
+  click(v, 0.03, 0.4, 2000)
+  burst(v, { at: 0.03, noise: 'pink', freq: 850, to: 240, q: 0.7, attack: 0.002, decay: 0.11, gain: 3.4 })
+  thump(v, 0.03, 145, 62, 0.25, 0.26, v.drive(v.out, 2, 0.5), 'triangle')
+  tail(v, 0.04, 0.25, 260, 0.14)
 }
 
 /** Ricochet: a short whistle down and a metallic ping. */

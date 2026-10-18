@@ -12,8 +12,9 @@ import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { useLinks } from '../lib/netmonitor'
 import { Loadout } from './Inspect'
-import { inspectStore, isSpectating } from '../../game/inspect'
+import { canInspect, inspectStore, isSpectating } from '../../game/inspect'
 import { sfx } from '../lib/sound'
+import type { AbilityStatContext } from '../data/abilityStats'
 
 /* ------------------------------------------------------------------------
  * Character sheet (C / K): live stats from the local PawnState and score.
@@ -32,6 +33,7 @@ interface Sheet {
   alive: boolean
   masteries: Record<MasteryId, number>
   owned: { slot: number; id: string; level: number }[]
+  statContext: AbilityStatContext
 }
 
 function readSheet(): Sheet {
@@ -48,6 +50,13 @@ function readSheet(): Sheet {
     alive: !!p?.alive,
     masteries: { duration: 0, range: 0, lifesteal: 0, ...v?.score?.masteries },
     owned: (p?.slots ?? []).flatMap((id, slot) => (id ? [{ slot, id, level: p?.levels[slot] ?? 1 }] : [])),
+    statContext: {
+      masteries: v?.score?.masteries,
+      loadout: p ? { slots: p.slots, levels: p.levels } : undefined,
+      modifiers: p?.modifiers,
+      damageMultiplier: v?.state.settings.dmgMultiplier,
+      knockbackMultiplier: v?.state.settings.kbMultiplier,
+    },
   }
 }
 
@@ -141,8 +150,9 @@ export function CharacterBody() {
         <div className="flex flex-col gap-1">
           {s.owned.map((o) => {
             const max = o.slot < 6 ? SPELL_MAX_LEVEL : (itemDef(o.id)?.maxLevel ?? 1)
-            const stats = levelStats(o.id, o.level)
-            const next = o.level < max ? levelStats(o.id, o.level + 1) : null
+            const stats = levelStats(o.id, o.level, s.statContext)
+            const next = o.level < max ? levelStats(o.id, o.level + 1, s.statContext) : null
+            const notes = [...new Set(stats.flatMap(([, , note]) => note ? [note] : []))]
             return (
               <div key={o.slot} className="flex items-center gap-2.5 py-1">
                 <Sigil id={o.id} size={30} />
@@ -157,7 +167,7 @@ export function CharacterBody() {
                   </span>
                   {stats.length > 0 && (
                     // wraps instead of truncating: long kits (Scourge) must show every number
-                    <span className="block text-[0.85rem] leading-snug text-ash" title={next ? `Next level: ${next.map(([k, x]) => `${k} ${x}`).join(', ')}` : undefined}>
+                    <span className="block text-[0.85rem] leading-snug text-ash" title={[...notes, ...(next ? [`Next level: ${next.map(([k, x]) => `${k} ${x}`).join(', ')}`] : [])].join(' ') || undefined}>
                       {stats.map(([k, x]) => `${k} ${x}`).join(', ')}
                     </span>
                   )}
@@ -278,7 +288,7 @@ export function Scoreboard() {
               <th className="pb-2 text-right font-semibold" title="Damage dealt this round">
                 Damage
               </th>
-              <th className="pb-2 pl-5 font-semibold" title="Spells, items, masteries; gold for you and your allies">
+              <th className="pb-2 pl-5 font-semibold" title="Inspect while shopping or spectating. Shopping shows last round; current purchases stay hidden.">
                 Loadout
               </th>
               <th className="pb-2 pl-4 text-right font-semibold">Ping</th>
@@ -290,8 +300,9 @@ export function Scoreboard() {
                 key={r.id}
                 className={`scoreboard-row border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''} ${r.alive ? '' : 'text-bone/55'}`}
                 style={{ boxShadow: `inset 3px 0 0 ${r.color}` }}
-                title={spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
+                title={!canInspect(state, local, r.id) ? 'Inspect while shopping or spectating' : spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
                 onClick={() => {
+                  if (!canInspect(frame.curr, frame.localPlayer, r.id)) return
                   inspectStore.set({ inspect: r.id })
                   if (spectating && r.alive && r.id !== local) inspectStore.set({ follow: r.id })
                 }}

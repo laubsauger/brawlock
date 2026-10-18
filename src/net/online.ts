@@ -21,6 +21,7 @@ import { PROTOCOL_VERSION } from './protocol'
 import type { HostEndpoint, NetFactory, Transport } from './transport'
 import type { RoomSummary } from './dedicated'
 import type { Period, PublicBoardRow } from './leaderboard'
+import type { ListingInfo } from './listings'
 import type { BotDifficulty } from '../sim/types'
 
 /** one request; the first probe of a region takes COLD_SAMPLES of them back to back */
@@ -34,7 +35,10 @@ const PROBE_MAX_AGE_MS = 2000
 const ROUTE_TTL_UP_MS = 20_000
 const ROUTE_TTL_DOWN_MS = 8_000
 
-type FetchLike = (url: string, init?: { method?: string; signal?: AbortSignal; cache?: 'no-store' }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
+type FetchLike = (
+  url: string,
+  init?: { method?: string; signal?: AbortSignal; cache?: 'no-store'; body?: string; keepalive?: boolean },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
 
 /** A configured game server. */
 export interface ServerRegion {
@@ -73,6 +77,9 @@ export type ServerFailure = 'unavailable' | 'mismatch' | 'full' | 'limited' | 'e
 
 /** A room of the public browser, with the region it runs in (live ping). */
 export interface PublicRoom extends RoomSummary {
+  /** 'server': runs on the game server; 'p2p': hosted from a player's PC, listed on the server (ping to it unknown before joining) */
+  kind: 'server' | 'p2p'
+  /** the region it runs in ('server') or is listed on ('p2p': the host's own pick, a rough hint of where it is) */
   region: RegionStatus
 }
 
@@ -260,8 +267,13 @@ export class Online {
         if (s.state !== 'up') return []
         try {
           const res = await this.fetch(`${httpBase(r.url)}/rooms?public=1`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
-          const body = res.ok ? ((await res.json()) as { rooms?: unknown }) : null
-          return Array.isArray(body?.rooms) ? (body.rooms as RoomSummary[]).filter((x) => typeof x?.code === 'string').map((x) => ({ ...x, region: this.copy(this.st.get(r.id)!) })) : []
+          const body = res.ok ? ((await res.json()) as { rooms?: unknown; listings?: unknown }) : null
+          const region = this.copy(this.st.get(r.id)!)
+          const rows = (v: unknown) => (Array.isArray(v) ? (v as RoomSummary[]).filter((x) => typeof x?.code === 'string') : [])
+          return [
+            ...rows(body?.rooms).map((x): PublicRoom => ({ ...x, kind: 'server', region })),
+            ...rows(body?.listings).map((x): PublicRoom => ({ ...x, quick: false, kind: 'p2p', region })),
+          ]
         } catch {
           return []
         }
@@ -269,6 +281,47 @@ export class Online {
     )
     const phase = (x: PublicRoom) => (x.phase === 'lobby' ? 0 : x.phase === 'results' ? 1 : 2)
     return lists.flat().sort((a, b) => phase(a) - phase(b) || (a.region.rttMs ?? Infinity) - (b.region.rttMs ?? Infinity) || b.humans - a.humans)
+  }
+
+  /** List a player-hosted room on a region (Browse games). Throws ServerError. */
+  async listRoom(regionId: string, info: ListingInfo): Promise<{ id: string; token: string; heartbeatMs: number }> {
+    const r = await this.usable(regionId)
+    const res = await this.send(r, '/listings', 'POST', info)
+    const body = (await res.json().catch(() => null)) as { id?: unknown; token?: unknown; heartbeatS?: unknown; error?: unknown } | null
+    if (res.ok && typeof body?.id === 'string' && typeof body.token === 'string') {
+      return { id: body.id, token: body.token, heartbeatMs: typeof body.heartbeatS === 'number' ? body.heartbeatS * 1000 : 10_000 }
+    }
+    throw failure(res.status, body, `The ${r.label} server could not list the game.`)
+  }
+
+  /** Heartbeat of a listing, with its current info. 'gone': it expired, list it again. Throws ServerError. */
+  async beatListing(regionId: string, id: string, token: string, info: Partial<ListingInfo>): Promise<'ok' | 'gone'> {
+    const r = this.regions.find((x) => x.id === regionId)
+    if (!r) throw new ServerError('unavailable', 'That game server is not configured in this build.')
+    const res = await this.send(r, `/listings/${encodeURIComponent(id)}`, 'PUT', { ...info, token })
+    const body = (await res.json().catch(() => null)) as { ok?: unknown; gone?: unknown; error?: unknown } | null
+    if (res.ok) return body?.gone === true ? 'gone' : 'ok'
+    throw failure(res.status, body, `The ${r.label} server did not take the update.`)
+  }
+
+  /** Remove a listing at once (the room is private again). Never throws: the listing expires anyway. */
+  async unlistRoom(regionId: string, id: string, token: string): Promise<void> {
+    const r = this.regions.find((x) => x.id === regionId)
+    if (!r) return
+    try {
+      await this.send(r, `/listings/${encodeURIComponent(id)}`, 'DELETE', { token }, true)
+    } catch {
+      // unreachable: the server drops it after its TTL
+    }
+  }
+
+  /** A JSON body as text/plain (a simple request: POST needs no CORS preflight). */
+  private async send(r: ServerRegion, path: string, method: string, body: unknown, keepalive = false) {
+    try {
+      return await this.fetch(`${httpBase(r.url)}${path}`, { method, body: JSON.stringify(body), signal: timeout(REQUEST_TIMEOUT_MS), ...(keepalive ? { keepalive } : {}) })
+    } catch {
+      throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)
+    }
   }
 
   /** Quick play on a region: the code of an open quick-play room there (or a new one). Throws ServerError. */

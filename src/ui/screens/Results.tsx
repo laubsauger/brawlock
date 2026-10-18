@@ -171,7 +171,10 @@ export function Results() {
         )}
         {rec?.awards && rec.awards.length > 0 && (
           <div className="mb-4">
-            <AwardsStrip awards={rec.awards} who={(id) => ({ name: rows.find((r) => r.id === id)?.name ?? '?', color: rows.find((r) => r.id === id)?.color ?? '#ccc' })} />
+            <AwardsStrip awards={rec.awards} who={(id) => {
+              const player = rows.find((r) => r.id === id)
+              return { name: player ? `${player.name}${player.kind === 'bot' ? ' (bot)' : ''}` : '?', color: player?.color ?? '#ccc' }
+            }} />
           </div>
         )}
         <table className="tabular w-full text-left text-[1.08rem]">

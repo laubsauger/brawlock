@@ -1,6 +1,19 @@
 import { useState, type ReactNode } from 'react'
 import { hueFor, MASTERY_HUE } from './data/catalog'
 
+/** Navigation glyphs share the same warm, fine stroke as the engraved controls. */
+export function MenuGlyph({ kind, size = 18 }: { kind: 'profile' | 'edit' | 'record' | 'settings' | 'credits' | 'guide'; size?: number }) {
+  const paths = {
+    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></>,
+    edit: <><path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14Z" /></>,
+    record: <><path d="M8 3h8v5c0 4-2 6-4 6s-4-2-4-6ZM8 5H4v3c0 3 2 4 5 4M16 5h4v3c0 3-2 4-5 4M12 14v6M8 21h8" /></>,
+    settings: <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 3v6M16 9v6M10 15v6" /></>,
+    credits: <><circle cx="12" cy="12" r="9" /><path d="M12 10v7M12 6.5v.5" /></>,
+    guide: <><path d="M12 5C9 3 5 3 3 4v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-2-1-6-1-9 1ZM12 5v15" /></>,
+  }
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>{paths[kind]}</svg>
+}
+
 /**
  * Placeholder spell / item / mastery sigils: one stroked glyph per id on a
  * glowing disc tinted by the shop column hue. Final icon art replaces the

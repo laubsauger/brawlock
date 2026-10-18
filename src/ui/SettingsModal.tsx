@@ -414,7 +414,7 @@ export function SettingsModal() {
             onBlur={() => setName(name.trim() ? chooseName(name) : s.playerName)}
           />
         </Row>
-        <Row label="HUD layout" hint={s.hudLayout === 'right' ? 'Bars and spells sit in the bottom-right corner; the center stays clear' : 'Bars and spells centered at the bottom, as in Dota'}>
+        <Row label="HUD layout" hint={s.hudLayout === 'right' ? 'Spells and items sit in the bottom-right corner; the center stays clear' : 'Spells and items centered along the bottom'}>
           <Segmented
             label="HUD layout"
             value={s.hudLayout ?? 'center'}

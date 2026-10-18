@@ -37,6 +37,19 @@ function play(slots: PlayerSlot[], devices: Record<PlayerId, string>, rounds: { 
 }
 
 describe('leaderboard: what counts', () => {
+  it('a live rename updates the display label without changing the device or resetting counters', () => {
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((m) => (finished = m))
+    const slots = [slot(0, 'human'), slot(1, 'human')]
+    const state = (names = slots) => ({ tick: 0, slots: names, pawns: [{ owner: 0, alive: true }, { owner: 1, alive: false }] }) as unknown as SimState
+    tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' } })
+    tracker.observe(state(), [death(1, 0), roundWin([0])])
+    const renamed = slots.map((s) => s.id === 0 ? { ...s, name: 'Renamed' } : s)
+    tracker.observe(state(renamed), [death(1, 0), roundWin([0])])
+    tracker.finish({ winners: [0], slots: renamed, scores: [], rounds: 2, ticks: 12000 })
+    expect((finished as unknown as FinishedMatch).seats.find((s) => s.player === 0)).toMatchObject({ device: 'dev-aaaaaaaa', name: 'Renamed', kills: 2, roundsPlayed: 2, roundsWon: 2 })
+  })
+
   /** Why: a room owner must not pad stats with bots: no kills of bots, no deaths to bots, no rating from bot rounds. */
   it('bots never count: kills, deaths and rankings are between humans only', () => {
     const slots = [slot(0, 'human'), slot(1, 'human'), slot(2, 'bot'), slot(3, 'bot')]
@@ -82,6 +95,33 @@ describe('leaderboard: what counts', () => {
     // round 2: seat 1 (now a bot) won, it is not ranked; 2 outlived 0
     expect(m.ranked[1].groups).toEqual([[2], [0]])
     expect(m.seats.find((s) => s.player === 1)).toMatchObject({ roundsPlayed: 1, roundsWon: 0, kills: 0 })
+  })
+
+  it('a human joining a bot seat counts only their later rounds and actions', () => {
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((m) => (finished = m))
+    let slots = [slot(0, 'human'), slot(1, 'bot'), slot(2, 'bot')]
+    const state = (alive: PlayerId[]) => ({ tick: 0, slots, pawns: slots.map((s) => ({ owner: s.id, alive: alive.includes(s.id) })) }) as unknown as SimState
+    tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: 'dev-aaaaaaaa' } })
+    // Bot 1 wins and kills both opponents before the new player takes its seat.
+    tracker.observe(state([1]), [death(0, 1), death(2, 1), roundWin([1])])
+    slots = slots.map((s) => s.id === 1 ? slot(1, 'human') : s)
+    tracker.join(slots[1], 'dev-bbbbbbbb')
+    tracker.control(1, 'human')
+    tracker.join(slots[2], 'dev-bot-nope')
+    tracker.join(slot(2, 'human'))
+    tracker.observe(state([1, 2]), [death(0, 1)])
+    // Repeated registration must not reset the kill the human just earned.
+    tracker.join(slots[1], 'dev-bbbbbbbb')
+    tracker.observe(state([1]), [death(2, 1), roundWin([1])])
+    tracker.finish({ winners: [1], slots, scores: [], rounds: 2, ticks: 200 * 60 })
+    const result = finished as unknown as FinishedMatch
+    expect(result.seats).toHaveLength(2)
+    expect(result.seats.find((s) => s.player === 1)).toEqual({ player: 1, device: 'dev-bbbbbbbb', name: 'P1', roundsPlayed: 1, roundsWon: 1, kills: 1, deaths: 0, won: true })
+    expect(result.seats.find((s) => s.player === 0)).toMatchObject({ roundsPlayed: 2, deaths: 1 })
+    expect(result.ranked.map((r) => r.groups)).toEqual([[[0]], [[1], [0]]])
+    expect(result.bots).toBe(2)
+    expect(ineligible(result)).toBeNull()
   })
 })
 
@@ -149,6 +189,34 @@ describe('leaderboard store (node:sqlite)', () => {
   const row = (device: string, rating: number, at: number): PlayerRow => ({ device, name: device.slice(4), tag: deviceTag(device), rating, matches: 1, wins: 1, roundsPlayed: 3, roundsWon: 2, kills: 4, deaths: 1, firstAt: at, lastAt: at })
   const result = (device: string, delta: number, at: number, region = 'us-west') => ({ device, name: device.slice(4), at, region, won: delta > 0, roundsPlayed: 3, roundsWon: delta > 0 ? 2 : 1, kills: 2, deaths: 1, delta, rating: 1000 + delta })
   const match = (at: number, region = 'us-west') => ({ at, region, room: 'ABCDE', ticks: 9000, rounds: 3, humans: 2, bots: 0 })
+
+  it('keeps one player row across renames and distinct devices that use the same name', () => {
+    const store = openLeaderboard(':memory:')
+    const devices = ['dev-aaaaaaaa', 'dev-bbbbbbbb']
+    const slots = [slot(0, 'human'), slot(1, 'human')].map((s) => ({ ...s, name: 'Same name' }))
+    const rounds = [{ deaths: [[1, 0]] as [PlayerId, PlayerId | null][], winners: [0] }]
+    const first = settleMatch(play(slots, { 0: devices[0], 1: devices[1] }, rounds), new Map(), 1000, 'test')
+    if ('skipped' in first) throw new Error(first.skipped)
+    store.commit(match(1000, 'test'), first.results, first.players)
+    const before = store.players(devices).get(devices[0])!
+    expect(store.rename(devices[0], 'New name')).toBe(true)
+    expect(store.players(devices).get(devices[0])).toEqual({ ...before, name: 'New name' })
+    expect(store.rename(devices[0], 'New name')).toBe(false)
+    expect(store.rename('dev-unknown1', 'Same name')).toBe(false)
+    expect(store.players(['dev-unknown1']).size).toBe(0)
+    expect(store.recent(devices[0], 10)[0].name).toBe('Same name')
+    const renamed = slots.map((s) => s.id === 0 ? { ...s, name: 'New name' } : s)
+    const second = settleMatch(play(renamed, { 0: devices[0], 1: devices[1] }, rounds), store.players(devices), 2000, 'test')
+    if ('skipped' in second) throw new Error(second.skipped)
+    store.commit(match(2000, 'test'), second.results, second.players)
+    const query = { period: 'all' as const, region: null, since: 0 }
+    expect(store.top(query, 10)).toHaveLength(2)
+    expect(store.players(devices).get(devices[0])).toMatchObject({ name: 'New name', tag: deviceTag(devices[0]), matches: 2, kills: 2, firstAt: 1000, lastAt: 2000 })
+    expect(store.players(devices).get(devices[1])).toMatchObject({ name: 'Same name', matches: 2 })
+    expect(store.recent(devices[0], 10).map((r) => r.name)).toEqual(['New name', 'Same name'])
+    expect(store.rank(query, devices[0])?.row.device).toBe(devices[0])
+    store.close()
+  })
 
   /** Why: pm2 reloads the server on every deploy; the board must survive that. */
   it('survives a restart; all-time by rating, week by gain, region filter, ranks', () => {

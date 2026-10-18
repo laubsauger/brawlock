@@ -5,6 +5,7 @@ import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import { PROTOCOL_VERSION, decode, encode, type TickEvents } from './protocol'
 import { createSession, type MatchRecorder, type NetMode, type SessionDeps } from './session'
+import { createBot } from '../bots'
 import type { NetFactory } from './transport'
 
 const SETTINGS: MatchSettings = {
@@ -21,6 +22,8 @@ const SETTINGS: MatchSettings = {
   friction: 0.96,
   shopSeconds: 30,
   botsReplaceLeavers: false,
+  spectatorBets: true,
+  bounties: true,
 }
 
 interface SimApi {
@@ -56,6 +59,8 @@ const noSim: SimApi = {
 
 interface PeerOpts {
   color?: number | null
+  profileId?: string
+  device?: string
   createBot?: SessionDeps['createBot']
   /** this suite pins the classic (snapshot interpolation) path; predict mode: session.predict.test.ts */
   netMode?: NetMode
@@ -109,7 +114,8 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
   const rec = fakeRecorder()
   const deps: SessionDeps = {
     recorder: rec.recorder,
-    profile: () => ({ id: `profile-${name}`, name, color: opts.color ?? null }),
+    profile: () => ({ id: opts.profileId ?? `profile-${name}`, name, color: opts.color ?? null }),
+    ...(opts.device ? { device: () => opts.device! } : {}),
     ui: {
       lobby: () => store.lobby,
       setLobby: (p) => {
@@ -194,6 +200,151 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('renames both current lobby seats without changing their stable identities', async () => {
+    const { host, client } = await hostAndClient()
+    const ids = host.store.lobby.slots.map((s) => s.profileId)
+    host.session.setDisplayName('Same name')
+    client.session.setDisplayName('Same name\u0000')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(host.store.lobby.slots.map((s) => s.name)).toEqual(['Same name', 'Same name'])
+    expect(host.store.lobby.slots.map((s) => s.profileId)).toEqual(ids)
+    expect(client.store.lobby.slots).toEqual(host.store.lobby.slots)
+  })
+
+  it('streams current-match renames deterministically and preserves profile IDs', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client } = await hostAndClient(sim, { ...LINK, loss: 0 }, { netMode: 'predict' }, { netMode: 'predict' })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(1000)
+    const matchId = host.session.debug().matchId
+    host.session.setDisplayName('New host')
+    client.session.setDisplayName('New guest')
+    await vi.advanceTimersByTimeAsync(1000)
+    for (const peer of [host, client]) {
+      expect(peer.store.lobby.slots.map((s) => [s.name, s.profileId])).toEqual([['New host', 'profile-Hosty'], ['New guest', 'profile-Clienta']])
+      expect(peer.out.states.at(-1)!.slots.map((s) => s.name)).toEqual(['New host', 'New guest'])
+      expect(peer.session.debug().matchId).toBe(matchId)
+    }
+    expect(client.session.debug().streamDesyncs).toBe(0)
+  })
+
+  it.each(['lobby', 'match'] as const)('rejects a different tab using an active profile in the %s', async (phase) => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 })
+    if (phase === 'match') {
+      host.session.startMatch()
+      await vi.advanceTimersByTimeAsync(300)
+    }
+    for (const profileId of ['profile-Clienta', 'profile-Hosty']) {
+      const duplicate = makePeer(net, 'Another name', `another-tab-${profileId}`, sim, { profileId })
+      const joined = duplicate.session.join(code)
+      await vi.advanceTimersByTimeAsync(500)
+      await joined
+      expect(duplicate.store.lobby.error).toMatch(/already connected.*another tab/i)
+      expect(host.store.lobby.slots.map((s) => s.name)).toEqual(['Hosty', 'Clienta'])
+      expect(host.store.lobby.slots).toHaveLength(2)
+      expect(client.store.lobby.status).toBe('open')
+    }
+  })
+
+  it.each(['lobby', 'match'] as const)('lets a same-tab refresh replace its live connection in the %s', async (phase) => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 })
+    if (phase === 'match') {
+      host.session.startMatch()
+      await vi.advanceTimersByTimeAsync(300)
+    }
+    const id = client.store.lobby.localPlayer
+    const refreshed = makePeer(net, 'Refreshed guest', 'client-key', sim, { profileId: 'profile-Clienta' })
+    const joined = refreshed.session.join(code)
+    await vi.advanceTimersByTimeAsync(600)
+    await joined
+    expect(refreshed.store.lobby.localPlayer).toBe(id)
+    expect(refreshed.store.lobby.status).toBe('open')
+    expect(host.store.lobby.slots).toHaveLength(2)
+    expect(host.store.lobby.slots.find((s) => s.id === id)).toMatchObject({ name: 'Refreshed guest', profileId: 'profile-Clienta' })
+    if (phase === 'match') {
+      expect(refreshed.out.localPlayer).toBe(id)
+      expect(host.out.states.at(-1)!.scores.find((s) => s.id === id)?.connected).toBe(true)
+      expect(refreshed.session.debug().matchId).toBe(host.session.debug().matchId)
+    }
+  })
+
+  it('a renamed returning profile reclaims its seat even with a new tab key and device', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, { createBot }, { profileId: 'stable-profile-guest', device: 'stable-device-guest' })
+    host.session.updateSettings({ botsReplaceLeavers: true })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(500)
+    const id = client.store.lobby.localPlayer
+    client.session.leave()
+    await vi.advanceTimersByTimeAsync(300)
+    const back = makePeer(net, 'New guest', 'new-tab-key', sim, { profileId: 'stable-profile-guest', device: 'new-device-guest' })
+    const joined = back.session.join(code)
+    await vi.advanceTimersByTimeAsync(500)
+    await joined
+    await vi.advanceTimersByTimeAsync(300)
+    expect(back.store.lobby.localPlayer).toBe(id)
+    expect(host.store.lobby.slots.find((s) => s.id === id)).toMatchObject({ name: 'New guest', profileId: 'stable-profile-guest' })
+    expect(host.out.states.at(-1)!.slots.find((s) => s.id === id)).toMatchObject({ name: 'New guest', profileId: 'stable-profile-guest' })
+  })
+
+  it('never reclaims another profile seat merely because a tab key or device matches', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, {}, { device: 'original-device' })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(300)
+    const id = client.store.lobby.localPlayer
+    client.session.leave()
+    await vi.advanceTimersByTimeAsync(300)
+    const other = makePeer(net, 'Clienta', 'client-key', sim, { profileId: 'different-profile', device: 'original-device' })
+    const joined = other.session.join(code)
+    await vi.advanceTimersByTimeAsync(500)
+    await joined
+    expect(other.store.lobby.localPlayer).not.toBe(id)
+    expect(other.out.localPlayer).toBe(-1)
+    expect(host.store.lobby.slots.find((s) => s.id === id)?.profileId).toBe('profile-Clienta')
+    expect(host.out.states.at(-1)!.scores.find((s) => s.id === id)?.connected).toBe(false)
+  })
+
+  it('preserves a waiting bot-seat reservation through a same-tab refresh', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, { createBot })
+    host.session.updateSettings({ shopSeconds: 3 })
+    host.session.addBot('hard')
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(3400)
+    expect(host.out.states.at(-1)!.phase).toBe('fight')
+    const waiting = makePeer(net, 'Waiting guest', 'waiting-tab-key', sim, { profileId: 'waiting-profile' })
+    const joined = waiting.session.join(code)
+    await vi.advanceTimersByTimeAsync(400)
+    await joined
+    const id = waiting.store.lobby.localPlayer
+    expect(waiting.store.lobby.waitingForRound).toBe(true)
+    expect(waiting.out.localPlayer).toBe(-1)
+    const refreshed = makePeer(net, 'Renamed waiter', 'waiting-tab-key', sim, { profileId: 'waiting-profile' })
+    const rejoined = refreshed.session.join(code)
+    await vi.advanceTimersByTimeAsync(400)
+    await rejoined
+    expect(refreshed.store.lobby.localPlayer).toBe(id)
+    expect(refreshed.store.lobby.waitingForRound).toBe(true)
+    expect(refreshed.out.localPlayer).toBe(-1)
+    expect(host.store.lobby.slots).toHaveLength(3)
+    expect(host.out.states.at(-1)!.slots.find((s) => s.id === id)?.kind).toBe('bot')
+  })
+
+  it('refuses a new human without a valid profile ID instead of identifying them by name', async () => {
+    const net = createMemoryNet(LINK)
+    const host = makePeer(net, 'Hosty', 'host-key')
+    await host.session.openHost()
+    const invalid = makePeer(net, 'Hosty', 'guest-key', noSim, { profileId: 'bad' })
+    const joined = invalid.session.join(host.store.lobby.roomCode!)
+    await vi.advanceTimersByTimeAsync(500)
+    await joined
+    expect(host.store.lobby.slots).toHaveLength(1)
+    expect(invalid.store.lobby.error).toMatch(/profile.*invalid/i)
+  })
+
   it('a joining client gets its own slot and color, and mirrors every host lobby change', async () => {
     const { host, client, code } = await hostAndClient()
     expect(host.store.lobby.status).toBe('open')

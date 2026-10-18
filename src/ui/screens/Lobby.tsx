@@ -47,6 +47,14 @@ const ROLE_LABEL = { offline: 'Offline', host: 'Hosting', client: 'Joined' } as 
 /** The host's own slot (session: the host's pings entry is 0 at id 0). */
 const HOST_ID = 0
 
+/** "Listed publicly" line of a room hosted from this PC: what the game server's listing does now. */
+function pcListingText(l: ReturnType<typeof session.listing>, on: boolean): string {
+  if (!on || !l || l.status === 'off') return 'Shows this game in Browse games; players join your PC directly'
+  if (l.status === 'pending') return 'Listing in Browse games…'
+  if (l.status === 'error') return `Not listed: ${l.error ?? 'the game server did not answer'}`
+  return `Listed in Browse games${l.regionStatus ? ` (${l.regionStatus.label})` : ''}`
+}
+
 function statusLine(l: LobbyView, humans: number): { text: string; tone: 'idle' | 'wait' | 'ok' | 'error' } {
   if (l.status === 'error' || l.error) return { text: l.error ?? 'Something went wrong with the connection.', tone: 'error' }
   if (l.notice) return { text: l.notice, tone: 'wait' }
@@ -297,6 +305,8 @@ export function Lobby() {
   const transport = usePolled(() => (lobby.role !== 'offline' && lobby.status === 'open' ? session.transport() : null), String, 2)
   // server room: its region and your live ping to it (session.region(), polled with the transport)
   const room = usePolled(() => (transport === 'server' ? session.region() : null), (r) => (r ? `${r.label}:${r.rttMs}` : ''), 2)
+  // a room hosted from this PC: its Browse games listing (on the game server)
+  const listing = usePolled(() => (transport === 'p2p' ? session.listing() : null), (l) => (l ? `${l.status}:${l.region}:${l.error}` : ''), 2)
   // joined by code or from Browse games: the room's region is the one region when there is only one
   const regions = regionStatus()
   const serverName = room?.label ?? (regions.length === 1 ? regions[0].label : 'the game server')
@@ -395,11 +405,13 @@ export function Lobby() {
         <section className="panel flex min-h-0 flex-col p-6" aria-label="Match options">
           <div className="min-h-0 flex-1 overflow-y-auto pr-2">
             {(lobby.role === 'host' || (lobby.role === 'client' && lobby.roomCode)) && <InviteCard code={lobby.roomCode} url={lobby.joinUrl} host={lobby.role === 'host'} />}
-            {transport === 'server' && (lobby.quick || lobby.role === 'host') && (
+            {((transport === 'server' && (lobby.quick || lobby.role === 'host')) || (transport === 'p2p' && lobby.role === 'host' && regions.length > 0)) && (
               <div className="mb-6 flex items-center justify-between gap-4 rounded-lg bg-[rgba(0,0,0,0.25)] px-4 py-3">
                 <span className="flex flex-col">
                   <span className="font-semibold">Listed publicly</span>
-                  <span className="text-[0.88rem] text-ash">{lobby.quick ? 'Quick play games are always listed in Browse games' : 'Anyone can find and join from Browse games'}</span>
+                  <span className="text-[0.88rem] text-ash">
+                    {lobby.quick ? 'Quick play games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
+                  </span>
                 </span>
                 <Switch label="Listed publicly" checked={lobby.quick ? true : !!lobby.public} disabled={!!lobby.quick} onChange={(v) => session.setPublic(v)} />
               </div>

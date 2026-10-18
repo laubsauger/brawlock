@@ -118,7 +118,7 @@ export interface MatchRecorder {
    * Called by the P2P host / offline loop and the input-stream client, never for predicted
    * or re-simulated steps; snapshot-only clients never call it.
    */
-  step?(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[]): void
+  step?(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[], slots?: readonly PlayerSlot[]): void
   /** one played tick: its state and the events of every tick since the previous call */
   observe(state: SimState, events: readonly SimEvent[]): void
   finish(result: MatchResult): void
@@ -126,6 +126,10 @@ export interface MatchRecorder {
   abort(): void
   /** a human seat's pawn is now played by a bot (its player left) or by its human again */
   control?(player: PlayerId, by: 'human' | 'bot'): void
+  /** A new human takes a previously bot-controlled seat between rounds. */
+  join?(slot: PlayerSlot, device?: string): void
+  /** Update a known device's display label without creating or changing its identity. */
+  displayName?(slot: PlayerSlot, device?: string): void
 }
 
 export interface LocalProfile {
@@ -173,6 +177,8 @@ export interface SessionApi {
   openHost(opts?: { dedicated?: boolean }): Promise<void>
   /** Join a room by code (typed text or invite link is normalized; invalid input lands in lobby.error). */
   join(code: string): Promise<void>
+  /** Change the local seat's display label, preserving its profile and device identities. */
+  setDisplayName(name: string): void
   addBot(difficulty: BotDifficulty): void
   removeSlot(player: PlayerId): void
   setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): void
@@ -204,6 +210,8 @@ export interface SessionApi {
   /** Dedicated server host only: the room's listing and quick-play state (sent with the lobby); cap: humans at most (null: MAX_PLAYERS). */
   setRoom(patch: Partial<RoomState> & { cap?: number | null }): void
   roomState(): RoomState
+  /** Seats a new human can play immediately (running matches require a replaceable bot). */
+  joinableSeats(): number
 }
 
 export interface SessionDebug {
@@ -370,6 +378,10 @@ interface HostMatch {
   disconnected: Set<PlayerId>
   /** PlayerScore.connected changes, applied to the next tick's state */
   connectedPatch: Map<PlayerId, boolean>
+  slotPatch: Map<PlayerId, PlayerSlot>
+  /** Reserved bot seats: original lobby slot until its current round is finished. */
+  waiting: Map<PlayerId, PlayerSlot>
+  botPlans: Map<PlayerId, { message: Extract<Msg, { t: 'plan' }>; repeats: number }>
   recent: TickEvents[]
   /** inputs stepped since the last snapshot went out (snap.in) */
   stepped: PlayerInput[]
@@ -391,6 +403,7 @@ interface HostMatch {
 interface ClientMatch {
   id: number
   localPlayer: PlayerId
+  eventFloor: number
   sender: InputSender
   buffer: SnapshotBuffer
   acc: number
@@ -575,6 +588,19 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (role === 'host') broadcast(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings })
   }
 
+  function renameSlot(id: PlayerId, name: string): void {
+    const current = slots.find((s) => s.id === id && s.kind === 'human')
+    if (!current) return
+    rec?.displayName?.({ ...current, name }, slotDevices.get(id))
+    if (current.name === name) return
+    slots = slots.map((s) => s.id === id ? { ...s, name } : s)
+    if (match && !match.waiting.has(id)) {
+      const active = match.slotPatch.get(id) ?? match.state.slots.find((s) => s.id === id)
+      if (active) match.slotPatch.set(id, { ...active, name })
+    }
+    publishLobby()
+  }
+
   /** Dedicated server: the lobby message with the owner and the room state. */
   function lobbyMsg(): Msg {
     return { t: 'lobby', slots, settings, ready, pings, owner: ownerId(), room: roomStateNow() }
@@ -717,7 +743,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (seat) addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
     ui.setResult(null)
     // a new lobby never inherits the last room's quick-play / listing state (it would hide the host's Rematch)
-    ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null, ...NO_ROOM })
+    ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null, waitingForRound: false, ...NO_ROOM })
     publishLobby()
     ui.setScreen('lobby')
   }
@@ -773,6 +799,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const m = decode(data)
     if (!m) return
     if (m.t === 'hello') onHello(p, m)
+    else if (m.t === 'rename' && p.playerId !== null && typeof m.name === 'string') {
+      p.name = sanitizeName(m.name)
+      renameSlot(p.playerId, p.name)
+    }
     else if (m.t === 'input') onInput(p, m)
     else if (m.t === 'nstat') onReport(p, m)
     else if (m.t === 'need') onNeed(p, m)
@@ -810,6 +840,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         slots: m.slots,
         settings: m.settings,
         localPlayer: plays ? id : -1,
+        waiting: m.waiting.has(id),
+        fromTick: m.state.tick,
       }),
     )
   }
@@ -827,48 +859,104 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, 'This server runs a different version of the game. Reload the page; if that does not help, the server is being updated.')
       return
     }
+    const profileId = sanitizeProfileId(m.profileId)
+    if (!profileId) {
+      rejectPeer(p, 'Your player profile is missing or invalid. Reload the game before joining.')
+      return
+    }
     p.name = sanitizeName(m.name)
     p.key = typeof m.key === 'string' ? m.key.slice(0, 64) : ''
     const device = sanitizeProfileId(m.device)
 
-    // a reloaded / reconnected client takes its pawn back (same tab key, or same device
-    // after a browser restart)
-    if (match && (p.key || device)) {
-      const m2 = match
-      const gone = [...m2.disconnected]
-      const back = gone.find((id) => p.key && slotKeys.get(id) === p.key) ?? gone.find((id) => device && slotDevices.get(id) === device)
-      if (back !== undefined) {
-        peers = peers.filter((x) => x === p || x.playerId !== back)
-        p.playerId = back
-        slotKeys.set(back, p.key)
-        m2.disconnected.delete(back)
-        if (m2.takeover.delete(back)) {
-          m2.bots.delete(back)
-          rec?.control?.(back, 'human')
-        }
-        m2.connectedPatch.set(back, true)
-        p.t.sendReliable(encode(welcomeFor(back)))
-        p.t.sendReliable(encode(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings }))
-        sendStart(p, m2)
-        showNotice(`${p.name} reconnected`, true)
+    // A profile owns one human seat. A same-tab refresh may replace its live
+    // connection; another tab must wait until the original seat disconnects.
+    const returning = slots.find((s) => s.kind === 'human' && s.profileId === profileId)
+    if (returning) {
+      const back = returning.id
+      const previous = peers.find((x) => x !== p && x.playerId === back)
+      const refresh = !!previous && !!p.key && slotKeys.get(back) === p.key
+      if (!refresh && !match?.disconnected.has(back)) {
+        rejectPeer(p, 'Your player profile is already connected to this game in another tab. Leave that game before joining here.')
         return
       }
+      // Remove the old transport before closing it, so its close callback
+      // cannot disconnect or hand the newly reclaimed pawn to a bot.
+      if (previous) {
+        peers = peers.filter((x) => x !== previous)
+        previous.t.close()
+      }
+      p.playerId = back
+      slotKeys.set(back, p.key)
+      if (device) slotDevices.set(back, device)
+      if (match) {
+        match.disconnected.delete(back)
+        if (match.takeover.delete(back)) {
+          match.bots.delete(back)
+          cancelBotPlan(match, back)
+          rec?.control?.(back, 'human')
+        }
+        match.connectedPatch.set(back, true)
+      }
+      renameSlot(back, p.name)
+      p.t.sendReliable(encode(welcomeFor(back)))
+      p.t.sendReliable(encode(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings }))
+      if (match) sendStart(p, match)
+      showNotice(`${p.name} reconnected`, true)
+      return
     }
 
-    if (slots.length >= MAX_PLAYERS || (roomInfo.cap !== null && slots.filter((s) => s.kind === 'human').length >= roomInfo.cap)) {
+    const replace = slots.find((s) => s.kind === 'bot')
+    if ((!replace && slots.length >= MAX_PLAYERS) || (roomInfo.cap !== null && slots.filter((s) => s.kind === 'human').length >= roomInfo.cap)) {
       rejectPeer(p, 'The lobby is full.')
       return
     }
-    const profileId = sanitizeProfileId(m.profileId)
-    const slot = addSlot({ name: p.name, kind: 'human', ...(profileId ? { profileId } : {}) }, sanitizeColor(m.color))
+    const identity = { name: p.name, kind: 'human' as const, profileId }
+    // Keep the bot's seat, team, equipment and life state. Joining never resurrects a pawn.
+    const slot = replace ? { id: replace.id, color: replace.color, team: replace.team, ...identity } : addSlot(identity, sanitizeColor(m.color))
+    if (replace) {
+      slots = slots.map((s) => s.id === slot.id ? slot : s)
+      if (match) {
+        if (match.state.phase === 'fight' || match.state.phase === 'roundEnd') match.waiting.set(slot.id, replace)
+        else activateSeat(match, slot, device ?? undefined)
+      }
+    }
     slotKeys.set(slot.id, p.key)
     if (device) slotDevices.set(slot.id, device)
+    rec?.displayName?.(slot, device ?? undefined)
     p.playerId = slot.id
     p.t.sendReliable(encode(welcomeFor(slot.id)))
     publishLobby()
-    // joined mid-match: spectate now, play from the next match
+    // During combat a bot keeps playing its current round; its seat is reserved.
     if (match) sendStart(p, match)
-    showNotice(`${p.name} joined`)
+    showNotice(match?.waiting.has(slot.id) ? `${p.name} is waiting to join next round` : `${p.name} joined`, true)
+  }
+
+  function activateSeat(m: HostMatch, slot: PlayerSlot, device = slotDevices.get(slot.id)): void {
+    m.bots.delete(slot.id)
+    cancelBotPlan(m, slot.id)
+    m.humans.add(slot.id)
+    m.waiting.delete(slot.id)
+    const current = m.state.slots.find((s) => s.id === slot.id)!
+    m.slotPatch.set(slot.id, { ...slot, team: current.team })
+    rec?.join?.(slot, device)
+    rec?.control?.(slot.id, 'human')
+  }
+
+  function cancelBotPlan(m: HostMatch, id: PlayerId): void {
+    m.botPlans.delete(id)
+    // A human takes the seat with no pending bot commands in anyone's prediction.
+    broadcast({ t: 'plan', m: m.id, p: id, n: m.state.tick, f: [] }, m.id)
+  }
+
+  function activateWaiting(m: HostMatch): void {
+    for (const id of [...m.waiting.keys()]) {
+      const p = peers.find((p) => p.playerId === id)
+      if (!p) continue
+      activateSeat(m, slots.find((s) => s.id === id)!)
+      sendStart(p, m)
+      p.keyframe = true
+      showNotice(`${p.name} joined the arena`, true)
+    }
   }
 
   function welcomeFor(id: PlayerId): Msg {
@@ -942,6 +1030,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   function onNeed(p: RemotePeer, m: Extract<Msg, { t: 'need' }>): void {
     const mt = match
     if (!mt || p.playerId === null || m.m !== mt.id || p.matchId !== mt.id) return
+    if (!p.stream) for (const plan of mt.botPlans.values()) p.t.sendReliable(encode(plan.message))
     p.stream = true
     if (m.k === 1 || !Number.isInteger(m.from) || !mt.history.covers(m.from)) p.keyframe = true
     else p.needFrom = p.needFrom < 0 ? m.from : Math.min(p.needFrom, m.from)
@@ -991,7 +1080,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const id = p.playerId
     if (id === null) return
     const m = match
-    if (m && m.humans.has(id)) {
+    if (m?.waiting.has(id)) {
+      // Cancel the reservation; the original bot never stopped playing.
+      const bot = m.waiting.get(id)!
+      m.waiting.delete(id)
+      slots = slots.map((s) => s.id === id ? bot : s)
+      slotKeys.delete(id)
+      slotDevices.delete(id)
+      publishLobby()
+      showNotice(`${p.name} ${why === 'left' ? 'left' : 'disconnected'} while waiting`, true)
+    } else if (m && m.humans.has(id)) {
       // B21-style: keep the pawn (and the slot) so the player can come back
       m.disconnected.add(id)
       m.connectedPatch.set(id, false)
@@ -1079,14 +1177,36 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         ;(acks ??= new Map()).set(p.playerId, ackOf(p))
       }
     }
+    const plans: Extract<Msg, { t: 'plan' }>[] = []
     for (const [id, bot] of m.bots) {
       try {
         const cmds = quantizeCmds(bot.think(cur))
         if (cmds.length) inputs.push({ player: id, tick, cmds })
+        if (bot.scheduled && deps.inputHints !== false) {
+          const frames: [number, InputCommand[]][] = bot.scheduled().map((q) => [q.at, quantizeCmds(q.cmds.map((c) => ({ ...c })))])
+          let plan = m.botPlans.get(id)
+          // Executed orders simply expire; only a change to the remaining future
+          // needs a new plan. Each decision rides three packets against loss.
+          const previous = plan?.message.f.filter(([at]) => at > tick) ?? []
+          if (JSON.stringify(frames) !== JSON.stringify(previous)) {
+            if (cmds.length) frames.unshift([tick, cmds])
+            plan = { message: { t: 'plan', m: m.id, p: id, n: tick, f: frames }, repeats: REDUNDANCY }
+            m.botPlans.set(id, plan)
+          }
+          if (plan && plan.repeats > 0) {
+            plans.push(plan.message)
+            plan.repeats--
+          }
+        }
       } catch (e) {
         console.error(`[session] bot ${id} crashed, its pawn idles`, e)
         m.bots.delete(id)
+        cancelBotPlan(m, id)
       }
+    }
+    if (plans.length) {
+      const data = encode({ t: 'plans', m: m.id, plans })
+      for (const p of peers) if (p.stream && p.matchId === m.id) p.t.sendUnreliable(data)
     }
 
     // the previous state was handed to render: step a copy (plain data: cloneState is
@@ -1102,23 +1222,31 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       m.connectedPatch.clear()
     }
-    rec?.step?.(cur, inputs, patches)
+    const changedSlots = m.slotPatch.size ? [...m.slotPatch.values()] : undefined
+    if (changedSlots) {
+      next.slots = next.slots.map((s) => m.slotPatch.get(s.id) ?? s)
+      m.slotPatch.clear()
+    }
+    rec?.step?.(cur, inputs, patches, changedSlots)
     deps.step(next, inputs)
     m.state = next
     if (inputs.length) for (const i of inputs) m.stepped.push(i)
     const step: StreamTick = { tick, inputs }
     if (acks) step.acks = acks
     if (patches) step.patches = patches
+    if (changedSlots) step.slots = changedSlots
     m.history.push(step)
 
     rec?.observe(next, next.events)
+    // Attribute the completed tick to its old controller before handing over.
+    if (m.waiting.size && ((next.phase === 'shop' && cur.phase !== 'shop') || next.round > cur.round)) activateWaiting(m)
     if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
     if (m.netMode !== 'classic' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
     if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
     if (f.pred) {
       // the host's view: its own delayed inputs predicted, display ticks `delay` ahead
       // only the host's own frames (at their stamps) stepped: the predicted view already holds `next`
-      const confirms = !patched && inputs.every((i) => i.player === localPlayer)
+      const confirms = !patched && !changedSlots && inputs.every((i) => i.player === localPlayer)
       f.pred.offer(next, f.applied, next.events.length ? [{ tick: next.tick, events: next.events }] : [], confirms)
       const goal = next.tick + f.delay
       f.pred.advance(goal, (display, events) => {
@@ -1195,8 +1323,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const body = (from: number) => {
       let b = bodies.get(from)
       if (b === undefined) {
-        const { i, c } = h.slice(from, to)
-        b = `"to":${to},"r":${to - from}${i.length ? `,"i":${JSON.stringify(i)}` : ''}${c.length ? `,"c":${JSON.stringify(c)}` : ''}${hashJson}`
+        const { i, c, s } = h.slice(from, to)
+        b = `"to":${to},"r":${to - from}${i.length ? `,"i":${JSON.stringify(i)}` : ''}${c.length ? `,"c":${JSON.stringify(c)}` : ''}${s.length ? `,"s":${JSON.stringify(s)}` : ''}${hashJson}`
         bodies.set(from, b)
       }
       return b
@@ -1357,6 +1485,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const cm = cmatch
         if (!cm || m.match !== cm.id) return
         const now = deps.now()
+        m.ev = m.ev.filter((e) => e.tick > cm.eventFloor)
         noteAck(cm, m.ack, now)
         cm.sender.ack(m.ack)
         if (cm.stream) {
@@ -1377,6 +1506,16 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const cm = cmatch
         if (!cm?.pred || m.m !== cm.id || !Array.isArray(m.f)) return
         for (const f of m.f) if (Array.isArray(f) && typeof f[0] === 'number' && Array.isArray(f[1])) cm.pred.hint(m.p, f[0], f[1])
+        break
+      }
+      case 'plan': {
+        const cm = cmatch
+        if (cm?.pred && m.m === cm.id && Array.isArray(m.f)) cm.pred.plan(m.p, m.n, m.f)
+        break
+      }
+      case 'plans': {
+        const cm = cmatch
+        if (cm?.pred && m.m === cm.id) for (const p of m.plans) cm.pred.plan(p.p, p.n, p.f)
         break
       }
       case 'end':
@@ -1411,12 +1550,15 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   function clientStart(m: Extract<Msg, { t: 'start' }>): void {
     stopClientMatch()
     const now = deps.now()
+    ui.setLobby({ waitingForRound: m.waiting === true })
     // spectators have nothing to predict: they watch the smooth delayed stream
     const mode: NetMode = m.localPlayer >= 0 ? netMode() : 'classic'
     const predicting = mode !== 'classic'
+    const eventFloor = m.fromTick ?? -1
     const cm: ClientMatch = {
       id: m.match,
       localPlayer: m.localPlayer,
+      eventFloor,
       sender: new InputSender(),
       buffer: new SnapshotBuffer(),
       acc: 0,
@@ -1424,7 +1566,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       lastStats: -Infinity,
       stop: null,
       netMode: mode,
-      pred: predicting ? new Predictor(m.localPlayer, deps.step, cloneState, deps.now) : null,
+      pred: predicting ? new Predictor(m.localPlayer, deps.step, cloneState, deps.now, eventFloor) : null,
       clock: new LeadClock(),
       inN: 0,
       sentAt: new Map(),
@@ -1658,7 +1800,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       cm.sender.ack(m.a)
     }
     if (Array.isArray(m.h) && typeof m.h[0] === 'number' && typeof m.h[1] === 'number' && m.h[0] > st.checkedTo) st.hostHashes.set(m.h[0], m.h[1])
-    st.feed.accept(m.to - m.r, m.to, Array.isArray(m.i) ? m.i : [], Array.isArray(m.c) ? m.c : [])
+    st.feed.accept(m.to - m.r, m.to, Array.isArray(m.i) ? m.i : [], Array.isArray(m.c) ? m.c : [], Array.isArray(m.s) ? m.s : [])
     advanceConfirmed(cm, st, now)
     const gap = st.feed.gap()
     if (gap !== null) askStream(cm, st, now, gap, false)
@@ -1682,8 +1824,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       const step = st.feed.take()
       if (!step) break
       const s = st.state
-      if (confirms) confirms = !step.patches && stepWasPredicted(pred, step, cm.localPlayer)
-      rec?.step?.(s, step.inputs, step.patches)
+      if (confirms) confirms = !step.patches && !step.slots && stepWasPredicted(pred, step, cm.localPlayer)
+      rec?.step?.(s, step.inputs, step.patches, step.slots)
+      if (step.slots) {
+        const changed = new Map(step.slots.map((slot) => [slot.id, slot]))
+        s.slots = s.slots.map((slot) => changed.get(slot.id) ?? slot)
+      }
       if (step.patches) {
         for (const [id, on] of step.patches) {
           const sc = s.scores.find((x) => x.id === id)
@@ -2007,6 +2153,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       })
     },
 
+    setDisplayName(name) {
+      const label = sanitizeName(name)
+      if (role === 'client') link?.sendReliable(encode({ t: 'rename', name: label }))
+      else if (isAuthority() && localPlayer >= 0) renameSlot(localPlayer, label)
+    },
+
     addBot(difficulty) {
       if (ownerCtl({ t: 'ctl', op: 'addBot', difficulty })) return
       if (!canEdit() || slots.length >= MAX_PLAYERS) return
@@ -2085,6 +2237,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         takeover: new Set(),
         disconnected: new Set(),
         connectedPatch: new Map(),
+        slotPatch: new Map(),
+        waiting: new Map(),
+        botPlans: new Map(),
         recent: [],
         stepped: [],
         history: new StreamHistory(),
@@ -2189,6 +2344,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         status: 'idle',
         error: null,
         notice: null,
+        waitingForRound: false,
         slots: [],
         settings: null,
         localPlayer: 0,
@@ -2229,6 +2385,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     roomState() {
       return roomStateNow()
+    },
+
+    joinableSeats() {
+      const humans = slots.filter((s) => s.kind === 'human').length
+      const capacity = Math.max(0, Math.min(MAX_PLAYERS, roomInfo.cap ?? MAX_PLAYERS) - humans)
+      return match ? Math.min(capacity, slots.filter((s) => s.kind === 'bot').length) : capacity
     },
 
     onNetGrade(cb) {

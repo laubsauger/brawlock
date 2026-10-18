@@ -62,6 +62,12 @@ export function MatchOptions({ settings, editable }: { settings: MatchSettings |
       </Group>
 
       <Group title="Gold">
+        <Row label="Spectator betting" hint="Rounds: knocked-out players can wager 1 gold, with up to 2 gold returned">
+          <Switch label="Spectator betting" checked={settings.spectatorBets} disabled={ro || settings.gameMode !== 'rounds'} onChange={(spectatorBets) => set({ spectatorBets })} />
+        </Row>
+        <Row label="Bounties" hint="Unpaid betting pots become winner bounties; a credited knockout claims them">
+          <Switch label="Bounties" checked={settings.bounties} disabled={ro || settings.gameMode !== 'rounds'} onChange={(bounties) => set({ bounties })} />
+        </Row>
         <Row label="Start gold" hint="Everyone gets this before the first shop">
           <NumberField label="Start gold" value={settings.startGold} min={0} max={9999} disabled={ro} onCommit={(startGold) => set({ startGold })} />
         </Row>

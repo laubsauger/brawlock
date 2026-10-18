@@ -24,18 +24,22 @@ import { Online, ServerError, hybridNet, parseRegions, type LeaderboardPage, typ
 import type { Period } from '../net/leaderboard'
 import type { BotDifficulty } from '../sim/types'
 import { getDeviceId } from './device'
+import { Lister, type ListerState } from '../net/lister'
+import type { ListingInfo } from '../net/listings'
+import { MAX_PLAYERS } from '../net/session'
 import { createSession, type MatchRecorder, type NetMode, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
 import { getProfile } from './profile'
-import { MatchTracker, recordMatch } from './stats'
+import { MatchTracker, recordMatch, updateProfileNames } from './stats'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
 
 export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
 export type { Period, PublicBoardRow } from '../net/leaderboard'
+export type { ListerState } from '../net/lister'
 export type { RoomSummary } from '../net/dedicated'
 export { ServerError } from '../net/online'
 export type { NetStatsView, PeerNetStats, NetGrade, NetGradeEvent, NetGradeReason } from '../net/netstats'
@@ -112,7 +116,7 @@ function createRecorder(): MatchRecorder {
       tracker = new MatchTracker(info)
       replay.start(info)
     },
-    step: (before, inputs, patches) => replay.step(before, inputs, patches),
+    step: (before, inputs, patches, slots) => replay.step(before, inputs, patches, slots),
     observe: (state, events) => {
       tracker?.observe(state, events)
       replay.observe(state, events)
@@ -197,6 +201,12 @@ export interface HostingApi {
   /** the current room's region when it runs on a game server, with its live ping */
   region(): RegionStatus | null
   /**
+   * "Listed publicly" of a room hosted from this PC (peer-to-peer): its listing on a game
+   * server (Browse games), null when this is not a P2P host. Turned on with setPublic(true);
+   * a new room starts unlisted. Never ranked or counted on the leaderboard.
+   */
+  listing(): (ListerState & { regionStatus: RegionStatus | null }) | null
+  /**
    * Quick play (M4.3): an open quick-play room on a game server (region as for
    * openHostServer), or a new one there. The server starts it once 2 humans are in, or
    * fills the seats with bots (`bots`, default Hard) after ~10 s. Same HostResult as hosting.
@@ -228,7 +238,7 @@ function opened(t: 'server' | 'p2p'): boolean {
   return l.status === 'open' && l.role !== 'offline' && impl.transport() === t
 }
 
-export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState'> & HostingApi
+export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats'> & HostingApi
 
 /** The region a server request goes to: the given choice or the region setting; auto = lowest ping. */
 async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
@@ -290,8 +300,38 @@ export const session: GameSession = {
   async serverProfile(choice) {
     return online.profile((await serverRegion(choice)).id, getDeviceId())
   },
-  setPublic: impl.setPublic,
+  setPublic(value) {
+    const l = useGame.getState().lobby
+    if (!(impl.transport() === 'p2p' && l.role === 'host' && l.roomCode)) {
+      impl.setPublic(value)
+      return
+    }
+    listed = null
+    useGame.getState().setLobby({ public: value && online.configured })
+    if (!value || !online.configured) {
+      syncListing()
+      return
+    }
+    const code = l.roomCode
+    void online.choose(useGame.getState().settings.serverRegion ?? 'auto').then((r) => {
+      const now = useGame.getState().lobby
+      if (!now.public || now.roomCode !== code) return // switched off or left meanwhile
+      if (!r || r.state !== 'up') {
+        useGame.getState().setLobby({ public: false, notice: 'Could not list the game: no game server is reachable right now.' })
+        return
+      }
+      listed = { code, region: r.id }
+      syncListing()
+    })
+  },
+  listing() {
+    const l = useGame.getState().lobby
+    if (!(impl.transport() === 'p2p' && l.role === 'host')) return null
+    const st = lister.state()
+    return { ...st, regionStatus: st.region ? online.region(st.region) : null }
+  },
   join: impl.join,
+  setDisplayName: impl.setDisplayName,
   addBot: impl.addBot,
   removeSlot: impl.removeSlot,
   setBotDifficulty: impl.setBotDifficulty,
@@ -306,6 +346,49 @@ export const session: GameSession = {
   onNetGrade: impl.onNetGrade,
   transport: impl.transport,
 }
+
+// ---- player-hosted rooms in Browse games (listings.ts) ------------------------------------
+
+const lister = new Lister(online)
+/** the P2P room whose "Listed publicly" switch is on, and the region it is listed on */
+let listed: { code: string; region: string } | null = null
+
+/** What the listing should say now, or null: not listed (switch off, not hosting, full). */
+function listingTarget(): { region: string; info: ListingInfo } | null {
+  const st = useGame.getState()
+  const l = st.lobby
+  if (!listed || l.role !== 'host' || l.status !== 'open' || l.roomCode !== listed.code || impl.transport() !== 'p2p') return null
+  // full: off the list until a seat frees
+  if (l.slots.length >= MAX_PLAYERS) return null
+  const humans = l.slots.filter((x) => x.kind === 'human').length
+  const set = l.settings ?? DEFAULT_SETTINGS
+  // between matches and mid-match a joiner gets in (mid-match: watches, then plays the next one), like server rooms
+  const phase = st.screen === 'match' ? 'match' : st.screen === 'results' ? 'results' : 'lobby'
+  return {
+    region: listed.region,
+    info: { code: l.roomCode, host: getProfile().name, humans, bots: l.slots.length - humans, max: MAX_PLAYERS, phase, teamMode: set.teamMode, gameMode: set.gameMode, winScore: set.winScore },
+  }
+}
+
+function syncListing(): void {
+  const l = useGame.getState().lobby
+  // the switch belongs to one room: any other room (or none) starts private again
+  if (listed && (l.roomCode !== listed.code || l.role !== 'host' || impl.transport() !== 'p2p')) listed = null
+  lister.want(listingTarget())
+}
+useGame.subscribe((s, prev) => {
+  if (s.settings.playerName !== prev.settings.playerName) {
+    impl.setDisplayName(s.settings.playerName)
+    updateProfileNames([{ profileId: getProfile().id, name: s.settings.playerName }])
+  }
+  if (s.lobby.slots !== prev.lobby.slots) {
+    const changed = s.lobby.slots.filter((slot) => slot.kind === 'human' && slot.profileId && !prev.lobby.slots.some((old) => old.profileId === slot.profileId && old.name === slot.name))
+    updateProfileNames(changed.map((slot) => ({ profileId: slot.profileId!, name: slot.name })))
+  }
+  if (s.lobby !== prev.lobby || s.screen !== prev.screen) syncListing()
+})
+// closing the tab: unlist now (the server's TTL drops it anyway if this does not get out)
+if (typeof window !== 'undefined') window.addEventListener('pagehide', () => lister.want(null))
 
 // dev-only probes for two-tab / two-browser testing from the console: __session.debug(),
 // __session.netStats(), __input.issue({kind: 'move', ...}), __frame.curr, __store.getState(),

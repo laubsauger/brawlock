@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { cycle, goldVisible, inspectStore, isSpectating, livingPlayers, PICK_RADIUS, pickPawnAt } from './inspect'
+import { canInspect, cycle, goldVisible, inspectedLoadout, inspectStore, isSpectating, livingPlayers, PICK_RADIUS, pickPawnAt } from './inspect'
+import { frame, pushState, resetFrame } from './frame'
+import { newMatch } from '../sim/testkit'
 import type { SimState } from '../sim/types'
 
 const pawn = (id: number, owner: number, x: number, y: number, alive = true) => ({ id, owner, x, y, alive })
@@ -48,6 +50,120 @@ describe('spectating', () => {
 })
 
 describe('what the inspect card may show', () => {
+  it('allows other-player inspection in shop and while dead, but blocks a living fighter', () => {
+    const s = newMatch()
+    expect(canInspect(s, 0, 1)).toBe(true)
+    s.phase = 'fight'
+    expect(canInspect(s, 0, 1)).toBe(false)
+    expect(inspectedLoadout(s, 0, 1)).toBeNull()
+    expect(canInspect(s, 0, 0)).toBe(true)
+    s.pawns.find((p) => p.owner === 0)!.alive = false
+    expect(canInspect(s, 0, 1)).toBe(true)
+    expect(canInspect(s, -1, 1)).toBe(true)
+    expect(canInspect(s, -1, 999)).toBe(false)
+  })
+
+  it('reveals only combat-committed builds in the next shop, even after zero-gold purchases', () => {
+    resetFrame()
+    const s = newMatch()
+    const enemy = s.pawns.find((p) => p.owner === 1)!
+    const score = s.scores.find((p) => p.id === 1)!
+    enemy.slots[0] = 'fireball'
+    enemy.levels[0] = 1
+    score.gold = 0
+    pushState(s, 0)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+
+    s.phase = 'fight'
+    s.round = 1
+    score.masteries.range = 2
+    pushState(s, 1)
+    s.pawns.find((p) => p.owner === 0)!.alive = false
+    enemy.levels[0] = 2
+    score.masteries.range = 3
+    expect(inspectedLoadout(s, 0, 1)?.kit?.levels[0]).toBe(2) // dead: live view
+    pushState(s, 2) // same round must not replace the commit
+
+    s.phase = 'shop'
+    enemy.slots[1] = 'teleport'
+    enemy.levels[1] = 1
+    score.masteries.range = 4
+    pushState(s, 3)
+    const revealed = inspectedLoadout(s, 0, 1)!
+    expect(revealed.kind).toBe('lastRound')
+    expect(revealed.kit?.slots[1]).toBeNull()
+    expect(revealed.kit?.levels[0]).toBe(1)
+    expect(revealed.kit?.masteries.range).toBe(2)
+    expect(inspectedLoadout(s, 1, 1)?.kit?.levels[0]).toBe(2) // own purchases remain current
+
+    s.phase = 'fight'
+    s.round = 2
+    pushState(s, 4)
+    s.phase = 'shop'
+    pushState(s, 5)
+    expect(inspectedLoadout(s, 0, 1)?.kit?.slots[1]).toBe('teleport')
+    expect(inspectedLoadout(s, 0, 1)?.kit?.masteries.range).toBe(4)
+    resetFrame()
+    expect(frame.curr).toBeNull()
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+  })
+
+  it('does not retain future builds through a replay seek back to the first shop', () => {
+    resetFrame()
+    const s = newMatch()
+    s.phase = 'fight'
+    s.round = 3
+    pushState(s, 1)
+    s.phase = 'shop'
+    s.round = 0
+    pushState(s, 2)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+    resetFrame()
+  })
+
+  it('keeps committed history through a profile-preserving rename but hides it from a new seat occupant', () => {
+    resetFrame()
+    const s = newMatch()
+    s.slots[1].profileId = 'original-human'
+    s.pawns[1].levels[6] = 2
+    s.phase = 'fight'
+    s.round = 1
+    pushState(s, 0)
+    s.phase = 'shop'
+    s.slots[1].name = 'Renamed'
+    s.slots[1].team = 7
+    s.slots[1].color = 0xff0088
+    pushState(s, 1)
+    expect(inspectedLoadout(s, 0, 1)).toMatchObject({ kind: 'lastRound', kit: { levels: s.pawns[1].levels } })
+
+    // Same seat and visible label, another browser: it has no previous combat build.
+    s.slots[1].profileId = 'replacement-human'
+    pushState(s, 2)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+    s.phase = 'fight'
+    s.round = 2
+    pushState(s, 3)
+    s.phase = 'shop'
+    pushState(s, 4)
+    expect(inspectedLoadout(s, 0, 1)?.kind).toBe('lastRound')
+    resetFrame()
+  })
+
+  it('does not attribute a replaced bot build to the human promoted into its seat', () => {
+    resetFrame()
+    const s = newMatch()
+    Object.assign(s.slots[1], { kind: 'bot', profileId: 'bot:hard', name: 'Thorn' })
+    s.phase = 'fight'
+    s.round = 1
+    pushState(s, 0)
+    s.phase = 'shop'
+    // Identical pawn/seat/name must not make a promotion inherit the bot's history.
+    Object.assign(s.slots[1], { kind: 'human', profileId: 'human-thorn' })
+    pushState(s, 1)
+    expect(inspectedLoadout(s, 0, 1)).toEqual({ kind: 'unrevealed', kit: null })
+    resetFrame()
+  })
+
   it('shows gold for yourself and allies only, never for enemies', () => {
     const ffa = state([pawn(10, 0, 0, 0), pawn(11, 1, 0, 0)])
     expect(goldVisible(ffa, 0, 0)).toBe(true)

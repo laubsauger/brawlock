@@ -85,7 +85,7 @@ export interface PlayerMatchStats {
 
 export interface Participant {
   player: PlayerId
-  /** profile id, 'bot:<difficulty>' for bots, 'anon:<name>' for peers without one */
+  /** stable profile id, 'bot:<difficulty>' for bots, empty for unidentified legacy humans */
   profileId: string
   name: string
   color: number
@@ -115,6 +115,13 @@ export type AwardId =
   | 'untouchable'
   | 'escapeArtist'
   | 'ringOfFire'
+  | 'returnToSender'
+  | 'demolition'
+  | 'hazardPay'
+  | 'raidBoss'
+  | 'sprayAndPray'
+  | 'passenger'
+  | 'personalGrudge'
 
 export interface Award {
   id: AwardId
@@ -310,7 +317,12 @@ export interface TrackerInfo {
 
 export function profileIdOf(slot: PlayerSlot): string {
   if (slot.kind === 'bot') return `bot:${slot.difficulty ?? 'medium'}`
-  return slot.profileId ?? `anon:${slot.name}`
+  return slot.profileId ?? ''
+}
+
+/** Missing IDs and old name-based anonymous labels cannot identify a persistent human. */
+export function hasProfileIdentity(p: Pick<Participant, 'profileId' | 'kind'>): boolean {
+  return !!p.profileId && (p.kind === 'bot' || !p.profileId.startsWith('anon:'))
 }
 
 /** a knockback flight starts above this knockback speed (u/s) ... */
@@ -668,13 +680,18 @@ interface AwardDef {
   id: AwardId
   title: string
   unit: Award['unit']
+  tone: 'praise' | 'roast'
+  /** Avoid several cards describing the same player's one distinctive habit. */
+  family?: string
   /** the stat, or null when the player does not qualify at all */
-  value: (s: PlayerMatchStats) => number | null
+  value: (s: PlayerMatchStats, player: Participant, rec: AwardRecord) => number | null
   /** best value must reach this (higher-is-better) or stay at/below it (lower-is-better) */
   threshold: number
   lowerIsBetter?: boolean
-  blurb: (v: number) => string
+  blurb: (v: number, player: Participant, rec: AwardRecord) => string
 }
+
+type AwardRecord = Pick<MatchRecord, 'participants'> & Partial<Pick<MatchRecord, 'kills' | 'teamMode'>>
 
 /** the winner must beat the runner-up by this factor to count as a clear outlier */
 export const AWARD_LEAD = 1.25
@@ -685,24 +702,54 @@ export const SNIPER_MIN_CASTS = 10
 
 const tiles = (u: number) => Math.round(u / 192)
 
+function missedCasts(s: PlayerMatchStats): number | null {
+  const aim = accuracy(s, 20)
+  if (aim === null || aim > 0.25) return null
+  return Object.entries(s.spells).reduce((n, [id, [casts, hits]]) => n + (DAMAGING.has(id) ? Math.max(0, casts - hits) : 0), 0)
+}
+
+function favoriteVictim(rec: AwardRecord, player: Participant): { victim: Participant; kills: number; total: number } | null {
+  const teamGame = rec.teamMode === 'teams' || rec.teamMode === 'shuffle'
+  const kills = rec.kills ?? []
+  const victims = rec.participants.filter((p) => p.player !== player.player && (!teamGame || p.team !== player.team))
+    .map((victim) => ({ victim, kills: kills.reduce((n, [from, to, count]) => n + (from === player.player && to === victim.player ? count : 0), 0) }))
+    .sort((a, b) => b.kills - a.kills || a.victim.player - b.victim.player)
+  const first = victims[0]
+  const total = kills.reduce((n, [from, to, count]) => n + (from === player.player && to !== player.player ? count : 0), 0)
+  // In a duel there is no choice of rival. A tied favourite is not a grudge.
+  if (victims.length < 2 || !first || first.kills < 3 || first.kills / Math.max(1, total) < 0.6 || first.kills === victims[1].kills) return null
+  return { ...first, total }
+}
+
 export const AWARD_DEFS: readonly AwardDef[] = [
-  { id: 'butcher', title: 'Butcher', unit: '', value: (s) => totalKills(s), threshold: 3, blurb: (v) => `${v} kills. Nobody was safe.` },
-  { id: 'ringOfFire', title: 'Ring of Fire', unit: '', value: (s) => s.scourgeHits, threshold: 5, blurb: (v) => `Scourged ${v} warlocks. Personal space, enforced.` },
-  { id: 'escapeArtist', title: 'Escape Artist', unit: '', value: (s) => s.teleportSaves, threshold: 2, blurb: (v) => `Teleported out of certain doom ${v} times.` },
-  { id: 'sniper', title: 'Sniper', unit: '%', value: (s) => accuracy(s, SNIPER_MIN_CASTS), threshold: 0.5, blurb: (v) => `${Math.round(v * 100)}% of damaging casts found a target.` },
-  { id: 'frequentFlyer', title: 'Frequent Flyer', unit: 'u', value: (s) => s.longestFlight, threshold: 900, blurb: (v) => `One knockback carried them ${tiles(v)} tiles.` },
-  { id: 'pinball', title: 'Pinball', unit: 'u', value: (s) => s.pushed, threshold: 4000, blurb: (v) => `Knocked around for ${tiles(v)} tiles in total.` },
-  { id: 'oops', title: 'Oops', unit: '', value: (s) => s.selfKills, threshold: 2, blurb: (v) => `Died by their own hand ${v} times.` },
-  { id: 'lavaLover', title: 'Lava Lover', unit: 's', value: (s) => s.lavaSec, threshold: 8, blurb: (v) => `Spent ${Math.round(v)} s wading in lava.` },
-  { id: 'marathon', title: 'Marathon', unit: 'u', value: (s) => s.walked, threshold: 6000, blurb: (v) => `Walked ${tiles(v)} tiles. Cardio wins rounds.` },
+  { id: 'butcher', title: 'Butcher', tone: 'praise', family: 'kills', unit: '', value: (s) => totalKills(s), threshold: 3, blurb: (v) => `${v} kills. Nobody was safe.` },
+  { id: 'ringOfFire', title: 'Ring of Fire', tone: 'praise', unit: '', value: (s) => s.scourgeHits, threshold: 5, blurb: (v) => `Scourged ${v} warlocks. Personal space, enforced.` },
+  { id: 'escapeArtist', title: 'Escape Artist', tone: 'praise', unit: '', value: (s) => s.teleportSaves, threshold: 2, blurb: (v) => `Teleported out of certain doom ${v} times.` },
+  { id: 'sniper', title: 'Sniper', tone: 'praise', unit: '%', value: (s) => accuracy(s, SNIPER_MIN_CASTS), threshold: 0.5, blurb: (v) => `${Math.round(v * 100)}% of damaging casts found a target.` },
+  { id: 'frequentFlyer', title: 'Frequent Flyer', tone: 'roast', family: 'knockbackTravel', unit: 'u', value: (s) => s.longestFlight, threshold: 900, blurb: (v) => `One knockback carried them ${tiles(v)} tiles. Economy class.` },
+  { id: 'pinball', title: 'Pinball', tone: 'roast', family: 'knockbackTravel', unit: 'u', value: (s) => s.pushed, threshold: 4000, blurb: (v) => `Knocked around for ${tiles(v)} tiles. The scenic route.` },
+  { id: 'oops', title: 'Oops', tone: 'roast', unit: '', value: (s) => s.selfKills, threshold: 2, blurb: (v) => `${v} uncredited deaths. The arena sends its regards.` },
+  { id: 'lavaLover', title: 'Lava Lover', tone: 'roast', unit: 's', value: (s) => s.lavaSec, threshold: 8, blurb: (v) => `${Math.round(v)} seconds in lava. A very heated relationship.` },
+  { id: 'marathon', title: 'Marathon', tone: 'praise', unit: 'u', value: (s) => s.walked, threshold: 6000, blurb: (v) => `Walked ${tiles(v)} tiles. The floor wants overtime.` },
+  { id: 'returnToSender', title: 'Return to Sender', tone: 'praise', unit: '', value: (s) => s.shieldReflects, threshold: 4, blurb: (v) => `Returned ${v} projectiles. No receipt needed.` },
+  { id: 'demolition', title: 'Open Floor Plan', tone: 'praise', unit: '', value: (s) => s.pillarsDestroyed, threshold: 3, blurb: (v) => `${v} pillars demolished. Interior design, with explosives.` },
+  { id: 'hazardPay', title: 'Outsourcing', tone: 'praise', unit: '', value: (s) => s.lastHitKills, threshold: 3, blurb: (v) => `${v} credited lava or pillar kills. Let the scenery finish the job.` },
+  { id: 'raidBoss', title: 'Raid Boss', tone: 'praise', family: 'kills', unit: '', value: (s) => s.bestStreak, threshold: 4, blurb: (v) => `${v} kills in one life. Briefly a boss fight.` },
+  { id: 'sprayAndPray', title: 'Warning Shots', tone: 'roast', unit: '', value: missedCasts, threshold: 15, blurb: (v) => `${v} damaging casts hit nobody. The floor looked terrified.` },
+  { id: 'passenger', title: 'Designated Passenger', tone: 'roast', family: 'knockbackTravel', unit: '%', value: (s) => s.walked + s.pushed >= 4000 && s.pushed >= 3000 ? s.pushed / (s.walked + s.pushed) : null, threshold: 0.65, blurb: (v) => `${Math.round(v * 100)}% of ground travel came from knockback. Why walk?` },
+  { id: 'personalGrudge', title: 'Personal Grudge', tone: 'roast', unit: '', value: (_s, p, rec) => favoriteVictim(rec, p)?.kills ?? null, threshold: 3, blurb: (v, p, rec) => {
+    const rival = favoriteVictim(rec, p)!
+    return `${v} of ${rival.total} kills were ${rival.victim.name}${rival.victim.kind === 'bot' ? ' (bot)' : ''}. Very selective customer service.`
+  } },
   {
     id: 'untouchable',
     title: 'Untouchable',
+    tone: 'praise',
     unit: '',
-    value: (s) => (s.roundsSurvived >= 2 ? s.damageTaken : null),
-    threshold: Infinity,
+    value: (s) => (s.roundsSurvived >= 2 && s.aliveSec >= 20 && s.damageDealt >= 100 ? s.damageTaken : null),
+    threshold: 200,
     lowerIsBetter: true,
-    blurb: (v) => `Outlasted the field taking only ${Math.round(v)} damage.`,
+    blurb: (v) => `Survived multiple rounds taking ${Math.round(v)} damage. Excellent drama avoidance.`,
   },
 ]
 
@@ -710,37 +757,52 @@ export const AWARD_DEFS: readonly AwardDef[] = [
  * 0..AWARDS_MAX fun titles for clear outliers of one match. A title goes to the single best
  * player for its stat, only if the value reaches the threshold and leads the runner-up by
  * AWARD_LEAD (so a 50/49 split awards nothing). Ranked by how far the winner stands out.
- * Records without detailed stats get none.
+ * The five-card selection spreads coverage across players and tones, and avoids repeating
+ * one player's same stat family. Records without detailed stats get none.
  */
-export function matchAwards(rec: Pick<MatchRecord, 'participants'>): Award[] {
-  const scored: { award: Award; score: number; order: number }[] = []
+export function matchAwards(rec: AwardRecord): Award[] {
+  const scored: { award: Award; score: number; order: number; tone: AwardDef['tone']; family: string }[] = []
   AWARD_DEFS.forEach((def, order) => {
     const vals: { player: PlayerId; v: number }[] = []
     for (const p of rec.participants) {
       if (!p.stats) continue
-      const v = def.value(p.stats)
+      const v = def.value(p.stats, p, rec)
       if (v !== null && Number.isFinite(v)) vals.push({ player: p.player, v })
     }
     if (vals.length === 0) return
-    const sorted = vals.sort((a, b) => (def.lowerIsBetter ? a.v - b.v : b.v - a.v))
+    const sorted = vals.sort((a, b) => (def.lowerIsBetter ? a.v - b.v : b.v - a.v) || a.player - b.player)
     const best = sorted[0]
     const next = sorted[1]
     let score: number
     if (def.lowerIsBetter) {
       // needs someone to compare with, and a clear gap
-      if (!next || !(best.v * AWARD_LEAD <= next.v) || best.v > def.threshold) return
+      if (!next || !(best.v < next.v && best.v * AWARD_LEAD <= next.v) || best.v > def.threshold) return
       score = next.v / Math.max(1, best.v)
     } else {
       if (!(best.v >= def.threshold)) return
       if (next && !(best.v >= next.v * AWARD_LEAD && best.v > next.v)) return
       score = (best.v / def.threshold) * (next && next.v > 0 ? best.v / next.v : 2)
     }
-    scored.push({ award: { id: def.id, title: def.title, player: best.player, value: Math.round(best.v * 1000) / 1000, unit: def.unit, blurb: def.blurb(best.v) }, score, order })
+    const winner = rec.participants.find((p) => p.player === best.player)!
+    scored.push({ award: { id: def.id, title: def.title, player: best.player, value: Math.round(best.v * 1000) / 1000, unit: def.unit, blurb: def.blurb(best.v, winner, rec) }, score, order, tone: def.tone, family: def.family ?? def.id })
   })
-  return scored
-    .sort((a, b) => b.score - a.score || a.order - b.order)
-    .slice(0, AWARDS_MAX)
-    .map((x) => x.award)
+  const ranked = scored.sort((a, b) => b.score - a.score || a.order - b.order)
+  const selected: typeof ranked = []
+  while (ranked.length && selected.length < AWARDS_MAX) {
+    const eligible = ranked.filter((candidate) => !selected.some((picked) => picked.award.player === candidate.award.player && picked.family === candidate.family))
+    if (!eligible.length) break
+    const unseen = (c: typeof eligible[number]) => !selected.some((s) => s.award.player === c.award.player)
+    // Give the room a turn in the spotlight; include a compliment and a gentle
+    // roast when both qualify, rather than five variations of the MVP's score.
+    const missingTone = selected.length === 1 ? selected[0].tone === 'praise' ? 'roast' : 'praise' : null
+    const pick = eligible.find((c) => c.tone === missingTone && unseen(c))
+      ?? eligible.find((c) => c.tone === missingTone)
+      ?? eligible.find(unseen)
+      ?? eligible[0]
+    selected.push(pick)
+    ranked.splice(ranked.indexOf(pick), 1)
+  }
+  return selected.map((x) => x.award)
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,9 +1152,10 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
 
   // ratings: every participant, as seen from this browser
   const ps = rec.participants
-  const before = ps.map((p) => db.ratings[p.profileId]?.rating ?? ELO_START)
-  const after = eloUpdate(before, (i, j) => pairOutcome(rec, ps[i], ps[j]))
-  ps.forEach((p, i) => {
+  const rated = ps.filter(hasProfileIdentity)
+  const before = rated.map((p) => db.ratings[p.profileId]?.rating ?? ELO_START)
+  const after = eloUpdate(before, (i, j) => pairOutcome(rec, rated[i], rated[j]))
+  rated.forEach((p, i) => {
     const r = db.ratings[p.profileId]
     db.ratings[p.profileId] = {
       profileId: p.profileId,
@@ -1137,7 +1200,7 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
     const pair = (list: [PlayerId, PlayerId, number][], a: PlayerId, b: PlayerId) =>
       list.find(([x, y]) => x === a && y === b)?.[2] ?? 0
     for (const o of ps) {
-      if (o === me || o.profileId === selfProfileId) continue
+      if (o === me || o.profileId === selfProfileId || !hasProfileIdentity(o)) continue
       const e: Encounter = db.encounters[o.profileId] ?? cleanEncounter(o.profileId, { firstSeen: rec.date })!
       e.games++
       if (me.won && !o.won) e.wins++
@@ -1156,6 +1219,29 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
     }
   }
 
+  saveDb(kv, db)
+  for (const cb of listeners) cb()
+}
+
+/** Refresh current display labels by stable ID; recorded match labels stay historical. */
+export function updateProfileNames(profiles: readonly { profileId: string; name: string }[], kv: KV | null = safeLocalStorage()): void {
+  if (!profiles.length) return
+  const db = loadDb(kv)
+  let changed = false
+  for (const p of profiles) {
+    if (!p.profileId || p.profileId.startsWith('anon:')) continue
+    const rating = db.ratings[p.profileId]
+    if (rating && rating.name !== p.name) {
+      rating.name = p.name
+      changed = true
+    }
+    const encounter = db.encounters[p.profileId]
+    if (encounter && encounter.lastName !== p.name) {
+      encounter.lastName = p.name
+      changed = true
+    }
+  }
+  if (!changed) return
   saveDb(kv, db)
   for (const cb of listeners) cb()
 }

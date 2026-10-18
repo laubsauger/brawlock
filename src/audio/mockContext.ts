@@ -141,6 +141,9 @@ export class MockAudioContext {
       playbackRate: new MockParam(1),
     })
   }
+  createMediaElementSource(_media: HTMLMediaElement) {
+    return new MockNode(this, 'media')
+  }
   createWaveShaper() {
     return Object.assign(new MockNode(this, 'shaper'), { curve: null, oversample: 'none' })
   }

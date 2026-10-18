@@ -18,7 +18,7 @@
  *   c       [tick - from, player, connected 0|1]: the `connected` patch applied before a step
  *   h       [tick, hash] of the newest checkpoint state (every HASH_EVERY ticks)
  */
-import { TICK_HZ, type InputCommand, type PlayerId, type PlayerInput } from '../sim/types'
+import { TICK_HZ, type InputCommand, type PlayerId, type PlayerInput, type PlayerSlot } from '../sim/types'
 
 const DT_MS = 1000 / TICK_HZ
 
@@ -43,11 +43,14 @@ export interface StreamTick {
   /** per input player: the highest own input seq applied (client players only) */
   acks?: Map<PlayerId, number>
   patches?: [PlayerId, boolean][]
+  /** Seat identity changes, applied before this step; team remains the current match team. */
+  slots?: PlayerSlot[]
 }
 
 export type WireCmd = unknown[] | InputCommand
 export type WireInput = [number, PlayerId, WireCmd[], number?]
 export type WirePatch = [number, PlayerId, 0 | 1]
+export type WireSlot = [number, PlayerSlot]
 
 /**
  * Compact command form for the stream: the frequent kinds as positional arrays
@@ -123,7 +126,7 @@ export class StreamHistory {
     const s0 = this.start
     for (let t = Math.max(from, s0); t < to; t++) {
       const st = this.steps[t - s0]
-      if (st && (st.inputs.length || st.patches)) return true
+      if (st && (st.inputs.length || st.patches || st.slots)) return true
     }
     return false
   }
@@ -134,9 +137,10 @@ export class StreamHistory {
   }
 
   /** Wire arrays for steps [from, to). */
-  slice(from: number, to: number): { i: WireInput[]; c: WirePatch[] } {
+  slice(from: number, to: number): { i: WireInput[]; c: WirePatch[]; s: WireSlot[] } {
     const i: WireInput[] = []
     const c: WirePatch[] = []
+    const s: WireSlot[] = []
     const s0 = this.start
     for (let t = Math.max(from, s0); t < to; t++) {
       const st = this.steps[t - s0]
@@ -147,8 +151,9 @@ export class StreamHistory {
         i.push(q === undefined ? [t - from, inp.player, cmds] : [t - from, inp.player, cmds, q])
       }
       if (st.patches) for (const [id, on] of st.patches) c.push([t - from, id, on ? 1 : 0])
+      if (st.slots) for (const slot of st.slots) s.push([t - from, slot])
     }
-    return { i, c }
+    return { i, c, s }
   }
 }
 
@@ -171,7 +176,7 @@ export class StreamFeed {
   }
 
   /** A packet's steps [from, to); `inputs` / `patches` as decoded from the wire. */
-  accept(from: number, to: number, inputs: WireInput[], patches: WirePatch[]): void {
+  accept(from: number, to: number, inputs: WireInput[], patches: WirePatch[], slots: WireSlot[] = []): void {
     if (to <= this.next || to <= from) return
     const lo = Math.max(from, this.next)
     const fresh: Map<number, StreamTick> = new Map()
@@ -196,6 +201,11 @@ export class StreamFeed {
       if (!Array.isArray(w) || typeof w[0] !== 'number' || typeof w[1] !== 'number') continue
       const st = fresh.get(from + w[0])
       if (st) (st.patches ??= []).push([w[1], w[2] === 1])
+    }
+    for (const w of slots) {
+      if (!Array.isArray(w) || typeof w[0] !== 'number' || !w[1] || !Number.isInteger(w[1].id)) continue
+      const st = fresh.get(from + w[0])
+      if (st) (st.slots ??= []).push(w[1])
     }
     for (const [t, st] of fresh) this.steps.set(t, st)
     this.cover(lo, to)

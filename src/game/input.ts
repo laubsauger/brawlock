@@ -32,7 +32,7 @@
 import type { InputCommand } from '../sim/types'
 import { attr, masteryFactor, spellDef } from '../sim'
 import { frame } from './frame'
-import { cycle, inspectStore, isSpectating, livingPlayers, ownerOfPawn, pickPawnAt } from './inspect'
+import { canInspect, cycle, inspectStore, isSpectating, livingPlayers, ownerOfPawn, pickPawnAt } from './inspect'
 import { useGame, type CastMode } from './store'
 import { actionForCode, currentBinds, isTypingTarget, type BindAction } from '../ui/lib/keys'
 
@@ -182,6 +182,7 @@ export function inspectClick(clientX: number, clientY: number): void {
     inspectStore.set({ inspect: -1 })
     return
   }
+  if (!canInspect(frame.curr, frame.localPlayer, who)) return
   inspectStore.toggleInspect(who)
   if (isSpectating(frame.curr, frame.localPlayer) && who !== frame.localPlayer) inspectStore.set({ follow: who })
 }

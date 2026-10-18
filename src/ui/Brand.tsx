@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { MenuBackdropSlot } from './renderBridge'
 
 /**
@@ -16,18 +16,18 @@ export function Wordmark({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
     )
   }
   // lg follows the screen height too, so the main menu fits on short screens (1280x720 with the server options)
-  const width = { sm: '220px', md: '340px', lg: 'min(470px, 82vw, 52vh)', xl: 'min(640px, 86vw)' }[size]
+  const width = { sm: '220px', md: '340px', lg: 'min(520px, 84vw, 58vh)', xl: 'min(640px, 86vw)' }[size]
+  const src = `${import.meta.env.BASE_URL}brand/wordmark.webp`
   return (
-    <h1 className="m-0 leading-none">
+    <h1 className={`brand-mark m-0 max-w-[calc(100vw-48px)] leading-none ${size === 'lg' ? 'brand-mark-live' : ''}`} style={{ width, '--brand-image': `url("${src}")` } as CSSProperties}>
       <img
-        src={`${import.meta.env.BASE_URL}brand/wordmark.webp`}
+        src={src}
         width={1200}
         height={364}
         alt="Brawlock"
         draggable={false}
         onError={() => setFailed(true)}
-        className="block h-auto select-none"
-        style={{ width, filter: 'drop-shadow(0 8px 30px rgba(0,0,0,.7)) drop-shadow(0 0 24px rgba(255,100,20,.22))' }}
+        className="block h-auto w-full select-none"
       />
     </h1>
   )

@@ -13,6 +13,7 @@
  * - walk model per tick: v -= walk_prev; v *= friction; walk = derived; v += walk.
  */
 import { DT } from './types'
+import { placeSpectateBet } from './bets'
 import type { InputCommand, PawnState, PlayerId, SimState } from './types'
 import { ARRIVE_EPSILON, CAST_TURN_LIMIT_TICKS, FACING_TOLERANCE, PAWN_WALK_SPEED_CAP, SLOT_COUNT, TURN_PER_TICK, ticks } from './config'
 import { angleDiff, atan2, wrapAngle } from './math'
@@ -102,6 +103,9 @@ export function applyCommand(state: SimState, player: PlayerId, pawn: PawnState,
       return
     case 'buyMastery':
       buyMastery(state, player, cmd.mastery)
+      return
+    case 'spectateBet':
+      placeSpectateBet(state, player, cmd.round, cmd.target)
       return
   }
 }

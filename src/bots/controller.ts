@@ -98,6 +98,10 @@ const BUBBLE_MARGIN = 0.05
 const NOT_STOLEN = new Set(['boomerang', 'link'])
 /** a typical bolt's radius (Fireball 25) plus a little slack, for the sidestep it takes */
 const SHOT_RADIUS = 35
+/** FFA: a new target must score this much better than the current one to switch */
+const RETARGET_MARGIN = 0.3
+/** FFA: smooth local pressure; this is a falloff scale, never a spacing constraint. */
+const CROWD_FALLOFF = 350
 
 export type BotAction =
   | 'idle'
@@ -149,6 +153,16 @@ export class BotController implements Bot {
   /** Last decision taken, for tests and debug overlays. */
   lastAction: BotAction = 'idle'
 
+  /** The player this bot is after (tests, the FFA harness, debug overlays). */
+  get targetPlayer(): PlayerId | null {
+    return this.target
+  }
+
+  /** Make committed future orders available to the host without exposing the mutable queue. */
+  scheduled(): readonly { at: number; cmds: InputCommand[] }[] {
+    return this.queue.map((frame) => ({ at: frame.at, cmds: frame.cmds.map((command) => ({ ...command })) }))
+  }
+
   private readonly rng: Rng
   private readonly thinkTicks: number
   private readonly delayTicks: number
@@ -171,6 +185,14 @@ export class BotController implements Bot {
   private readonly failedBuys = new Set<SpellId>()
   /** per enemy: tick its Shield was last raised (seen), to know when it can be up again */
   private readonly shieldCast = new Map<PlayerId, number>()
+  /**
+   * Seeded per-bot personality for FFA (its own stream: the decision rng is untouched):
+   * grudge (go after whoever hit us), opportunism (third-party pushes), risk (crowds, low
+   * HP), and attachment to the current fight.
+   */
+  private readonly persona: { grudge: number; opportunism: number; risk: number; focus: number }
+  /** Recent observed damage, independent of the sim's permanent kill-credit lastHitter. */
+  private recentHit: { owner: PlayerId; tick: number } | null = null
 
   constructor(player: PlayerId, difficulty: BotDifficulty, seed: number, params: BotParams = BOT_PRESETS[difficulty]) {
     this.player = player
@@ -179,13 +201,24 @@ export class BotController implements Bot {
     this.rng = new Rng(botSeed(seed, player))
     this.thinkTicks = Math.max(1, secToTicks(params.thinkInterval))
     this.delayTicks = Math.max(0, secToTicks(params.reactionDelay))
+    const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
+    this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
   }
 
   think(state: SimState): InputCommand[] {
     if (!this.params.active) return []
     if (state.tick < this.lastTick) this.reset()
+    if (state.tick !== this.lastTick && state.phase === 'fight') {
+      const me = state.pawns.find((pawn) => pawn.owner === this.player)
+      for (const event of state.events) {
+        if (event.type === 'damage' && event.target === me?.id && event.source !== null && areEnemies(state, this.player, event.source)) {
+          this.recentHit = { owner: event.source, tick: state.tick }
+        }
+      }
+    }
     this.lastTick = state.tick
     if (state.phase !== this.lastPhase) {
+      if (state.phase !== 'fight') this.recentHit = null
       if (state.phase === 'shop') this.failedBuys.clear()
       this.lastPhase = state.phase
     }
@@ -225,6 +258,7 @@ export class BotController implements Bot {
     this.pendingBuy = null
     this.failedBuys.clear()
     this.shieldCast.clear()
+    this.recentHit = null
   }
 
   private decide(state: SimState): InputCommand[] {
@@ -318,8 +352,13 @@ export class BotController implements Bot {
     }
 
     // 3. Retarget: lost target or 1/5 chance -> closest enemy (edgePressure: best kill chance).
+    // With several enemies (FFA): local opportunities with score hysteresis (see pickTarget).
     const current = this.target === null ? null : state.pawns.find((o) => o.owner === this.target)
-    if (!current || !current.alive || !areEnemies(state, this.player, current.owner) || this.rng.chance(p.retargetChance)) {
+    const lost = !current || !current.alive || !areEnemies(state, this.player, current.owner)
+    if (enemies.length >= 2) {
+      const pick = this.pickTarget(state, me, enemies, lost ? null : current, threats)
+      this.target = pick ? pick.owner : null
+    } else if (lost || this.rng.chance(p.retargetChance)) {
       const pick = p.edgePressure ? this.killTarget(state, me, enemies) : closest
       this.target = pick ? pick.owner : null
     }
@@ -663,6 +702,63 @@ export class BotController implements Bot {
     return out
   }
 
+  /** Local opportunities plus score hysteresis: a better fight can win immediately, while
+   * small score fluctuations do not flip targets. No minimum or maximum chase duration. */
+  private pickTarget(state: SimState, me: PawnState, enemies: PawnState[], current: PawnState | null, threats: ProjectileState[]): PawnState | null {
+    let best: PawnState | null = null
+    let bestScore = -Infinity
+    for (const enemy of enemies) {
+      const proximity = 1 / (1 + (dist(me, enemy) / 750) ** 2)
+      const attachment = enemy === current ? RETARGET_MARGIN * this.persona.focus * proximity : 0
+      const score = this.opportunity(state, me, enemy, threats) + attachment
+      if (score > bestScore) {
+        bestScore = score
+        best = enemy
+      }
+    }
+    return best
+  }
+
+  /** How good a target `e` is for us right now (FFA). Higher is better; distance dominates at targetSense 0. */
+  private opportunity(state: SimState, me: PawnState, e: PawnState, threats: ProjectileState[]): number {
+    const p = this.params
+    const d = dist(me, e)
+    const near = 1 / (1 + (d / 750) ** 2)
+    const sense = p.targetSense
+    // Nearby bodies imply competition and crossfire, continuously rather than a headcount
+    // inside a radius. Saturation leaves an excellent contested finish worth taking.
+    let engaged = 0
+    for (const other of state.pawns) if (other.alive && other !== me && other !== e) {
+      engaged += 1 / (1 + (dist(other, e) / CROWD_FALLOFF) ** 2)
+    }
+    const contested = (engaged / (1 + engaged)) * (0.65 - 0.25 * this.persona.risk)
+    if (sense <= 0) return near
+    const r = layerRadius(state.arena.layer)
+    const edge = Math.max(0, Math.min(1, 1 - (r - Math.hypot(e.x, e.y)) / 600))
+    // a kill chance across the map is worth less: by the time we get there it has moved on
+    const kill = Math.min(1, (edge * 1.2 + e.kbPoints / 600 + (1 - e.hp / Math.max(1, e.maxHp)) * 0.3) / 2) * (1 - 0.6 * Math.min(1, d / 1500))
+    const speed = Math.hypot(e.vx, e.vy)
+    const easyHit = 1 - Math.min(1, speed / 320)
+    // who threatens us: close, or with a bolt on its way to us
+    let threat = Math.max(0, 1 - d / 500)
+    for (const pr of threats) {
+      if (pr.owner !== e.owner) continue
+      const v = Math.hypot(pr.vx, pr.vy)
+      if (v < 1) continue
+      const rx = me.x - pr.x
+      const ry = me.y - pr.y
+      if ((rx * pr.vx + ry * pr.vy) / v > 0 && Math.abs(rx * pr.vy - ry * pr.vx) / v < 120) threat = 1
+    }
+    const grudge = this.recentHit?.owner === e.owner ? this.persona.grudge * Math.exp(-(state.tick - this.recentHit.tick) / (4 * TICK_HZ)) : 0
+    // third-party push: already flying from someone's hit, toward the edge
+    const kb = Math.hypot(e.vx - e.walkVx, e.vy - e.walkVy)
+    const outward = Math.hypot(e.x, e.y) > 1 ? ((e.vx - e.walkVx) * e.x + (e.vy - e.walkVy) * e.y) / Math.hypot(e.x, e.y) : 0
+    const push = outward > 0 ? Math.min(1, kb / 600) * (0.4 + 0.6 * edge) * this.persona.opportunism : 0
+    const killWeight = p.edgePressure ? 1 : 0.3
+    const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near
+    return near + sense * (extra - contested)
+  }
+
   /** Remember when each enemy raised its Shield (from the bubble and its time left). */
   private watchShields(enemies: PawnState[], tick: number): void {
     const def = spellDef('shield')
@@ -926,38 +1022,44 @@ export class BotController implements Bot {
     const tries = p.safeWander ? 12 : 1
     let point: Vec2 | null = null
     let delay = 0.6
-    if (p.edgePressure && target) {
-      // hold the arena-centre side of the target at shooting range, so hits push it out
-      const tl = Math.hypot(target.x, target.y)
-      const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
-      const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
-      for (let i = 0; i < 6 && !point; i++) {
-        const a = this.rng.range(-0.5, 0.5)
-        const r = this.rng.range(450, 650)
-        const c = Math.cos(a)
-        const sn = Math.sin(a)
-        const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
-        if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
+    const enemies = state.pawns.filter((other) => other.alive && areEnemies(state, this.player, other.owner))
+    if (enemies.length >= 2) {
+      point = this.pickFfaWander(state, me, target, enemies, safety)
+      delay = this.rng.range(0.4, 0.8)
+    } else {
+      if (p.edgePressure && target) {
+        // hold the arena-centre side of the target at shooting range, so hits push it out
+        const tl = Math.hypot(target.x, target.y)
+        const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
+        const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
+        for (let i = 0; i < 6 && !point; i++) {
+          const a = this.rng.range(-0.5, 0.5)
+          const r = this.rng.range(450, 650)
+          const c = Math.cos(a)
+          const sn = Math.sin(a)
+          const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
+          if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
+        }
+        delay = this.rng.range(0.3, 0.6)
       }
-      delay = this.rng.range(0.3, 0.6)
-    }
-    for (let i = 0; i < tries && !point; i++) {
-      let centre: Vec2
-      let radius: number
-      if (target && this.rng.chance(WANDER_NEAR_TARGET_CHANCE)) {
-        centre = target
-        radius = WANDER_NEAR_TARGET_RADIUS
-        delay = this.rng.range(0.2, 0.4)
-      } else {
-        centre = { x: 0, y: 0 }
-        radius = WANDER_CENTRE_FACTOR * state.arena.layer * TILE_SIZE
-        delay = this.rng.range(0.4, 0.8)
+      for (let i = 0; i < tries && !point; i++) {
+        let centre: Vec2
+        let radius: number
+        if (target && this.rng.chance(WANDER_NEAR_TARGET_CHANCE)) {
+          centre = target
+          radius = WANDER_NEAR_TARGET_RADIUS
+          delay = this.rng.range(0.2, 0.4)
+        } else {
+          centre = { x: 0, y: 0 }
+          radius = WANDER_CENTRE_FACTOR * state.arena.layer * TILE_SIZE
+          delay = this.rng.range(0.4, 0.8)
+        }
+        const a = this.rng.range(0, Math.PI * 2)
+        const r = this.rng.range(0, radius)
+        const cand = { x: centre.x + Math.cos(a) * r, y: centre.y + Math.sin(a) * r }
+        if (inPillar(state, cand.x, cand.y)) continue
+        if (!p.safeWander || isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
       }
-      const a = this.rng.range(0, Math.PI * 2)
-      const r = this.rng.range(0, radius)
-      const cand = { x: centre.x + Math.cos(a) * r, y: centre.y + Math.sin(a) * r }
-      if (inPillar(state, cand.x, cand.y)) continue
-      if (!p.safeWander || isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
     }
     if (!point) {
       point = nearestTileCentre(safety, me.x, me.y, true) ??
@@ -965,6 +1067,46 @@ export class BotController implements Bot {
     }
     this.wander = point
     this.nextWanderTick = state.tick + secToTicks(delay)
+  }
+
+  /** Trade firing position, travel and local danger; crowding and low health change the
+   * utility of a position, never impose a minimum separation or a forced retreat. */
+  private pickFfaWander(state: SimState, me: PawnState, target: PawnState | null, enemies: PawnState[], safety: number): Vec2 | null {
+    const p = this.params
+    const caution = (1 - me.hp / Math.max(1, me.maxHp)) * (1 - this.persona.risk)
+    const shootingRange = 480 + caution * 220
+    const threats = state.projectiles.filter((shot) => areEnemies(state, this.player, shot.owner))
+    let best: Vec2 | null = null
+    let bestScore = -Infinity
+    const consider = (point: Vec2) => {
+      if (inPillar(state, point.x, point.y) || (p.safeWander && !isSafeWithMargin(safety, point.x, point.y, p.edgeMargin))) return
+      let pressure = 0
+      for (const enemy of enemies) pressure += 1 / (1 + (dist(point, enemy) / CROWD_FALLOFF) ** 2)
+      const range = target ? dist(point, target) : 0
+      const firing = target ? 1 / (1 + ((range - shootingRange) / 400) ** 2) : 0
+      const travel = dist(me, point) / 1500
+      const danger = Math.min(1, this.dangerHere(state, threats, point.x, point.y) / 1000)
+      let pushAngle = 0
+      if (p.edgePressure && target) {
+        const radius = Math.hypot(target.x, target.y)
+        if (radius > 1) pushAngle = ((target.x - point.x) * target.x + (target.y - point.y) * target.y) / (radius * Math.max(1, range))
+      }
+      const score = firing + pushAngle * 0.2 - pressure * (0.2 + caution * 0.5) - travel * 0.25 - danger * 0.6
+      if (score > bestScore) {
+        bestScore = score
+        best = point
+      }
+    }
+    // Include holding ground: moving is useful only when another position scores better.
+    consider({ x: me.x, y: me.y })
+    for (let i = 0; i < 12; i++) {
+      const angle = this.rng.range(0, Math.PI * 2)
+      const aroundTarget = target && i < 6
+      const centre = aroundTarget ? target : me
+      const radius = aroundTarget ? this.rng.range(300, 850) : this.rng.range(180, 600)
+      consider({ x: centre.x + Math.cos(angle) * radius, y: centre.y + Math.sin(angle) * radius })
+    }
+    return best
   }
 
   /**

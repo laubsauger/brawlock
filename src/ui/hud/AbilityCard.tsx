@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { SpellId } from '../../sim'
+import { frame } from '../../game/frame'
+import { inspectedLoadout } from '../../game/inspect'
 import { Sigil } from '../icons'
 import { COLUMNS, MASTERIES, MASTERY_COST, MASTERY_HUE, MASTERY_MAX_LEVEL, displayName, hueFor, isPassive, itemDef, masteryValue, spellDef, type MasteryId } from '../data/catalog'
-import { abilityDelta, maxLevelOf, type StatDelta } from '../data/abilityStats'
+import { abilityDelta, abilityStats, maxLevelOf, type AbilityStat, type AbilityStatContext, type StatDelta } from '../data/abilityStats'
 import { slotKeyLabel, useBinds } from '../lib/keys'
 import { usePolled } from '../lib/ticker'
 import { localView } from '../lib/view'
@@ -19,9 +21,9 @@ import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type 
  * the price. One card for the whole match screen, portaled to <body>,
  * placed so it never covers what you point at and never leaves the screen.
  *
- * Timing: appears after SHOW_DELAY_MS; moving straight to another card
- * switches content at once (no delay, no flicker); leaving hides it after a
- * short grace.
+ * Timing: pointer targets settle after SHOW_DELAY_MS so crossing icons on
+ * the way into the details keeps the current card. Keyboard focus switches
+ * immediately; leaving hides it after a short grace.
  */
 
 export type CardKind = 'spell' | 'item' | 'mastery'
@@ -38,6 +40,8 @@ export interface CardTarget {
   slot?: number
   /** inspect: that warlock's level of it */
   level?: number
+  /** inspect: owner, used to recheck visibility and read the same revealed build on every update */
+  player?: number
   side: CardSide
   /** anchor rect and the edge to sit beside (viewport px), read once on hover */
   anchor: { left: number; top: number; right: number; bottom: number }
@@ -47,7 +51,7 @@ export interface CardTarget {
 }
 
 const SHOW_DELAY_MS = 150
-const HIDE_GRACE_MS = 90
+const HIDE_GRACE_MS = 220
 const GAP = 10
 const MARGIN = 8
 /** px kept free at the top for the clock and score row (when the card fits below it) */
@@ -57,6 +61,22 @@ let target: CardTarget | null = null
 const subs = new Set<() => void>()
 let showTimer = 0
 let hideTimer = 0
+let anchorElement: HTMLElement | null = null
+let cardElement: HTMLDivElement | null = null
+
+function keepAbilityCard() {
+  window.clearTimeout(showTimer)
+  window.clearTimeout(hideTimer)
+}
+
+function leaveAbilityCard() {
+  window.clearTimeout(showTimer)
+  window.clearTimeout(hideTimer)
+  hideTimer = window.setTimeout(() => {
+    if (cardElement?.contains(document.activeElement) || cardElement?.matches(':hover')) return
+    set(null)
+  }, HIDE_GRACE_MS)
+}
 
 function set(t: CardTarget | null) {
   target = t
@@ -85,7 +105,7 @@ function rectOf(el: Element) {
  * `edgeOf`: element whose side the card sits beside (the dock), else the element itself.
  */
 export function abilityCardProps(get: () => Omit<CardTarget, 'anchor' | 'edge'> | null) {
-  const open = (el: HTMLElement) => {
+  const open = (el: HTMLElement, focused = false) => {
     const t = get()
     if (!t) return
     // the clip index loads on the first hover, while the card's show delay runs
@@ -97,23 +117,32 @@ export function abilityCardProps(get: () => Omit<CardTarget, 'anchor' | 'edge'> 
     const d = dock ? rectOf(dock) : anchor
     const plate = t.side === 'bar' ? el.closest('.hud-bottom') : null
     const next: CardTarget = { ...t, anchor, edge: t.side === 'left' ? d.left : t.side === 'right' ? d.right : anchor.top, ...(plate ? { bar: rectOf(plate) } : null) }
-    // already showing a card: switch right away so moving along a row never blinks
-    if (target) set(next)
-    else showTimer = window.setTimeout(() => set(next), SHOW_DELAY_MS)
-  }
-  const close = () => {
-    window.clearTimeout(showTimer)
-    window.clearTimeout(hideTimer)
-    hideTimer = window.setTimeout(() => set(null), HIDE_GRACE_MS)
+    const activate = () => {
+      anchorElement = el
+      set(next)
+    }
+    // Crossing other icons on the way into these details must not replace
+    // them. A deliberate hover settles after the same short initial delay;
+    // keyboard focus and returning to the active anchor remain immediate.
+    if (focused || (target && anchorElement === el)) activate()
+    else showTimer = window.setTimeout(activate, SHOW_DELAY_MS)
   }
   return {
     onPointerEnter: (e: ReactPointerEvent<HTMLElement>) => {
       if (e.pointerType === 'touch' || e.buttons) return
       open(e.currentTarget)
     },
-    onPointerLeave: close,
-    onFocus: (e: FocusEvent<HTMLElement>) => open(e.currentTarget),
-    onBlur: close,
+    onPointerLeave: leaveAbilityCard,
+    onFocus: (e: FocusEvent<HTMLElement>) => open(e.currentTarget, true),
+    onBlur: leaveAbilityCard,
+    onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => {
+      // The table is reachable without moving across other shop icons.
+      if (e.key === 'Tab' && !e.shiftKey && target && cardElement) {
+        e.preventDefault()
+        keepAbilityCard()
+        cardElement.focus()
+      }
+    },
   }
 }
 
@@ -132,6 +161,7 @@ interface CardModel {
   max: number
   passive: boolean
   stats: StatDelta[]
+  progression: { level: number; stats: AbilityStat[] }[]
   desc: string
   /** shop: what clicking does and what it costs, or why it can't */
   action?: { text: string; price: number | null; tone: 'ok' | 'muted' | 'warn' }
@@ -173,7 +203,11 @@ const pct = (id: MasteryId, lvl: number) => {
 
 function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | null {
   const view = localView()
-  const rangeLvl = view?.score?.masteries.range ?? 0
+  const kit = t.context === 'inspect' && t.player != null ? inspectedLoadout(frame.curr, frame.localPlayer, t.player)?.kit : null
+  if (t.context === 'inspect' && (!kit || t.slot == null || kit.slots[t.slot] !== t.id)) return null
+  const context: AbilityStatContext = t.context === 'inspect'
+    ? { masteries: kit!.masteries, loadout: kit!, damageMultiplier: frame.curr!.settings.dmgMultiplier, knockbackMultiplier: frame.curr!.settings.kbMultiplier }
+    : { masteries: view?.score?.masteries, loadout: view?.pawn ?? undefined, modifiers: view?.pawn?.modifiers, damageMultiplier: view?.state.settings.dmgMultiplier, knockbackMultiplier: view?.state.settings.kbMultiplier }
   if (t.kind === 'mastery') {
     const shop = readShop()
     if (t.id === 'all') {
@@ -190,6 +224,7 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
           const lvl = shop.masteries[m.id]
           return { label: m.name, value: pct(m.id, lvl), next: lvl < MASTERY_MAX_LEVEL ? pct(m.id, lvl + 1) : undefined }
         }),
+        progression: [],
         desc: 'One level of every mastery for less than buying them one by one.',
         action: actionOf(o),
       }
@@ -207,6 +242,7 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
       max: MASTERY_MAX_LEVEL,
       passive: false,
       stats: [{ label: m.name, value: pct(m.id, lvl), next: lvl < MASTERY_MAX_LEVEL ? pct(m.id, lvl + 1) : undefined }],
+      progression: Array.from({ length: MASTERY_MAX_LEVEL }, (_, i) => ({ level: i + 1, stats: [{ label: m.name, value: pct(m.id, i + 1) }] })),
       desc: m.desc,
       action: o.price != null || o.state !== 'ok' ? actionOf({ ...o, price: o.price ?? MASTERY_COST }) : undefined,
     }
@@ -219,7 +255,7 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
   let level = 0
   let action: CardModel['action']
   if (t.context === 'inspect') {
-    level = t.level ?? 1
+    level = kit!.levels[t.slot!]
   } else if (t.context === 'hud' && t.slot != null) {
     level = view?.pawn?.levels[t.slot] ?? 1
   } else {
@@ -246,7 +282,8 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
     max,
     passive,
     // shop: the next level's change; HUD: just what you have now
-    stats: t.context === 'shop' ? abilityDelta(id, level, max, rangeLvl) : abilityDelta(id, level, level, rangeLvl),
+    stats: t.context === 'shop' ? abilityDelta(id, level, max, context) : abilityDelta(id, level, level, context),
+    progression: max > 1 ? Array.from({ length: max }, (_, i) => ({ level: i + 1, stats: abilityStats(id, i + 1, context) })) : [],
     desc: sDef?.desc ?? iDef?.desc ?? '',
     action,
     keyLabel: t.slot != null && !passive && t.context === 'hud' ? keyOf(t.slot) : undefined,
@@ -259,10 +296,10 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
 
 /** Card position for a size: beside the dock edge or above the anchor, flipped and clamped to the viewport. */
 export function placeCard(t: Pick<CardTarget, 'side' | 'anchor' | 'edge' | 'bar'>, w: number, h: number, vw: number, vh: number): { x: number; y: number } {
-  const clampX = (x: number) => Math.min(Math.max(MARGIN, x), vw - w - MARGIN)
+  const clampX = (x: number) => Math.max(MARGIN, Math.min(x, vw - w - MARGIN))
   // stay below the clock and score row when the screen is tall enough for it
   const top = Math.max(MARGIN, Math.min(TOP_HUD, vh - h - MARGIN))
-  const clampY = (y: number) => Math.min(Math.max(top, y), vh - h - MARGIN)
+  const clampY = (y: number) => Math.max(top, Math.min(y, vh - h - MARGIN))
   const a = t.anchor
   const midY = (a.top + a.bottom) / 2
   if (t.side === 'bar' && t.bar) {
@@ -274,25 +311,25 @@ export function placeCard(t: Pick<CardTarget, 'side' | 'anchor' | 'edge' | 'bar'
     const clear = (x: number) => !(x < vw / 2 && vw / 2 < x + w && y < vh / 2 && vh / 2 < y + h)
     const leftX = b.left - GAP - w
     const rightX = b.right + GAP
-    if (leftX >= MARGIN && clear(leftX)) return { x: leftX, y }
-    if (rightX + w <= vw - MARGIN && clear(rightX)) return { x: rightX, y }
+    if (leftX >= MARGIN && leftX + w <= vw - MARGIN && clear(leftX)) return { x: leftX, y }
+    if (rightX >= MARGIN && rightX + w <= vw - MARGIN && clear(rightX)) return { x: rightX, y }
     const aboveY = b.top - GAP - h
-    if (aboveY >= top) return { x: clampX(b.right - w), y: aboveY }
-    if (leftX >= MARGIN) return { x: leftX, y }
+    if (aboveY >= top) return { x: clampX(b.right - w), y: clampY(aboveY) }
+    if (leftX >= MARGIN) return { x: clampX(leftX), y }
   }
   if (t.side === 'left' || t.side === 'right') {
     // beside the dock, level with the card; flip to the other side if there is no room
     const leftX = t.edge - GAP - w
     const rightX = t.edge + GAP
-    const fitsLeft = leftX >= MARGIN
-    const fitsRight = rightX + w <= vw - MARGIN
+    const fitsLeft = leftX >= MARGIN && leftX + w <= vw - MARGIN
+    const fitsRight = rightX >= MARGIN && rightX + w <= vw - MARGIN
     const x = t.side === 'left' ? (fitsLeft ? leftX : fitsRight ? rightX : null) : fitsRight ? rightX : fitsLeft ? leftX : null
     if (x !== null) return { x, y: clampY(midY - h / 2) }
   }
   // above the anchor, else below it; horizontally centred on it
   const x = clampX((a.left + a.right) / 2 - w / 2)
   const above = a.top - GAP - h
-  if (above >= MARGIN) return { x, y: above }
+  if (above >= MARGIN) return { x, y: clampY(above) }
   const below = a.bottom + GAP
   if (below + h <= vh - MARGIN) return { x, y: below }
   return { x, y: clampY(above) }
@@ -351,40 +388,74 @@ export function AbilityCardHost() {
   // (shop cards stay up while you click to buy, so the new level shows at once)
   useEffect(() => {
     if (t?.context !== 'hud') return
-    const onDown = () => hideAbilityCard()
+    const onDown = (e: PointerEvent) => {
+      if (e.target instanceof Node && cardElement?.contains(e.target)) return
+      hideAbilityCard()
+    }
     window.addEventListener('pointerdown', onDown, true)
     return () => window.removeEventListener('pointerdown', onDown, true)
   }, [t?.context])
   if (!t) return null
   // keyed by what it shows: a new target mounts fresh, so it never shows the previous card's numbers
-  return createPortal(<Card key={`${t.kind}:${t.id}:${t.slot ?? ''}:${t.context}:${t.level ?? ''}`} t={t} />, document.body)
+  return createPortal(<AbilityCardPanel key={`${t.kind}:${t.id}:${t.slot ?? ''}:${t.context}:${t.player ?? ''}:${t.level ?? ''}`} t={t} />, document.body)
 }
 
-function Card({ t }: { t: CardTarget }) {
+export function AbilityCardPanel({ t }: { t: CardTarget }) {
   const binds = useBinds()
   // live: buying or levelling up while the card is open updates it
-  const model = usePolled(
+  usePolled(
     () => modelFor(t, (s) => slotKeyLabel(binds, s)),
     (m) => JSON.stringify(m),
     8,
   )
+  const model = modelFor(t, (s) => slotKeyLabel(binds, s))
+  const modelKey = JSON.stringify(model)
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   // measure once per target / content change (hover only, never per frame)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const p = placeCard(t, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight)
-    setPos((old) => (old && Math.abs(old.x - p.x) < 0.5 && Math.abs(old.y - p.y) < 0.5 ? old : p))
-  }, [t, model])
+    const measure = () => {
+      const p = placeCard(t, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight)
+      setPos((old) => (old && Math.abs(old.x - p.x) < 0.5 && Math.abs(old.y - p.y) < 0.5 ? old : p))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [t, modelKey])
   if (!model) return null
-  const levelText = model.max > 1 ? (model.level > 0 ? `Level ${model.level} of ${model.max}` : `${model.max} levels`) : null
+  const levelText = model.max > 1 ? (model.level > 0 ? `Owned level ${model.level} of ${model.max}` : `Not owned · ${model.max} levels`) : null
+  const progression = [...new Set(model.progression.flatMap((level) => level.stats.map((s) => s.label)))].map((label) => ({
+    label,
+    values: model.progression.map((level) => level.stats.find((s) => s.label === label)?.value ?? '—'),
+  })).filter((row) => new Set(row.values).size > 1)
+  const notes = [...new Set([...model.stats, ...model.progression.flatMap((level) => level.stats)].map((s) => s.note).filter(Boolean))]
   return (
     <div
-      ref={ref}
-      className="ability-card panel pointer-events-none fixed top-0 left-0 z-[80]"
-      style={{ ['--hue' as string]: model.hue, transform: pos ? `translate(${Math.round(pos.x)}px, ${Math.round(pos.y)}px)` : undefined, visibility: pos ? 'visible' : 'hidden' }}
-      role="tooltip"
+      ref={(el) => { ref.current = el; cardElement = el }}
+      className="ability-card panel pointer-events-auto fixed top-0 left-0 z-[80]"
+      style={{ ['--hue' as string]: model.hue, transform: pos ? `translate(${Math.round(pos.x)}px, ${Math.round(pos.y)}px)` : undefined, visibility: pos ? 'visible' : 'hidden', maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100dvh - 16px)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarWidth: 'thin' }}
+      role="region"
+      aria-label={`${model.name} ability details`}
+      tabIndex={-1}
+      onPointerEnter={keepAbilityCard}
+      onPointerLeave={leaveAbilityCard}
+      onFocus={keepAbilityCard}
+      onBlur={leaveAbilityCard}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Escape' || (e.key === 'Tab' && e.shiftKey)) {
+          e.preventDefault()
+          anchorElement?.focus()
+          hideAbilityCard()
+        }
+      }}
       data-ability-card={model.icon}
     >
       {/* preview clip: full card width, fixed 300x169 box (no layout shift), masteries have none */}
@@ -430,6 +501,19 @@ function Card({ t }: { t: CardTarget }) {
           ))}
         </dl>
       )}
+      {progression.length > 0 && <section className="min-h-0 shrink-0 border-t border-white/10 pt-2" aria-label="Full level progression">
+        <div className="mb-1 flex items-center justify-between gap-2 text-[0.72rem]">
+          <h3 className="font-semibold text-bone">Changes by level</h3>
+          <span className="text-right text-ash">{model.level > 0 ? 'Owned / next' : 'All future levels'} · scroll ↔</span>
+        </div>
+        <div className="overflow-x-auto pb-1" tabIndex={0} aria-label="Scroll all ability levels">
+          <table className="tabular w-full text-[0.68rem]" style={{ minWidth: Math.max(240, 72 + model.progression.length * 38) }}>
+            <thead><tr><th scope="col" className="pr-2 text-left font-normal text-ash">Level</th>{model.progression.map(({ level }) => <th key={level} scope="col" className={`px-1 py-0.5 text-right ${level === model.level ? 'bg-gold/10 text-gold' : level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-ash'}`} aria-label={`Level ${level}${level === model.level ? ', owned' : level === model.level + 1 ? ', next purchase' : ''}`}>{level}</th>)}</tr></thead>
+            <tbody>{progression.map((row) => <tr key={row.label}><th scope="row" className="py-0.5 pr-2 text-left font-normal leading-tight text-ash">{row.label}</th>{row.values.map((value, i) => <td key={i} className={`whitespace-nowrap px-1 py-0.5 text-right ${model.progression[i].level === model.level ? 'bg-gold/10 font-semibold text-gold' : model.progression[i].level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-bone'}`}>{value}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      </section>}
+      {notes.map((note) => <p key={note} className="text-[0.72rem] leading-snug text-ash">{note}</p>)}
       {model.desc && <p className="ability-card-desc">{model.desc}</p>}
       {model.action && (
         <p className={`ability-card-action ${model.action.tone === 'ok' ? 'text-[#ffe0ad]' : model.action.tone === 'warn' ? 'text-[#ffb08f]' : 'text-ash'}`}>

@@ -44,8 +44,13 @@ export function lifestealFactor(state: SimState, player: PlayerId | null): numbe
 }
 
 type ItemStat = 'hp_bonus' | 'hp_regen' | 'kb_reduction' | 'speed_bonus_abs' | 'debuff_factor'
+export interface PawnStatSource {
+  readonly slots: Readonly<PawnState['slots']>
+  readonly levels: Readonly<PawnState['levels']>
+  readonly modifiers: Readonly<PawnState['modifiers']>
+}
 
-function itemSum(pawn: PawnState, stat: ItemStat): number {
+function itemSum(pawn: PawnStatSource, stat: ItemStat): number {
   let sum = 0
   for (let i = ITEM_SLOT_START; i < SLOT_COUNT; i++) {
     const id = pawn.slots[i]
@@ -57,7 +62,7 @@ function itemSum(pawn: PawnState, stat: ItemStat): number {
   return sum
 }
 
-function modSum(pawn: PawnState, key: string): number {
+function modSum(pawn: PawnStatSource, key: string): number {
   let sum = 0
   for (const m of pawn.modifiers) {
     const v = m.data[key]
@@ -76,7 +81,7 @@ export function recomputeStats(pawn: PawnState): void {
 }
 
 /** Scales incoming debuff durations (Cursed Ring +, Pocket Watch -). Base 1. */
-export function debuffFactor(pawn: PawnState): number {
+export function debuffFactor(pawn: PawnStatSource): number {
   return 1 + itemSum(pawn, 'debuff_factor') + modSum(pawn, 'debuff')
 }
 

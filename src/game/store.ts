@@ -75,6 +75,8 @@ export interface Settings {
   netGraph: boolean
   /** key legend at the bottom left of the match HUD */
   showHints: boolean
+  /** the first-play guide was completed or dismissed */
+  tutorialSeen: boolean
   /** a move during a cast windup cancels the cast (original / Dota); off: the move waits for the spell */
   moveCancelsCast: boolean
   /** settings migrations already applied (see migrateSettings) */
@@ -108,6 +110,8 @@ export interface LobbyView {
    * a bot took over", join retries). Written by the session, cleared after a few seconds.
    */
   notice?: string | null
+  /** A bot seat is reserved; the player watches until the current round finishes. */
+  waitingForRound?: boolean
   /** round-trip ping per player in ms, measured by the host (host 0, bots absent). ~1 Hz. */
   pings: Record<number, number>
   /** players who asked for a rematch on the results screen; reset when a match starts */
@@ -166,7 +170,7 @@ const defaultSettings: Settings = {
   edgePan: true,
   masterVolume: 0.8,
   sfxVolume: 1,
-  musicVolume: 0.6,
+  musicVolume: 0.5,
   ambienceVolume: 1,
   announcerVolume: 0.8,
   announcerVoice: 'maverick',
@@ -183,6 +187,7 @@ const defaultSettings: Settings = {
   soundStyle: 'hybrid',
   netGraph: false,
   showHints: true,
+  tutorialSeen: false,
   moveCancelsCast: true,
   settingsVersion: 2,
   colorblindPalette: false,

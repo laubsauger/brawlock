@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MatchResult, Screen } from '../game/store'
 import { createBot } from '../bots'
 import { FIREBALL_SLOT, cloneState, createMatch, hashState, step } from '../sim'
-import type { InputCommand, MatchSettings, PlayerInput, SimEvent, SimState } from '../sim/types'
+import { killPawn } from '../sim/combat'
+import { startRound } from '../sim/mode'
+import type { InputCommand, MatchSettings, PlayerId, PlayerInput, SimEvent, SimState } from '../sim/types'
+import type { Bot } from '../bots'
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import type { NetGradeEvent } from './netstats'
@@ -32,6 +35,8 @@ const SETTINGS: MatchSettings = {
   // the first shop phase lasts this long; the tests walk around in it (no lava, no damage)
   shopSeconds: 30,
   botsReplaceLeavers: false,
+  spectatorBets: true,
+  bounties: true,
 }
 
 interface PeerOpts {
@@ -40,6 +45,8 @@ interface PeerOpts {
   step?: SessionDeps['step']
   createMatch?: SessionDeps['createMatch']
   bots?: boolean
+  /** bots from this factory instead of the real AI (scripted, independent of src/bots tuning) */
+  createBot?: SessionDeps['createBot']
   /** record only the hash of each authoritative tick (long runs) */
   hashOnly?: boolean
   inputHints?: boolean
@@ -153,11 +160,13 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
       steps.n++
       baseStep(s, inputs)
     },
-    createBot: opts.bots
-      ? createBot
-      : () => {
-          throw new Error('no bots here')
-        },
+    createBot:
+      opts.createBot ??
+      (opts.bots
+        ? createBot
+        : () => {
+            throw new Error('no bots here')
+          }),
     defaultSettings: SETTINGS,
     net,
     startClock: (onPulse) => {
@@ -260,6 +269,128 @@ const noEvents = (s: SimState) => hashState({ ...s, events: [] })
 /** 80 ms and 150 ms RTT (one-way latency + uniform jitter), 10 % loss on the unreliable path. */
 const RTT80: LinkOptions = { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 5 }
 const RTT150: LinkOptions = { latencyMs: 65, jitterMs: 20, loss: 0.1, seed: 9 }
+
+describe('spectator wagers over the confirmed input stream', () => {
+  it('settles duplicate dead-player wagers once at 160 ms RTT with 10% loss and rejects next-round stale resends', async () => {
+    const bettingMatch: SessionDeps['createMatch'] = (settings, slots, seed) => {
+      const state = createMatch({ ...settings, shopSeconds: 0.5, roundGold: 0, winGold: 0, killGold: 0 }, slots, seed)
+      startRound(state)
+      for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
+      return state
+    }
+    const scriptedStep: SessionDeps['step'] = (state, inputs) => {
+      // Identical authoritative/predicted fixture events; all economic transitions use real sim code.
+      if (state.round === 1 && state.tick === 240) killPawn(state, pawnOf(state, 4), 3, 'fireball')
+      if (state.round === 2 && state.tick === 420) {
+        for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
+      }
+      step(state, inputs)
+    }
+    const opts: PeerOpts = { createMatch: bettingMatch, step: scriptedStep }
+    const r = await room({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 }, 4, opts, opts)
+    const peers = [r.host, ...r.clients]
+    try {
+      r.host.session.startMatch()
+      await vi.advanceTimersByTimeAsync(700)
+      const bettors = peers.slice(0, 3)
+      bettors.forEach((peer, id) => {
+        const wager: InputCommand = { kind: 'spectateBet', round: 1, target: id === 0 ? 3 : 4 }
+        peer.issue(wager)
+        peer.issue(wager)
+      })
+      await vi.advanceTimersByTimeAsync(2500)
+      const accepted = r.host.auth.at(-1)!
+      expect(accepted.betting.bets.map((bet) => bet.player)).toEqual([0, 1, 2])
+      expect(accepted.scores.slice(0, 3).map((s) => s.gold)).toEqual([29, 29, 29])
+      await vi.advanceTimersByTimeAsync(4300)
+      const settled = r.host.auth.at(-1)!
+      expect(settled.round).toBe(2)
+      expect(settled.betting.lastSettlement).toMatchObject({
+        round: 1, winners: [3], bountyAdded: 1,
+        payouts: [{ player: 0, amount: 2, correct: true }, { player: 1, amount: 0, correct: false }, { player: 2, amount: 0, correct: false }],
+      })
+      expect(settled.scores.slice(0, 3).map((s) => s.gold)).toEqual([31, 29, 29])
+      expect(settled.betting.bounties).toMatchObject([{ holder: { player: 3 }, amount: 1, activeFromRound: 2 }])
+      expect(pawnOf(settled, 1).alive).toBe(false)
+      const before = cloneState(settled).betting
+      bettors.forEach((peer) => peer.issue({ kind: 'spectateBet', round: 1, target: 4 }))
+      await vi.advanceTimersByTimeAsync(1500)
+      const final = r.host.auth.at(-1)!
+      expect(final.betting).toEqual(before)
+      expect(final.scores.slice(0, 3).map((s) => s.gold)).toEqual([31, 29, 29])
+      const truth = new Map(r.host.auth.map((s) => [s.tick, noEventsHash(s)]))
+      for (const peer of r.clients) {
+        const confirmed = peer.auth.filter((s) => s.tick > 250)
+        expect(confirmed.length).toBeGreaterThan(200)
+        for (const s of confirmed) expect(noEventsHash(s)).toBe(truth.get(s.tick))
+        expect(peer.session.debug().streamDesyncs).toBe(0)
+      }
+    } finally {
+      for (const peer of peers) peer.session.leave()
+    }
+  })
+})
+
+describe('dedicated bot prediction', () => {
+  it('uses queued bot decisions to reduce turn corrections at 160 ms RTT without delaying own input', async () => {
+    // A fixed movement script isolates network behavior from AI balancing and combat.
+    const factory: SessionDeps['createBot'] = (player, difficulty): Bot => {
+      const pending: { at: number; cmds: InputCommand[] }[] = []
+      let origin: { x: number; y: number } | null = null
+      return {
+        player, difficulty,
+        think(s) {
+          origin ??= { x: pawnOf(s, player).x, y: pawnOf(s, player).y }
+          if (s.tick % 23 === 0) pending.push({ at: s.tick + 12, cmds: [{ kind: 'move', x: origin.x + (Math.floor(s.tick / 23) % 2 ? 250 : -250), y: origin.y }] })
+          const cmds: InputCommand[] = []
+          while (pending[0]?.at <= s.tick) cmds.push(...pending.shift()!.cmds)
+          return cmds
+        },
+        scheduled: () => pending,
+      }
+    }
+    const metrics: { error: number; ownMs: number; maxStep: number }[] = []
+    for (const hints of [false, true]) {
+      const net = createMemoryNet({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 })
+      const host = makePeer(net, 'Server', 'server-key', { createBot: factory, inputHints: hints })
+      const client = makePeer(net, 'Client', 'client-key')
+      await host.session.openHost({ dedicated: true })
+      const code = host.store.lobby.roomCode!
+      const joining = client.session.join(code)
+      await vi.advanceTimersByTimeAsync(800)
+      await joining
+      host.session.addBot('hard')
+      host.session.startMatch()
+      await vi.advanceTimersByTimeAsync(1200)
+      const ownMs = await reaction(client, 0, 180)
+      await vi.advanceTimersByTimeAsync(6500)
+      const truth = new Map(host.auth.map((s) => [s.tick, s]))
+      let error = 0
+      let count = 0
+      let maxStep = 0
+      for (let i = 1; i < client.shown.length; i++) {
+        const s = client.shown[i].state
+        const t = truth.get(s.tick)
+        if (!t || s.tick < 90) continue
+        const p = pawnOf(s, 1)
+        const q = pawnOf(t, 1)
+        error += Math.hypot(p.x - q.x, p.y - q.y)
+        count++
+        const prev = client.shown[i - 1].state
+        if (prev.tick + 1 === s.tick) maxStep = Math.max(maxStep, Math.hypot(p.x - pawnOf(prev, 1).x, p.y - pawnOf(prev, 1).y))
+      }
+      metrics.push({ error: error / count, ownMs, maxStep })
+      expect(count).toBeGreaterThan(250)
+      expect(client.session.debug().streamDesyncs).toBe(0)
+      host.session.leave()
+      client.session.leave()
+    }
+    console.log('[bot turns 160ms]', JSON.stringify({ withoutPlans: metrics[0], withPlans: metrics[1] }))
+    expect(metrics[1].error).toBeLessThan(metrics[0].error * 0.5)
+    expect(metrics[1].maxStep).toBeLessThan(metrics[0].maxStep)
+    expect(metrics[1].ownMs).toBeLessThanOrEqual(1000 / 60)
+  })
+})
 
 /**
  * Time from issuing a move to the first state handed to render whose own pawn
@@ -659,6 +790,34 @@ describe('link monitor', () => {
 
 const WATCHED = new Set<SimEvent['type']>(['beam', 'explosion', 'death', 'damage'])
 
+/**
+ * A bot with a fixed script instead of the AI, so this scenario does not change when the
+ * bots are retuned. Every 60 ticks Lightning (slot 0) at the nearest living enemy, 30
+ * ticks later a Fireball at it; in between it walks a circle around the centre. A function
+ * of the state only, so every peer that runs it gets the same inputs. Casts are spaced
+ * wider than delivery()'s matching window (45 ticks) and come from different spots, so
+ * two of its casts are never taken for copies of one another.
+ */
+function scriptedBot(player: PlayerId): Bot {
+  return {
+    player,
+    difficulty: 'hard',
+    think(s) {
+      const me = s.pawns.find((p) => p.owner === player)
+      if (!me || !me.alive) return []
+      let foe: (typeof s.pawns)[number] | null = null
+      for (const p of s.pawns) if (p.owner !== player && p.alive && (!foe || Math.hypot(p.x - me.x, p.y - me.y) < Math.hypot(foe.x - me.x, foe.y - me.y))) foe = p
+      if (s.tick % 60 === 0 && foe) return [{ kind: 'cast', slot: 0, x: foe.x, y: foe.y }]
+      if (s.tick % 60 === 30 && foe) return [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }]
+      if (s.tick % 60 === 15) {
+        const a = (s.tick / 60) * 1.3
+        return [{ kind: 'move', x: Math.cos(a) * 350, y: Math.sin(a) * 350 }]
+      }
+      return []
+    },
+  }
+}
+
 /** Lightning in slot 0 for every pawn (host only builds the match). */
 function lightningMatch(settings: MatchSettings, slots: Parameters<typeof createMatch>[1], seed: number): SimState {
   const s = createMatch(settings, slots, seed)
@@ -763,10 +922,10 @@ describe('event delivery (beam, explosion, death, damage)', () => {
     'every event reaches pushEvents and audio exactly once at %s with 10 %% loss',
     async (label, link) => {
       for (const mode of ['predict', 'snapshot', 'classic'] as NetMode[]) {
-        const common = { netMode: mode, step: spamStep, bots: true }
+        const common = { netMode: mode, step: spamStep, bots: true, createBot: scriptedBot }
         const { host, client } = await pair(link, { ...common, createMatch: lightningMatch }, common)
-        // hits hurt: deaths and new rounds happen during the run
-        host.session.updateSettings({ shopSeconds: 1, winScore: 50, dmgMultiplier: 3, kbMultiplier: 1.6 })
+        // hits hurt (Lightning from all three every few ticks): deaths and new rounds happen during the run
+        host.session.updateSettings({ shopSeconds: 1, winScore: 50, dmgMultiplier: 5, kbMultiplier: 1.6 })
         host.session.addBot('hard')
         host.session.startMatch()
         await vi.advanceTimersByTimeAsync(1500)
@@ -823,9 +982,7 @@ describe('event delivery (beam, explosion, death, damage)', () => {
           }
           expect(p.droppedBatches).toEqual([])
         }
-        // every kind of watched event happened; both humans cast Lightning and the bot
-        // fought too (whether its shots connect depends on the match, its events are
-        // checked above like everyone's)
+        // every kind of watched event happened; both humans and the (scripted) bot cast
         const all = host.auth.flatMap((s) => s.events)
         const beamOwners = new Set(all.flatMap((e) => (e.type === 'beam' ? [e.owner] : [])))
         expect(beamOwners.has(0) && beamOwners.has(1)).toBe(true)
@@ -976,7 +1133,9 @@ describe('input stream (M4.2)', () => {
 
   /** Why: spectators (joined mid-match) need no stream state; they watch the host's snapshots. */
   it('a mid-match joiner spectates on snapshots and sees the host state', async () => {
-    const r = await botRoom(RTT80, 3, 'predict')
+    // No bot seat to reserve: this is a spectator, rather than a next-round entrant.
+    const r = await room(RTT80, 1)
+    r.host.session.startMatch()
     await vi.advanceTimersByTimeAsync(5000)
     const late = makePeer(r.net, 'Late', 'late-key', {})
     const joined = late.session.join(r.code)

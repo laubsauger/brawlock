@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { knockbackSpeed, receiveDamage } from './combat'
+import { heal, knockbackSpeed, receiveDamage } from './combat'
 import { cmd, newMatch, pawn, place, run, runUntil, toCombat } from './testkit'
 import type { SimEvent } from './types'
 
@@ -95,6 +95,20 @@ describe('damage pipeline (spells.md §4.1)', () => {
     receiveDamage(s, pawn(s, 1), { cause: 'test', amount: 100, source: 0, normal: { x: 1, y: 0 } })
     expect(p0.hp).toBeCloseTo(509, 9)
     expect(p0.kbPoints).toBeCloseTo(95.5, 9)
+  })
+
+  test('reference healing lowers DP even when HP is already full, and never lowers DP below zero', () => {
+    // warlockbrawl/warlock@1cc00c90, base/pawn.lua219–225:
+    // DP reduction uses the requested heal amount, independently of the HP cap.
+    const state = newMatch()
+    const target = pawn(state, 0)
+    target.hp = target.maxHp
+    target.kbPoints = 100
+    heal(state, target, 60)
+    expect(target.hp).toBe(target.maxHp)
+    expect(target.kbPoints).toBe(70)
+    heal(state, target, 200)
+    expect(target.kbPoints).toBe(0)
   })
 
   test('a pawn dies at <= 1 HP', () => {

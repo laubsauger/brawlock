@@ -16,16 +16,16 @@ import {
   RELEASED_SPELLS,
   SPELL_IDS,
   SPELL_MAX_LEVEL,
-  attr,
   cooldownSeconds,
   masteryFactor,
   spellDef as simSpell,
   type SpellId,
 } from '../../sim'
+import { abilityStats, type AbilityStatContext } from './abilityStats'
 
 export { MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SPELL_MAX_LEVEL }
 
-export type Stat = [label: string, value: string]
+export type Stat = [label: string, value: string, note?: string]
 export type MasteryId = 'duration' | 'range' | 'lifesteal'
 
 export interface ShopSpell {
@@ -136,30 +136,9 @@ export function masteryValue(id: MasteryId, level: number): number {
   return masteryFactor(id, level)
 }
 
-const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, ''))
-
 /** Preview lines for a spell or item at a level (1-based). */
-export function levelStats(id: SpellId, level: number): Stat[] {
-  const def = simSpell(id)
-  if (def) {
-    const out: Stat[] = []
-    const dmg = def.levels.damage ? attr(def, 'damage', level) : 0
-    if (dmg) out.push(['Damage', fmt(dmg)])
-    if (id === 'scourge') out.push(['Points shed per enemy hit', fmt(attr(def, 'dp_reduce', level))])
-    if (id === 'teleport' || (def.levels.range && new Set(def.levels.range).size > 1)) out.push(['Range', fmt(attr(def, 'range', level))])
-    if (def.cooldown.length) out.push(['Cooldown', `${fmt(cooldownSeconds(def, level))}s`])
-    return out
-  }
-  const p = PASSIVE_ITEMS[id]
-  if (!p) return []
-  const i = Math.min(Math.max(level, 1), p.maxLevel) - 1
-  const out: Stat[] = []
-  if (p.levels.hp_bonus[i]) out.push(['Max HP', `+${p.levels.hp_bonus[i]}`])
-  if (p.levels.hp_regen[i]) out.push(['Regen', `+${p.levels.hp_regen[i]}/s`])
-  if (p.levels.kb_reduction[i]) out.push(['Knockback taken', `-${Math.round(p.levels.kb_reduction[i] * 100)}%`])
-  if (p.levels.speed_bonus_abs[i]) out.push(['Move speed', `+${p.levels.speed_bonus_abs[i]}`])
-  if (p.levels.debuff_factor[i]) out.push(['Debuffs on you', `×${(1 + p.levels.debuff_factor[i]).toFixed(2)}`])
-  return out
+export function levelStats(id: SpellId, level: number, context?: AbilityStatContext): Stat[] {
+  return abilityStats(id, level, context).map((s) => [s.label, s.value, s.note])
 }
 
 export function spellDef(id: SpellId | null | undefined): ShopSpell | undefined {

@@ -148,6 +148,10 @@ export class Animator {
     a.play()
   }
 
+  clearHits(): void {
+    for (const action of this.additive.values()) action.stop()
+  }
+
   update(dt: number): void {
     this.lower.update(dt)
     this.upper.update(dt)

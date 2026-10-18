@@ -22,7 +22,7 @@ export const HASH_EVERY = 300
 export const REPLAY_EXT = '.brawlock'
 
 /** One recorded step: applied going from `tick` to `tick + 1`. Empty steps are not stored. */
-export type ReplayStep = [tick: number, inputs: [player: PlayerId, cmds: WireCmd[]][], patches?: [player: PlayerId, on: 0 | 1][]]
+export type ReplayStep = [tick: number, inputs: [player: PlayerId, cmds: WireCmd[]][], patches?: [player: PlayerId, on: 0 | 1][], slots?: PlayerSlot[]]
 
 export interface ReplayData {
   format: typeof REPLAY_FORMAT

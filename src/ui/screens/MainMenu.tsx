@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
-import { Button, Kbd } from '../widgets'
+import { Button, Kbd, Modal } from '../widgets'
+import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, playOffline, quickPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
 import { online } from '../../game/session'
@@ -12,6 +13,7 @@ import { chooseName, NAME_MAX } from '../lib/name'
 import { staggerIn } from '../lib/motion'
 import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
+import { tutorial } from '../lib/onboarding'
 
 function MenuEntry({
   title,
@@ -70,6 +72,7 @@ function QuickPlayEntry() {
   const problem = regionProblem(region)
   return (
     <MenuEntry
+      primary
       title="Quick play"
       sub={
         <span className="flex items-center gap-2">
@@ -85,8 +88,8 @@ function QuickPlayEntry() {
   )
 }
 
-/** Tertiary links under the menu (server builds): host a room on the game server, browse open games. */
-function ServerLinks({ onBrowse }: { onBrowse: () => void }) {
+/** Server hosting and region controls; browsing has its own main menu entry. */
+function ServerLinks() {
   const statuses = useRegions(5000)
   const choice = useRegionChoice()
   const setSettings = useGame((s) => s.setSettings)
@@ -104,9 +107,6 @@ function ServerLinks({ onBrowse }: { onBrowse: () => void }) {
         data-testid="host-server"
       >
         Host on game server
-      </Button>
-      <Button variant="ghost" size="sm" className="px-2" disabled={!!problem} title={problem ?? 'Open games you can join right now'} onClick={onBrowse} data-testid="browse-games">
-        Browse games
       </Button>
       {statuses.length > 1 && (
         <select className="field ml-auto w-28 py-1 text-[0.85rem]" aria-label="Game server region" value={choice} onChange={(e) => setSettings({ serverRegion: e.target.value })}>
@@ -223,6 +223,7 @@ export function MainMenu() {
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
+  const [nameOpen, setNameOpen] = useState(false)
   const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
   // menu entries rise in one after another whenever the menu shows
@@ -234,7 +235,7 @@ export function MainMenu() {
     setDraft(name)
   }, [name])
 
-  const commitName = () => setDraft(chooseName(draft))
+  const commitName = () => { setDraft(chooseName(draft)); setNameOpen(false) }
 
   // the session lands here with lobby.error after a failed host / join / disconnect
   const error = lobbyStatus === 'error' ? lobbyError : null
@@ -247,10 +248,15 @@ export function MainMenu() {
 
   return (
     // bottom padding keeps the centred column clear of the footer row
-    <div className="screen-in relative flex h-full flex-col justify-center px-[max(24px,7vw)] pt-6 pb-14">
+    <div className="screen-in relative flex h-full flex-col overflow-y-auto px-[max(24px,7vw)] pt-20 pb-24 sm:pt-8">
+      <button type="button" data-testid="player-profile" className="menu-profile absolute top-5 right-[max(24px,4vw)] z-10 flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setNameOpen(true)} aria-label={`Edit player name: ${name}`}>
+        <span className="text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
+        <span className="max-w-40 truncate font-semibold">{name}</span>
+        <span className="text-ash"><MenuGlyph kind="edit" size={13} /></span>
+      </button>
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
-      <div className="relative flex w-full max-w-[460px] flex-col">
+      <div className="relative my-auto flex w-full max-w-[460px] flex-col">
         <Wordmark />
         {/* the tagline makes room on short screens (1280x720 with the game-server options) */}
         <p className="hud-text-shadow mt-[min(1rem,2vh)] mb-[min(1.75rem,3vh)] max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4] [@media(max-height:780px)]:hidden">Knock rival warlocks into the lava. Last one standing takes the round.</p>
@@ -276,35 +282,28 @@ export function MainMenu() {
           </div>
         )}
 
-        <label className="mb-[min(1.25rem,2.4vh)] flex flex-col gap-1.5">
-          <span className="text-[0.95rem] font-semibold text-[#d9c4ae]">Your name</span>
-          <input
-            className="field max-w-[300px] text-[1.15rem] font-semibold"
-            maxLength={NAME_MAX}
-            spellCheck={false}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-          />
-        </label>
-
-        <nav ref={navRef} className="flex flex-col gap-2.5" aria-label="Main menu">
-          <MenuEntry primary title="Play vs bots" sub="Offline practice against the AI" onClick={playOffline} />
+        <nav ref={navRef} className="mt-6 flex flex-col gap-2.5" aria-label="Main menu">
           {online.configured && <QuickPlayEntry />}
-          <MenuEntry title="Host from your PC" sub="Friends connect straight to you" onClick={hostGame} />
-          <MenuEntry title="Join game" sub="Type the host's room code" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />
+          {online.configured && <MenuEntry title="Browse games" sub="Find public rooms, players and ping" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
+          <MenuEntry primary={!online.configured} title="Play vs bots" sub="Offline practice against the AI" onClick={playOffline} />
+          <div className="menu-pair grid grid-cols-2 gap-2.5">
+            <MenuEntry title="Host a game" sub="From your PC" onClick={hostGame} />
+            <MenuEntry title="Join by code" sub="Have an invite?" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />
+          </div>
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
-          {online.configured && <ServerLinks onBrowse={() => setBrowseOpen(true)} />}
+          {online.configured && <ServerLinks />}
+          <Button className="justify-start gap-2 text-[#ffe0a9]" variant="ghost" onClick={tutorial.open} data-testid="how-to-play">
+            <MenuGlyph kind="guide" /> How to play <span className="ml-auto font-ui text-sm font-normal text-ash">Four quick lessons</span>
+          </Button>
           <div className="mt-1 grid grid-cols-3 gap-2.5">
-            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => setProfileOpen(true)}>
-              Your record
+            <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileOpen(true)} aria-label="Your record">
+              <MenuGlyph kind="record" size={16} /> Record
             </Button>
-            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => toggle('settingsOpen', true)}>
-              Settings
+            <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => toggle('settingsOpen', true)}>
+              <MenuGlyph kind="settings" size={16} /> Settings
             </Button>
-            <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => setScreen('credits')}>
-              Credits
+            <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => setScreen('credits')}>
+              <MenuGlyph kind="credits" size={16} /> Credits
             </Button>
           </div>
         </nav>
@@ -341,6 +340,11 @@ export function MainMenu() {
           </button>
         </span>
       </footer>
+      {nameOpen && <Modal title="Your name" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save name</Button>}>
+        <label className="flex flex-col gap-2 text-sm text-ash">Display name
+          <input autoFocus aria-label="Display name" className="field" maxLength={NAME_MAX} spellCheck={false} value={draft} onFocus={(e) => e.target.select()} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitName() }} />
+        </label>
+      </Modal>}
     </div>
   )
 }

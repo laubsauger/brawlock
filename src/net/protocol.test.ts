@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MatchSettings, PlayerSlot, SimState } from '../sim/types'
+import { DEFAULT_SETTINGS } from '../sim/config'
+import { decodeCmd, encodeCmd } from './stream'
 import {
   PROTOCOL_VERSION,
   decode,
@@ -8,6 +10,7 @@ import {
   sanitizeCommand,
   sanitizeFrames,
   sanitizeName,
+  sanitizeSettingsPatch,
   stateJsonWithoutEvents,
   type Msg,
 } from './protocol'
@@ -26,6 +29,8 @@ const settings: MatchSettings = {
   friction: 0.96,
   shopSeconds: 30,
   botsReplaceLeavers: true,
+  spectatorBets: true,
+  bounties: true,
 }
 const slots: PlayerSlot[] = [
   { id: 0, name: 'Host', color: 0xff0000, team: 0, kind: 'human' },
@@ -50,13 +55,44 @@ function fakeState(tick: number): SimState {
     ],
     obstacles: [],
     events: [{ type: 'projectileSpawn', id: 5, spell: 'fireball' }],
+    betting: { bets: [], bounties: [], credits: [], lastSettlement: null },
   }
 }
 
 describe('protocol', () => {
+  it('carries fixed-stake spectator bets unchanged through validated inputs and confirmed stream commands', () => {
+    const bet = { kind: 'spectateBet', round: 3, target: 9 }
+    const frames = sanitizeFrames([{ seq: 1, tick: 120, cmds: [bet] }])
+    expect(frames).toEqual([{ seq: 1, tick: 120, cmds: [bet] }])
+    const wire = JSON.parse(JSON.stringify(encodeCmd(frames[0].cmds[0])))
+    expect(decodeCmd(wire)).toEqual(bet)
+    for (const malformed of [
+      { kind: 'spectateBet', target: 1 },
+      { kind: 'spectateBet', round: 3 },
+      { ...bet, round: -1 },
+      { ...bet, round: 1.5 },
+      { ...bet, round: '3' },
+      { ...bet, target: -1 },
+      { ...bet, target: 1.5 },
+      { ...bet, target: '9' },
+      { ...bet, target: Infinity },
+      { ...bet, stake: 10 },
+      { ...bet, payout: 100 },
+    ]) expect(sanitizeCommand(malformed)).toBeNull()
+    expect(sanitizeCommand({ kind: 'spectateBet', round: 0, target: 0 })).toEqual({ kind: 'spectateBet', round: 0, target: 0 })
+  })
+
+  it('validates independent spectator-bet and bounty settings as booleans', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ spectatorBets: true, bounties: true })
+    expect(sanitizeSettingsPatch({ spectatorBets: false, bounties: true }, DEFAULT_SETTINGS)).toEqual({ spectatorBets: false, bounties: true })
+    expect(sanitizeSettingsPatch({ spectatorBets: true, bounties: false }, DEFAULT_SETTINGS)).toEqual({ spectatorBets: true, bounties: false })
+    expect(sanitizeSettingsPatch({ spectatorBets: 'false', bounties: 1 }, DEFAULT_SETTINGS)).toEqual({})
+  })
+
   it('round-trips every message type unchanged (JSON on both channels)', () => {
     const msgs: Msg[] = [
       { t: 'hello', name: 'Ann', version: PROTOCOL_VERSION, key: 'k', profileId: 'p-1234567', color: 0xff00ff },
+      { t: 'rename', name: 'Ann again' },
       { t: 'welcome', playerId: 3 },
       { t: 'lobby', slots, settings, ready: { 1: true }, pings: { 0: 0, 1: 42 } },
       { t: 'ready', ready: true },
@@ -64,6 +100,9 @@ describe('protocol', () => {
       { t: 'start', match: 1, seed: 0xdeadbeef, slots, settings, localPlayer: 1 },
       { t: 'input', match: 1, inputs: [{ seq: 1, tick: 10, cmds: [{ kind: 'move', x: 1.5, y: -2 }] }] },
       { t: 'snap', match: 1, n: 9, iv: 1, ack: 4, ev: [], state: fakeState(9) },
+      { t: 'plan', m: 1, p: 1, n: 9, f: [[20, [{ kind: 'move', x: 1, y: -2 }, { kind: 'cast', slot: 0, x: 30, y: 40 }]]] },
+      { t: 'plan', m: 1, p: 1, n: 21, f: [] },
+      { t: 'plans', m: 1, plans: [{ p: 1, n: 9, f: [[20, [{ kind: 'move', x: 1, y: -2 }]]] }, { p: 2, n: 10, f: [] }] },
       { t: 'end', match: 1, result: { winners: [0], slots, scores: [], rounds: 3 } },
       { t: 'screen', screen: 'lobby' },
       { t: 'notice', text: 'hi' },
@@ -90,6 +129,8 @@ describe('protocol', () => {
     expect(decode('42')).toBeNull()
     expect(decode('{"t":"bogus"}')).toBeNull()
     expect(decode('#p123')).toBeNull()
+    expect(decode('{"t":"plans","m":1,"plans":[null]}')).toBeNull()
+    expect(decode('{"t":"plan","m":1,"p":1,"n":0,"f":[[1,null]]}')).toBeNull()
   })
 })
 

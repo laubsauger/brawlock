@@ -4,6 +4,8 @@ import { tweaks } from '../tweaks'
 import { globalSource, type RenderSource } from '../source'
 import { colorForPawn } from '../teamColors'
 import { KillStamps, STAMP_LIFE } from './killStamps'
+import type { BetIdentity } from '../../sim/types'
+import { betIdentityMatchesSlot, bountyOf } from '../../sim/bets'
 
 /**
  * DOM overlay anchored to world positions (pooled elements, positions written
@@ -82,6 +84,9 @@ interface Plate {
   kb: HTMLDivElement
   kbFill: HTMLDivElement
   mult: HTMLDivElement
+  bounty: HTMLDivElement
+  bountyText: HTMLSpanElement
+  lastBounty: number
   /** kill stamp above the plate (wrap positions, stamp animates) and this round's kill pips */
   stampWrap: HTMLDivElement
   stamp: HTMLDivElement
@@ -155,6 +160,9 @@ const css = `
 .bl-plate .kbf{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
 .bl-plate .mult{position:absolute;left:84px;top:-8px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap;padding:0 3px;border-radius:3px;background:rgba(12,7,7,.5)}
 .bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
+.bl-plate.rival .bar{box-shadow:0 0 0 1px #ee6262,0 0 7px 2px rgba(235,40,45,.48)}
+.bl-bounty{position:absolute;left:calc(100% + 2px);top:3px;display:none;align-items:center;gap:3px;padding:2px 4px;border-radius:4px;background:#1b120ce6;color:#ffd279;font-size:11px;font-weight:900;line-height:12px;white-space:nowrap;text-shadow:0 1px 1px #000}
+.bl-bounty svg{width:11px;height:11px;flex:none}
 .bl-stampw{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;pointer-events:none}
 .bl-stamp{display:flex;align-items:center;gap:5px;white-space:nowrap;padding:3px 9px 3px 6px;border-radius:7px;background:rgba(12,7,7,.62);box-shadow:0 0 12px 4px rgba(12,7,7,.35),inset 0 0 0 1px rgba(255,214,150,.22);font-size:15.5px;font-weight:900;letter-spacing:.02em;color:#f4e6d2;text-shadow:0 0 2px #000,0 1px 1px #000;will-change:transform,opacity}
 .bl-stamp svg{width:17px;height:17px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
@@ -211,10 +219,14 @@ export class WorldOverlay {
   private pPlaced: number[] = []
   /** room above each plate taken by its kill stamp (px), for de-collision */
   private pExtra = new Float32Array(PLATE_POOL)
+  private pBounty = new Float32Array(PLATE_POOL)
   /** kill stamps and pips, fed from the sim's death events */
   private kills = new KillStamps()
   private evTick = -2
   private round = -1
+  /** Last credited killer of this viewer, across rounds; never follows a replacement occupant. */
+  private rival: BetIdentity | null = null
+  private viewer = -1
 
   constructor(
     parent: HTMLElement,
@@ -257,9 +269,13 @@ export class WorldOverlay {
       stamp.append(stampName, stampCount)
       stampWrap.appendChild(stamp)
       const pips = div('bl-pips')
-      el.append(stampWrap, pips, name, bar, kb)
+      const bounty = div('bl-bounty')
+      bounty.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#d59a31" stroke="#ffe2a0"/><path d="M6 3v6" stroke="#fff0be"/></svg>'
+      const bountyText = document.createElement('span')
+      bounty.append(bountyText)
+      el.append(stampWrap, pips, name, bar, kb, bounty)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -380,6 +396,10 @@ export class WorldOverlay {
     const dt = Math.min(0.1, Math.max(0, now - this.lastNow))
     this.lastNow = now
     this.readKills(now)
+    const state = this.source.buf.curr
+    const rival = this.rival
+    const slot = rival && state?.slots.find((s) => betIdentityMatchesSlot(rival, s))
+    const rivalPawn = slot ? state?.pawns.find((p) => p.owner === slot.id)?.id : undefined
     // ---- overhead plates
     // 1. project every plate (no DOM access)
     for (let i = 0; i < PLATE_POOL; i++) {
@@ -390,7 +410,10 @@ export class WorldOverlay {
       if (off || !inp) continue
       this.pX[i] = this.v.x
       this.pY[i] = this.v.y - 38
-      this.pW[i] = plateWidth(inp.name, inp.local)
+      const owner = state?.pawns.find((p) => p.id === inp.id)?.owner
+      const bounty = state?.settings.bounties && owner !== undefined ? bountyOf(state, owner) : 0
+      this.pBounty[i] = bounty
+      this.pW[i] = plateWidth(inp.name, inp.local) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
       this.pExtra[i] = this.kills.stampOf(inp.id, now) ? STAMP_H : 0
     }
     // 2. de-collide: stack overlapping plates upwards
@@ -437,6 +460,14 @@ export class WorldOverlay {
         p.el.dataset.pawn = String(inp.id)
       }
       this.drawKills(p, inp.id, now)
+      p.el.classList.toggle('rival', inp.id === rivalPawn)
+      if (p.lastBounty !== this.pBounty[i]) {
+        const amount = this.pBounty[i]
+        p.bounty.style.display = amount > 0 ? 'flex' : 'none'
+        p.bountyText.textContent = String(amount)
+        p.bounty.setAttribute('aria-label', `${amount} gold bounty`)
+        p.lastBounty = amount
+      }
       if (p.lastName !== inp.name) {
         p.name.textContent = inp.name
         p.lastName = inp.name
@@ -562,9 +593,17 @@ export class WorldOverlay {
     // the tick going backwards means a new match started (frame reset)
     if (this.evTick === -2 || s.tick + 30 < this.evTick) {
       if (this.evTick !== -2) this.kills.clear()
+      this.rival = null
+      this.viewer = this.source.buf.localPlayer
       this.evTick = this.evTick === -2 ? s.tick : -1
       this.round = s.round
       return
+    }
+    if (this.viewer !== this.source.buf.localPlayer) {
+      this.viewer = this.source.buf.localPlayer
+      this.rival = null
+      // A spectator taking a reserved seat has no personal history as its bot.
+      this.evTick = s.tick
     }
     if (s.round !== this.round) {
       this.round = s.round
@@ -575,6 +614,10 @@ export class WorldOverlay {
       this.evTick = b.tick
       for (const e of b.events) {
         if (e.type !== 'death') continue
+        if (e.owner === this.viewer && this.viewer >= 0 && e.killer !== null && e.killer !== this.viewer && e.cause !== 'disconnect') {
+          const killer = s.slots.find((slot) => slot.id === e.killer)
+          this.rival = killer ? { player: killer.id, kind: killer.kind, profileId: killer.profileId, name: killer.name } : null
+        }
         const vs = s.slots.find((x) => x.id === e.owner)
         const kp = e.killer == null ? null : (s.pawns.find((p) => p.owner === e.killer)?.id ?? null)
         this.kills.death({ player: e.owner, name: vs?.name ?? `Player ${e.owner + 1}`, color: colorForPawn(s, e.owner) }, e.killer, kp, now)

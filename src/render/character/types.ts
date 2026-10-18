@@ -53,6 +53,8 @@ export interface WarlockHandle {
    * filtered here by pawn id / owner). `alpha` interpolates prev -> pawn.
    */
   update(pawn: PawnState, prev: PawnState | null, alpha: number, dt: number, events: readonly SimEvent[]): void
+  /** Synchronize life before applying events, including a new-round keyframe that skipped shop. */
+  beginRound(round: number): void
   /** World position spells originate from (casting palm, or staff crystal). */
   castOrigin(out: THREE.Vector3): THREE.Vector3
   /** Casting arm chain in world space this frame (for halo rings travelling down the arm); `hand` picks one of two casting hands. */
@@ -91,6 +93,10 @@ export interface WarlockHandle {
   setDetail(level: 0 | 1 | 2): void
   /** Thrown off the feet along game direction (dx, dy): falls backwards, recovers when the slide slows. Big knockbacks do this automatically. */
   tumble(dx: number, dy: number): void
+  /** Extra recoil / throw exaggeration, scaled by FX intensity and reduced motion. */
+  setMotionIntensity(intensity: number): void
+  /** Face a camera-space direction and raise both hands without changing simulation facing. */
+  celebrate(facing: number): void
   /**
    * Force / override the death look (also starts the death if the pawn is still
    * alive here). (dx, dy) = push direction for blown-back kinds. `edge` sets the

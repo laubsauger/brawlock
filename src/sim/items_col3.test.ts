@@ -189,12 +189,16 @@ describe('Drain (spells.md §8.13)', () => {
     place(p0, 0, 0, 0)
     place(p1, 300, 0)
     p0.hp = 500
+    p0.kbPoints = 100
     const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, 60)]
     const dmg = of(events, 'damage').find((e) => e.target === p1.id)!
     expect(dmg.amount).toBe(60)
     expect(dmg.kb).toBeCloseTo(knockbackSpeed(60, 60, 1, 0.2, 1), 9)
     expect(p1.moveSpeed).toBe(160)
     expect(of(events, 'heal').find((e) => e.target === p0.id)?.amount).toBe(60)
+    // Reference DrainHealProjectile calls Pawn:heal, including its half-heal DP reduction.
+    // Allow the separate, tiny per-second DP drift during the orb's travel.
+    expect(p0.kbPoints).toBeCloseTo(70, 0)
   })
 
   test('ally hit (teams): heal and +50 move speed, no damage', () => {
@@ -204,10 +208,12 @@ describe('Drain (spells.md §8.13)', () => {
     place(p0, 0, 0, 0)
     place(p1, 300, 0)
     p1.hp = 400
+    p1.kbPoints = 100
     const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, 30)]
     expect(of(events, 'damage')).toHaveLength(0)
     expect(of(events, 'heal')[0]).toMatchObject({ target: p1.id, amount: 60 })
     expect(p1.moveSpeed).toBe(260)
+    expect(p1.kbPoints).toBeCloseTo(70, 0)
   })
 
   test('re-aims once at the nearest other warlock when it reaches the cursor distance', () => {

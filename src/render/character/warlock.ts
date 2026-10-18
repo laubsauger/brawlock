@@ -14,6 +14,7 @@ import type { CastArm, DeathKind, WarlockHandle } from './types'
 import { CAST_HANDS, castCategory, windupHiddenFrom, type CastCategory, type CastHands } from './castStyles'
 import { frame } from '../../game/frame'
 import { syncFootprint } from './debug'
+import { DeathMotion, LaunchMotion, deathHop } from './impactMotion'
 
 const TAU = Math.PI * 2
 function angDiff(a: number, b: number): number {
@@ -33,10 +34,6 @@ const WALK_SPEED = 1.15
 const ENTER_LEN = 0.53
 /** OverhandThrow: arm at its highest (s) */
 const THROW_PEAK = 0.34
-/** game units / s of knockback (non-walk velocity) that throws the warlock off its feet */
-const TUMBLE_KB = 650
-const TUMBLE_END = 220
-
 type CastPhase = 'none' | 'windup' | 'release' | 'backswing'
 
 /** sim death cause -> look */
@@ -174,14 +171,20 @@ export class CC0Warlock implements WarlockHandle {
   /** this viewer must not see the windup (another player's Scourge): no pose, no cast glow */
   private hidden = false
   private tumbling = false
-  private tumbleT = 0
+  private launch = new LaunchMotion()
   private tumbleDirX = 0
   private tumbleDirY = 0
-  private dead = false
-  private deathT = 0
+  private death = new DeathMotion()
+  private get dead(): boolean { return this.death.active }
+  private thrownDeath = false
   private deathKind: DeathKind = 'ash'
   private deathSpin = 0
   private victory = false
+  private victoryFacing: number | null = null
+  private motionIntensity = 1
+  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+  private recoilT = 1
+  private recoilK = 0
   private hitToggle = false
   private locomotion = ''
 
@@ -335,19 +338,18 @@ export class CC0Warlock implements WarlockHandle {
   }
 
   tumble(dx: number, dy: number): void {
-    if (this.dead) return
+    if (this.dead || this.tumbling) return
     const l = Math.hypot(dx, dy) || 1
     this.tumbleDirX = dx / l
     this.tumbleDirY = dy / l
     this.tumbling = true
-    this.tumbleT = 0
+    this.launch.start()
     this.castPhase = 'none'
     this.anim.full('knockback', { fade: 0.08, loop: false, restart: true, timeScale: 1.1 })
   }
 
   deathFx(kind: DeathKind, dx = 0, dy = 0, edge?: number | readonly number[]): void {
-    if (!this.dead) this.die(kind, dx, dy)
-    else this.startDeath(kind, dx, dy)
+    this.die(kind, dx, dy, true)
     if (edge !== undefined) {
       const c = this.gpu.dissolveColor
       if (typeof edge === 'number') {
@@ -359,35 +361,55 @@ export class CC0Warlock implements WarlockHandle {
     }
   }
 
+  setMotionIntensity(intensity: number): void {
+    this.motionIntensity = this.reducedMotion.matches ? 0 : Math.max(0, Math.min(1, intensity))
+  }
+
+  beginRound(round: number): void {
+    if (this.death.beginRound(round)) this.revive()
+  }
+
+  celebrate(facing: number): void {
+    if (this.dead) return
+    this.victory = true
+    this.victoryFacing = facing
+    this.castPhase = 'none'
+    this.gpu.castCharge = 0
+    this.locomotion = ''
+    this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: 0.6 })
+  }
+
   // ------------------------------------------------------------------ events
 
   private onEvent(e: SimEvent, p: PawnState): void {
     switch (e.type) {
       case 'castStart':
-        if (e.pawn === p.id) this.beginWindup(e.spell, e.ticks)
+        if (e.pawn === p.id && !this.victory) this.beginWindup(e.spell, e.ticks)
         break
       case 'cast':
-        if (e.pawn === p.id) this.release(e.spell)
+        if (e.pawn === p.id && !this.victory) this.release(e.spell)
         break
       case 'castCancel':
         if (e.pawn === p.id) this.fizzle()
         break
       case 'damage':
-        if (e.target === p.id) {
+        if (e.target === p.id && !this.dead && e.amount > 0) {
           if (this.hitFlashOn) {
             this.gpu.flash = 1
             this.gpu.flashK = Math.min(1.5, Math.max(0.35, 0.35 + e.amount / 20 + e.kb / 1500))
           }
-          const w = Math.min(1, 0.35 + e.amount / 14)
+          const w = Math.min(0.85, 0.22 + e.amount / 55 + e.kb / 3500)
           this.anim.hit(this.hitToggle ? 'hitHead' : 'hit', w)
           this.hitToggle = !this.hitToggle
+          this.recoilT = 0
+          this.recoilK = Math.min(1, 0.3 + e.kb / 1300)
           if (e.kb > 0) this.flutterKick = Math.min(1.5, this.flutterKick + e.kb / 900)
         }
         break
       case 'death':
         if (e.pawn === p.id) {
           const kb = e.kb ?? Math.hypot(p.vx - p.walkVx, p.vy - p.walkVy)
-          this.die(p.lavaTicks > 0 && !e.cause ? 'lava' : deathKindFor(e.cause, kb), p.vx - p.walkVx, p.vy - p.walkVy)
+          this.die(p.lavaTicks > 0 && !e.cause ? 'lava' : deathKindFor(e.cause, kb), p.vx - p.walkVx, p.vy - p.walkVy, true)
         }
         break
       case 'teleport':
@@ -407,7 +429,12 @@ export class CC0Warlock implements WarlockHandle {
         if (e.players.includes(p.owner) && p.alive) this.victory = true
         break
       case 'phase':
-        if (e.phase !== 'roundEnd' && e.phase !== 'gameOver') this.victory = false
+        if (e.phase !== 'roundEnd' && e.phase !== 'gameOver') {
+          if (this.victory) this.locomotion = ''
+          this.victory = false
+        }
+        if (e.phase === 'shop' && p.alive && this.dead) this.revive()
+        if (!this.victory) this.victoryFacing = null
         break
       case 'respawn':
         if (e.pawn === p.id) this.revive()
@@ -515,28 +542,32 @@ export class CC0Warlock implements WarlockHandle {
     this.endCast(0.12)
   }
 
-  private die(kind: DeathKind, dx: number, dy: number): void {
-    if (this.dead) return
-    this.dead = true
+  private die(kind: DeathKind, dx: number, dy: number, confirmed = false): void {
+    const first = this.death.begin(confirmed)
+    this.setDeathLook(kind, dx, dy)
+    if (!first) return
+    const continuingFall = this.tumbling
     this.castPhase = 'none'
     this.gpu.castCharge = 0
     this.tumbling = false
+    this.launch.reset()
     this.victory = false
-    this.startDeath(kind, dx, dy)
+    this.victoryFacing = null
+    this.deathSpin = 0
+    this.anim.clearHits()
+    const blown = (kind === 'fireball' || kind === 'meteor' || kind === 'gravity') && Math.hypot(dx, dy) > 1e-3
+    this.thrownDeath = blown && !continuingFall && kind !== 'gravity'
+    // A launch already has a falling body. Keep its exact clip pose on death.
+    if (kind !== 'fade' && !continuingFall) this.anim.full(blown ? 'knockback' : 'death', { fade: 0.08, loop: false, restart: true, timeScale: blown ? 1.25 : 1.2 })
   }
 
-  private startDeath(kind: DeathKind, dx: number, dy: number): void {
+  private setDeathLook(kind: DeathKind, dx: number, dy: number): void {
     this.deathKind = kind
-    this.deathT = 0
-    this.deathSpin = 0
     const l = Math.hypot(dx, dy)
-    if (l > 1) {
+    if (l > 1e-3) {
       this.tumbleDirX = dx / l
       this.tumbleDirY = dy / l
     }
-    const blown = (kind === 'fireball' || kind === 'meteor' || kind === 'gravity') && l > 1
-    // a disconnect just fades where it stands
-    if (kind !== 'fade') this.anim.full(blown ? 'knockback' : 'death', { fade: 0.1, loop: false, restart: true, timeScale: blown ? 1.1 : 1 })
     const g = this.gpu
     g.dissolveMode = kind === 'shadow' ? 1 : kind === 'fade' ? 2 : 0
     switch (kind) {
@@ -564,15 +595,16 @@ export class CC0Warlock implements WarlockHandle {
   }
 
   private revive(): void {
-    this.dead = false
-    this.deathT = 0
+    this.death.reset()
     const g = this.gpu
     g.dissolve = g.char = g.freeze = g.xray = g.wither = g.shadow = 0
     g.dissolveMode = 0
     this.yawG.position.y = 0
     this.yawG.scale.setScalar(1)
     this.tumbling = false
+    this.launch.reset()
     this.victory = false
+    this.victoryFacing = null
     this.locomotion = ''
     this.coat.reset()
     this.cape.reset()
@@ -582,7 +614,7 @@ export class CC0Warlock implements WarlockHandle {
   /** Death look timeline (material fx, sink / shrink); returns false when the clip should freeze. */
   private deathTimeline(dt: number): boolean {
     const g = this.gpu
-    const t = (this.deathT += dt)
+    const t = this.death.advance(dt)
     let animate = true
     let sink = 0
     let scale = 1
@@ -632,8 +664,11 @@ export class CC0Warlock implements WarlockHandle {
         g.char = 0.6 * ramp(t, 0, 1.0)
         g.dissolve = ramp(t, 1.0, 1.9)
     }
-    this.yawG.position.y = -sink
-    this.yawG.scale.setScalar(Math.max(0.001, scale))
+    const thrown = this.thrownDeath
+    const hop = thrown ? deathHop(t) * this.motionIntensity : 0
+    const splat = thrown ? Math.max(0, 1 - Math.abs(t - 0.48) / 0.12) * this.motionIntensity : 0
+    this.yawG.position.y = -sink + hop
+    this.yawG.scale.set(Math.max(0.001, scale * (1 + 0.12 * splat)), Math.max(0.001, scale * (1 - 0.18 * splat)), Math.max(0.001, scale * (1 + 0.12 * splat)))
     return animate
   }
 
@@ -648,11 +683,11 @@ export class CC0Warlock implements WarlockHandle {
     tickLevelUp(g, dt)
     for (let i = 0; i < events.length; i++) this.onEvent(events[i], p)
     if (!p.alive && !this.dead) this.die(p.lavaTicks > 0 ? 'lava' : 'ash', p.vx - p.walkVx, p.vy - p.walkVy)
-    if (p.alive && this.dead) this.revive()
+    if (p.alive && this.dead && !this.death.confirmed) this.revive()
 
     // a windup we missed the event for (late join, skipped snapshot)
     const running = !!p.cast && p.cast.started !== false
-    if (running && this.castPhase !== 'windup' && !this.dead) this.beginWindup(p.cast!.spell, p.cast!.ticksLeft)
+    if (running && this.castPhase !== 'windup' && !this.dead && !this.victory) this.beginWindup(p.cast!.spell, p.cast!.ticksLeft)
     // the sim dropped the cast without telling us: treat as a cancel
     if (!running && this.castPhase === 'windup') this.fizzle()
     // re-read every frame: the POV can change while spectating (frame.localPlayer -1 = spectator)
@@ -683,21 +718,21 @@ export class CC0Warlock implements WarlockHandle {
     }
 
     // ---- tumble (thrown off the feet by a big knockback)
-    if (!this.dead && !this.tumbling && kb > TUMBLE_KB && this.castPhase === 'none') this.tumble(kbx, kby)
+    const launch = this.launch.step(kb, dt, !this.dead && this.castPhase === 'none' && !this.victory)
+    if (launch === 'start') this.tumble(kbx, kby)
+    if (launch === 'recover') {
+      this.tumbling = false
+      this.locomotion = ''
+    }
     if (this.tumbling) {
-      this.tumbleT += dt
       if (kb > 60) {
         this.tumbleDirX = kbx / kb
         this.tumbleDirY = kby / kb
       }
-      if (this.dead || (this.tumbleT > 0.35 && (kb < TUMBLE_END || walk > 30 || this.castPhase !== 'none')) || this.tumbleT > 1.6) {
-        this.tumbling = false
-        this.locomotion = ''
-      }
     }
 
     // ---- yaw: facing, or falling backwards along the push
-    let yawTarget = facingToYaw(facing)
+    let yawTarget = facingToYaw(this.victory && this.victoryFacing !== null ? this.victoryFacing : facing)
     const blownDeath = this.dead && (this.deathKind === 'fireball' || this.deathKind === 'meteor' || this.deathKind === 'gravity')
     if (this.tumbling || blownDeath) yawTarget = facingToYaw(Math.atan2(-this.tumbleDirY, -this.tumbleDirX))
     if (!this.yawInit) {
@@ -711,7 +746,7 @@ export class CC0Warlock implements WarlockHandle {
 
     // ---- locomotion layer
     const castLocksLegs = this.castPhase !== 'none' && (this.castFullBody || (this.castCat === 'aoe' && this.castPhase !== 'windup'))
-    if (!this.dead && !this.tumbling && !castLocksLegs) {
+    if (!this.dead && !this.tumbling && !castLocksLegs && !this.victory) {
       const speedM = (walk * S) / CC0_SCALE.xz
       let want = 'idle'
       if (walk > 140) want = 'run'
@@ -765,7 +800,7 @@ export class CC0Warlock implements WarlockHandle {
       this.releaseT += dt
       if (walk > 30 || this.releaseT > 0.24 + 0.34) this.endCast(walk > 30 ? 0.08 : 0.25)
     } else if (this.victory && !this.dead) {
-      this.anim.upper.play('castLoop', { fade: 0.4, loop: true, timeScale: 0.6 })
+      this.anim.full('castLoop', { fade: 0.35, loop: true, timeScale: 0.6 })
     } else if (!this.dead && !this.tumbling && this.anim.upper.currentName !== this.anim.lower.currentName) {
       this.anim.upperFollow(0.2)
     }
@@ -778,6 +813,10 @@ export class CC0Warlock implements WarlockHandle {
     for (const b of this.touched) b.quaternion.copy(this.savedQ.get(b)!)
     this.touched.length = 0
     const animate = this.dead ? this.deathTimeline(dt) : true
+    if (!this.dead) {
+      this.recoilT += dt
+      this.yawG.position.y = !this.tumbling && this.recoilT < 0.2 ? Math.sin(Math.PI * this.recoilT / 0.2) * 0.045 * this.recoilK * this.motionIntensity : 0
+    }
     // detail 2 (offscreen): the skeleton advances at ~15 Hz with the summed dt
     this.animAcc += dt
     if (animate && (this.detail < 2 || this.animAcc >= 1 / 15)) {
@@ -876,7 +915,7 @@ export class CC0Warlock implements WarlockHandle {
       const ch = g.castCharge
       const rt = this.releaseT
       const live = !this.dead && !this.tumbling
-      const tOverhead = live && cat === 'aoe' && ph === 'windup' && !this.hidden ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
+      const tOverhead = live && this.victory ? 0.82 + 0.035 * Math.sin(this.t * 4) * this.motionIntensity : live && cat === 'aoe' && ph === 'windup' && !this.hidden ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
       const tCross = live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0
       const tFlare = live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0
       const tBeam = live && cat === 'beam' && ph !== 'none' ? 1 : 0

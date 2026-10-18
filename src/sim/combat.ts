@@ -7,6 +7,7 @@ import {
   OBSTACLE_EXPLODE_DMG_MIN,
   OBSTACLE_EXPLODE_RADIUS,
 } from './config'
+import { claimBounty } from './bets'
 import { isCombat, onKill } from './mode'
 import { MODIFIERS, removeTemporaryModifiers } from './modifiers'
 import { cancelCast } from './orders'
@@ -121,6 +122,7 @@ export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | nu
   pawn.lavaTicks = 0
   removeTemporaryModifiers(state, pawn)
   const credit = killer !== null && killer !== pawn.owner ? killer : null
+  const bountyGold = claimBounty(state, pawn.owner, credit, cause)
   const victim = scoreOf(state, pawn.owner)
   if (victim) victim.deaths += 1
   if (credit !== null) {
@@ -131,7 +133,7 @@ export function killPawn(state: SimState, pawn: PawnState, killer: PlayerId | nu
       k.gold += state.settings.killGold
     }
   }
-  state.events.push({ type: 'death', pawn: pawn.id, owner: pawn.owner, killer: credit, cause, kb, x, y })
+  state.events.push({ type: 'death', pawn: pawn.id, owner: pawn.owner, killer: credit, cause, kb, x, y, ...(bountyGold > 0 ? { bountyGold } : {}) })
   onKill(state, pawn, credit)
 }
 

@@ -1,4 +1,5 @@
 import type { SimState } from '../sim/types'
+import { rememberRevealedLoadouts, resetRevealedLoadouts } from './inspect'
 
 /**
  * Mutable render buffer. The session (host loop or network client) writes,
@@ -34,6 +35,7 @@ export const frame: FrameBuffer = {
 
 /** Push a new authoritative state. Caller must not mutate `state` afterwards. */
 export function pushState(state: SimState, at = performance.now()): void {
+  rememberRevealedLoadouts(state)
   frame.prev = frame.curr
   frame.prevAt = frame.currAt
   frame.curr = state
@@ -67,6 +69,7 @@ export function eventsSince(lastTick: number): TickEvents[] {
 }
 
 export function resetFrame(): void {
+  resetRevealedLoadouts()
   frame.prev = null
   frame.curr = null
   frame.prevAt = 0

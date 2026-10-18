@@ -48,6 +48,8 @@ export interface Listener {
 export interface AudioApi {
   /** Create / resume the AudioContext. Call from a user gesture. Safe to call repeatedly. */
   unlock(): void
+  /** Prepare only the first streaming menu song during the splash. Does not start playback. */
+  preloadMenuMusic(): Promise<void>
   setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; announcer?: number; muted: boolean }): void
   /** Play SFX for sim events from one tick. */
   playEvents(events: SimEvent[], listener: Listener): void
@@ -90,6 +92,9 @@ const engine = new AudioEngine()
 engine.setAnnouncerVoice('maverick')
 
 export const audio: AudioApi = {
+  preloadMenuMusic() {
+    return engine.preloadMenuMusic()
+  },
   unlock() {
     engine.unlock()
   },

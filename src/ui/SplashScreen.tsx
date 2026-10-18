@@ -54,16 +54,17 @@ async function detectWebGPU(): Promise<boolean> {
   }
 }
 
-type Stage = 'gpu' | 'fonts' | 'arena'
+type Stage = 'gpu' | 'fonts' | 'arena' | 'music'
 const STAGES: { id: Stage; label: string }[] = [
   { id: 'gpu', label: 'Checking graphics' },
   { id: 'fonts', label: 'Loading type' },
   { id: 'arena', label: 'Raising the arena' },
+  { id: 'music', label: 'Loading menu music' },
 ]
 
 export function SplashScreen() {
   const [root] = useState(() => document.getElementById('splash'))
-  const [done, setDone] = useState<Record<Stage, boolean>>({ gpu: false, fonts: false, arena: false })
+  const [done, setDone] = useState<Record<Stage, boolean>>({ gpu: false, fonts: false, arena: false, music: false })
   const [entered, setEntered] = useState(!root)
   const gpu = useGame((s) => s.gpu)
   // first run: ask for a name right here, so the first lobby already shows it
@@ -80,6 +81,9 @@ export function SplashScreen() {
     })
     withTimeout(document.fonts?.ready ?? Promise.resolve(), 4000, undefined).then(() => mark('fonts'))
     withTimeout(loadRender(), 12000, null).then(() => mark('arena'))
+    audio.preloadMenuMusic().catch((error: unknown) => {
+      console.warn('Continuing without preloaded menu music', error)
+    }).then(() => mark('music'))
     // without the static splash (tests, odd embeds) go straight in
     if (!root) useGame.getState().setScreen('menu')
   }, [root])
@@ -107,6 +111,8 @@ export function SplashScreen() {
       const s = useGame.getState().settings
       audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, announcer: s.announcerVolume ?? 0.8, muted: s.muted || forcedMute })
       audio.setAnnouncerVoice(s.announcerVoice ?? 'maverick')
+      // Start inside the Enter gesture so mobile autoplay rules allow it as the splash fades.
+      audio.music('menu')
       audio.ui('ready')
     } catch {
       /* audio is optional */

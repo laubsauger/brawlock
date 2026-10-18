@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
-import { goldVisible, inspectStore, isSpectating, livingPlayers, cycle } from '../../game/inspect'
+import { canInspect, goldVisible, inspectedLoadout, inspectionLabel, inspectStore, isSpectating, livingPlayers, cycle, type InspectedLoadout } from '../../game/inspect'
 import { Sigil } from '../icons'
 import { itemDef, MASTERIES, MASTERY_MAX_LEVEL, SPELL_MAX_LEVEL } from '../data/catalog'
 import { usePolled, useTick } from '../lib/ticker'
@@ -11,8 +11,8 @@ import { setSpectateTarget } from '../renderBridge'
 import { abilityCardProps } from './AbilityCard'
 
 /**
- * Other warlocks' loadouts (as in the original: select an enemy to see its
- * items), the inspect card that a click on a warlock opens, and spectating
+ * Other warlocks' revealed loadouts (last round in shop, live while down),
+ * the inspect card that a click on a warlock opens, and spectating
  * while you are down: the camera follows a chosen player, "Watching Thorn ◂ ▸".
  */
 
@@ -35,18 +35,21 @@ interface LoadoutView {
   alive: boolean
   kills: number
   deaths: number
+  kind: InspectedLoadout['kind']
 }
 
-const EMPTY: LoadoutView = { ok: false, name: '', color: '#ccc', glyph: '', spells: [], items: [], masteries: [], gold: null, hp: 0, maxHp: 0, kb: 0, alive: false, kills: 0, deaths: 0 }
+const EMPTY: LoadoutView = { ok: false, name: '', color: '#ccc', glyph: '', spells: [], items: [], masteries: [], gold: null, hp: 0, maxHp: 0, kb: 0, alive: false, kills: 0, deaths: 0, kind: 'unrevealed' }
 
 function readLoadout(player: number): LoadoutView {
   const s = frame.curr
   if (!s || player < 0) return EMPTY
+  const loadout = inspectedLoadout(s, frame.localPlayer, player)
+  if (!loadout) return EMPTY
   const slot = s.slots.find((x) => x.id === player)
   const pawn = s.pawns.find((p) => p.owner === player)
   const sc = s.scores.find((x) => x.id === player)
   if (!slot) return EMPTY
-  const lv = (i: number): [string | null, number] => [pawn?.slots[i] ?? null, pawn?.levels[i] ?? 0]
+  const lv = (i: number): [string | null, number] => [loadout.kit?.slots[i] ?? null, loadout.kit?.levels[i] ?? 0]
   return {
     ok: true,
     name: slot.name,
@@ -54,18 +57,26 @@ function readLoadout(player: number): LoadoutView {
     glyph: playerGlyph(slot, s.settings.teamMode, colorblindPalette()),
     spells: [0, 1, 2, 3, 4, 5].map(lv),
     items: [6, 7, 8, 9, 10, 11].map(lv),
-    masteries: MASTERIES.map((m) => sc?.masteries[m.id] ?? 0),
-    gold: goldVisible(s, frame.localPlayer, player) ? Math.floor(sc?.gold ?? 0) : null,
+    masteries: MASTERIES.map((m) => loadout.kit?.masteries[m.id] ?? 0),
+    gold: loadout.kind === 'live' && goldVisible(s, frame.localPlayer, player) ? Math.floor(sc?.gold ?? 0) : null,
     hp: Math.round(pawn?.alive ? pawn.hp : 0),
     maxHp: Math.round(pawn?.maxHp ?? 0),
     kb: Math.round(pawn?.kbPoints ?? 0),
     alive: !!pawn?.alive,
     kills: sc?.kills ?? 0,
     deaths: sc?.deaths ?? 0,
+    kind: loadout.kind,
   }
 }
 
 const loadoutKey = (v: LoadoutView) => JSON.stringify(v)
+
+function useLoadout(player: number): LoadoutView {
+  // Polling schedules updates, but a parent can render sooner (seat promotion,
+  // phase change). Never display the previous occupant's hook-held view then.
+  usePolled(() => readLoadout(player), loadoutKey, 4)
+  return readLoadout(player)
+}
 
 function Pips({ level, max }: { level: number; max: number }) {
   if (max <= 1) return null
@@ -84,8 +95,9 @@ function Pips({ level, max }: { level: number; max: number }) {
  * 4 Hz; `cards` adds the hover ability cards (with that player's levels).
  */
 export function Loadout({ player, size = 26, cards = false }: { player: number; size?: number; cards?: boolean }) {
-  const v = usePolled(() => readLoadout(player), loadoutKey, 4)
-  if (!v.ok) return null
+  const v = useLoadout(player)
+  if (!v.ok) return <span className="text-sm text-ash">Inspect while shopping or spectating</span>
+  if (v.kind === 'unrevealed') return <span className="text-sm text-ash">{inspectionLabel(v.kind)}</span>
   const icon = (id: string | null, level: number, slot: number, kind: 'spell' | 'item') => {
     const max = kind === 'spell' ? SPELL_MAX_LEVEL : (itemDef(id)?.maxLevel ?? 1)
     return (
@@ -94,7 +106,7 @@ export function Loadout({ player, size = 26, cards = false }: { player: number; 
         className="loadout-slot"
         data-empty={!id}
         style={{ width: size, height: size + (max > 1 ? 4 : 0) }}
-        {...(cards && id ? abilityCardProps(() => ({ kind, id, context: 'inspect', slot, level, side: 'left' })) : null)}
+        {...(cards && id ? abilityCardProps(() => ({ kind, id, context: 'inspect', slot, level, player, side: 'left' })) : null)}
       >
         {id ? <Sigil id={id} size={size} /> : <span className="loadout-empty" style={{ width: size, height: size }} />}
         {id && <Pips level={level} max={max} />}
@@ -102,7 +114,8 @@ export function Loadout({ player, size = 26, cards = false }: { player: number; 
     )
   }
   return (
-    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1" title={inspectionLabel(v.kind)}>
+      {v.kind === 'lastRound' && <span className="w-full text-xs text-ash">{inspectionLabel(v.kind)}</span>}
       <span className="flex gap-0.5" aria-label="Spells">
         {v.spells.map(([id, lv], i) => icon(id, lv, i, 'spell'))}
       </span>
@@ -140,11 +153,14 @@ export function InspectCard() {
 
 function InspectBody({ player }: { player: number }) {
   const shopOpen = useGame((s) => s.shopOpen)
-  const v = usePolled(() => readLoadout(player), loadoutKey, 4)
+  const v = useLoadout(player)
   // a player who left: close
   useEffect(() => {
     if (!v.ok) inspectStore.set({ inspect: -1 })
   }, [v.ok])
+  useTick(() => {
+    if (!canInspect(frame.curr, frame.localPlayer, player)) inspectStore.set({ inspect: -1 })
+  })
   if (!v.ok) return null
   const mult = kbMultiplier(v.kb)
   return (
@@ -168,7 +184,7 @@ function InspectBody({ player }: { player: number }) {
           ✕
         </button>
       </header>
-      <div className="tabular mb-2 grid grid-cols-3 gap-2 text-[0.82rem]">
+      {v.kind === 'live' && <div className="tabular mb-2 grid grid-cols-3 gap-2 text-[0.82rem]">
         <span className="flex flex-col">
           <span className="text-ash">Health</span>
           <b className="text-[0.98rem]">
@@ -186,7 +202,7 @@ function InspectBody({ player }: { player: number }) {
             {v.kills} / {v.deaths}
           </b>
         </span>
-      </div>
+      </div>}
       <Loadout player={player} size={30} cards />
     </div>
   )

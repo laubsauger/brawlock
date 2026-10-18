@@ -11,7 +11,7 @@ It runs under **pm2** behind the host's existing **nginx**, which terminates TLS
 | App | `/opt/apps/brawlock-server` (`server.mjs`, `ecosystem.config.cjs`, `version.json`), pm2 name `brawlock-server` |
 | Data | `/opt/apps/brawlock-server/data/leaderboard.sqlite` (+ `-wal`, `-shm`): the casual leaderboard. `deploy.sh` never touches it |
 | Port | `127.0.0.1:3077`, reachable only through nginx (UFW stays as it is) |
-| URLs | `wss://brawlock.osc.link/ws?room=CODE`, `https://brawlock.osc.link/health`, `POST /rooms`, `GET /rooms/CODE`, `GET /rooms?public=1`, `POST /quickplay`, `GET /leaderboard`, `GET /players/DEVICE` |
+| URLs | `wss://brawlock.osc.link/ws?room=CODE`, `https://brawlock.osc.link/health`, `POST /rooms`, `GET /rooms/CODE`, `GET /rooms?public=1`, `POST /quickplay`, `GET /leaderboard`, `GET /players/DEVICE`, `POST /listings`, `PUT` / `DELETE /listings/ID` |
 
 The host already runs other production apps. This kit adds **one** nginx site file and **one** pm2 app. It never touches other sites, other pm2 apps, UFW or docker, and it never restarts nginx: it reloads it, and only after `nginx -t` passes.
 
@@ -19,7 +19,7 @@ The host already runs other production apps. This kit adds **one** nginx site fi
 
 - **Hosting is always an explicit choice.** "Host online" is peer-to-peer. The game server is a second option that shows each region's health and ping. A failure never switches mode by itself: the menu offers the other mode in one click.
 - **Joining is automatic.** A room code is looked up on every region that is up (`GET /rooms/CODE`, in parallel), and joined there if one has it. Otherwise it is joined peer-to-peer. Codes carry no region prefix.
-- **Public rooms, quick play and the leaderboard** (M4.3, `docs/M4.md` §12) are plain HTTP paths under `/`. The nginx site proxies all of `/` already, so they need no nginx change.
+- **Public rooms, quick play, player-hosted listings and the leaderboard** (M4.3, `docs/M4.md` §12) are plain HTTP paths under `/`. The nginx site proxies all of `/` already (PUT and DELETE included), so they need no nginx change. Player-hosted (P2P) games are only listed here, the server never connects to them, and they never count for the leaderboard.
 - **Regions** come from the client build: `VITE_GAME_SERVERS`, a JSON list of `{"id","label","url"}`. Auto picks the lowest ping among regions that answer `/health` with the same protocol and netcode; Settings > Online can pin a region.
 
 ## Files
@@ -96,6 +96,7 @@ The netcode id is a hash of `src/sim` and `src/net`, so a UI-only Pages deploy k
 | Per IP | 6 room creations/min, 60 room lookups/min, 60 WebSocket connects/min, 16 concurrent connections |
 | Per connection | 240 messages/s and 128 KB/s sustained (bursts 2×), 64 KB per message; above that the connection is closed |
 | Per IP (M4.3) | 60 public-list reads/min, 20 quick plays/min, 60 leaderboard / profile reads/min |
+| Player-hosted listings | per IP 6 created/min, 30 heartbeats/min, 3 live; 500 per server; 30 s without a heartbeat drops one; bodies up to 4 KB. In memory: a restart drops them and the hosts list again within ~10 s |
 | Origins | `ALLOWED_ORIGINS` (`https://laubsauger.github.io`) for `POST /rooms`, `POST /quickplay`, the WebSocket and CORS reads (`/health` ping, lists, leaderboard). Empty = any |
 | Quick play | `QUICKPLAY_SEATS` (8): humans per room at most. `QUICKPLAY_BOT_FILL` (4): bots top the table up to this many players. `QUICKPLAY_BOTS` (`hard`): default bot difficulty. Set them in `ecosystem.config.cjs` `env` to change them |
 

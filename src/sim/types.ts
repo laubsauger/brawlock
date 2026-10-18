@@ -59,6 +59,8 @@ export interface MatchSettings {
   /** seconds of shop / warmup before each round */
   shopSeconds: number
   botsReplaceLeavers: boolean
+  spectatorBets: boolean
+  bounties: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +79,8 @@ export interface PlayerSlot {
   difficulty?: BotDifficulty
   /**
    * Stable per-browser player id (game/profile.ts) or 'bot:<difficulty>', so peers
-   * and local stats recognize players across matches. Net / stats only: the sim ignores it.
+   * and local stats recognize players across matches. Also binds betting escrow and bounties
+   * to an occupant when a match seat changes hands.
    */
   profileId?: string
 }
@@ -101,6 +104,7 @@ export type InputCommand =
   | { kind: 'buySpell'; spell: SpellId }
   | { kind: 'buyItem'; item: SpellId }
   | { kind: 'buyMastery'; mastery: 'duration' | 'range' | 'lifesteal' | 'all' }
+  | { kind: 'spectateBet'; round: number; target: PlayerId }
 
 /** All commands one player issued for one tick. */
 export interface PlayerInput {
@@ -240,6 +244,48 @@ export interface PlayerScore {
   connected: boolean
 }
 
+/** Economic ownership survives display-name changes, never a different occupant of a seat. */
+export interface BetIdentity {
+  player: PlayerId
+  kind: PlayerSlot['kind']
+  name: string
+  profileId?: string
+}
+
+export interface SpectatorBet {
+  round: number
+  player: PlayerId
+  target: PlayerId
+  payer: BetIdentity
+  pick: BetIdentity
+}
+
+export interface PlayerBounty {
+  holder: BetIdentity
+  amount: number
+  activeFromRound: number
+}
+
+export interface BettingCredit {
+  holder: BetIdentity
+  amount: number
+}
+
+export interface BetSettlement {
+  round: number
+  winners: PlayerId[]
+  payouts: { player: PlayerId; amount: number; correct: boolean }[]
+  bountyAdded: number
+}
+
+export interface BettingState {
+  bets: SpectatorBet[]
+  bounties: PlayerBounty[]
+  /** A replaced seat cannot collect its previous occupant's refund or winnings. */
+  credits: BettingCredit[]
+  lastSettlement: BetSettlement | null
+}
+
 /**
  * One-shot events emitted during a tick, for VFX / SFX / UI.
  * Cleared at the start of every tick. Render and audio must treat them as
@@ -274,6 +320,8 @@ export type SimEvent =
       pawn: EntityId
       owner: PlayerId
       killer: PlayerId | null
+      /** Exact bounty transferred by this knockout; absent when none was collected. */
+      bountyGold?: number
       /**
        * what dealt the lethal instance: a spell id ('fireball', 'splitter', 'meteor', ...), 'lava',
        * 'obstacle' (pillar explosion) or 'disconnect' (leaver removed). Always set by the sim;
@@ -338,6 +386,7 @@ export type SimEvent =
   | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
 
 export interface SimState {
+  betting: BettingState
   tick: number
   /** mulberry32 state */
   rng: number

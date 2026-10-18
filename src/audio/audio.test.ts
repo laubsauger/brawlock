@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SimEvent } from '../sim/types'
 import { audio } from './index'
 import { AudioEngine, VOICES, busGains } from './engine'
@@ -12,6 +12,14 @@ import { createSynth, RECIPES, Voice, type SfxId } from './synth'
 import { HYBRID } from './hybrid'
 import { AUDIO_ASSETS, AUDIO_CREDITS } from './assets'
 import { asContext, MockAudioContext } from './mockContext'
+import { MockMedia, mockVisibility } from './mockMedia'
+
+beforeEach(() => {
+  MockMedia.instances.length = 0
+  vi.stubGlobal('Audio', MockMedia)
+  vi.stubGlobal('document', mockVisibility())
+})
+afterEach(() => vi.unstubAllGlobals())
 
 /** One sample of every SimEvent type. The mapped type makes this fail to compile when a type is added. */
 const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
@@ -92,6 +100,46 @@ describe('audio: event mapping', () => {
     const hard = planEvents([{ ...SAMPLES.damage, kb: 2000 }], LISTENER)[0]
     expect(hard.param!).toBeGreaterThan(soft.param!)
     expect(kbIntensity(750)).toBeGreaterThan(0.5)
+  })
+
+  it('centers and emphasizes your own confirmed knockout even with the camera far away', () => {
+    const event: SimEvent = { ...SAMPLES.death, owner: 0, x: 3000, y: 0 }
+    const own = planEvents([event], LISTENER)[0]
+    const other = planEvents([{ ...event, owner: 1 }], LISTENER)[0]
+    expect(own).toMatchObject({ id: 'death', pan: 0, gain: 1.15, stopKey: 'windup:2' })
+    expect(other.pan).toBeGreaterThan(0)
+    expect(other.gain).toBeLessThan(own.gain)
+  })
+
+  it('a disconnect fades quietly instead of playing a knockout impact', () => {
+    const cues = planEvents([{ ...SAMPLES.death, owner: 0, cause: 'disconnect' }], LISTENER)
+    expect(cues).toHaveLength(1)
+    expect(cues[0]).toMatchObject({ id: 'fade', stopKey: 'windup:2' })
+    expect(cues[0].gain).toBeLessThan(1)
+  })
+
+  it('settles an exact bounty with two centered coins only for its collector, at fixed cost', () => {
+    const death: SimEvent = { ...SAMPLES.death, killer: 0, bountyGold: 1 }
+    const collect = planEvents([death], LISTENER)
+    expect(collect.map((c) => c.id)).toEqual(['death', 'uiBuy', 'streakTick'])
+    expect(collect.slice(1)).toMatchObject([{ pan: 0, delay: 0.13 }, { pan: 0, delay: 0.24 }])
+    expect(planEvents([{ ...death, bountyGold: 1000 }], LISTENER)).toEqual(collect)
+    for (const listener of [{ ...LISTENER, localPlayer: 1 }, { ...LISTENER, localPlayer: -1 }]) {
+      expect(planEvents([death], listener).map((c) => c.id)).toEqual(['death'])
+    }
+    for (const bountyGold of [undefined, 0]) {
+      expect(planEvents([{ ...death, bountyGold }], LISTENER).map((c) => c.id)).toEqual(['death'])
+    }
+    expect(planEvents([{ ...death, cause: 'disconnect' }], LISTENER).map((c) => c.id)).toEqual(['fade'])
+  })
+
+  it('confirms a reflected ownership reversal privately, without rewarding mere blocks', () => {
+    const reversal: SimEvent = { ...SAMPLES.shieldReflect, pawn: 1 }
+    expect(planEvents([reversal], LISTENER).map((c) => c.id)).toEqual(['reflect', 'streakTick'])
+    expect(planEvents([{ ...reversal, pawn: 2 }], LISTENER).map((c) => c.id)).toEqual(['reflect'])
+    for (const flags of [{ stolen: false }, { reflected: false }]) {
+      expect(planEvents([{ ...reversal, ...flags }], LISTENER).map((c) => c.id)).toEqual(['reflect'])
+    }
   })
 
   it('lava burn is only audible for the local pawn', () => {
@@ -297,6 +345,24 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     }
   })
 
+  it.each([
+    { id: 'hit', param: 0.7, sources: 6, nodes: 20 },
+    { id: 'hit', param: 1.3, sources: 8, nodes: 28 },
+    { id: 'scourgeWindup', param: 0.9, sources: 5, nodes: 16 },
+    { id: 'scourgeBlast', param: 3, sources: 10, nodes: 30 },
+    { id: 'death', param: 1, sources: 14, nodes: 38 },
+  ] as const)('$id keeps its body within the reduced audio-node budget', ({ id, param, sources, nodes }) => {
+    const m = new MockAudioContext()
+    const synth = createSynth(asContext(m))
+    const out = m.createGain()
+    const before = m.nodes.length
+    const voice = new Voice(synth, out as never, 0.01)
+    RECIPES[id](voice, param)
+    expect(m.sources().length).toBeLessThanOrEqual(sources)
+    expect(m.nodes.length - before).toBeLessThanOrEqual(nodes)
+    expect(m.leakingSources()).toEqual([])
+  })
+
   it('engine: unlock builds the graph, voices are limited, mute silences', () => {
     vi.useFakeTimers()
     ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
@@ -372,8 +438,9 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     for (let i = 0; i < 4; i++) await Promise.resolve() // resume() settles, queue flushes
     expect(m.state).toBe('running')
     expect(m.sources().length).toBeGreaterThan(before)
-    // the menu bed (drone + pad) is running from that first gesture on
-    expect(m.leakingSources().length).toBeGreaterThanOrEqual(8)
+    // The prepared menu song streams through one media source, alongside lava ambience.
+    expect(m.nodes.filter((n) => n.kind === 'media')).toHaveLength(1)
+    expect(MockMedia.instances.at(-1)!.paused).toBe(false)
     e.music('none')
     m.currentTime += 3
     vi.advanceTimersByTime(200)
@@ -502,9 +569,10 @@ describe('audio: recordings (hybrid mode)', () => {
       expect(credit.creator.length, id).toBeGreaterThan(0)
       expect(credit.url, id).toMatch(/^https:\/\//)
     }
-    // the shipped set stays small
+    // Effects/voices stay small; streamed songs have a separate budget.
     let bytes = 0
     for (const f of fs.readdirSync(dir)) {
+      if (f === 'music') continue
       const st = fs.statSync(file(f))
       if (st.isDirectory()) for (const g of fs.readdirSync(file(`${f}/`))) bytes += fs.statSync(file(`${f}/${g}`)).size
       else bytes += st.size

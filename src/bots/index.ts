@@ -17,6 +17,9 @@ export interface Bot {
   readonly difficulty: BotDifficulty
   /** Called once per sim tick on the host. Returns commands for this tick (often none). */
   think(state: SimState): InputCommand[]
+  /** Detached snapshot of already-decided orders awaiting their reaction delay.
+   * `at` is the future sim tick when think() releases the commands. */
+  scheduled?(): readonly { at: number; cmds: InputCommand[] }[]
 }
 
 export function createBot(player: PlayerId, difficulty: BotDifficulty, seed: number): Bot {

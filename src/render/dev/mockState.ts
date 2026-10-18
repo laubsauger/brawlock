@@ -307,6 +307,8 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
         friction: 0.96,
         shopSeconds: 30,
         botsReplaceLeavers: true,
+        spectatorBets: true,
+        bounties: true,
       },
       slots,
       phase,
@@ -314,6 +316,7 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
       round,
       arena: { layer, nextShrinkTick: nextShrink, theme },
       scores: [],
+      betting: { bets: [], bounties: [], credits: [], lastSettlement: null },
       // fresh objects every tick: the frame buffer contract forbids mutation after push
       pawns: pawns.map((p) => ({ ...p, cast: p.cast ? { ...p.cast } : null, moveTarget: p.moveTarget ? { ...p.moveTarget } : null })),
       projectiles: projectiles.map((p) => ({ ...p })),

@@ -9,7 +9,9 @@ import {
   getEncounters,
   getLocalLeaderboard,
   getMatchHistory,
+  profileIdOf,
   recordMatch,
+  updateProfileNames,
 } from './stats'
 
 function memKV(init: Record<string, string> = {}): KV & { data: Record<string, string> } {
@@ -37,6 +39,8 @@ const settings: MatchSettings = {
   friction: 0.96,
   shopSeconds: 30,
   botsReplaceLeavers: true,
+  spectatorBets: true,
+  bounties: true,
 }
 
 const ME = 'me-0000000001'
@@ -119,6 +123,44 @@ describe('elo', () => {
 })
 
 describe('local stats', () => {
+  it('keeps names as labels: renames preserve totals, equal names remain distinct, and history stays historical', () => {
+    const kv = memKV()
+    const me = slot(0, 'Same name', ME)
+    const a = slot(1, 'Same name', ALICE)
+    recordMatch(playMatch([me, a], [0], [score(0, 3, 1, 0), score(1, 0, 0, 1)], [[0, 1]], [], 1000), ME, kv)
+    const before = getLocalLeaderboard(ME, kv)
+    expect(before).toHaveLength(2)
+    updateProfileNames([{ profileId: ME, name: 'New self' }, { profileId: ALICE, name: 'New opponent' }], kv)
+    const renamed = getLocalLeaderboard(ME, kv)
+    for (const row of renamed) {
+      const old = before.find((r) => r.profileId === row.profileId)!
+      expect({ ...row, name: old.name }).toEqual(old)
+    }
+    expect(renamed.find((r) => r.self)?.name).toBe('New self')
+    expect(getEncounters(kv)).toMatchObject([{ profileId: ALICE, lastName: 'New opponent', games: 1 }])
+    expect(getMatchHistory(10, kv)[0].participants.map((p) => p.name)).toEqual(['Same name', 'Same name'])
+    recordMatch(playMatch([{ ...me, name: 'New self' }, { ...a, name: 'New opponent' }], [1], [score(0, 0, 0, 1), score(1, 3, 1, 0)], [[1, 0]], [], 2000), ME, kv)
+    expect(getCareer(kv)).toMatchObject({ profileId: ME, games: 2, wins: 1, losses: 1 })
+    expect(getLocalLeaderboard(ME, kv)).toHaveLength(2)
+    expect(getEncounters(kv)).toMatchObject([{ profileId: ALICE, games: 2, lastName: 'New opponent' }])
+  })
+
+  it('does not invent persistent human identities from missing IDs or legacy anonymous names', () => {
+    const kv = memKV()
+    const me = slot(0, 'Me', ME)
+    const unknown = { ...slot(1, 'Someone', ALICE), profileId: undefined }
+    expect(profileIdOf(unknown)).toBe('')
+    const first = playMatch([me, unknown], [0], [score(0, 3, 1, 0), score(1, 0, 0, 1)], [[0, 1]], [], 1000)
+    recordMatch(first, ME, kv)
+    const legacy = playMatch([me, slot(1, 'Someone', 'anon:Someone')], [1], [score(0, 0, 0, 1), score(1, 3, 1, 0)], [[1, 0]], [], 2000)
+    recordMatch(legacy, ME, kv)
+    expect(getMatchHistory(10, kv)).toHaveLength(2)
+    expect(getMatchHistory(10, kv)[0].participants[1].name).toBe('Someone')
+    expect(getEncounters(kv)).toEqual([])
+    expect(getLocalLeaderboard(ME, kv).map((r) => r.profileId)).toEqual([ME])
+    expect(getLocalLeaderboard(ME, kv)[0].rating).toBe(ELO_START)
+  })
+
   /**
    * Why: the head-to-head record is the feature. Three matches against Alice
    * (2 won, 1 lost, one of them an FFA with Bob) must add up exactly, including

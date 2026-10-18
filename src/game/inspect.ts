@@ -8,7 +8,72 @@
  * normal-cast targeting is up (that left click casts), and quick / release
  * cast modes never use the left button.
  */
-import type { SimState } from '../sim/types'
+import type { PlayerSlot, SimState } from '../sim/types'
+
+/** Opponent builds are readable between rounds and while watching, never while fighting. */
+export function canInspect(state: SimState | null, local: number, player: number): boolean {
+  return !!state?.slots.some((s) => s.id === player)
+    && (player === local || state.phase !== 'fight' || isSpectating(state, local))
+}
+
+export interface InspectedKit {
+  readonly slots: readonly (SimState['pawns'][number]['slots'][number])[]
+  readonly levels: readonly number[]
+  readonly masteries: Readonly<SimState['scores'][number]['masteries']>
+}
+
+export type InspectedLoadout = { kind: 'live' | 'lastRound' | 'unrevealed'; kit: InspectedKit | null }
+
+// Only combat commits a build. Shop updates must never replace this detached snapshot.
+let committedRound = -1
+type Occupant = Pick<PlayerSlot, 'kind' | 'profileId' | 'name'>
+const committed = new Map<number, { occupant: Occupant; kit: InspectedKit }>()
+
+function sameOccupant(a: Occupant, b: Occupant): boolean {
+  return a.kind === b.kind && (a.profileId || b.profileId ? a.profileId === b.profileId : a.name === b.name)
+}
+
+function copyKit(state: SimState, player: number): InspectedKit | null {
+  const pawn = state.pawns.find((p) => p.owner === player)
+  const score = state.scores.find((s) => s.id === player)
+  if (!pawn || !score) return null
+  return { slots: [...pawn.slots], levels: [...pawn.levels], masteries: { ...score.masteries } }
+}
+
+/** Called by the frame producer so a hidden/unmounted inspect panel cannot miss combat. */
+export function rememberRevealedLoadouts(state: SimState): void {
+  if (state.round < committedRound) resetRevealedLoadouts()
+  if (state.phase !== 'fight' || state.round === committedRound) return
+  committedRound = state.round
+  committed.clear()
+  for (const slot of state.slots) {
+    const kit = copyKit(state, slot.id)
+    if (kit) committed.set(slot.id, { occupant: { kind: slot.kind, profileId: slot.profileId, name: slot.name }, kit })
+  }
+}
+
+export function resetRevealedLoadouts(): void {
+  committedRound = -1
+  committed.clear()
+}
+
+/** The only source of kits for opponent UI, including scoreboard icons and hover cards. */
+export function inspectedLoadout(state: SimState | null, local: number, player: number): InspectedLoadout | null {
+  if (!state || !canInspect(state, local, player)) return null
+  if (player === local || state.phase === 'fight' || state.phase === 'gameOver') {
+    return { kind: 'live', kit: copyKit(state, player) }
+  }
+  const previous = state.round === committedRound ? committed.get(player) : null
+  const slot = state.slots.find((s) => s.id === player)!
+  const kit = previous && sameOccupant(previous.occupant, slot) ? previous.kit : null
+  return kit ? { kind: 'lastRound', kit } : { kind: 'unrevealed', kit: null }
+}
+
+export function inspectionLabel(kind: InspectedLoadout['kind']): string {
+  if (kind === 'lastRound') return 'Last round · current purchases hidden'
+  if (kind === 'unrevealed') return 'Revealed when combat starts'
+  return 'Current loadout'
+}
 
 /** a click within this many game units of a warlock picks it */
 export const PICK_RADIUS = 60

@@ -245,7 +245,7 @@ describe('awards pick clear outliers above sensible thresholds', () => {
     const many = matchAwards({ participants: [part(0, { spells: { fireball: [12, 9] } }), part(1, { spells: { fireball: [12, 3] } })] })
     expect(many.find((x) => x.id === 'sniper')).toMatchObject({ player: 0, unit: '%', value: 0.75 })
     const tough = matchAwards({
-      participants: [part(0, { roundsSurvived: 3, damageTaken: 80 }), part(1, { roundsSurvived: 2, damageTaken: 500 }), part(2, { roundsSurvived: 0, damageTaken: 0 })],
+      participants: [part(0, { roundsSurvived: 3, aliveSec: 60, damageDealt: 300, damageTaken: 80 }), part(1, { roundsSurvived: 2, aliveSec: 60, damageDealt: 300, damageTaken: 500 }), part(2, { roundsSurvived: 0, damageTaken: 0 })],
     })
     expect(tough.find((x) => x.id === 'untouchable')).toMatchObject({ player: 0, value: 80 })
   })
@@ -259,6 +259,72 @@ describe('awards pick clear outliers above sensible thresholds', () => {
     const { stats: _s, ...bare } = part(0, { walked: 99999 })
     void _s
     expect(matchAwards({ participants: [bare] })).toEqual([])
+  })
+
+  it.each([
+    ['returnToSender', { shieldReflects: 6 }, 'Returned 6 projectiles'],
+    ['demolition', { pillarsDestroyed: 4 }, '4 pillars demolished'],
+    ['hazardPay', { lastHitKills: 4 }, '4 credited lava or pillar kills'],
+    ['raidBoss', { bestStreak: 5 }, '5 kills in one life'],
+  ] as const)('uses existing counters for %s without claiming anything more', (id, stats, text) => {
+    const awards = matchAwards({ participants: [part(0, {}), part(1, stats)] })
+    expect(awards.find((a) => a.id === id)).toMatchObject({ player: 1, blurb: expect.stringContaining(text) })
+  })
+
+  it('needs substantial damaging-cast evidence before teasing bad aim; utility casts do not count', () => {
+    const choose = (spells: PlayerMatchStats['spells']) => matchAwards({ participants: [part(0, { spells }), part(1, {})] }).find((a) => a.id === 'sprayAndPray')
+    expect(choose({ fireball: [19, 0] })).toBeUndefined()
+    expect(choose({ fireball: [8, 0], teleport: [90, 0], shield: [30, 0] })).toBeUndefined()
+    expect(choose({ fireball: [20, 6] })).toBeUndefined()
+    expect(choose({ fireball: [20, 5], teleport: [90, 0] })).toMatchObject({ value: 15, blurb: '15 damaging casts hit nobody. The floor looked terrified.' })
+    expect(choose({ fireball: [20, 0] })).toMatchObject({ value: 20 })
+  })
+
+  it('only calls someone a passenger after substantial ground travel, and shows one flight fact per player', () => {
+    const travel = (walked: number, pushed: number) => matchAwards({ participants: [part(0, { walked, pushed, longestFlight: 1600 }), part(1, {})] })
+    expect(travel(10, 90).find((a) => a.id === 'passenger')).toBeUndefined()
+    const awards = travel(1000, 5000)
+    expect(awards.filter((a) => ['passenger', 'pinball', 'frequentFlyer'].includes(a.id))).toHaveLength(1)
+    // With no long single flight, the measured percentage is the clearest fact.
+    const passenger = matchAwards({ participants: [part(0, { walked: 1000, pushed: 3000 }), part(1, {})] })
+    expect(passenger.find((a) => a.id === 'passenger')).toMatchObject({ unit: '%', value: 0.75 })
+  })
+
+  it('spreads five cards across qualified players and mixes praise with a roast deterministically', () => {
+    const participants = [
+      part(0, { killsByCause: { fireball: 12 }, bestStreak: 8, walked: 30000, scourgeHits: 30, shieldReflects: 20 }),
+      part(1, { selfKills: 3 }),
+      part(2, { teleportSaves: 3 }),
+      part(3, { pillarsDestroyed: 4 }),
+    ]
+    const awards = matchAwards({ participants })
+    expect(awards).toHaveLength(AWARDS_MAX)
+    expect(new Set(awards.map((a) => a.player))).toEqual(new Set([0, 1, 2, 3]))
+    expect(awards.some((a) => a.id === 'oops')).toBe(true)
+    expect(awards.some((a) => a.id === 'escapeArtist')).toBe(true)
+    expect(matchAwards({ participants: [...participants].reverse() })).toEqual(awards)
+    expect(participants[0].stats?.killsByCause).toEqual({ fireball: 12 })
+  })
+
+  it('describes a measured rivalry, labels bot targets, and never invents a grudge in a duel', () => {
+    const hunter = part(0, { killsByCause: { fireball: 4 } })
+    const bot = { ...part(1, {}), kind: 'bot' as const, name: 'Thorn' }
+    const other = part(2, {})
+    const kills: MatchRecord['kills'] = [[0, 1, 3], [0, 2, 1]]
+    const awards = matchAwards({ participants: [hunter, bot, other], kills })
+    expect(awards.find((a) => a.id === 'personalGrudge')).toMatchObject({ player: 0, value: 3, blurb: '3 of 4 kills were Thorn (bot). Very selective customer service.' })
+    expect(matchAwards({ participants: [hunter, bot], kills: [[0, 1, 4]] }).some((a) => a.id === 'personalGrudge')).toBe(false)
+    expect(matchAwards({ participants: [hunter, bot, other], kills: [[0, 1, 3], [0, 2, 3]] }).some((a) => a.id === 'personalGrudge')).toBe(false)
+    const ally = { ...other, team: hunter.team }
+    expect(matchAwards({ participants: [hunter, bot, ally], teamMode: 'teams', kills: [[0, 1, 4]] }).some((a) => a.id === 'personalGrudge')).toBe(false)
+  })
+
+  it('does not praise inactivity, equal zero damage or a merely relative low damage total', () => {
+    const contender = (player: number, damageTaken: number) => part(player, { roundsSurvived: 3, aliveSec: 60, damageDealt: 200, damageTaken })
+    expect(matchAwards({ participants: [contender(0, 0), contender(1, 0)] }).some((a) => a.id === 'untouchable')).toBe(false)
+    expect(matchAwards({ participants: [contender(0, 8000), contender(1, 50000)] }).some((a) => a.id === 'untouchable')).toBe(false)
+    expect(matchAwards({ participants: [part(0, { roundsSurvived: 3 }), contender(1, 150)] }).some((a) => a.id === 'untouchable')).toBe(false)
+    expect(matchAwards({ participants: [part(0, {}), part(1, {})] })).toEqual([])
   })
 })
 
@@ -274,6 +340,16 @@ function finished(walked: number, date: number): MatchRecord {
 }
 
 describe('storage: old saves load, the stored shape stays small', () => {
+  it('keeps new fun facts through storage using the existing award shape', () => {
+    const rec = finished(0, 1)
+    rec.participants[1].stats!.shieldReflects = 6
+    rec.awards = matchAwards(rec)
+    expect(rec.awards.some((a) => a.id === 'returnToSender')).toBe(true)
+    const kv = memKV()
+    recordMatch(rec, 'me', kv)
+    expect(getMatchHistory(1, kv)[0].awards).toEqual(rec.awards)
+  })
+
   it('a v1 save (no detailed stats) loads and upgrades on the next record', () => {
     const v1 = {
       v: 1,

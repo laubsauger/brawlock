@@ -129,7 +129,7 @@ export function SpellRow() {
   const slots = usePolled(readSlots, slotsKey, 6)
   const binds = useBinds()
   return (
-    <div className="flex gap-1.5" aria-label="Spells">
+    <div className="spell-row" aria-label="Spells">
       {slots.slice(0, SPELL_SLOTS).map((info, i) => (
         <Slot key={i} index={i} info={info} keyLabel={slotKeyLabel(binds, i)} />
       ))}
@@ -137,11 +137,11 @@ export function SpellRow() {
   )
 }
 
-export function ItemGrid() {
+export function ItemRow() {
   const slots = usePolled(readSlots, slotsKey, 6)
   const binds = useBinds()
   return (
-    <div className="grid grid-cols-3 gap-1" aria-label="Items">
+    <div className="item-row" aria-label="Items">
       {slots.slice(SPELL_SLOTS).map((info, i) => (
         <Slot key={i} index={SPELL_SLOTS + i} info={info} keyLabel={slotKeyLabel(binds, SPELL_SLOTS + i)} />
       ))}

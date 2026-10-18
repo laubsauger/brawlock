@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { online, session, type PublicRoom } from '../../game/session'
+import { online, type PublicRoom } from '../../game/session'
 import { useGame } from '../../game/store'
 import { Button, Kbd } from '../widgets'
 import { RegionPing } from '../RegionPing'
 import { sfx } from '../lib/sound'
+import { joinRoom } from '../flow'
 
 /** how often the list refreshes (the server caches it ~1 s and allows 60 lists a minute) */
 export const BROWSE_REFRESH_MS = 4000
@@ -58,7 +59,11 @@ export function BrowseGames({ onBack }: { onBack: () => void }) {
     sfx('click')
     if (failed) setLobby({ status: 'idle', error: null })
     setJoining(code)
-    void session.join(code)
+    const problem = joinRoom(code, () => setJoining(null))
+    if (problem) {
+      setJoining(null)
+      setLobby({ status: 'error', error: problem.problem })
+    }
   }
 
   return (
@@ -87,10 +92,17 @@ export function BrowseGames({ onBack }: { onBack: () => void }) {
             {rooms.map((r) => {
               const st = STATUS[r.phase] ?? STATUS.match
               const full = r.humans >= r.max
+              const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
+              const watch = r.phase === 'match' && r.joinable === 0
+              const joinLabel = nextRound ? 'Join next round' : watch ? 'Watch' : 'Join'
+              const joinTitle = full ? 'This game is full' : nextRound ? 'Watch this round and take a bot seat for the next round' : watch ? 'Watch now and play from the next match' : undefined
               return (
-                <li key={r.code} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
+                <li key={`${r.kind}:${r.code}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
                   <span className="flex min-w-[12rem] flex-1 flex-col leading-tight">
-                    <span className="truncate text-[1.08rem] font-bold">{r.quick ? 'Quick play' : r.host ? `${r.host}'s game` : 'Open game'}</span>
+                    <span className="truncate text-[1.08rem] font-bold">
+                      {r.quick ? 'Quick play' : r.host ? `${r.host}'s game` : 'Open game'}
+                      {r.kind === 'p2p' && <span className="ml-2 align-middle text-[0.78rem] font-semibold tracking-wide text-ash uppercase">Player-hosted</span>}
+                    </span>
                     <span className="text-[0.86rem] text-ash">{roomMode(r)}</span>
                   </span>
                   <span className="tabular w-36 text-[0.95rem] text-[#e6d3b8]" title={`${r.humans} players, ${r.bots} bots, ${r.max} seats`}>
@@ -99,10 +111,16 @@ export function BrowseGames({ onBack }: { onBack: () => void }) {
                   </span>
                   <span className={`chip w-36 justify-center ${st.tone}`}>{st.label}</span>
                   <span className="w-44">
-                    <RegionPing s={r.region} withName />
+                    {r.kind === 'p2p' ? (
+                      <span className="text-[0.95rem] text-ash" title="Hosted from a player's PC: the ping shows once you join">
+                        – <span className="text-[0.86rem]">near {r.region.label}</span>
+                      </span>
+                    ) : (
+                      <RegionPing s={r.region} withName />
+                    )}
                   </span>
-                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={full || joining !== null} onClick={() => join(r.code)} title={full ? 'This game is full' : undefined}>
-                    {joining === r.code ? 'Joining…' : full ? 'Full' : 'Join'}
+                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={full || joining !== null} onClick={() => join(r.code)} title={joinTitle}>
+                    {joining === r.code ? 'Joining…' : full ? 'Full' : joinLabel}
                   </Button>
                 </li>
               )

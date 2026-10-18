@@ -11,6 +11,7 @@
  * (node tests, old browsers) or while the context is not running.
  */
 import { MusicLayer, type MusicTrack } from './music'
+import { MenuMusic } from './menuMusic'
 import { AmbienceLayer, edgeProximity, type AmbienceKind } from './ambience'
 import { isLocationSafeAtLayer } from '../sim'
 import { AUDIO_ASSETS } from './assets'
@@ -304,7 +305,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
 
 export class AudioEngine {
   private g: Graph | null = null
-  private vol: Volumes = { master: 0.8, sfx: 1, music: 0.6, muted: false }
+  private vol: Volumes = { master: 0.8, sfx: 1, music: 0.5, muted: false }
   private readonly voiceEnds = new Map<SfxId, number[]>()
   private readonly lastStart = new Map<SfxId, number>()
   private readonly keyed = new Map<
@@ -318,6 +319,7 @@ export class AudioEngine {
   private lastCountdown = -Infinity
   private desiredTrack: MusicTrack | 'none' = 'none'
   private current: MusicLayer | null = null
+  private readonly menuMusic = new MenuMusic()
   private fading: MusicLayer[] = []
   private amb: AmbienceLayer | null = null
   private modeNow: AudioMode = initialMode()
@@ -347,6 +349,7 @@ export class AudioEngine {
   unlock(): void {
     if (this.g) {
       this.resume()
+      this.menuMusic.resume()
       return
     }
     const C = audioContextCtor()
@@ -695,6 +698,10 @@ export class AudioEngine {
     this.applyMusic()
   }
 
+  preloadMenuMusic(): Promise<void> {
+    return this.menuMusic.preload(baseUrl())
+  }
+
   /** One lava bed on its own, or none (the sound board; in game the bed follows the music). */
   ambience(kind: AmbienceKind | null): void {
     this.applyAmbience(kind)
@@ -720,19 +727,24 @@ export class AudioEngine {
     const g = this.g
     if (!g) return
     const track = this.desiredTrack
-    if ((this.current?.track ?? 'none') === track) return
+    this.menuMusic.setActive(track === 'menu', g.ctx as AudioContext, g.music, baseUrl())
+    this.applyAmbience(track === 'none' ? null : track === 'menu' ? 'menu' : 'match')
+    const synthTrack = track === 'menu' ? 'none' : track
+    if ((this.current?.track ?? 'none') === synthTrack) {
+      if (this.amb && !this.timer) this.timer = setInterval(() => this.pump(), 50)
+      return
+    }
     if (this.current) {
       this.current.release(1.6)
       this.fading.push(this.current)
       this.current = null
     }
-    if (track !== 'none') {
-      const layer = new MusicLayer(g.synth, g.music, track)
-      layer.setIntensity(track === 'fight' ? this.shrinks / 8 : 0)
+    if (synthTrack !== 'none') {
+      const layer = new MusicLayer(g.synth, g.music, synthTrack)
+      layer.setIntensity(synthTrack === 'fight' ? this.shrinks / 8 : 0)
       layer.fadeTo(1, 2)
       this.current = layer
     }
-    this.applyAmbience(track === 'none' ? null : track === 'menu' ? 'menu' : 'match')
     if (!this.timer) this.timer = setInterval(() => this.pump(), 50)
   }
 

@@ -23,6 +23,8 @@ export function makeSettings(): MatchSettings {
     friction: 0.96,
     shopSeconds: 30,
     botsReplaceLeavers: true,
+    spectatorBets: true,
+    bounties: true,
   }
 }
 
@@ -73,6 +75,7 @@ export function makeState(pawns: PawnState[], patch: Partial<SimState> = {}): Si
     difficulty: 'hard',
   }))
   return {
+    betting: { bets: [], bounties: [], credits: [], lastSettlement: null },
     tick: 0,
     rng: 1,
     nextEntityId: 1000,

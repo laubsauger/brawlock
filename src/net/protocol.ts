@@ -54,11 +54,11 @@
  */
 import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { TickEvents } from '../game/frame'
-import type { WireInput, WirePatch } from './stream'
+import { decodeCmd, encodeCmd, type WireCmd, type WireInput, type WirePatch, type WireSlot } from './stream'
 import type { MatchResult } from '../game/store'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 6
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -72,6 +72,12 @@ export interface InputFrame {
    */
   tick: number
   cmds: InputCommand[]
+}
+
+export interface BotPlan {
+  p: PlayerId
+  n: number
+  f: [number, InputCommand[]][]
 }
 
 export type { TickEvents }
@@ -88,6 +94,7 @@ export interface RoomState {
 
 export type Msg =
   | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null; device?: string; build?: string }
+  | { t: 'rename'; name: string }
   | { t: 'welcome'; playerId: PlayerId; server?: { build: string } }
   | {
       t: 'lobby'
@@ -112,7 +119,7 @@ export type Msg =
     }
   | { t: 'ready'; ready: boolean }
   | { t: 'pings'; pings: Record<PlayerId, number>; ul?: Record<PlayerId, number> }
-  | { t: 'start'; match: number; seed: number; slots: PlayerSlot[]; settings: MatchSettings; localPlayer: PlayerId }
+  | { t: 'start'; match: number; seed: number; slots: PlayerSlot[]; settings: MatchSettings; localPlayer: PlayerId; waiting?: boolean; fromTick?: number }
   | { t: 'input'; match: number; inputs: InputFrame[]; n?: number; s?: 1 }
   | {
       t: 'nstat'
@@ -124,9 +131,12 @@ export type Msg =
       ds: number | null
     }
   | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; in?: PlayerInput[]; state: SimState }
-  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; h?: [number, number] }
+  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; s?: WireSlot[]; h?: [number, number] }
   | { t: 'need'; m: number; from: number; k?: 1 }
   | { t: 'hint'; m: number; p: PlayerId; f: [number, InputCommand[]][] }
+  /** A bot's complete pending schedule as of tick n; newer plans replace older future commands. */
+  | { t: 'plan'; m: number; p: PlayerId; n: number; f: [number, InputCommand[]][] }
+  | { t: 'plans'; m: number; plans: BotPlan[] }
   | { t: 'end'; match: number; result: MatchResult }
   | { t: 'screen'; screen: 'lobby' }
   | { t: 'notice'; text: string }
@@ -136,6 +146,7 @@ export type Msg =
 
 const TYPES = new Set<Msg['t']>([
   'hello',
+  'rename',
   'welcome',
   'lobby',
   'ready',
@@ -148,6 +159,8 @@ const TYPES = new Set<Msg['t']>([
   'is',
   'need',
   'hint',
+  'plan',
+  'plans',
   'end',
   'screen',
   'notice',
@@ -157,6 +170,8 @@ const TYPES = new Set<Msg['t']>([
 ])
 
 export function encode(msg: Msg): string {
+  if (msg.t === 'plan') return JSON.stringify({ ...msg, f: msg.f.map(([tick, cmds]) => [tick, cmds.map(encodeCmd)]) })
+  if (msg.t === 'plans') return JSON.stringify({ t: msg.t, m: msg.m, plans: msg.plans.map((p) => [p.p, p.n, p.f.map(([tick, cmds]) => [tick - p.n, cmds.map(encodeCmd)])]) })
   return JSON.stringify(msg)
 }
 
@@ -171,7 +186,40 @@ export function decode(data: string): Msg | null {
   if (!v || typeof v !== 'object') return null
   const t = (v as { t?: unknown }).t
   if (typeof t !== 'string' || !TYPES.has(t as Msg['t'])) return null
+  if (t === 'plans') {
+    const msg = v as Extract<Msg, { t: 'plans' }>
+    if (!Array.isArray(msg.plans)) return null
+    const plans: BotPlan[] = []
+    for (const p of msg.plans as unknown[]) {
+      if (!Array.isArray(p) || !Number.isInteger(p[0]) || !Number.isInteger(p[1]) || !Array.isArray(p[2])) return null
+      const decoded = decodeBotPlan(p[0], p[1], p[2], true)
+      if (!decoded) return null
+      plans.push(decoded)
+    }
+    return { ...msg, plans }
+  }
+  if (t === 'plan') {
+    const plan = v as Extract<Msg, { t: 'plan' }>
+    const decoded = decodeBotPlan(plan.p, plan.n, plan.f, false)
+    return decoded ? { ...plan, ...decoded } : null
+  }
   return v as Msg
+}
+
+function decodeBotPlan(player: number, asOf: number, frames: unknown, relative: boolean): BotPlan | null {
+  if (!Number.isInteger(player) || !Number.isInteger(asOf) || !Array.isArray(frames)) return null
+  const f: BotPlan['f'] = []
+  for (const frame of frames) {
+    if (!Array.isArray(frame) || !Number.isInteger(frame[0]) || !Array.isArray(frame[1])) return null
+    const cmds: InputCommand[] = []
+    for (const wire of frame[1]) {
+      const cmd = decodeCmd(wire as WireCmd)
+      if (!cmd) return null
+      cmds.push(cmd)
+    }
+    f.push([frame[0] + (relative ? asOf : 0), cmds])
+  }
+  return { p: player, n: asOf, f }
 }
 
 /**
@@ -254,6 +302,10 @@ export function sanitizeCommand(c: unknown): InputCommand | null {
       break
     case 'buyMastery':
       if (!['duration', 'range', 'lifesteal', 'all'].includes(o.mastery as string)) return null
+      break
+    case 'spectateBet':
+      // Stake and payout belong to the authoritative sim, never to the client.
+      if (keys.length !== 3 || !Number.isInteger(o.round) || (o.round as number) < 0 || !Number.isInteger(o.target) || (o.target as number) < 0) return null
       break
   }
   return out as unknown as InputCommand

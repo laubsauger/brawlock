@@ -506,6 +506,12 @@ export function buildCloth(rig: RigRest): THREE.BufferGeometry {
     const neckR = 0.075
     const top = hoodBot + 0.04
     const bot = chest.y - 0.07
+    // The back hangs close to the torso; using the same .25 m radius as the
+    // chest made a stiff shelf above the long cape. Keep clearance outside the
+    // .17 m torso capsule and the measured tunic, without narrowing the sides
+    // that must still cover the upper arms.
+    const backSlice = rig.slice(bot - 0.02, top, 'body')
+    const backR = Math.max(0.18, nz - backSlice.minZ + 0.018)
     const COLLAR = 0.22 // fraction of the rows that tuck in toward the neck
     B.grid(
       10,
@@ -526,9 +532,10 @@ export function buildCloth(rig: RigRest): THREE.BufferGeometry {
           y = top + 0.03 * (1 - c)
         } else {
           const u = (t - COLLAR) / (1 - COLLAR)
-          const ease = Math.sin((Math.min(1, u * 1.35) * Math.PI) / 2)
+          const ease = Math.sin((u * Math.PI) / 2)
           rx = lerp(hoodRx - 0.01, sh.x + 0.21, ease)
-          rz = lerp(hoodRz - 0.01, 0.25, ease)
+          const rear = Math.max(0, -Math.cos(th))
+          rz = lerp(hoodRz - 0.01, lerp(0.25, backR, rear * rear), ease)
           y = lerp(top, bot, u) - 0.05 * side * side * u - 0.035 * Math.max(0, -Math.cos(th)) * u
         }
         const fold = 1 + 0.035 * t * Math.sin(th * 9)

@@ -4,7 +4,7 @@
  * screen), times as seconds or m:ss, award values by their unit, kill causes
  * by name, and a rating trend replayed from the stored matches.
  */
-import { ELO_START, eloUpdate, pairOutcome, type Award, type MatchRecord } from '../../game/stats'
+import { ELO_START, eloUpdate, hasProfileIdentity, pairOutcome, type Award, type MatchRecord } from '../../game/stats'
 import { displayName } from '../data/catalog'
 
 export const TILE_UNITS = 192
@@ -66,6 +66,13 @@ export const AWARD_ICON: Record<string, string> = {
   untouchable: 'armor',
   escapeArtist: 'teleport',
   ringOfFire: 'scourge',
+  returnToSender: 'shield',
+  demolition: 'rockpillar',
+  hazardPay: 'meteor',
+  raidBoss: 'cursed_ring',
+  sprayAndPray: 'splitter',
+  passenger: 'thrust',
+  personalGrudge: 'homing',
 }
 
 /**
@@ -79,7 +86,7 @@ export function ratingTrend(history: readonly MatchRecord[], selfProfileId: stri
   const ratings = new Map<string, number>()
   const out: number[] = []
   for (const rec of [...history].reverse()) {
-    const ps = rec.participants
+    const ps = rec.participants.filter(hasProfileIdentity)
     const before = ps.map((p) => ratings.get(p.profileId) ?? ELO_START)
     const after = eloUpdate(before, (i, j) => pairOutcome(rec, ps[i], ps[j]))
     ps.forEach((p, i) => ratings.set(p.profileId, after[i]))

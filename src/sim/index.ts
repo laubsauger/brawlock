@@ -6,6 +6,7 @@ import { DT } from './types'
 import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
 import { ARENA_SHOP_LAYER, DEFAULT_SETTINGS, PAWN_DP_REGEN, frictionPerTick } from './config'
 import { killPawn } from './combat'
+import { deliverBettingCredits } from './bets'
 import { lavaTick } from './lava'
 import { prepareForRound, phaseTick } from './mode'
 import { tickModifiers } from './modifiers'
@@ -17,6 +18,7 @@ import { isAlive, kindOf, timeScale } from './projectiles'
 import { assignTeams, isActive, pawnOf, scoreOf } from './teams'
 
 export * from './types'
+export { BET_STAKE, BET_MAX_RETURN, canSpectateBet, bountyOf, betIdentityMatchesSlot } from './bets'
 
 // --- helpers for render / ui / bots / net ---------------------------------------
 export {
@@ -86,6 +88,7 @@ export function createMatch(inputSettings: MatchSettings, slots: PlayerSlot[], s
   const settings = sanitizeSettings(inputSettings)
   const sorted = slots.map((s) => ({ ...s })).sort((a, b) => a.id - b.id)
   const state: SimState = {
+    betting: { bets: [], bounties: [], credits: [], lastSettlement: null },
     tick: 0,
     rng: seed >>> 0,
     nextEntityId: 1,
@@ -147,6 +150,9 @@ function validCommand(cmd: InputCommand): boolean {
       return typeof cmd.item === 'string'
     case 'buyMastery':
       return typeof cmd.mastery === 'string'
+    case 'spectateBet':
+      return Object.keys(cmd).length === 3 && Number.isInteger(cmd.round) && cmd.round >= 0 &&
+        Number.isInteger(cmd.target) && cmd.target >= 0
     default:
       return false
   }
@@ -234,6 +240,7 @@ function regenTick(state: SimState): void {
  */
 export function step(state: SimState, inputs: PlayerInput[]): void {
   state.events = []
+  deliverBettingCredits(state)
   if (state.phase !== 'gameOver') {
     // by player, then by the client's tick stamp; stable for equal keys
     const sorted = inputs.slice().sort((a, b) => a.player - b.player || a.tick - b.tick)

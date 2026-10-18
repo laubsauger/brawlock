@@ -9,7 +9,11 @@
  *   POST /rooms         create a room → 201 {code, build, protocol}; 429 rate limited, 503 full
  *   GET  /rooms/:code   {code, exists: true, state, humans, peers, matchTick} or {exists: false}
  *                       (200 either way: every P2P join asks, a 404 would log a console error)
- *   GET  /rooms?public=1  {region, rooms: RoomSummary[]}: the public room browser (cached ~1 s)
+ *   GET  /rooms?public=1  {region, rooms: RoomSummary[], listings: ListingView[]}: the public
+ *                       room browser, server rooms and listed player-hosted rooms (cached ~1 s)
+ *   POST   /listings      list a player-hosted (P2P) room → 201 {id, token, ttlS, heartbeatS}
+ *   PUT    /listings/:id  heartbeat {token, ...changes} → {ok} or {ok, gone} (list again)
+ *   DELETE /listings/:id  {token} → unlisted at once (listings.ts; the server never connects to it)
  *   POST /quickplay?bots=hard  → {code, created, region}: an open quick-play room, or a new one
  *   GET  /leaderboard?period=all|week&region=&device=  {period, region, entries, you}
  *   GET  /players/:device  {found: true, ...} a device's public profile (rating, rank, totals,
@@ -21,6 +25,7 @@
 import { hashString } from '../sim/snapshot'
 import { newRoomCode, parseRoomCode } from './code'
 import { createRoom, type QuickPlayPolicy, type Room, type RoomDeps, type RoomSummary } from './dedicated'
+import { LISTING_HEARTBEAT_MS, LISTING_TTL_MS, ListingDirectory } from './listings'
 import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type FinishedMatch, type LeaderboardStore, type Period } from './leaderboard'
 import { MAX_PLAYERS } from './session'
 import { PROTOCOL_VERSION, encode } from './protocol'
@@ -54,6 +59,11 @@ export interface ServerConfig {
   quickplay: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
   /** a server match shorter than this does not count for the leaderboard */
   leaderboardMinSeconds: number
+  /** player-hosted room listings: per IP creations / heartbeats per minute, live listings per IP, per server */
+  listingCreatesPerMin: number
+  listingBeatsPerMin: number
+  listingsPerIp: number
+  maxListings: number
 }
 
 export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
@@ -72,6 +82,10 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   boardReadsPerMin: 60,
   quickplay: { fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 8, fill: 4, bots: 'hard' },
   leaderboardMinSeconds: LB_MIN_SECONDS,
+  listingCreatesPerMin: 6,
+  listingBeatsPerMin: 30,
+  listingsPerIp: 3,
+  maxListings: 500,
 }
 
 /** how long the public room list and a leaderboard page are served from cache (server clock) */
@@ -92,6 +106,8 @@ export interface HttpRequest {
   path: string
   ip: string
   origin: string | null
+  /** request body (POST / PUT / DELETE); null: over the size limit */
+  body?: string | null
 }
 
 export interface HttpResponse {
@@ -163,6 +179,9 @@ export function createServerCore(
   const clock = deps.clock ?? (() => Date.now())
   const store = deps.leaderboard ?? null
   let listCache: { at: number; body: unknown } | null = null
+  const listings = new ListingDirectory({ ttlMs: LISTING_TTL_MS, maxTotal: cfg.maxListings, perIp: cfg.listingsPerIp, maxSeats: MAX_PLAYERS }, deps.now)
+  const listingCreateLimit = new KeyedLimiter(cfg.listingCreatesPerMin, cfg.listingCreatesPerMin / 60)
+  const listingBeatLimit = new KeyedLimiter(cfg.listingBeatsPerMin, cfg.listingBeatsPerMin / 60)
   const boardCache = new Map<string, { at: number; entries: unknown }>()
   const conns = new Map<string, number>()
   let connections = 0
@@ -174,8 +193,10 @@ export function createServerCore(
     const allow = cfg.allowedOrigins === null ? '*' : origin && cfg.allowedOrigins.includes(origin) ? origin : 'null'
     return {
       'access-control-allow-origin': allow,
-      'access-control-allow-methods': 'GET, POST, OPTIONS',
+      'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'access-control-allow-headers': 'content-type',
+      // heartbeats are PUTs (preflighted): one preflight per 10 minutes, not per heartbeat
+      'access-control-max-age': '600',
       vary: 'Origin',
       'cache-control': 'no-store',
       'content-type': 'application/json',
@@ -202,6 +223,14 @@ export function createServerCore(
         ...(setup.quick ? { quick: { fillMs: cfg.quickplay.fillMs, startMs: cfg.quickplay.startMs, nextMs: cfg.quickplay.nextMs, seats: cfg.quickplay.seats, fill: cfg.quickplay.fill, bots: setup.quick } } : {}),
         public: setup.public,
         onMatch: (m) => record(code, m),
+        onName: (device, name) => {
+          if (!store) return
+          try {
+            if (store.rename(device, name)) boardCache.clear()
+          } catch (error) {
+            log('error', 'leaderboard.error', { room: code, error: String(error) })
+          }
+        },
         log: (msg) => log('info', 'room.policy', { room: code, msg }),
       },
       deps,
@@ -235,18 +264,21 @@ export function createServerCore(
     return e.reserved.length
   }
 
-  /** An open quick-play room: public, between matches, a free human seat (bots give theirs up). Fullest first, then oldest. */
+  /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
   function openQuickRoom(): Entry | null {
     let best: Entry | null = null
     let bestN = -1
     for (const e of rooms.values()) {
       const r = e.room
-      if (!r.isQuick() || !r.isPublic()) continue
+      if (!r.isPublic()) continue
       const phase = r.screen()
-      if (phase !== 'lobby' && phase !== 'results') continue
+      if (phase !== 'lobby' && phase !== 'results' && phase !== 'match') continue
+      // Owner rooms need someone to press Start; quick players can join them once
+      // playing, but must not be stranded in a manual lobby or rematch screen.
+      if (!r.isQuick() && phase !== 'match') continue
       const held = reservedNow(e)
+      if (r.joinableSeats() <= held) continue
       const n = r.humans() + held
-      if (n >= Math.min(cfg.quickplay.seats, MAX_PLAYERS)) continue
       if (n > bestN || (n === bestN && best && e.created < best.created)) {
         best = e
         bestN = n
@@ -263,7 +295,7 @@ export function createServerCore(
       .filter((e) => e.room.isPublic() && e.room.screen() !== 'menu')
       .map((e) => e.room.summary())
       .sort((a, b) => order(a) - order(b) || b.humans - a.humans || a.code.localeCompare(b.code))
-    listCache = { at: now, body: { region: cfg.region, rooms: list } }
+    listCache = { at: now, body: { region: cfg.region, rooms: list, listings: listings.list() } }
     return listCache.body
   }
 
@@ -288,7 +320,7 @@ export function createServerCore(
       const parts = url.pathname.split('/').filter(Boolean)
       if (req.method === 'OPTIONS') return { status: 204, headers: cors(req.origin), body: '' }
       if (req.method === 'GET' && url.pathname === '/health') {
-        return json(200, { ok: true, build: cfg.build, protocol: PROTOCOL_VERSION, region: cfg.region, rooms: rooms.size, maxRooms: cfg.maxRooms, players: players(), connections, uptimeS: Math.round((deps.now() - started) / 1000) }, req.origin)
+        return json(200, { ok: true, build: cfg.build, protocol: PROTOCOL_VERSION, region: cfg.region, listings: listings.size, rooms: rooms.size, maxRooms: cfg.maxRooms, players: players(), connections, uptimeS: Math.round((deps.now() - started) / 1000) }, req.origin)
       }
       if (parts[0] === 'rooms' && parts.length === 1 && req.method === 'POST') {
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
@@ -317,6 +349,42 @@ export function createServerCore(
           return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
         }
         return json(200, publicList(), req.origin)
+      }
+      if (parts[0] === 'listings' && (parts.length === 1 || parts.length === 2)) {
+        const create = parts.length === 1 && req.method === 'POST'
+        const update = parts.length === 2 && (req.method === 'PUT' || req.method === 'DELETE')
+        if (!create && !update) return json(405, { error: 'method not allowed' }, req.origin)
+        if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
+        if (req.body === null) return json(413, { error: 'too large' }, req.origin)
+        const limit = create ? listingCreateLimit : listingBeatLimit
+        if (!limit.take(req.ip, deps.now())) {
+          log('warn', create ? 'listing.create.limited' : 'listing.beat.limited', { ip: tag(req.ip) })
+          return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
+        }
+        let body: unknown = null
+        try {
+          body = req.body ? JSON.parse(req.body) : null
+        } catch {
+          return json(400, { error: 'expected JSON' }, req.origin)
+        }
+        if (create) {
+          const r = listings.create(req.ip, body)
+          if (!r.ok) {
+            log('warn', 'listing.refused', { ip: tag(req.ip), status: r.status, error: r.error })
+            return json(r.status, { error: r.error }, req.origin)
+          }
+          listCache = null
+          log('info', 'listing.create', { ip: tag(req.ip), listings: listings.size })
+          return json(201, { id: r.id, token: r.token, ttlS: LISTING_TTL_MS / 1000, heartbeatS: LISTING_HEARTBEAT_MS / 1000 }, req.origin)
+        }
+        const id = decodeURIComponent(parts[1])
+        const r = req.method === 'PUT' ? listings.beat(id, body) : listings.remove(id, body)
+        if (!r.ok) return json(r.status, { error: r.error }, req.origin)
+        if (req.method === 'DELETE' && !r.gone) {
+          listCache = null
+          log('info', 'listing.remove', { ip: tag(req.ip), listings: listings.size })
+        }
+        return json(200, { ok: true, ...(r.gone ? { gone: true } : {}) }, req.origin)
       }
       if (parts[0] === 'quickplay' && parts.length === 1 && req.method === 'POST') {
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
@@ -507,6 +575,9 @@ export function createServerCore(
       listLimit.sweep(now)
       quickLimit.sweep(now)
       boardLimit.sweep(now)
+      listingCreateLimit.sweep(now)
+      listingBeatLimit.sweep(now)
+      if (listings.sweep() > 0) listCache = null
     },
 
     close() {

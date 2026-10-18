@@ -272,5 +272,6 @@ export function Killfeed() {
 function feedText(r: KillEntry): string {
   if (r.killer && r.lava) return `${r.killer.name} pushed ${r.victim.name} into the lava${r.cause && r.cause !== 'lava' ? ` with ${displayName(r.cause)}` : ''}`
   if (r.killer) return `${r.killer.name} killed ${r.victim.name}${r.cause ? ` with ${displayName(r.cause)}` : ''}`
-  return `${r.victim.name} burned in the lava`
+  if (r.lava) return `${r.victim.name} burned in the lava`
+  return `${r.victim.name} was knocked out${r.cause ? ` by ${displayName(r.cause)}` : ''}`
 }

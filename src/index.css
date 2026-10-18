@@ -39,7 +39,7 @@
   --rune: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .8 11.2 6 6 11.2.8 6Z' fill='none' stroke='%23e0a060' stroke-width='1'/%3E%3Ccircle cx='6' cy='6' r='1.3' fill='%23ff8a2a'/%3E%3C/svg%3E");
   /* HUD footprint at 1080p before scaling; docks sit between them */
   --hud-top-h: 58px;
-  --hud-bottom-h: 122px;
+  --hud-bottom-h: 64px;
   --ui-scale: 1;
   --chamfer: 10px;
   --chamfer-lg: 16px;
@@ -394,6 +394,18 @@
     text-align: left;
     padding: 0.85rem 1.35rem;
   }
+  .menu-pair .menu-item { padding: 0.65rem 0.85rem; }
+  .menu-pair .btn-label { font-size: 0.95rem; }
+  .brand-mark { position: relative; flex: none; }
+  .brand-mark img { filter: drop-shadow(0 8px 25px #000b) drop-shadow(0 0 1px #f7832c) drop-shadow(0 0 17px #ff641c50); }
+  .brand-mark-live::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(110deg, #ff681a55, #ffc786bb 38%, #fa430044 66%, #ffc78677);
+    mask: var(--brand-image) center / 100% 100% no-repeat;
+    mix-blend-mode: screen; opacity: 0.12;
+    animation: brand-embers 7s ease-in-out infinite alternate;
+  }
+  @keyframes brand-embers { to { opacity: 0.38; } }
 
   /* -------------------------------------------------------------------------
    * Form controls: engraved wells, molten selections
@@ -634,6 +646,11 @@
   .hud-scale { zoom: var(--ui-scale, 1); }
   /* bottom cluster sits flush on the screen edge: chamfered top corners only */
   .hud-bottom {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    max-width: calc((100vw - 16px) / var(--ui-scale, 1));
     clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%, 0 12px);
     box-shadow: inset 0 1px 0 rgba(255, 170, 100, 0.28), inset 1px 0 0 rgba(255, 170, 100, 0.14), inset -1px 0 0 rgba(255, 170, 100, 0.14);
   }
@@ -704,6 +721,9 @@
   .kb-frame[data-hot="true"] { box-shadow: inset 0 0 0 1px rgba(255, 80, 40, 0.7), 0 0 14px rgba(255, 60, 20, 0.5); }
 
   /* Spell slots */
+  .spell-row, .item-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .item-row { padding-left: 10px; border-left: 1px solid rgba(255, 170, 100, 0.16); }
+  .hotbar-gold { flex-shrink: 0; min-width: 52px; padding-left: 8px; border-left: 1px solid rgba(255, 170, 100, 0.16); }
   .slot {
     position: relative;
     width: 52px; height: 52px;
@@ -714,9 +734,11 @@
     transition: box-shadow 0.15s ease, transform 0.12s ease;
   }
   .slot.item { width: 40px; height: 40px; border-radius: 5px; }
+  .hud-bottom .slot { flex-shrink: 1; min-width: 0; height: auto; aspect-ratio: 1; container-type: inline-size; }
   .slot[data-empty="true"] { background: rgba(10, 6, 4, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 170, 100, 0.08); }
   .slot .icon { position: absolute; inset: 5px; }
   .slot.item .icon { inset: 4px; }
+  .slot .icon > img, .slot .icon > svg { width: 100% !important; height: 100% !important; }
   .slot .cd {
     position: absolute; inset: 0;
     background: conic-gradient(from 0deg, rgba(8, 4, 2, 0.8) calc(var(--cd, 0) * 360deg), transparent 0);
@@ -727,12 +749,11 @@
   .slot .cd-text {
     position: absolute; inset: 0;
     display: grid; place-items: center;
-    font: 700 1.15rem var(--font-ui);
+    font: 800 clamp(0.85rem, 55cqw, 1.75rem)/1 var(--font-ui);
     font-variant-numeric: tabular-nums;
     color: #fff;
-    text-shadow: 0 1px 3px #000, 0 0 8px #000;
+    text-shadow: 0 2px 3px #000, 0 0 8px #000;
   }
-  .slot.item .cd-text { font-size: 0.92rem; }
   /* key cap tab in the top-left corner: big enough to read mid-fight, on a dark
      plate with a thin rim so it holds up over bright icons, clear of the icon's center */
   .slot .hotkey {
@@ -1071,6 +1092,7 @@
     box-shadow: inset 0 -1px 0 rgba(255, 170, 100, 0.18);
   }
   .ability-media img, .ability-media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .tutorial-preview { width: 100%; height: auto; aspect-ratio: 300 / 169; border-radius: 6px; }
   .ability-media video { opacity: 0; transition: opacity 0.15s ease; }
   .ability-media video[data-ready="true"] { opacity: 1; }
   .ability-card-name { font-family: var(--font-display); font-weight: 700; font-size: 1.08rem; letter-spacing: 0.04em; line-height: 1.15; }
@@ -1211,6 +1233,17 @@
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   .gear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.375rem; }
   .spell-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.35rem; align-content: start; }
+  .spell-column {
+    padding: 3px 2px 5px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--column-hue) 9%, transparent), color-mix(in srgb, var(--column-hue) 3%, transparent));
+    box-shadow: inset 0 2px 0 color-mix(in srgb, var(--column-hue) 45%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--column-hue) 12%, transparent);
+  }
+  .spell-column-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 4px 0 6px; border-radius: 4px; }
+  .spell-column-title { font-size: 0.9rem; }
+  .spell-column-choice { color: #a9947e; font: 600 0.68rem/1.2 var(--font-ui); white-space: nowrap; }
+  .spell-column[data-selected="true"] .spell-column-choice { color: #d5c6b2; }
+  .spell-column-choice > span { color: var(--column-hue); margin-right: 2px; }
   /* short screens (1440x900 and below): tighter tiles so the tallest column (six cards) fits above the detail footer; it still scrolls below that */
   @media (max-height: 960px) {
     .spell-grid { row-gap: 0.15rem; }
@@ -1224,6 +1257,7 @@
   }
   @container (max-width: 600px) {
     .spell-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 0.9rem; }
+    .spell-column-head > div { flex-direction: column; gap: 3px; }
   }
   .dock-right { right: 10px; width: var(--dock-right-w, 700px); animation: dock-in-right 0.36s cubic-bezier(.2, .9, .3, 1) both; }
   .dock-left { left: 10px; width: var(--dock-left-w, 330px); animation: dock-in-left 0.36s cubic-bezier(.2, .9, .3, 1) both; }
@@ -1416,6 +1450,7 @@
       transition-duration: 0.01ms !important;
     }
     .wordmark { animation: none; }
+    .brand-mark-live::after { animation: none; opacity: 0.16; }
     .ember-backdrop .ember { display: none; }
     /* banners still need to be readable: show statically, the HUD hides them by timer */
     .banner[data-show="true"], .banner[data-show="true"][data-tone], .banner[data-hold="true"] { animation: none !important; opacity: 1; }

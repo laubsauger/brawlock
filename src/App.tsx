@@ -20,6 +20,7 @@ import { undoRemap } from './ui/lib/remap'
 import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { forcedMute, forcedSynth, music } from './ui/lib/sound'
+import { Tutorial } from './ui/Tutorial'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -152,6 +153,7 @@ export default function App() {
   // menu music everywhere outside a match; the HUD drives shop / fight music
   useEffect(() => {
     if (screen === 'menu' || screen === 'lobby' || screen === 'credits' || screen === 'results') music('menu')
+    else if (screen === 'replay') music('none')
   }, [screen])
 
   return (
@@ -170,6 +172,7 @@ export default function App() {
         {screen === 'replay' && <Replay />}
       </main>
       {settingsOpen && <SettingsModal />}
+      <Tutorial />
       <SplashScreen />
       <Toasts />
       <PerfHud />

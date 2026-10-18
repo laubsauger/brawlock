@@ -19,6 +19,7 @@
  * win check (first to winScore) runs at round ends only, like the original.
  */
 import { clampLayer } from './arena'
+import { settleSpectateBets } from './bets'
 import {
   ARENA_BASE_LAYER,
   ARENA_LAYER_PER_PLAYER,
@@ -99,6 +100,7 @@ export function startRound(state: SimState): void {
   const dm = isDeathmatch(state)
   const first = state.round === 0
   state.round += 1
+  state.betting.bets = []
   state.phase = 'fight'
   assignTeams(state)
   const players = activePlayers(state).length
@@ -164,9 +166,11 @@ export function roundWon(state: SimState, team: number | null): void {
   state.phase = 'roundEnd'
   state.phaseTicksLeft = ticks(ROUND_END_SECONDS)
   if (team === null) {
+    settleSpectateBets(state, [])
     state.events.push({ type: 'roundWin', team: TEAM_DRAW, players: [] })
   } else {
     const players = activePlayers(state).filter((id) => teamOf(state, id) === team)
+    settleSpectateBets(state, players)
     for (const id of players) {
       const sc = scoreOf(state, id)!
       sc.score += 1

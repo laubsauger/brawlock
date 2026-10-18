@@ -6,6 +6,7 @@ import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
 import { createWarlock, type CastArm, type DeathKind, type WarlockHandle } from '../character'
+import { RoundEpoch } from '../character/impactMotion'
 import { tweaks } from '../tweaks'
 import { COLLISION_RING_R } from '../scale'
 
@@ -101,6 +102,8 @@ export class PawnView {
   private arriveAt = -10
   private healK = 0
   private deathAt = -1
+  private deathConfirmed = false
+  private roundEpoch = new RoundEpoch()
   private castSpell = ''
   private castTotal = 1
   private castProgress = 0
@@ -418,6 +421,12 @@ export class PawnView {
   /** Death cause from the sim ('lava' sinks the corpse into the lava). */
   deathCause(cause: string): void {
     this.cause = cause
+    this.deathConfirmed = true
+    if (this.deathAt < 0) this.deathAt = this.ctx.uTime.value
+  }
+
+  celebrate(facing: number): void {
+    this.warlock?.celebrate(facing)
   }
 
   get deathCauseId(): string {
@@ -433,6 +442,8 @@ export class PawnView {
    */
   deathFx(kind: string, dx: number, dy: number, edge: [number, number, number] | null): void {
     this.customDeath = true
+    this.deathConfirmed = true
+    if (this.deathAt < 0) this.deathAt = this.ctx.uTime.value
     if (edge) this.u.dissolveColor.value.setRGB(edge[0], edge[1], edge[2])
     this.edgeOverride = !!edge
     // character API: edge = linear RGB triple (or 0xRRGGBB); unknown kinds fall back to 'ash'
@@ -549,6 +560,7 @@ export class PawnView {
         this.detailSent = this.detail
       }
       w.setCastColor(castColor)
+      w.setMotionIntensity(this.ctx.uFx.value)
       // a VFX module claimed this frame's hit on us: no material flash on top of its own
       if (suppressHitFlash) w.hitFlash(false)
       w.update(p, prev ?? null, alpha, dt, events)
@@ -659,6 +671,19 @@ export class PawnView {
     return this.deathAt >= 0 && this.ctx.uTime.value - this.deathAt > DEATH_DUR
   }
 
+  /** Must run before this frame's death events, so a new-round death is never cleared. */
+  beginRound(round: number): void {
+    if (this.roundEpoch.advance(round)) {
+      this.deathConfirmed = false
+      this.deathAt = -1
+      this.spin = 0
+      this.cause = ''
+      this.customDeath = false
+      this.edgeOverride = false
+    }
+    this.warlock?.beginRound(round)
+  }
+
   /**
    * True for the frame in which the pawn jumped (round-start reposition,
    * respawn, teleport): everything per-pawn was snapped to the new spot.
@@ -666,7 +691,10 @@ export class PawnView {
   justSnapped = false
   private placed = false
 
-  update(p: PawnState, s: PawnSample, layer: number, now: number, dt: number): void {
+  update(p: PawnState, s: PawnSample, layer: number, now: number, dt: number, events: readonly SimEvent[]): void {
+    for (const e of events) {
+      if ((e.type === 'respawn' && e.pawn === p.id) || (e.type === 'phase' && e.phase === 'shop' && p.alive)) this.deathConfirmed = false
+    }
     // teleport-like jump (far beyond any per-frame move): snap, never smooth
     // across the map; cloth / lean / spin / height restart at rest
     const jump = this.placed && Math.hypot(s.x - this.x, s.y - this.y) > SNAP_DIST
@@ -677,13 +705,13 @@ export class PawnView {
     this.y = s.y
     this.hp = p.hp
     this.maxHp = p.maxHp
-    this.alive = p.alive
+    this.alive = p.alive && !(this.deathConfirmed && this.deathAt >= 0)
     const safe = isLocationSafe(s.x, s.y, layer)
     this.onLava = !safe
     const k = 1 - Math.exp(-dt * 14)
 
     if (!p.alive && this.deathAt < 0) this.deathAt = now
-    if (p.alive && this.deathAt >= 0) {
+    if (p.alive && this.deathAt >= 0 && !this.deathConfirmed) {
       // respawn
       this.deathAt = -1
       this.spin = 0

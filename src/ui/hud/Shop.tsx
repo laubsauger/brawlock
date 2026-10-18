@@ -246,6 +246,7 @@ export function Shop() {
   const toggle = useGame((s) => s.toggle)
   // shorter screens: denser tiles so the tallest spell column fits without scrolling
   const compact = useMedia('(max-height: 820px)')
+  const abilityTileSize = compact ? 52 : 62
   // closing the shop never leaves a card floating
   useEffect(() => () => hideAbilityCard(), [])
   const right = useRef<HTMLElement>(null)
@@ -354,7 +355,7 @@ export function Shop() {
                         name={def.name}
                         hue={hueFor(def.id)}
                         offer={o}
-                        size={compact ? 52 : 62}
+                        size={abilityTileSize}
                         max={def.maxLevel}
                         nav={`${i % 3},${1 + Math.floor(i / 3)}`}
                         label={`${o.level ? 'Upgrade' : 'Buy'} ${def.name}${o.level ? `, level ${o.level} of ${def.maxLevel}` : ''}${o.state === 'soon' ? ', coming soon' : ''}`}
@@ -392,13 +393,26 @@ export function Shop() {
             {COLUMNS.map((col, c) => {
               const owned = v.spells[c]
               const defs = SPELLS.filter((s) => s.column === c)
+              const selected = defs.find((def) => def.id === owned.id)
               return (
-                <div key={col.name} className="flex min-w-0 flex-col gap-0.5" aria-label={`${col.name} column`}>
+                <div
+                  key={col.name}
+                  className="spell-column flex min-w-0 flex-col gap-0.5"
+                  style={{ ['--column-hue' as string]: col.hue }}
+                  data-selected={!!owned.id}
+                  role="group"
+                  aria-label={`${col.name}: ${selected ? `${selected.name} selected` : 'choose one spell'}`}
+                >
                   {/* key first, then the column it casts: "Q Knockout", never read as the next column's key */}
-                  <div className="col-head mb-0.5 flex items-center gap-1.5 rounded pt-1" title={`${col.hint}. Drop an owned spell here to swap keys.`} {...slotDropProps(c)}>
-                    <Kbd>{slotKeyLabel(binds, c)}</Kbd>
-                    <span className="truncate text-[0.98rem] font-bold" style={{ color: col.hue }}>
-                      {col.name}
+                  <div className="col-head spell-column-head" title={`${col.hint}. Drop an owned spell here to swap keys.`} {...slotDropProps(c)}>
+                    <div className="flex min-w-0 items-center justify-center gap-1">
+                      <Kbd>{slotKeyLabel(binds, c)}</Kbd>
+                      <span className="spell-column-title truncate font-bold" style={{ color: col.hue }}>
+                        {col.name}
+                      </span>
+                    </div>
+                    <span className="spell-column-choice" title={selected ? `${selected.name} selected; other spells in this column are unavailable` : 'Choose one spell from this column'}>
+                      {owned.id ? <><span aria-hidden>✓</span> Selected</> : 'Choose 1'}
                     </span>
                   </div>
                   {defs.map((def, r) => {
@@ -410,10 +424,10 @@ export function Shop() {
                         name={def.name}
                         hue={col.hue}
                         offer={o}
-                        size={compact ? 56 : 68}
+                        size={abilityTileSize}
                         max={SPELL_MAX_LEVEL}
                         nav={`${c},${r}`}
-                        label={`${def.name}${o.state === 'soon' ? ', coming soon' : o.owned ? `, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
+                        label={`${def.name}${o.state === 'soon' ? ', coming soon' : o.state === 'locked' ? `, unavailable: ${selected?.name} selected for this column` : o.owned ? `, selected, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
                         card={abilityCardProps(() => ({ kind: 'spell', id: def.id, context: 'shop', side: 'left' }))}
                         onBuy={(e) => purchase(e, o.state, { kind: 'buySpell', spell: def.id })}
                         slot={o.owned ? c : undefined}
@@ -424,7 +438,7 @@ export function Shop() {
               )
             })}
           </div>
-          <p className="shop-hint px-5 pt-1 pb-2.5 text-[0.82rem] text-ash">Point at a card for its numbers. Click or Enter buys; arrow keys move between cards.</p>
+          <p className="shop-hint px-5 pt-1 pb-2.5 text-[0.82rem] text-ash"><span className="font-semibold text-[#e6d3b8]">Choose 1 spell from each column.</span> Click your choice again to upgrade.</p>
         </div>
       </section>
     </>

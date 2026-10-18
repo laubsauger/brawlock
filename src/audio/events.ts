@@ -341,8 +341,17 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   },
   death: (e, c) => {
     const p = c.pawnPos(e.pawn)
-    const sp = p ? c.at(p.x, p.y) : CENTRE
-    return [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn) })]
+    const sp = e.x !== undefined && e.y !== undefined ? c.at(e.x, e.y) : p ? c.at(p.x, p.y) : CENTRE
+    if (e.cause === 'disconnect') return [cue('fade', sp, 0.6, { stopKey: windupKey(e.pawn) })]
+    // Your own knockout stays centered and distinct even when the camera is panned away.
+    if (e.owner === c.listener.localPlayer) return [cue('death', CENTRE, 1.15, { stopKey: windupKey(e.pawn) })]
+    const out = [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn) })]
+    // The exact authoritative bounty is separate from ordinary kill/round gold.
+    // A quiet two-part coin settle belongs only to its collector.
+    if (e.killer === c.listener.localPlayer && e.bountyGold && e.bountyGold > 0) {
+      out.push(cue('uiBuy', CENTRE, 0.65, { delay: 0.13 }), cue('streakTick', CENTRE, 0.55, { delay: 0.24, param: 4 }))
+    }
+    return out
   },
   respawn: (e, c) => [cue('respawnSwell', c.at(e.x, e.y))],
   beam: (e, c) => {
@@ -351,7 +360,11 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     else if (e.target !== null) out.push(cue('impact', c.at(e.toX, e.toY), 0.8, { delay: 0.01 }))
     return out
   },
-  shieldReflect: (e, c) => [cue('reflect', c.at(e.x, e.y), 1, { param: e.stolen ? 1 : 0 })],
+  shieldReflect: (e, c) => {
+    const out = [cue('reflect', c.at(e.x, e.y), 1, { param: e.stolen ? 1 : 0 })]
+    if (e.stolen && e.reflected && e.pawn === c.localPawn) out.push(cue('streakTick', CENTRE, 0.4, { delay: 0.07, param: 1 }))
+    return out
+  },
   swap: (e, c) => {
     const glass = e.spell === 'alteration' ? 1 : 0
     return [
