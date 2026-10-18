@@ -1,25 +1,87 @@
 /**
  * Local match statistics. No server yet, so every peer records the matches it
  * saw into localStorage: match history (bounded), career totals for the local
- * profile, head-to-head encounters per opponent profile, and a local Elo rating
- * per profile (bots rate as 'bot:<difficulty>').
+ * profile, head-to-head encounters per opponent profile, a local Elo rating
+ * per profile (bots rate as 'bot:<difficulty>'), and personal bests.
  *
  * Flow: the session creates a MatchTracker at match start, feeds it every played
- * tick's state + events (deaths with killer, damage between players; counters
- * only, so memory stays bounded), and at game over turns it into a MatchRecord
- * that recordMatch() folds into the stored aggregates.
+ * tick's state + events (offline / host: one tick at a time; online clients: the
+ * newest snapshot with every event since the last one), and at game over turns it
+ * into a MatchRecord that recordMatch() folds into the stored aggregates.
  *
- * Aggregates are updated incrementally, so career and encounters outlive the
- * history cap. Corrupt or foreign data never throws: it is ignored field by field.
+ * Memory is bounded: the tracker keeps counters per player (and per spell / cause),
+ * never per-tick arrays. Aggregates are updated incrementally, so career, encounters
+ * and the hall of fame outlive the history cap. Corrupt or foreign data never throws:
+ * it is ignored field by field, and v1 saves are migrated in place.
  */
+import { isLocationSafeAtLayer } from '../sim/arena'
 import type { BotDifficulty, GameMode, MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState, TeamMode } from '../sim/types'
 import { TICK_HZ } from '../sim/types'
+import { KillTally } from './announcer'
 import { randomId, safeLocalStorage, type KV } from './profile'
 import type { MatchResult } from './store'
 
 // ---------------------------------------------------------------------------
 // Types (read API for the UI)
 // ---------------------------------------------------------------------------
+
+/**
+ * What one player did in one match, as this browser saw it. Distances in game units
+ * (a tile is 192), times in seconds, all values rounded (1 decimal for seconds).
+ */
+export interface PlayerMatchStats {
+  // movement
+  /** distance covered by the player's own walking */
+  walked: number
+  /** distance covered while knocked around (knockback velocity, not walking) */
+  pushed: number
+  /** longest single knockback flight, start to stop, straight line */
+  longestFlight: number
+  /** total Teleport distance */
+  teleported: number
+  // combat
+  /** to other players */
+  damageDealt: number
+  /** from every source, lava included */
+  damageTaken: number
+  knockbacksDealt: number
+  knockbacksTaken: number
+  /** credited kills by the death's cause ('lava' = pushed into the lava, 'scourge', ...) */
+  killsByCause: Record<string, number>
+  deathsByCause: Record<string, number>
+  /** deaths nobody else is credited for: walked into lava, own blast. Disconnects excluded */
+  selfKills: number
+  /** kills credited as the last hitter, the lava or a pillar did the rest */
+  lastHitKills: number
+  firstBlood: boolean
+  /** most kills without dying (announcer's streak) */
+  bestStreak: number
+  /** longest multi-kill chain (announcer's window): 2 = double ... */
+  bestMulti: number
+  // spells
+  /** spell id -> [casts, hits]; a hit = a cast that damaged at least one enemy */
+  spells: Record<string, [number, number]>
+  /** enemies hit by Scourge (each enemy in each blast) */
+  scourgeHits: number
+  /** Teleports out of the lava or off a lava-bound slide onto safe ground */
+  teleportSaves: number
+  /** enemy projectiles a Shield turned back or stole */
+  shieldReflects: number
+  pillarsDestroyed: number
+  // survival
+  /** time alive during fights */
+  aliveSec: number
+  lavaSec: number
+  lavaDamage: number
+  /** rounds this player was still standing when the round was decided */
+  roundsSurvived: number
+  // economy
+  /** gold received during the match (start gold not counted) */
+  goldEarned: number
+  goldSpent: number
+  /** highest-level spell or item owned at the end: [id, level] */
+  topSpell: [string, number] | null
+}
 
 export interface Participant {
   player: PlayerId
@@ -36,9 +98,33 @@ export interface Participant {
   /** damage dealt to other players over the whole match */
   damage: number
   won: boolean
+  /** detailed stats (absent in old saves and in history older than HISTORY_DETAIL_MAX) */
+  stats?: PlayerMatchStats
 }
 
 export type Outcome = 'win' | 'loss' | 'spectator'
+
+export type AwardId =
+  | 'butcher'
+  | 'marathon'
+  | 'pinball'
+  | 'frequentFlyer'
+  | 'lavaLover'
+  | 'oops'
+  | 'sniper'
+  | 'untouchable'
+  | 'escapeArtist'
+  | 'ringOfFire'
+
+export interface Award {
+  id: AwardId
+  title: string
+  player: PlayerId
+  value: number
+  /** 'u' game units, 's' seconds, '%' percent (value 0..100), '' a count */
+  unit: 'u' | 's' | '%' | ''
+  blurb: string
+}
 
 export interface MatchRecord {
   id: string
@@ -58,6 +144,57 @@ export interface MatchRecord {
   kills: [PlayerId, PlayerId, number][]
   /** damage between participants: [from, to, amount] */
   damage: [PlayerId, PlayerId, number][]
+  /** player who drew first blood, null = nobody */
+  firstBlood?: PlayerId | null
+  /** fun titles picked at the end of the match (matchAwards) */
+  awards?: Award[]
+}
+
+/** Career totals of the movement / combat counters (summed PlayerMatchStats). */
+export interface CareerTotals {
+  walked: number
+  pushed: number
+  teleported: number
+  damageTaken: number
+  knockbacksDealt: number
+  knockbacksTaken: number
+  selfKills: number
+  lastHitKills: number
+  firstBloods: number
+  casts: number
+  hits: number
+  scourgeHits: number
+  teleportSaves: number
+  shieldReflects: number
+  pillarsDestroyed: number
+  aliveSec: number
+  lavaSec: number
+  lavaDamage: number
+  roundsSurvived: number
+  goldEarned: number
+  goldSpent: number
+  killsByCause: Record<string, number>
+  deathsByCause: Record<string, number>
+}
+
+export type HallOfFameKey =
+  | 'mostKills'
+  | 'mostDamage'
+  | 'bestStreak'
+  | 'bestMulti'
+  | 'longestFlight'
+  | 'mostPushed'
+  | 'mostWalked'
+  | 'bestAccuracy'
+  | 'mostScourgeHits'
+  | 'mostTeleportSaves'
+  | 'mostReflects'
+  | 'longestAlive'
+
+export interface HallOfFameEntry {
+  value: number
+  date: number
+  matchId: string
 }
 
 export interface Career {
@@ -76,6 +213,9 @@ export interface Career {
   vsBots: { games: number; wins: number }
   firstPlayed: number
   lastPlayed: number
+  totals: CareerTotals
+  /** personal bests, one match each */
+  hallOfFame: Partial<Record<HallOfFameKey, HallOfFameEntry>>
 }
 
 /** Head-to-head record of the local player against one opponent profile. */
@@ -173,6 +313,71 @@ export function profileIdOf(slot: PlayerSlot): string {
   return slot.profileId ?? `anon:${slot.name}`
 }
 
+/** a knockback flight starts above this knockback speed (u/s) ... */
+export const FLIGHT_START_SPEED = 200
+/** ... and ends once it decays below this one */
+export const FLIGHT_STOP_SPEED = 20
+/** a Teleport counts as a save from a slide this fast toward the lava (u/s) */
+const SAVE_SLIDE_SPEED = 100
+/** spells whose hits are counted for accuracy (they deal damage) */
+const DAMAGING = new Set([
+  'fireball', 'scourge', 'boomerang', 'lightning', 'homing', 'twin', 'thrust', 'cluster', 'drain',
+  'bouncer', 'recharge', 'windwalk', 'meteor', 'splitter', 'snowball', 'gravity', 'link',
+])
+
+/** Running counters of one player. */
+class Acc {
+  walked = 0
+  pushed = 0
+  longestFlight = 0
+  teleported = 0
+  damageDealt = 0
+  damageTaken = 0
+  knockbacksDealt = 0
+  knockbacksTaken = 0
+  killsByCause = new Map<string, number>()
+  deathsByCause = new Map<string, number>()
+  selfKills = 0
+  lastHitKills = 0
+  firstBlood = false
+  bestStreak = 0
+  bestMulti = 0
+  spells = new Map<string, [number, number]>()
+  /** casts per spell still waiting for their first enemy hit */
+  armed = new Map<string, number>()
+  scourgeHits = 0
+  teleportSaves = 0
+  shieldReflects = 0
+  pillarsDestroyed = 0
+  aliveSec = 0
+  lavaSec = 0
+  lavaDamage = 0
+  roundsSurvived = 0
+  goldEarned = 0
+  goldSpent = 0
+  topSpell: [string, number] | null = null
+  // last observed pawn state
+  seen = false
+  x = 0
+  y = 0
+  kbx = 0
+  kby = 0
+  inLava = false
+  lastGold: number | null = null
+  flight: { x: number; y: number } | null = null
+
+  endFlight(x: number, y: number): void {
+    if (!this.flight) return
+    const d = Math.hypot(x - this.flight.x, y - this.flight.y)
+    if (d > this.longestFlight) this.longestFlight = d
+    this.flight = null
+  }
+}
+
+function n(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
 export class MatchTracker {
   private firstTick = -1
   private lastTick = -1
@@ -180,24 +385,217 @@ export class MatchTracker {
   private killPairs = new Map<string, number>()
   /** `${from}>${to}` → damage */
   private dmgPairs = new Map<string, number>()
+  private readonly accs = new Map<PlayerId, Acc>()
+  private readonly tally = new KillTally()
+  private firstBlood: PlayerId | null = null
   private readonly info: TrackerInfo
+  /** per-second decay rate of knockback velocity: v(t) = v0 * e^(-decay t) */
+  private readonly decay: number
 
   constructor(info: TrackerInfo) {
     this.info = info
+    const f = n(info.settings?.friction) || 0.96
+    this.decay = f > 0 && f < 1 ? -Math.log(f) / 0.035 : 0
+  }
+
+  private acc(p: PlayerId): Acc {
+    let a = this.accs.get(p)
+    if (!a) {
+      a = new Acc()
+      this.accs.set(p, a)
+    }
+    return a
   }
 
   /** Feed one played tick (or several ticks' events with the newest state). */
   observe(state: SimState, events: readonly SimEvent[]): void {
-    if (this.firstTick < 0) this.firstTick = state.tick
-    if (state.tick > this.lastTick) this.lastTick = state.tick
+    const tick = n(state.tick)
+    if (this.firstTick < 0) this.firstTick = tick
+    const dt = this.lastTick >= 0 ? Math.max(0, tick - this.lastTick) / TICK_HZ : 0
+    if (tick > this.lastTick) this.lastTick = tick
+    const now = tick / TICK_HZ
+    const pawns = Array.isArray(state.pawns) ? state.pawns : []
+    const ownerOf = new Map<number, PlayerId>()
+    for (const p of pawns) ownerOf.set(p.id, p.owner)
+    const teamOf = new Map<PlayerId, number>()
+    for (const s of Array.isArray(state.slots) ? state.slots : this.info.slots) teamOf.set(s.id, s.team)
+    const enemies = (a: PlayerId, b: PlayerId) => a !== b && (teamOf.get(a) === undefined || teamOf.get(a) !== teamOf.get(b))
+    const layer = n(state.arena?.layer)
+    const fighting = state.phase === 'fight'
+
+    // events first: they happened before the snapshot they arrive with
     for (const e of events) {
-      if (e.type === 'death') {
-        if (e.killer !== null && e.killer !== e.owner) bump(this.killPairs, `${e.killer}>${e.owner}`, 1)
-      } else if (e.type === 'damage') {
-        if (e.source === null || !(e.amount > 0)) continue
-        const target = state.pawns.find((p) => p.id === e.target)
-        if (target && target.owner !== e.source) bump(this.dmgPairs, `${e.source}>${target.owner}`, e.amount)
+      switch (e.type) {
+        case 'death': {
+          if (e.killer !== null && e.killer !== e.owner) bump(this.killPairs, `${e.killer}>${e.owner}`, 1)
+          const victim = this.acc(e.owner)
+          const cause = e.cause ?? 'unknown'
+          bump(victim.deathsByCause, cause, 1)
+          if (e.killer === null && cause !== 'disconnect') victim.selfKills++
+          victim.endFlight(e.x ?? victim.x, e.y ?? victim.y)
+          const kill = this.tally.death(e.owner, e.killer, now)
+          if (kill) {
+            const k = this.acc(kill.killer)
+            bump(k.killsByCause, cause, 1)
+            if (cause === 'lava' || cause === 'obstacle') k.lastHitKills++
+            if (kill.streak > k.bestStreak) k.bestStreak = kill.streak
+            if (kill.chain > k.bestMulti) k.bestMulti = kill.chain
+            if (kill.firstBlood) {
+              k.firstBlood = true
+              this.firstBlood = kill.killer
+            }
+          }
+          break
+        }
+        case 'damage': {
+          if (!(e.amount > 0)) break
+          const target = ownerOf.get(e.target)
+          if (target === undefined) break
+          const t = this.acc(target)
+          t.damageTaken += e.amount
+          if (e.cause === 'lava') t.lavaDamage += e.amount
+          if (e.kb > 0) t.knockbacksTaken++
+          if (e.source === null || e.source === target) break
+          bump(this.dmgPairs, `${e.source}>${target}`, e.amount)
+          const s = this.acc(e.source)
+          s.damageDealt += e.amount
+          if (e.kb > 0) s.knockbacksDealt++
+          if (e.cause && enemies(e.source, target)) {
+            if (e.cause === 'scourge') s.scourgeHits++
+            const armed = s.armed.get(e.cause) ?? 0
+            if (armed > 0) {
+              s.armed.set(e.cause, armed - 1)
+              const row = s.spells.get(e.cause)
+              if (row) row[1]++
+            }
+          }
+          break
+        }
+        case 'cast': {
+          const owner = ownerOf.get(e.pawn)
+          if (owner === undefined) break
+          const a = this.acc(owner)
+          const row = a.spells.get(e.spell) ?? [0, 0]
+          row[0]++
+          a.spells.set(e.spell, row)
+          if (DAMAGING.has(e.spell)) a.armed.set(e.spell, (a.armed.get(e.spell) ?? 0) + 1)
+          break
+        }
+        case 'teleport': {
+          const owner = ownerOf.get(e.pawn)
+          if (owner === undefined) break
+          const a = this.acc(owner)
+          a.teleported += Math.hypot(e.toX - e.fromX, e.toY - e.fromY)
+          if (fighting && a.seen && isLocationSafeAtLayer(layer, e.toX, e.toY) && (a.inLava || this.lavaBound(a, layer))) a.teleportSaves++
+          break
+        }
+        case 'shieldReflect': {
+          const owner = ownerOf.get(e.pawn)
+          if (owner !== undefined && (e.reflected || e.stolen)) this.acc(owner).shieldReflects++
+          break
+        }
+        case 'obstacleDestroyed':
+          if (e.by !== undefined && e.by !== null) this.acc(e.by).pillarsDestroyed++
+          break
+        case 'roundWin':
+          for (const p of pawns) if (p.alive) this.acc(p.owner).roundsSurvived++
+          break
       }
+    }
+
+    // then the snapshot: integrate movement over the elapsed time, track flights
+    for (const p of pawns) {
+      const a = this.acc(p.owner)
+      const x = n(p.x)
+      const y = n(p.y)
+      const wx = n(p.walkVx)
+      const wy = n(p.walkVy)
+      const kbx = n(p.vx) - wx
+      const kby = n(p.vy) - wy
+      const kb = Math.hypot(kbx, kby)
+      if (p.alive) {
+        if (dt > 0) {
+          a.walked += Math.hypot(wx, wy) * dt
+          a.pushed += kb * dt
+          if (fighting) {
+            a.aliveSec += dt
+            if (n(p.lavaTicks) > 0) a.lavaSec += dt
+          }
+        }
+        if (!a.flight && kb >= FLIGHT_START_SPEED) a.flight = a.seen ? { x: a.x, y: a.y } : { x, y }
+        else if (a.flight && kb < FLIGHT_STOP_SPEED) a.endFlight(x, y)
+      } else {
+        a.endFlight(a.x, a.y)
+      }
+      if (Array.isArray(p.slots) && Array.isArray(p.levels)) {
+        for (let i = 0; i < p.slots.length; i++) {
+          const id = p.slots[i]
+          const lv = n(p.levels[i])
+          if (id && lv > (a.topSpell?.[1] ?? 0)) a.topSpell = [id, lv]
+        }
+      }
+      a.seen = true
+      a.x = x
+      a.y = y
+      a.kbx = kbx
+      a.kby = kby
+      a.inLava = p.alive && n(p.lavaTicks) > 0
+    }
+    if (Array.isArray(state.scores)) {
+      for (const sc of state.scores) {
+        const a = this.acc(sc.id)
+        const g = n(sc.gold)
+        if (a.lastGold !== null) {
+          if (g > a.lastGold) a.goldEarned += g - a.lastGold
+          else a.goldSpent += a.lastGold - g
+        }
+        a.lastGold = g
+      }
+    }
+  }
+
+  /** Was the pawn sliding (knockback) toward a resting point in the lava? */
+  private lavaBound(a: Acc, layer: number): boolean {
+    const speed = Math.hypot(a.kbx, a.kby)
+    if (speed < SAVE_SLIDE_SPEED || this.decay <= 0) return false
+    // geometric decay: total remaining slide = v / decay
+    return !isLocationSafeAtLayer(layer, a.x + a.kbx / this.decay, a.y + a.kby / this.decay)
+  }
+
+  /** Per-player stats so far (also used by finish). */
+  statsOf(player: PlayerId): PlayerMatchStats {
+    const a = this.accs.get(player) ?? new Acc()
+    const r = Math.round
+    const r1 = (v: number) => Math.round(v * 10) / 10
+    const map = (m: Map<string, number>) => Object.fromEntries([...m].map(([k, v]) => [k, r(v)]))
+    return {
+      walked: r(a.walked),
+      pushed: r(a.pushed),
+      longestFlight: r(a.longestFlight),
+      teleported: r(a.teleported),
+      damageDealt: r(a.damageDealt),
+      damageTaken: r(a.damageTaken),
+      knockbacksDealt: a.knockbacksDealt,
+      knockbacksTaken: a.knockbacksTaken,
+      killsByCause: map(a.killsByCause),
+      deathsByCause: map(a.deathsByCause),
+      selfKills: a.selfKills,
+      lastHitKills: a.lastHitKills,
+      firstBlood: a.firstBlood,
+      bestStreak: a.bestStreak,
+      bestMulti: a.bestMulti,
+      spells: Object.fromEntries([...a.spells].map(([k, [c, h]]) => [k, [c, h] as [number, number]])),
+      scourgeHits: a.scourgeHits,
+      teleportSaves: a.teleportSaves,
+      shieldReflects: a.shieldReflects,
+      pillarsDestroyed: a.pillarsDestroyed,
+      aliveSec: r1(a.aliveSec),
+      lavaSec: r1(a.lavaSec),
+      lavaDamage: r(a.lavaDamage),
+      roundsSurvived: a.roundsSurvived,
+      goldEarned: r(a.goldEarned),
+      goldSpent: r(a.goldSpent),
+      topSpell: a.topSpell ? [a.topSpell[0], a.topSpell[1]] : null,
     }
   }
 
@@ -224,6 +622,7 @@ export class MatchTracker {
         deaths: sc?.deaths ?? 0,
         damage: Math.round(dealt.get(s.id) ?? 0),
         won: winners.has(s.id),
+        stats: this.statsOf(s.id),
       }
     })
     const self = participants.some((p) => p.player === this.info.localPlayer) ? this.info.localPlayer : -1
@@ -233,7 +632,7 @@ export class MatchTracker {
         const [a, b] = k.split('>').map(Number)
         return [a, b, Math.round(v)]
       })
-    return {
+    const rec: MatchRecord = {
       id: randomId(),
       date,
       teamMode: this.info.settings.teamMode,
@@ -247,7 +646,10 @@ export class MatchTracker {
       outcome: self < 0 ? 'spectator' : winners.has(self) ? 'win' : 'loss',
       kills: split(this.killPairs),
       damage: split(this.dmgPairs),
+      firstBlood: this.firstBlood,
     }
+    rec.awards = matchAwards(rec)
+    return rec
   }
 }
 
@@ -256,14 +658,119 @@ function bump(m: Map<string, number>, k: string, v: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Awards (pure)
+// ---------------------------------------------------------------------------
+
+/** Overall accuracy of the damaging spells, null under `minCasts` casts. */
+export function accuracy(s: PlayerMatchStats, minCasts = 0): number | null {
+  let casts = 0
+  let hits = 0
+  for (const [id, [c, h]] of Object.entries(s.spells)) {
+    if (!DAMAGING.has(id)) continue
+    casts += c
+    hits += h
+  }
+  return casts > 0 && casts >= minCasts ? hits / casts : null
+}
+
+export function totalKills(s: PlayerMatchStats): number {
+  let k = 0
+  for (const v of Object.values(s.killsByCause)) k += v
+  return k
+}
+
+interface AwardDef {
+  id: AwardId
+  title: string
+  unit: Award['unit']
+  /** the stat, or null when the player does not qualify at all */
+  value: (s: PlayerMatchStats) => number | null
+  /** best value must reach this (higher-is-better) or stay at/below it (lower-is-better) */
+  threshold: number
+  lowerIsBetter?: boolean
+  blurb: (v: number) => string
+}
+
+/** the winner must beat the runner-up by this factor to count as a clear outlier */
+export const AWARD_LEAD = 1.25
+/** most awards shown for one match */
+export const AWARDS_MAX = 5
+/** Sniper needs this many damaging casts */
+export const SNIPER_MIN_CASTS = 10
+
+const tiles = (u: number) => Math.round(u / 192)
+
+export const AWARD_DEFS: readonly AwardDef[] = [
+  { id: 'butcher', title: 'Butcher', unit: '', value: (s) => totalKills(s), threshold: 3, blurb: (v) => `${v} kills. Nobody was safe.` },
+  { id: 'ringOfFire', title: 'Ring of Fire', unit: '', value: (s) => s.scourgeHits, threshold: 5, blurb: (v) => `Scourged ${v} warlocks. Personal space, enforced.` },
+  { id: 'escapeArtist', title: 'Escape Artist', unit: '', value: (s) => s.teleportSaves, threshold: 2, blurb: (v) => `Teleported out of certain doom ${v} times.` },
+  { id: 'sniper', title: 'Sniper', unit: '%', value: (s) => accuracy(s, SNIPER_MIN_CASTS), threshold: 0.5, blurb: (v) => `${Math.round(v * 100)}% of damaging casts found a target.` },
+  { id: 'frequentFlyer', title: 'Frequent Flyer', unit: 'u', value: (s) => s.longestFlight, threshold: 900, blurb: (v) => `One knockback carried them ${tiles(v)} tiles.` },
+  { id: 'pinball', title: 'Pinball', unit: 'u', value: (s) => s.pushed, threshold: 4000, blurb: (v) => `Knocked around for ${tiles(v)} tiles in total.` },
+  { id: 'oops', title: 'Oops', unit: '', value: (s) => s.selfKills, threshold: 2, blurb: (v) => `Died by their own hand ${v} times.` },
+  { id: 'lavaLover', title: 'Lava Lover', unit: 's', value: (s) => s.lavaSec, threshold: 8, blurb: (v) => `Spent ${Math.round(v)} s wading in lava.` },
+  { id: 'marathon', title: 'Marathon', unit: 'u', value: (s) => s.walked, threshold: 6000, blurb: (v) => `Walked ${tiles(v)} tiles. Cardio wins rounds.` },
+  {
+    id: 'untouchable',
+    title: 'Untouchable',
+    unit: '',
+    value: (s) => (s.roundsSurvived >= 2 ? s.damageTaken : null),
+    threshold: Infinity,
+    lowerIsBetter: true,
+    blurb: (v) => `Outlasted the field taking only ${Math.round(v)} damage.`,
+  },
+]
+
+/**
+ * 0..AWARDS_MAX fun titles for clear outliers of one match. A title goes to the single best
+ * player for its stat, only if the value reaches the threshold and leads the runner-up by
+ * AWARD_LEAD (so a 50/49 split awards nothing). Ranked by how far the winner stands out.
+ * Records without detailed stats get none.
+ */
+export function matchAwards(rec: Pick<MatchRecord, 'participants'>): Award[] {
+  const scored: { award: Award; score: number; order: number }[] = []
+  AWARD_DEFS.forEach((def, order) => {
+    const vals: { player: PlayerId; v: number }[] = []
+    for (const p of rec.participants) {
+      if (!p.stats) continue
+      const v = def.value(p.stats)
+      if (v !== null && Number.isFinite(v)) vals.push({ player: p.player, v })
+    }
+    if (vals.length === 0) return
+    const sorted = vals.sort((a, b) => (def.lowerIsBetter ? a.v - b.v : b.v - a.v))
+    const best = sorted[0]
+    const next = sorted[1]
+    let score: number
+    if (def.lowerIsBetter) {
+      // needs someone to compare with, and a clear gap
+      if (!next || !(best.v * AWARD_LEAD <= next.v) || best.v > def.threshold) return
+      score = next.v / Math.max(1, best.v)
+    } else {
+      if (!(best.v >= def.threshold)) return
+      if (next && !(best.v >= next.v * AWARD_LEAD && best.v > next.v)) return
+      score = (best.v / def.threshold) * (next && next.v > 0 ? best.v / next.v : 2)
+    }
+    scored.push({ award: { id: def.id, title: def.title, player: best.player, value: Math.round(best.v * 1000) / 1000, unit: def.unit, blurb: def.blurb(best.v) }, score, order })
+  })
+  return scored
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, AWARDS_MAX)
+    .map((x) => x.award)
+}
+
+// ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
 
 const KEY = 'brawlock.stats.v1'
+/** stored shape version (v1: before detailed stats) */
+export const STATS_VERSION = 2
 export const HISTORY_MAX = 200
+/** history entries that keep per-player detailed stats (older ones drop them to stay small) */
+export const HISTORY_DETAIL_MAX = 30
 
 interface StatsDb {
-  v: 1
+  v: 2
   history: MatchRecord[]
   career: Career | null
   encounters: Record<string, Encounter>
@@ -271,17 +778,50 @@ interface StatsDb {
 }
 
 function emptyDb(): StatsDb {
-  return { v: 1, history: [], career: null, encounters: {}, ratings: {} }
+  return { v: 2, history: [], career: null, encounters: {}, ratings: {} }
 }
 
-function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
-}
+const num = n
 function str(v: unknown, d = ''): string {
   return typeof v === 'string' ? v : d
 }
 function obj(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+}
+function counts(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  const o = obj(v)
+  if (o) for (const [k, x] of Object.entries(o)) if (num(x) > 0) out[k] = num(x)
+  return out
+}
+
+const TOTAL_KEYS = [
+  'walked', 'pushed', 'teleported', 'damageTaken', 'knockbacksDealt', 'knockbacksTaken', 'selfKills', 'lastHitKills',
+  'firstBloods', 'casts', 'hits', 'scourgeHits', 'teleportSaves', 'shieldReflects', 'pillarsDestroyed', 'aliveSec',
+  'lavaSec', 'lavaDamage', 'roundsSurvived', 'goldEarned', 'goldSpent',
+] as const
+
+function cleanTotals(v: unknown): CareerTotals {
+  const o = obj(v) ?? {}
+  const t = {} as Record<(typeof TOTAL_KEYS)[number], number>
+  for (const k of TOTAL_KEYS) t[k] = num(o[k])
+  return { ...t, killsByCause: counts(o.killsByCause), deathsByCause: counts(o.deathsByCause) }
+}
+
+const HOF_KEYS: readonly HallOfFameKey[] = [
+  'mostKills', 'mostDamage', 'bestStreak', 'bestMulti', 'longestFlight', 'mostPushed', 'mostWalked', 'bestAccuracy',
+  'mostScourgeHits', 'mostTeleportSaves', 'mostReflects', 'longestAlive',
+]
+
+function cleanHof(v: unknown): Career['hallOfFame'] {
+  const out: Career['hallOfFame'] = {}
+  const o = obj(v)
+  if (!o) return out
+  for (const k of HOF_KEYS) {
+    const e = obj(o[k])
+    if (e && typeof e.value === 'number' && Number.isFinite(e.value)) out[k] = { value: e.value, date: num(e.date), matchId: str(e.matchId) }
+  }
+  return out
 }
 
 function cleanCareer(v: unknown): Career | null {
@@ -307,7 +847,65 @@ function cleanCareer(v: unknown): Career | null {
     vsBots: vs(o.vsBots),
     firstPlayed: num(o.firstPlayed),
     lastPlayed: num(o.lastPlayed),
+    totals: cleanTotals(o.totals),
+    hallOfFame: cleanHof(o.hallOfFame),
   }
+}
+
+/** Field-by-field clean of stored detailed stats; undefined if unusable. */
+export function cleanStats(v: unknown): PlayerMatchStats | undefined {
+  const o = obj(v)
+  if (!o) return undefined
+  const spells: Record<string, [number, number]> = {}
+  const sp = obj(o.spells)
+  if (sp) {
+    for (const [k, x] of Object.entries(sp)) {
+      if (Array.isArray(x)) spells[k] = [num(x[0]), num(x[1])]
+    }
+  }
+  const top = Array.isArray(o.topSpell) && typeof o.topSpell[0] === 'string' ? ([o.topSpell[0], num(o.topSpell[1])] as [string, number]) : null
+  return {
+    walked: num(o.walked),
+    pushed: num(o.pushed),
+    longestFlight: num(o.longestFlight),
+    teleported: num(o.teleported),
+    damageDealt: num(o.damageDealt),
+    damageTaken: num(o.damageTaken),
+    knockbacksDealt: num(o.knockbacksDealt),
+    knockbacksTaken: num(o.knockbacksTaken),
+    killsByCause: counts(o.killsByCause),
+    deathsByCause: counts(o.deathsByCause),
+    selfKills: num(o.selfKills),
+    lastHitKills: num(o.lastHitKills),
+    firstBlood: o.firstBlood === true,
+    bestStreak: num(o.bestStreak),
+    bestMulti: num(o.bestMulti),
+    spells,
+    scourgeHits: num(o.scourgeHits),
+    teleportSaves: num(o.teleportSaves),
+    shieldReflects: num(o.shieldReflects),
+    pillarsDestroyed: num(o.pillarsDestroyed),
+    aliveSec: num(o.aliveSec),
+    lavaSec: num(o.lavaSec),
+    lavaDamage: num(o.lavaDamage),
+    roundsSurvived: num(o.roundsSurvived),
+    goldEarned: num(o.goldEarned),
+    goldSpent: num(o.goldSpent),
+    topSpell: top,
+  }
+}
+
+const AWARD_IDS = new Set(AWARD_DEFS.map((d) => d.id))
+function cleanAwards(v: unknown): Award[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: Award[] = []
+  for (const x of v) {
+    const o = obj(x)
+    if (!o || !AWARD_IDS.has(o.id as AwardId)) continue
+    const unit = o.unit === 'u' || o.unit === 's' || o.unit === '%' ? o.unit : ''
+    out.push({ id: o.id as AwardId, title: str(o.title), player: num(o.player), value: num(o.value), unit, blurb: str(o.blurb) })
+  }
+  return out
 }
 
 function cleanEncounter(id: string, v: unknown): Encounter | null {
@@ -353,6 +951,21 @@ function isRecord(v: unknown): v is MatchRecord {
   return !!o && typeof o.date === 'number' && Array.isArray(o.participants) && Array.isArray(o.winners)
 }
 
+/** Clean the v2 additions of a stored record (v1 records simply have none). */
+function cleanRecord(r: MatchRecord): MatchRecord {
+  const participants = r.participants.map((p) => {
+    const stats = cleanStats((p as { stats?: unknown }).stats)
+    const { stats: _drop, ...rest } = p as Participant
+    void _drop
+    return stats ? { ...rest, stats } : rest
+  })
+  const awards = cleanAwards(r.awards)
+  const out: MatchRecord = { ...r, participants }
+  if (awards) out.awards = awards
+  else delete out.awards
+  return out
+}
+
 function cleanMap<T>(v: unknown, clean: (id: string, x: unknown) => T | null): Record<string, T> {
   const out: Record<string, T> = {}
   const o = obj(v)
@@ -374,10 +987,11 @@ function loadDb(kv: KV | null): StatsDb {
   if (!raw) return emptyDb()
   try {
     const v = obj(JSON.parse(raw))
-    if (!v || v.v !== 1) return emptyDb()
+    // v1 -> v2: same layout, detailed stats / totals / hall of fame added (cleaned in as zeros)
+    if (!v || (v.v !== 1 && v.v !== 2)) return emptyDb()
     return {
-      v: 1,
-      history: Array.isArray(v.history) ? v.history.filter(isRecord).slice(0, HISTORY_MAX) : [],
+      v: 2,
+      history: Array.isArray(v.history) ? v.history.filter(isRecord).slice(0, HISTORY_MAX).map(cleanRecord) : [],
       career: cleanCareer(v.career),
       encounters: cleanMap(v.encounters, cleanEncounter),
       ratings: cleanMap(v.ratings, cleanRating),
@@ -387,14 +1001,34 @@ function loadDb(kv: KV | null): StatsDb {
   }
 }
 
+/** Stored sparsely: zero / false / empty fields are dropped (cleanStats restores them). */
+function compactStats(s: PlayerMatchStats): Partial<PlayerMatchStats> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(s)) {
+    if (v === 0 || v === false || v === null) continue
+    if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
+    out[k] = v
+  }
+  return out as Partial<PlayerMatchStats>
+}
+
+/** Older history keeps its scoreboard but sheds the detailed per-player stats. */
+function trimDetail(history: MatchRecord[]): MatchRecord[] {
+  return history.map((r, i) => ({
+    ...r,
+    participants: r.participants.map(({ stats, ...p }) => (i < HISTORY_DETAIL_MAX && stats ? { ...p, stats: compactStats(stats) as PlayerMatchStats } : p)),
+  }))
+}
+
 function saveDb(kv: KV | null, db: StatsDb): void {
   if (!kv) return
+  const history = trimDetail(db.history)
   try {
-    kv.setItem(KEY, JSON.stringify(db))
+    kv.setItem(KEY, JSON.stringify({ ...db, history }))
   } catch {
     // quota: keep aggregates, shed old history
     try {
-      kv.setItem(KEY, JSON.stringify({ ...db, history: db.history.slice(0, 20) }))
+      kv.setItem(KEY, JSON.stringify({ ...db, history: history.slice(0, 20) }))
     } catch {
       /* give up silently; stats are a nicety */
     }
@@ -412,6 +1046,56 @@ export function onStatsChange(cb: () => void): () => void {
 // ---------------------------------------------------------------------------
 // Recording
 // ---------------------------------------------------------------------------
+
+function addTotals(t: CareerTotals, s: PlayerMatchStats): void {
+  t.walked += s.walked
+  t.pushed += s.pushed
+  t.teleported += s.teleported
+  t.damageTaken += s.damageTaken
+  t.knockbacksDealt += s.knockbacksDealt
+  t.knockbacksTaken += s.knockbacksTaken
+  t.selfKills += s.selfKills
+  t.lastHitKills += s.lastHitKills
+  if (s.firstBlood) t.firstBloods++
+  for (const [id, [c, h]] of Object.entries(s.spells)) {
+    if (!DAMAGING.has(id)) continue
+    t.casts += c
+    t.hits += h
+  }
+  t.scourgeHits += s.scourgeHits
+  t.teleportSaves += s.teleportSaves
+  t.shieldReflects += s.shieldReflects
+  t.pillarsDestroyed += s.pillarsDestroyed
+  t.aliveSec += s.aliveSec
+  t.lavaSec += s.lavaSec
+  t.lavaDamage += s.lavaDamage
+  t.roundsSurvived += s.roundsSurvived
+  t.goldEarned += s.goldEarned
+  t.goldSpent += s.goldSpent
+  for (const [k, v] of Object.entries(s.killsByCause)) t.killsByCause[k] = (t.killsByCause[k] ?? 0) + v
+  for (const [k, v] of Object.entries(s.deathsByCause)) t.deathsByCause[k] = (t.deathsByCause[k] ?? 0) + v
+}
+
+/** Personal-best candidates of one match (only values > 0 compete). */
+export function hallOfFameValues(me: Participant): Partial<Record<HallOfFameKey, number>> {
+  const s = me.stats
+  if (!s) return {}
+  const acc = accuracy(s, SNIPER_MIN_CASTS)
+  return {
+    mostKills: totalKills(s),
+    mostDamage: s.damageDealt,
+    bestStreak: s.bestStreak,
+    bestMulti: s.bestMulti,
+    longestFlight: s.longestFlight,
+    mostPushed: s.pushed,
+    mostWalked: s.walked,
+    ...(acc !== null ? { bestAccuracy: Math.round(acc * 1000) / 1000 } : {}),
+    mostScourgeHits: s.scourgeHits,
+    mostTeleportSaves: s.teleportSaves,
+    mostReflects: s.shieldReflects,
+    longestAlive: s.aliveSec,
+  }
+}
 
 /** Fold one finished match into history, ratings, career and encounters. */
 export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | null = safeLocalStorage()): void {
@@ -457,6 +1141,12 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
     if (me.won) vs.wins++
     if (!c.firstPlayed) c.firstPlayed = rec.date
     c.lastPlayed = rec.date
+    if (me.stats) {
+      addTotals(c.totals, me.stats)
+      for (const [k, v] of Object.entries(hallOfFameValues(me)) as [HallOfFameKey, number][]) {
+        if (v > 0 && v > (c.hallOfFame[k]?.value ?? 0)) c.hallOfFame[k] = { value: v, date: rec.date, matchId: rec.id }
+      }
+    }
     db.career = c
 
     const pair = (list: [PlayerId, PlayerId, number][], a: PlayerId, b: PlayerId) =>
@@ -492,6 +1182,11 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
 /** Career totals of the local profile, null before the first finished match. */
 export function getCareer(kv: KV | null = safeLocalStorage()): Career | null {
   return loadDb(kv).career
+}
+
+/** Personal bests of the local profile (empty before the first match with detailed stats). */
+export function getHallOfFame(kv: KV | null = safeLocalStorage()): Career['hallOfFame'] {
+  return loadDb(kv).career?.hallOfFame ?? {}
 }
 
 /** Head-to-head records, most recently met first. */

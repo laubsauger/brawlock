@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
@@ -8,6 +8,7 @@ import { backToLobby, leaveToMenu, rematch, setReady } from '../flow'
 import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
 import { isTypingTarget } from '../lib/keys'
+import { AwardsStrip, PlayerStatsDetail } from './statViews'
 
 interface Row {
   id: number
@@ -76,6 +77,8 @@ export function Results() {
   const ready = useGame((s) => s.lobby.ready)
   const isHost = role !== 'client'
   const rec = useMemo(() => (result ? recordFor(result) : null), [result])
+  // one player's detail row open at a time (all closed at first, so the board fits at 1280x720)
+  const [expanded, setExpanded] = useState<number | null>(null)
 
   // Enter = rematch, the one-click loop
   useEffect(() => {
@@ -126,9 +129,10 @@ export function Results() {
   const localReady = !!ready?.[local]
 
   return (
-    <div className="screen-in flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
+    // safe centering: when the board is taller than the screen (1280x720 with a detail row open) it scrolls from the top instead of clipping the title
+    <div className="screen-in flex h-full flex-col items-center overflow-y-auto px-4 py-6" style={{ justifyContent: 'safe center' }}>
       <h1
-        className="wordmark text-center text-[clamp(4.5rem,11vw,8.5rem)]"
+        className="wordmark text-center text-[clamp(3.5rem,min(11vw,13vh),8.5rem)]"
         style={won || !inMatch ? undefined : { filter: 'grayscale(.35) drop-shadow(0 0 18px rgba(196,26,36,.45)) drop-shadow(0 2px 0 rgba(40,0,0,.9))' }}
       >
         {title}
@@ -158,6 +162,11 @@ export function Results() {
             </span>
           </div>
         )}
+        {rec?.awards && rec.awards.length > 0 && (
+          <div className="mb-4">
+            <AwardsStrip awards={rec.awards} who={(id) => ({ name: rows.find((r) => r.id === id)?.name ?? '?', color: rows.find((r) => r.id === id)?.color ?? '#ccc' })} />
+          </div>
+        )}
         <table className="tabular w-full text-left text-[1.08rem]">
           <thead>
             <tr className="text-sm text-ash">
@@ -170,17 +179,34 @@ export function Results() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, ri) => (
+            {rows.map((r, ri) => {
+              const stats = rec?.participants.find((p) => p.player === r.id)?.stats
+              const open = expanded === r.id
+              return (
+              <Fragment key={r.id}>
               <tr
-                key={r.id}
                 className={`card-in border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}
                 style={{ animationDelay: `${150 + ri * 110}ms` }}
               >
                 <td className="py-2.5 pr-2">
                   <span className="flex items-center gap-3">
+                    {stats ? (
+                      <button type="button" className="row-toggle" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${r.name}'s match stats`} onClick={() => setExpanded(open ? null : r.id)}>
+                        <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden>
+                          <path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <span className="w-5" aria-hidden />
+                    )}
                     <span className="h-3.5 w-3.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: r.color, boxShadow: `0 0 8px ${r.color}88` }} aria-hidden />
                     <span className="truncate font-bold">{r.name}</span>
                     {r.winner && <Crown title="Winner" />}
+                    {rec?.firstBlood === r.id && (
+                      <span className="chip bg-[rgba(196,26,36,0.22)] text-[#ffb3a6]" title="First Blood: the match's first kill">
+                        First Blood
+                      </span>
+                    )}
                     {r.id === local && <span className="chip text-gold">You</span>}
                     {r.difficulty && <span className="chip text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
                   </span>
@@ -207,7 +233,18 @@ export function Results() {
                   </td>
                 )}
               </tr>
-            ))}
+              {open && stats && (
+                <tr>
+                  <td colSpan={online ? 6 : 5} className="pb-2.5">
+                    <div className="pop-in">
+                      <PlayerStatsDetail stats={stats} />
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>

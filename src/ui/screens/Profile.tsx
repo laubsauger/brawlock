@@ -1,12 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import type { MatchRecord } from '../../game/stats'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { getHallOfFame, getMatchHistory, type Career, type HallOfFameKey, type MatchRecord } from '../../game/stats'
+import { getProfile } from '../../game/profile'
+import { Sigil } from '../icons'
+import { displayName } from '../data/catalog'
+import { percent, ratingTrend, seconds, tiles } from '../lib/statFormat'
+import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useGame } from '../../game/store'
 import { Button, Kbd } from '../widgets'
 import { hex } from '../lib/view'
 import { ago, duration, readCareer, readEncounterList, readHistory, readLeaderboard, useStats } from '../lib/stats'
 import { chooseName, NAME_MAX } from '../lib/name'
 
-type Tab = 'matches' | 'rivals' | 'board'
+type Tab = 'matches' | 'stats' | 'rivals' | 'board'
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   // opaque plate: the 3D backdrop must not bleed through the numbers
@@ -34,8 +39,11 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="py-8 text-center text-[1.05rem] text-ash">{children}</p>
 }
 
-function Matches() {
+function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: string | null) => void }) {
   const history = useStats(readHistory)
+  const openRef = useRef<HTMLLIElement>(null)
+  // a Hall of Fame link opens its match: bring it into view
+  useEffect(() => openRef.current?.scrollIntoView({ block: 'nearest' }), [openId])
   if (history.length === 0) return <Empty>No matches yet. Play against bots or host a game; every match lands here.</Empty>
   return (
     <ul className="flex flex-col gap-1.5">
@@ -43,36 +51,253 @@ function Matches() {
         const me = r.participants.find((p) => p.player === r.self)
         const win = r.outcome === 'win'
         const others = [...r.participants].sort((a, b) => b.score - a.score)
+        const open = openId === r.id
+        const detail = (r.awards?.length ?? 0) > 0 || !!me?.stats
+        const who = (id: number) => {
+          const p = r.participants.find((x) => x.player === id)
+          return { name: p?.name ?? '?', color: p ? hex(p.color) : '#ccc' }
+        }
         return (
-          <li
-            key={r.id}
-            className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-3 py-2.5"
-            style={{ background: 'rgba(0,0,0,.25)', boxShadow: `inset 3px 0 0 ${win ? '#7fe39a' : r.outcome === 'loss' ? '#ff6a55' : '#a39080'}` }}
-          >
-            <span className={`w-14 text-[1.05rem] font-bold ${win ? 'text-heal' : r.outcome === 'loss' ? 'text-[#ff9b8a]' : 'text-ash'}`}>
-              {win ? 'Win' : r.outcome === 'loss' ? 'Loss' : 'Watched'}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
-              {others.map((p) => (
-                <span key={p.player} className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rotate-45 rounded-[1px]" style={{ background: hex(p.color) }} aria-hidden />
-                  <span className={`font-semibold ${p.player === r.self ? 'text-gold' : ''}`}>{p.name}</span>
-                  <span className="tabular text-ash">{p.score}</span>
-                </span>
-              ))}
-            </span>
-            {me && (
-              <span className="tabular text-[0.95rem] text-[#e6d3b8]" title="Your kills / deaths">
-                {me.kills} / {me.deaths}
+          <li key={r.id} ref={open ? openRef : undefined} className="rounded-lg" style={{ background: 'rgba(0,0,0,.25)', boxShadow: `inset 3px 0 0 ${win ? '#7fe39a' : r.outcome === 'loss' ? '#ff6a55' : '#a39080'}` }}>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5">
+              {detail ? (
+                <button type="button" className="row-toggle" aria-expanded={open} aria-label={open ? 'Hide match details' : 'Show match details'} onClick={() => onOpen(open ? null : r.id)}>
+                  <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden>
+                    <path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  </svg>
+                </button>
+              ) : (
+                <span className="w-5" aria-hidden />
+              )}
+              <span className={`w-14 text-[1.05rem] font-bold ${win ? 'text-heal' : r.outcome === 'loss' ? 'text-[#ff9b8a]' : 'text-ash'}`}>
+                {win ? 'Win' : r.outcome === 'loss' ? 'Loss' : 'Watched'}
               </span>
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
+                {others.map((p) => (
+                  <span key={p.player} className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rotate-45 rounded-[1px]" style={{ background: hex(p.color) }} aria-hidden />
+                    <span className={`font-semibold ${p.player === r.self ? 'text-gold' : ''}`}>{p.name}</span>
+                    <span className="tabular text-ash">{p.score}</span>
+                  </span>
+                ))}
+              </span>
+              {me && (
+                <span className="tabular text-[0.95rem] text-[#e6d3b8]" title="Your kills / deaths">
+                  {me.kills} / {me.deaths}
+                </span>
+              )}
+              <span className="w-28 text-right text-[0.9rem] text-ash">{modeLabel(r)}</span>
+              <span className="tabular w-12 text-right text-[0.9rem] text-ash">{duration(r.durationSec)}</span>
+              <span className="w-24 text-right text-[0.9rem] text-ash">{ago(r.date)}</span>
+            </div>
+            {open && (
+              <div className="pop-in flex flex-col gap-2 px-3 pb-3">
+                {r.awards && r.awards.length > 0 && <AwardsStrip awards={r.awards} who={who} compact />}
+                {me?.stats ? <PlayerStatsDetail stats={me.stats} /> : <p className="text-[0.9rem] text-ash">Detailed stats are kept for your 30 most recent matches.</p>}
+              </div>
             )}
-            <span className="w-28 text-right text-[0.9rem] text-ash">{modeLabel(r)}</span>
-            <span className="tabular w-12 text-right text-[0.9rem] text-ash">{duration(r.durationSec)}</span>
-            <span className="w-24 text-right text-[0.9rem] text-ash">{ago(r.date)}</span>
           </li>
         )
       })}
     </ul>
+  )
+}
+
+/** Personal bests: how each one reads. */
+const HALL: { key: HallOfFameKey; label: string; fmt: (v: number) => string }[] = [
+  { key: 'mostKills', label: 'Most kills', fmt: (v) => String(v) },
+  { key: 'mostDamage', label: 'Most damage', fmt: (v) => Math.round(v).toLocaleString() },
+  { key: 'bestStreak', label: 'Longest kill streak', fmt: (v) => String(v) },
+  { key: 'bestMulti', label: 'Best multi-kill', fmt: (v) => `${v} in a row` },
+  { key: 'longestFlight', label: 'Longest flight', fmt: tiles },
+  { key: 'mostPushed', label: 'Most pushed around', fmt: tiles },
+  { key: 'mostWalked', label: 'Most walked', fmt: tiles },
+  { key: 'bestAccuracy', label: 'Best accuracy', fmt: (v) => percent(v) },
+  { key: 'mostScourgeHits', label: 'Most Scourge hits', fmt: (v) => String(v) },
+  { key: 'mostTeleportSaves', label: 'Most Teleport saves', fmt: (v) => String(v) },
+  { key: 'mostReflects', label: 'Most Shield reflects', fmt: (v) => String(v) },
+  { key: 'longestAlive', label: 'Longest alive', fmt: seconds },
+]
+
+const readHall = () => {
+  try {
+    return getHallOfFame()
+  } catch {
+    return {}
+  }
+}
+
+const readAllHistory = () => {
+  try {
+    return getMatchHistory(200)
+  } catch {
+    return []
+  }
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h3 className="section-title text-[1rem]">{title}</h3>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">{children}</dl>
+    </section>
+  )
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 flex-col">
+      <dt className="text-[0.8rem] font-semibold text-ash">{label}</dt>
+      <dd className="tabular text-[1.05rem] font-bold text-[#f0dfc8]">{value}</dd>
+    </div>
+  )
+}
+
+/** Small SVG line of your rating over the stored matches. */
+function Sparkline({ values }: { values: number[] }) {
+  const W = 220
+  const H = 44
+  const lo = Math.min(...values)
+  const hi = Math.max(...values)
+  const span = Math.max(1, hi - lo)
+  const pts = values.map((v, i) => `${values.length === 1 ? W / 2 : (i / (values.length - 1)) * W},${H - 3 - ((v - lo) / span) * (H - 6)}`).join(' ')
+  const up = values[values.length - 1] >= values[0]
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={`Rating from ${Math.round(values[0])} to ${Math.round(values[values.length - 1])}`}>
+      <polyline points={pts} fill="none" stroke={up ? '#7fe39a' : '#ff8a6a'} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Career totals grouped like the data, per-spell cards, the Hall of Fame and the rating trend. */
+function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch: (id: string) => void }) {
+  const hall = useStats(readHall)
+  const history = useStats(readAllHistory)
+  const board = useStats(readLeaderboard)
+  const selfId = getProfile().id
+  const current = board.find((r) => r.self)?.rating ?? null
+  const trend = useMemo(() => ratingTrend(history, selfId, current), [history, selfId, current])
+  // per-spell totals from the matches that kept detailed stats
+  const spells = useMemo(() => {
+    const m = new Map<string, [number, number]>()
+    let n = 0
+    for (const r of history) {
+      const me = r.participants.find((p) => p.player === r.self)
+      if (!me?.stats) continue
+      n++
+      for (const [id, [c, h]] of Object.entries(me.stats.spells)) {
+        const t = m.get(id) ?? [0, 0]
+        m.set(id, [t[0] + c, t[1] + h])
+      }
+    }
+    return { list: [...m].filter(([, [c]]) => c > 0).sort((a, b) => b[1][0] - a[1][0]), matches: n }
+  }, [history])
+  const t = career?.totals
+  if (!career || !t) return <Empty>Play a match and your career stats start here.</Empty>
+  const ids = new Set(history.map((r) => r.id))
+  const lavaDeaths = t.deathsByCause.lava ?? 0
+  return (
+    <div className="flex flex-col gap-5">
+      {trend.length >= 2 ? (
+        <div className="flex flex-wrap items-center gap-4">
+          <h3 className="section-title text-[1rem]">Rating</h3>
+          <Sparkline values={trend} />
+          <span className="tabular text-[0.95rem] text-[#e6d3b8]">
+            {Math.round(trend[0])} → <b className="text-gold">{Math.round(trend[trend.length - 1])}</b> over {trend.length} matches
+          </span>
+        </div>
+      ) : (
+        <p className="text-[0.9rem] text-ash">Your rating trend appears after two matches.</p>
+      )}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Group title="Movement">
+          <Fact label="Walked" value={tiles(t.walked)} />
+          <Fact label="Pushed around" value={tiles(t.pushed)} />
+          <Fact label="Teleported" value={tiles(t.teleported)} />
+        </Group>
+        <Group title="Combat">
+          <Fact label="Kills" value={career.kills.toLocaleString()} />
+          <Fact label="Damage dealt" value={Math.round(career.damage).toLocaleString()} />
+          <Fact label="Damage taken" value={Math.round(t.damageTaken).toLocaleString()} />
+          <Fact label="Knockbacks dealt" value={t.knockbacksDealt.toLocaleString()} />
+          <Fact label="Knockbacks taken" value={t.knockbacksTaken.toLocaleString()} />
+          <Fact label="First Bloods" value={String(t.firstBloods)} />
+        </Group>
+        <Group title="Spells">
+          <Fact label="Casts" value={t.casts.toLocaleString()} />
+          <Fact label="Hits" value={t.hits.toLocaleString()} />
+          <Fact label="Accuracy" value={percent(t.casts ? t.hits / t.casts : null)} />
+          <Fact label="Scourge hits" value={String(t.scourgeHits)} />
+          <Fact label="Teleport saves" value={String(t.teleportSaves)} />
+          <Fact label="Shield reflects" value={String(t.shieldReflects)} />
+        </Group>
+        <Group title="Survival">
+          <Fact label="Time alive" value={seconds(t.aliveSec)} />
+          <Fact label="Rounds survived" value={String(t.roundsSurvived)} />
+          <Fact label="Time in lava" value={seconds(t.lavaSec)} />
+          <Fact label="Ended up in lava" value={`${lavaDeaths} ${lavaDeaths === 1 ? 'time' : 'times'}`} />
+          <Fact label="Own goals" value={String(t.selfKills)} />
+          <Fact label="Pillars destroyed" value={String(t.pillarsDestroyed)} />
+        </Group>
+        <Group title="Economy">
+          <Fact label="Gold earned" value={Math.round(t.goldEarned).toLocaleString()} />
+          <Fact label="Gold spent" value={Math.round(t.goldSpent).toLocaleString()} />
+        </Group>
+      </div>
+
+      {spells.list.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="section-title text-[1rem]">
+            Spell by spell{' '}
+            <span className="ml-1 font-ui text-[0.8rem] font-medium tracking-normal text-ash">{spells.matches === 1 ? 'from your last match' : `from your last ${spells.matches} matches`}</span>
+          </h3>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
+            {spells.list.map(([id, [c, h]]) => (
+              <div key={id} className="flex items-center gap-2.5 rounded-lg bg-[rgba(0,0,0,0.28)] px-2.5 py-2">
+                <Sigil id={id} size={36} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[0.95rem] font-bold">{displayName(id)}</div>
+                  <div className="tabular text-[0.8rem] text-ash">
+                    {c} casts · {h} hits · {percent(h / c)}
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)]">
+                    <div className="h-full rounded-full bg-[#ffc548]" style={{ width: `${Math.min(100, Math.round((h / c) * 100))}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="flex flex-col gap-2">
+        <h3 className="section-title text-[1rem]">Hall of Fame</h3>
+        {Object.keys(hall).length === 0 ? (
+          <p className="text-[0.9rem] text-ash">Personal bests show up after your first detailed match.</p>
+        ) : (
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-1.5">
+            {HALL.filter((h) => hall[h.key]).map((h) => {
+              const e = hall[h.key]!
+              return (
+                <li key={h.key} className="flex items-baseline justify-between gap-2 rounded-md bg-[rgba(0,0,0,0.28)] px-3 py-1.5">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-[0.8rem] font-semibold text-ash">{h.label}</span>
+                    <span className="tabular text-[1.05rem] font-bold text-gold">{h.fmt(e.value)}</span>
+                  </span>
+                  {ids.has(e.matchId) ? (
+                    <button type="button" className="text-[0.8rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => onOpenMatch(e.matchId)}>
+                      {new Date(e.date).toLocaleDateString()}
+                    </button>
+                  ) : (
+                    <span className="text-[0.8rem] text-ash">{new Date(e.date).toLocaleDateString()}</span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -169,6 +394,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const name = useGame((s) => s.settings.playerName)
   const [draft, setDraft] = useState(name)
   const [tab, setTab] = useState<Tab>('matches')
+  const [openMatch, setOpenMatch] = useState<string | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -182,6 +408,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const kd = c ? (c.deaths > 0 ? (c.kills / c.deaths).toFixed(2) : String(c.kills)) : '–'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'matches', label: 'Matches' },
+    { id: 'stats', label: 'Stats' },
     { id: 'rivals', label: 'Rivals' },
     { id: 'board', label: 'Leaderboard' },
   ]
@@ -227,7 +454,16 @@ export function Profile({ onBack }: { onBack: () => void }) {
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {tab === 'matches' && <Matches />}
+          {tab === 'matches' && <Matches openId={openMatch} onOpen={setOpenMatch} />}
+          {tab === 'stats' && (
+            <StatsTab
+              career={c}
+              onOpenMatch={(id) => {
+                setOpenMatch(id)
+                setTab('matches')
+              }}
+            />
+          )}
           {tab === 'rivals' && <Rivals />}
           {tab === 'board' && <Board />}
         </div>

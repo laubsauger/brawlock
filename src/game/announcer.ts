@@ -77,10 +77,54 @@ export function multiLine(count: number): AnnouncerLine | null {
   return MULTI_LADDER[Math.min(count, 7) - 2]
 }
 
-export class Announcer {
+/** One credited kill as the announcer counts it. */
+export interface TalliedKill {
+  killer: PlayerId
+  /** kills in the current chain (each within MULTI_WINDOW of the previous) */
+  chain: number
+  /** kills since the killer last died */
+  streak: number
+  /** the match's first credited kill */
+  firstBlood: boolean
+}
+
+/**
+ * The announcer's kill bookkeeping: first blood, multi-kill chains and streaks. Shared with the
+ * match statistics (game/stats.ts) so both count kills the same way.
+ */
+export class KillTally {
   private firstBlood = false
   private readonly chains = new Map<PlayerId, { count: number; at: number }>()
   private readonly streaks = new Map<PlayerId, number>()
+
+  reset(): void {
+    this.firstBlood = false
+    this.chains.clear()
+    this.streaks.clear()
+  }
+
+  streakOf(player: PlayerId): number {
+    return this.streaks.get(player) ?? 0
+  }
+
+  /** A death at sim time `now` (s). Returns the credited kill, or null (no killer / self). */
+  death(owner: PlayerId, killer: PlayerId | null | undefined, now: number): TalliedKill | null {
+    // any death ends the victim's streak, credited or not
+    this.streaks.set(owner, 0)
+    if (killer === null || killer === undefined || killer === owner) return null
+    const firstBlood = !this.firstBlood
+    this.firstBlood = true
+    const prev = this.chains.get(killer)
+    const chain = prev && now - prev.at <= MULTI_WINDOW ? prev.count + 1 : 1
+    this.chains.set(killer, { count: chain, at: now })
+    const streak = (this.streaks.get(killer) ?? 0) + 1
+    this.streaks.set(killer, streak)
+    return { killer, chain, streak, firstBlood }
+  }
+}
+
+export class Announcer {
+  private readonly tally = new KillTally()
   private queue: Announcement[] = []
   private busyUntil = -Infinity
   private lastNow = -Infinity
@@ -89,9 +133,7 @@ export class Announcer {
 
   /** New match: everything starts over. */
   reset(): void {
-    this.firstBlood = false
-    this.chains.clear()
-    this.streaks.clear()
+    this.tally.reset()
     this.queue = []
     this.busyUntil = -Infinity
     this.lastNow = -Infinity
@@ -99,7 +141,7 @@ export class Announcer {
 
   /** Kills in a row without dying (for tests and the HUD). */
   streakOf(player: PlayerId): number {
-    return this.streaks.get(player) ?? 0
+    return this.tally.streakOf(player)
   }
 
   /**
@@ -112,23 +154,14 @@ export class Announcer {
     this.lastNow = now
     for (const e of events) {
       if (e.type !== 'death') continue
-      // any death ends the victim's streak, credited or not
-      this.streaks.set(e.owner, 0)
-      const k = e.killer
-      if (k === null || k === undefined || k === e.owner) continue
-      if (!this.firstBlood) {
-        this.firstBlood = true
-        this.push({ line: 'first_blood', kind: 'first', player: k, count: 1, at: now })
-      }
-      const prev = this.chains.get(k)
-      const count = prev && now - prev.at <= MULTI_WINDOW ? prev.count + 1 : 1
-      this.chains.set(k, { count, at: now })
-      const multi = multiLine(count)
-      if (multi && k === localPlayer) this.push({ line: multi, kind: 'multi', player: k, count, at: now })
-      const streak = (this.streaks.get(k) ?? 0) + 1
-      this.streaks.set(k, streak)
-      const hit = STREAKS.find(([n]) => n === streak)
-      if (hit && (k === localPlayer || streak >= PUBLIC_STREAK)) this.push({ line: hit[1], kind: 'streak', player: k, count: streak, at: now })
+      const kill = this.tally.death(e.owner, e.killer, now)
+      if (!kill) continue
+      const k = kill.killer
+      if (kill.firstBlood) this.push({ line: 'first_blood', kind: 'first', player: k, count: 1, at: now })
+      const multi = multiLine(kill.chain)
+      if (multi && k === localPlayer) this.push({ line: multi, kind: 'multi', player: k, count: kill.chain, at: now })
+      const hit = STREAKS.find(([n]) => n === kill.streak)
+      if (hit && (k === localPlayer || kill.streak >= PUBLIC_STREAK)) this.push({ line: hit[1], kind: 'streak', player: k, count: kill.streak, at: now })
     }
     return this.next(now)
   }

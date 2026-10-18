@@ -1008,6 +1008,23 @@
   /* opacity only: the card's position is an inline transform an animated transform would override */
   @keyframes ability-card-in { from { opacity: 0; } }
   .ability-card-head { display: flex; gap: 0.7rem; align-items: center; min-width: 0; }
+  /* awards (results screen, match rows): fixed-size cards that fade up in turn */
+  .awards-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; }
+  .awards-strip-compact { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0.4rem; }
+  .award-card {
+    display: flex; align-items: center; gap: 0.6rem; height: 100%;
+    padding: 0.55rem 0.7rem; border-radius: 8px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--hue, #ffb36b) 16%, transparent), rgba(0, 0, 0, 0.3) 60%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue, #ffb36b) 35%, rgba(255, 170, 100, 0.1));
+    animation: award-in 0.45s cubic-bezier(.2, .9, .3, 1) both;
+  }
+  .award-card-compact { padding: 0.4rem 0.55rem; }
+  .award-title { font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; letter-spacing: 0.04em; color: #ffd890; }
+  @keyframes award-in { from { opacity: 0; transform: translateY(8px); } }
+  .row-toggle { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: 4px; color: #b9a28b; transition: transform 0.15s ease, color 0.15s ease; }
+  .row-toggle:hover { color: #ffd890; }
+  .row-toggle[aria-expanded="true"] { transform: rotate(90deg); color: #ffd890; }
+  .player-stats { padding: 0.6rem 0.8rem; border-radius: 8px; background: rgba(0, 0, 0, 0.28); box-shadow: inset 0 0 0 1px rgba(255, 170, 100, 0.08); }
   /* game-server region options (Settings > Online) */
   .region-opt { background: rgba(0, 0, 0, 0.25); box-shadow: inset 0 0 0 1px rgba(255, 170, 100, 0.12); color: #e6d3b8; transition: box-shadow 0.15s ease, background 0.15s ease; }
   .region-opt:hover { background: rgba(255, 150, 80, 0.06); }
