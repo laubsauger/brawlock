@@ -24,6 +24,10 @@ vi.mock('../net/session', async (original) => ({
   createSession: (deps: SessionDeps) => { f.deps = deps; return f.impl },
 }))
 vi.mock('../net/peer', () => ({
+  createPeerNet: () => ({
+    host: async () => { f.transport = 'p2p'; return { id: 'ABCDE' } },
+    join: async (code: string) => { f.peerJoin(code); f.transport = 'p2p'; return {} },
+  }),
   peerNet: {
     host: async () => { f.transport = 'p2p'; return { id: 'ABCDE' } },
     join: async (code: string) => { f.peerJoin(code); f.transport = 'p2p'; return {} },
@@ -64,6 +68,7 @@ import { DEFAULT_SETTINGS } from '../sim/config'
 const ownSlot = (color = 0x2fd6c8) => ({ id: 0, kind: 'human' as const, name: 'Mira', profileId: f.profile.id, team: 0, color })
 
 beforeEach(async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }))
   vi.useFakeTimers()
   rejoin.dismiss()
   f.transport = null
@@ -92,9 +97,32 @@ afterEach(async () => {
   await vi.advanceTimersByTimeAsync(0)
   vi.clearAllTimers()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('browser session listing and reconnect wiring', () => {
+  it('blocks touch-only offline, hosting, queue and invite entry before creating or dialing rooms', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    f.impl.openOffline.mockClear()
+    f.impl.openHost.mockClear()
+    f.impl.join.mockClear()
+    f.requests.length = 0
+    session.openOffline()
+    for (const result of [await session.openHost(), await session.openHostServer('test'), await session.quickPlay(), await session.rankedPlay()]) {
+      expect(result).toMatchObject({ ok: false, other: { available: false } })
+    }
+    await session.join('ABCDE', { kind: 'p2p' })
+    await session.join('ABCDE', { kind: 'server', region: 'test' })
+    expect(f.impl.openOffline).not.toHaveBeenCalled()
+    expect(f.impl.openHost).not.toHaveBeenCalled()
+    expect(f.impl.join).not.toHaveBeenCalled()
+    expect(f.requests).toEqual([])
+    expect(useGame.getState().lobby.error).toContain('mouse and keyboard')
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    await session.openHost()
+    expect(f.impl.openHost).toHaveBeenCalledOnce()
+  })
+
   it('keeps full bot-filled PC hosting P2P while publishing lobby and match listings', async () => {
     expect(await session.openHost()).toMatchObject({ ok: true, mode: 'p2p' })
     session.setPublic(true)
@@ -118,6 +146,12 @@ describe('browser session listing and reconnect wiring', () => {
     await rejoin.refresh()
     expect(rejoin.get()).toMatchObject({ code: 'ABCDE', kind: 'p2p', status: 'available' })
     expect(f.peerJoin).toHaveBeenCalledTimes(1)
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    await rejoin.join()
+    expect(f.peerJoin).toHaveBeenCalledTimes(1)
+    expect(rejoin.get()?.error).toContain('mouse and keyboard')
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    await rejoin.refresh()
     await rejoin.join()
     expect(f.peerJoin).toHaveBeenCalledTimes(2)
     expect(f.serverJoin).not.toHaveBeenCalled()
@@ -127,11 +161,14 @@ describe('browser session listing and reconnect wiring', () => {
     expect(rejoin.get()).toBeNull()
   })
 
-  it('persists only confirmed own human slot colors with the stable profile identity', async () => {
+  it('persists explicit color preferences without overwriting them with assigned lobby colors', async () => {
     await session.join('ABCDE', { kind: 'p2p' })
     f.preferred.mockClear()
     useGame.getState().setLobby({ slots: [ownSlot(0xff8a1f)] })
+    expect(f.preferred).not.toHaveBeenCalled()
+    session.setPlayerColor(0xff8a1f)
     expect(f.preferred).toHaveBeenCalledExactlyOnceWith(0xff8a1f)
+    expect(f.impl.setPlayerColor).toHaveBeenCalledWith(0xff8a1f)
     f.preferred.mockClear()
     useGame.getState().setLobby({ slots: [{ ...ownSlot(0xff8a1f), profileId: 'different-profile' }] })
     useGame.getState().setLobby({ slots: [{ ...ownSlot(0xff8a1f), kind: 'bot' }] })

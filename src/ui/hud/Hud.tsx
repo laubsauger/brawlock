@@ -2,13 +2,13 @@ import { useEffect, useRef } from 'react'
 import { eventsSince, frame } from '../../game/frame'
 import { useGame } from '../../game/store'
 import type { Phase, SimEvent, SimState } from '../../sim/types'
-import { TEAM_DRAW, TICK_HZ } from '../../sim'
+import { TEAM_DRAW, TICK_HZ, gameWinners } from '../../sim'
 import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, KillCallout, Killfeed } from './Announce'
 import { ItemRow, SpellRow } from './SpellBar'
-import { ShrinkWarning, TopCenter, displayRound } from './TopBar'
+import { ShrinkWarning, TopCenter, FinalBrawlStatus, displayRound, roundLabel } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { InspectCard, SpectateChip } from './Inspect'
 import { Gold, ProtectChip } from './Vitals'
@@ -111,7 +111,7 @@ function useDirector() {
         store.toggle('shopOpen', true)
         music('shop')
         // SHOPTIME, as the original announced it; skipped when the phase is nearly over (late mount)
-        if (state.phaseTicksLeft > 4 * TICK_HZ) announce.banner('Shop', `Round ${displayRound(state)} starts in ${Math.ceil(state.phaseTicksLeft / TICK_HZ)}s`, 'normal', 1700)
+        if (state.phaseTicksLeft > 4 * TICK_HZ) announce.banner('Shop', `${roundLabel(state)} starts in ${Math.ceil(state.phaseTicksLeft / TICK_HZ)}s`, 'normal', 1700)
         break
       case 'fight':
         store.toggle('shopOpen', false)
@@ -121,9 +121,11 @@ function useDirector() {
         break
       case 'gameOver': {
         // normally announced by the gameOver event; this covers a missed one
-        const top = Math.max(0, ...state.scores.map((x) => x.score))
         window.setTimeout(() => {
-          if (!st.current.gameOverSeen && frame.curr) onGameOver(frame.curr.scores.filter((x) => x.score === top && top > 0).map((x) => x.id), frame.curr)
+          const current = frame.curr
+          if (st.current.gameOverSeen || !current || current.phase !== 'gameOver') return
+          const winners = gameWinners(current)
+          if (winners !== null) onGameOver(winners, current)
         }, 250)
         break
       }
@@ -319,6 +321,7 @@ export function Hud() {
       <div className="absolute top-0 right-0 left-0 flex justify-center">
         <div className="hud-scale flex origin-top flex-col items-center">
           <TopCenter />
+          <FinalBrawlStatus />
           {/* at most one row under the clock: the shrink warning and your KO callout share it */}
           <div className="mt-0.5 flex items-center justify-center gap-2">
             <SpectateChip />

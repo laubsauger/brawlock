@@ -55,7 +55,7 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
         winner: result.winners.includes(slot.id),
       }
     })
-    .sort((a, b) => b.score - a.score || b.kills - a.kills || (b.damage ?? 0) - (a.damage ?? 0) || a.deaths - b.deaths)
+    .sort((a, b) => Number(b.winner) - Number(a.winner) || b.score - a.score || b.kills - a.kills || (b.damage ?? 0) - (a.damage ?? 0) || a.deaths - b.deaths)
 }
 
 /** A stat that counts up from zero when the board appears, staggered per row. */
@@ -181,7 +181,7 @@ export function Results() {
           <thead>
             <tr className="text-sm text-ash">
               <th className="pb-2 font-semibold">Warlock</th>
-              <th className="pb-2 text-right font-semibold">{roundsMode ? 'Rounds won' : 'Score'}</th>
+              <th className="pb-2 text-right font-semibold">{roundsMode ? rec?.settings.rankedRounds ? 'Scoring wins' : 'Rounds won' : 'Score'}</th>
               <th className="pb-2 text-right font-semibold">Kills</th>
               <th className="pb-2 text-right font-semibold">Deaths</th>
               <th className="pb-2 text-right font-semibold">Damage</th>

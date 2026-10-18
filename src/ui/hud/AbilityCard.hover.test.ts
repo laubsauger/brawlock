@@ -61,7 +61,7 @@ describe('interactive hover intent', () => {
     card.onPointerEnter()
     vi.advanceTimersByTime(450)
     expect(html()).toContain('data-ability-card="grip"')
-    expect(html()).toContain('Scroll all ability levels')
+    expect(html()).toContain('All ability levels')
   })
 
   it('switches on an intentional hover and immediately on keyboard focus', () => {

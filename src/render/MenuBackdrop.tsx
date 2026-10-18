@@ -1,13 +1,13 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import * as THREE from 'three/webgpu'
 
 let updateErrorLogged = false
 import { useGame } from '../game/store'
-import { DT } from '../sim/types'
+import { DT, type Vec2 } from '../sim/types'
 import { S, TILE_TOP_H } from './coords'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
-import { createMenuStage, type MenuStage } from './menuStage'
+import { createMenuStage, createMenuTableau, type MenuStage } from './menuStage'
 import { menuCameraAt } from './menuCamera'
 import { useMedia } from '../ui/lib/media'
 import { tierConfig } from './quality'
@@ -17,12 +17,12 @@ import { createPrivateSource } from './source'
 
 /**
  * Animated backdrop for menu and lobby screens: a slow cinematic drift over a
- * quiet sparring scene, looking out across the lava to the caldera rim,
- * while two warlocks exchange attacks, returns and escapes (menuStage.ts,
- * menuStage.ts, private frame buffer: never touches match state).
+ * ten-warlock coven, looking out across the lava to the caldera rim.
+ * The prior sparring scene remains available with ?menuScene=sparring.
+ * Both use a private frame buffer and never touch match state.
  *
  * The menu panels sit on the left: the camera aims left of the action so the
- * warlocks land in the right half of the frame at every aspect.
+ * warlocks land beside them on desktop and above them in portrait.
  */
 export function MenuBackdrop({ className, style }: { className?: string; style?: CSSProperties }) {
   const quality = useGame((s) => s.settings.quality)
@@ -39,16 +39,20 @@ export function MenuBackdrop({ className, style }: { className?: string; style?:
 
 function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0]; fx: number }) {
   const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
+  const [sparring] = useState(() => new URLSearchParams(window.location.search).get('menuScene') === 'sparring')
   const scene = useThree((s) => s.scene)
   const gl = useThree((s) => s.gl)
   const eff = useEffectiveQuality(quality)
   const worldRef = useRef<MatchWorld | null>(null)
   const driveRef = useRef<{ stage: MenuStage; source: ReturnType<typeof createPrivateSource>; acc: number; t0: number; ticks: number; t: number } | null>(null)
-  const tmp = useRef({ pos: new THREE.Vector3(), aim: new THREE.Vector3() })
+  const tmp = useRef({
+    pos: new THREE.Vector3(), aim: new THREE.Vector3(),
+    shot: { x: 0, y: 0, height: 0, aimX: 0, aimY: 0, aimHeight: 0, fov: 35 },
+  })
 
   useEffect(() => {
     const source = createPrivateSource()
-    const stage = createMenuStage()
+    const stage = sparring ? createMenuStage() : createMenuTableau()
     // two ticks up front so the first rendered frame already has prev + curr
     const t0 = performance.now()
     for (let i = 1; i <= 2; i++) {
@@ -74,7 +78,7 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
       driveRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, eff, gl])
+  }, [scene, eff, gl, sparring])
 
   useEffect(() => {
     worldRef.current?.setFx(fx)
@@ -101,10 +105,13 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     const cam = state.camera as THREE.PerspectiveCamera
     const { focus: f, out: u } = drive.stage
     const aspect = state.size.width / Math.max(1, state.size.height)
-    const shot = menuCameraAt(drive.t, f, u, aspect, reducedMotion)
-    const { pos, aim } = tmp.current
+    const { pos, aim, shot } = tmp.current
+    if (sparring) {
+      Object.assign(shot, menuCameraAt(drive.t, f, u, aspect, reducedMotion))
+      shot.aimHeight = 0
+    } else tableauCameraAt(drive.t, f, u, aspect, reducedMotion, shot)
     pos.set(shot.x * S, (TILE_TOP_H + shot.height) * S, -shot.y * S)
-    aim.set(shot.aimX * S, TILE_TOP_H * S, -shot.aimY * S)
+    aim.set(shot.aimX * S, (TILE_TOP_H + shot.aimHeight) * S, -shot.aimY * S)
     cam.position.copy(pos)
     cam.lookAt(aim)
     if (cam.fov !== shot.fov) {
@@ -120,4 +127,33 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     }
   })
   return null
+}
+
+type TableauShot = ReturnType<typeof menuCameraAt> & { aimHeight: number }
+
+/** One slow, shallow portrait shot. Narrow phones pull back rather than cropping
+ * the witnesses; the group sits above the central menu in portrait and beside
+ * the menu on desktop. Reuses the caller's shot object every frame. */
+function tableauCameraAt(seconds: number, focus: Vec2, out: Vec2, aspect: number, reducedMotion: boolean, shot: TableauShot): void {
+  const t = reducedMotion ? 0 : seconds
+  const arc = Math.sin(t * Math.PI * 2 / 96) * 0.035
+  const ca = Math.cos(arc)
+  const sa = Math.sin(arc)
+  const ux = out.x * ca - out.y * sa
+  const uy = out.x * sa + out.y * ca
+  const portrait = aspect < 1
+  const fit = Math.max(1, 0.95 / aspect)
+  const breath = (1 - Math.cos(t * Math.PI * 2 / 96)) * 15
+  const back = (2200 - breath) * fit
+  const height = (1080 - breath * 0.35) * fit
+  const screenX = portrait ? 0.52 : 0.70
+  const reach = Math.hypot(back, height)
+  const shift = reach * (2 * screenX - 1) * Math.tan(35 * Math.PI / 360) * aspect
+  shot.x = focus.x - ux * back
+  shot.y = focus.y - uy * back
+  shot.height = height
+  shot.aimX = focus.x - uy * shift
+  shot.aimY = focus.y + ux * shift
+  shot.aimHeight = portrait ? -560 : 70
+  shot.fov = 35
 }

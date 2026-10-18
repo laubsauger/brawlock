@@ -9,6 +9,7 @@ import {
   getEncounters,
   getLocalLeaderboard,
   getMatchHistory,
+  pairOutcome,
   profileIdOf,
   recordMatch,
   updateProfileNames,
@@ -123,6 +124,28 @@ describe('elo', () => {
 })
 
 describe('local stats', () => {
+  it('records the final winner over a tied scoring-round opponent without adding a score point', () => {
+    const kv = memKV()
+    const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE), slot(2, 'Bob', BOB)]
+    const tracker = new MatchTracker({ localPlayer: 0, slots, settings })
+    const record = tracker.finish({
+      winners: [1], slots,
+      scores: [score(0, 2, 8, 3), score(1, 2, 2, 4), score(2, 1, 9, 4)],
+      rounds: 6, ticks: 60 * 240,
+    }, 1000)
+    expect(record.outcome).toBe('loss')
+    expect(record.winners).toEqual([1])
+    expect(record.participants.map((p) => [p.player, p.score, p.won])).toEqual([[0, 2, false], [1, 2, true], [2, 1, false]])
+    const [me, alice, bob] = record.participants
+    expect(pairOutcome(record, alice, me)).toBe(1)
+    expect(pairOutcome(record, me, bob)).toBe(1)
+    recordMatch(record, ME, kv)
+    const loaded = getMatchHistory(10, kv)[0]
+    expect(loaded.outcome).toBe('loss')
+    expect(loaded.participants.map((p) => p.score)).toEqual([2, 2, 1])
+    expect(getEncounters(kv).find((p) => p.profileId === ALICE)).toMatchObject({ losses: 1, wins: 0 })
+  })
+
   it.each([
     { status: 'rated' },
     { status: 'unrated', reason: 'Not enough human players' },

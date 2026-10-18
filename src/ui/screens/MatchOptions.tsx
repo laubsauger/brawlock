@@ -61,9 +61,11 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
         <Row label="Game mode" hint={MODE_HINT[settings.gameMode]}>
           <Segmented label="Game mode" value={settings.gameMode} options={GAME_MODES} disabled={ro} onChange={(gameMode) => set({ gameMode })} />
         </Row>
-        <Row label="Score to win" hint={settings.gameMode === 'rounds' ? 'Round wins needed to take the match' : 'Kills needed to take the match'}>
+        {settings.rankedRounds ? <Row label="Match length" hint="Most round wins after the scheduled rounds; tied leaders fight one final brawl">
+          <span className="text-right font-semibold text-bone">{settings.rankedRounds} rounds · final if tied</span>
+        </Row> : <Row label="Score to win" hint={settings.gameMode === 'rounds' ? 'Round wins needed to take the match' : 'Kills needed to take the match'}>
           <NumberField label="Score to win" value={settings.winScore} min={1} max={99} disabled={ro} onCommit={(winScore) => set({ winScore })} />
-        </Row>
+        </Row>}
       </Group>
 
       <Group title="Gold">

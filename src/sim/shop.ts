@@ -17,7 +17,7 @@
 import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
 import { recomputeStats } from './stats'
-import { pawnOf, scoreOf } from './teams'
+import { isRoundParticipant, pawnOf, scoreOf } from './teams'
 import type { PawnState, PlayerId, PlayerScore, SimState, SpellId } from './types'
 
 /**
@@ -31,6 +31,7 @@ export function shopOpen(state: SimState): boolean {
 
 /** Whether `player` may buy right now (SHOP_RULE): shop phase, or their pawn is dead. */
 export function canBuy(state: SimState, player: PlayerId): boolean {
+  if (!isRoundParticipant(state, player)) return false
   if (state.phase === 'gameOver') return false
   if (shopOpen(state)) return true
   const pawn = pawnOf(state, player)

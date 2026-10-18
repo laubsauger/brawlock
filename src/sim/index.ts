@@ -68,12 +68,20 @@ export { canBuy, shopOpen } from './shop'
 export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
+export { gameWinners } from './mode'
+export { isRoundParticipant } from './teams'
 export { alliance, isEnemy, pawnOf, scoreOf, slotOf, teamOf, ALLIANCE_SELF, ALLIANCE_ALLY, ALLIANCE_ENEMY } from './teams'
 export { cloneState, hashState } from './snapshot'
 
 /** Non-finite or negative numeric options fall back to the defaults (a NaN timer would stall). */
 function sanitizeSettings(input: MatchSettings): MatchSettings {
   const out = { ...DEFAULT_SETTINGS, ...input }
+  if (out.rankedRounds !== undefined && out.rankedRounds !== 0 && out.rankedRounds !== 5) {
+    throw new Error('Ranked format requires five scheduled rounds')
+  }
+  if (out.rankedRounds === 5 && (out.gameMode !== 'rounds' || out.teamMode !== 'ffa')) {
+    throw new Error('Ranked format requires free-for-all rounds')
+  }
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof MatchSettings)[]) {
     const d = DEFAULT_SETTINGS[key]
     if (typeof d !== 'number') continue
@@ -160,6 +168,13 @@ function validCommand(cmd: InputCommand): boolean {
 
 function connectionTick(state: SimState): void {
   for (const pawn of state.pawns) {
+    // Benching is not a death or a disconnect, and reconnecting cannot bypass the final roster.
+    if (state.rankedFinal && !state.rankedFinal.contenders.includes(pawn.owner)) {
+      pawn.alive = false
+      pawn.moveTarget = null
+      pawn.cast = null
+      continue
+    }
     const active = isActive(state, pawn.owner)
     if (pawn.alive && !active) {
       pawn.lastHitter = null

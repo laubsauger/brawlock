@@ -28,6 +28,8 @@ const OFFS = [
 export interface DeathLabOptions {
   causes: string[]
   every: number
+  /** Cast any real ability without forcing damage/death (readability/cancel review). */
+  castOnly?: boolean
   /** after-hit mode: hit (not kill) the victims with `causes` instead */
   hit: boolean
   victimColor?: number
@@ -116,10 +118,13 @@ export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void):
     if (killed || T < 0.4) return
     killed = true
     const k = pawnOf(0)
-    if (!o.hit) for (const v of victims()) v.hp = 1.5
-    if (cause === 'fireball' && n === 1) {
+    if (!o.hit && !o.castOnly) for (const v of victims()) v.hp = 1.5
+    if ((o.castOnly || ['fireball', 'snowball', 'twin', 'cluster', 'bouncer', 'boomerang'].includes(cause)) && cause !== 'scourge' && n === 1) {
       const v = pawnOf(1)
-      inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: v.x, y: v.y }] })
+      const slot = cause === 'fireball' ? FIREBALL_SLOT : 0
+      k.slots[slot] = cause
+      k.levels[slot] = 1
+      inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot, x: v.x, y: v.y }] })
     } else if (cause === 'scourge') {
       inputs.push({ player: 0, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: k.x, y: k.y }] })
       if (o.allCast) for (const v of victims()) inputs.push({ player: v.owner, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: v.x, y: v.y }] })

@@ -346,7 +346,8 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, WIND, ctx.now, ctx.dt, p.id)
+      // Keep the palm tint subordinate to the jagged blue wrist/finger arcs.
+      k.glowAt(o.x, o.y, o.h, 20, WIND.body[0] * (0.08 + w * 0.08), WIND.body[1] * (0.08 + w * 0.08), WIND.body[2] * (0.08 + w * 0.08), 1.4)
       // signature: arcs jumping between the fingers and crawling up the arm. Electric blue
       // cores (never the white-hot palette core): several stacked layers at the hand would
       // otherwise add up to a white blob.
@@ -357,13 +358,15 @@ const mod: SpellVfx = {
       // (each arc starts a little off the palm so they don't all stack on one point)
       const ox0 = o.x + (sx - o.x) * 0.15
       const oy0 = o.y + (sy - o.y) * 0.15
-      k.bolt(ox0, oy0, o.h + (sh - o.h) * 0.15, sx, sy, sh, armSeed, 9, 2.2, WIND.edge, WIND.body, 0.4 + w * 0.45, w > 0.5 ? 1 : 0, 9, 10, 0.18)
-      const arcs = 1 + Math.floor(w * 2)
-      for (let i = 0; i < arcs; i++) {
+      k.bolt(ox0, oy0, o.h + (sh - o.h) * 0.15, sx, sy, sh, armSeed, 5, 2.2, WIND.edge, WIND.body, 0.4 + w * 0.45, 0, 9, 8, 0.18)
+      // The short finger arcs close across the palm, rather than radiating
+      // away like tiny fired bolts. Their endpoints never move outward.
+      for (let i = 0; i < 2; i++) {
         const seed = p.id * 97 + i * 13 + Math.floor(ctx.now * 28)
-        const a = hash01(seed, 1) * Math.PI * 2
-        const l = 30 + w * 40
-        k.bolt(o.x + Math.cos(a) * 14, o.y + Math.sin(a) * 14, o.h, o.x + Math.cos(a) * l, o.y + Math.sin(a) * l, o.h + (hash01(seed, 2) - 0.5) * 60, seed, 8, 1.8, WIND.edge, WIND.body, 0.35 + w * 0.3, 0, 10, 9, 0.18)
+        const side = i === 0 ? -1 : 1
+        const px = -Math.sin(p.facing)
+        const py = Math.cos(p.facing)
+        k.bolt(o.x + px * 15, o.y + py * 15, o.h + side * 7, o.x - px * 15, o.y - py * 15, o.h - side * 7, seed, 4, 1.8, WIND.edge, WIND.body, 0.35 + w * 0.3, 0, 8, 7, 0.18)
       }
     }
     if (bolts.n > 0) {

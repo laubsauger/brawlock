@@ -2,7 +2,7 @@
  * Rockpillar (column 6 Knockbackless; earth brown). spells.md §8.27.
  * Render already draws the pillar (obstacle variant -1) and its rise. This module adds:
  * - windup (0.2 s cast point): the ground at the (clamped) target cracks open in a circle of
- *   exactly the pillar radius (90), grit jumps, the hand glows earth-amber;
+ *   exactly the pillar radius (90), and earth runes mark the casting hand;
  * - summon (a new variant -1 obstacle appears): an eruption of rock chips and a dust ring that
  *   stays inside the footprint, runes flaring up the stone, a short rumble;
  * - while standing: a faint rune ring at its foot; in the last 0.5 s it trembles and sheds grit;
@@ -11,10 +11,10 @@
  */
 import { SPELLS, attr } from '../../../sim/spells/data'
 import type { SimEvent } from '../../../sim/types'
-import { TILE_TOP_H } from '../../coords'
+import { S, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, pal, palMix, rand, flashT, levelOf, tierOfLevel } from './kitB'
+import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, rand, flashT, levelOf, tierOfLevel } from './kitB'
 
 const SPELL = 'rockpillar'
 const DEF = SPELLS[SPELL]
@@ -174,7 +174,12 @@ registerSpellVfx({
       const fh = floorH(ctx, tgt.x, tgt.y)
       drawCircle(tgt.x, tgt.y, fh + 0.3, R, STYLE_CRACKS, RUNE[0], RUNE[1], RUNE[2], 0.5 + 1.0 * k, 0.6 - 0.6 * k, 0, pw.id, 0, 1, 0, ctx.now - 1)
       drawCircle(tgt.x, tgt.y, fh + 0.4, R, STYLE_RING, RUNE[0], RUNE[1], RUNE[2], 0.4 + 0.6 * k, 0, 0, pw.id, 0, 0.6, 0, ctx.now - 1)
-      if (Math.random() < ctx.dt * 40) chips(ctx, tgt.x, tgt.y, R * 0.8, 2, 300)
+      // Target cracks are an immediate aiming mark. Flying grit starts only at summon.
+      const info = ctx.pawn(pw.id)
+      if (info) {
+        const o = originOf(info)
+        drawCircle(o.x / S, -o.z / S, o.y / S + 1, 29, STYLE_CRACKS, RUNE[0], RUNE[1], RUNE[2], 0.5 + 0.7 * k, 0, 0, pw.id, 0, 1.2, 0, ctx.now - 1)
+      }
     }
   },
 })

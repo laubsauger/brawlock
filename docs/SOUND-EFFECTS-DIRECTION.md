@@ -34,6 +34,14 @@ All ten options were reviewed: two Likes, seven Passes and one Maybe. The feedba
 - **R01 selected:** add the trimmed S05 recording subtly under the existing physical-impact recipe. Keep the procedural body and existing thud variants. R02's stronger mix and R03's explosion use were rejected, so this source is used only for `impact`.
 - **R05 selected:** use the fuller 0.52-second S11 edit as the recording layer for shield reflection, retaining the existing procedural recipe. R04's shorter version was rejected.
 - **R06 and R07 rejected:** retain the current Fireball sources. Separately, the user requested a modest earlier fade on the existing cast: reduce its two whoosh recordings from 1.5 to 1.3 seconds and from 1.2 to 1.05 seconds, with smooth fades. Keep the attack, pitch, synthesis and gain settings.
-- **R08 remains Maybe:** no new thunder recording is selected for Lightning. R09 and R10 were rejected.
+- **Lightning decision:** retain the current in-game thunder, as confirmed after the second review. R08 was marked Maybe but was not selected; R09 and R10 were rejected.
 
 The selected recordings ship in the existing Opus and AAC formats, with source credits and reproducible processing entries. The original audition pages remain historical references; their saved ratings are preserved.
+
+## Music defaults and kill feedback
+
+Music defaults to 65% on fresh loads or when no music preference is saved. Existing saved volumes, including zero and the previous 50% value, are preserved.
+
+Every credited kill already triggers a centered confirmation exclusively for the killer. Its dry slam now finishes with two short, mellow metallic coin strikes. This ordinary kill reward remains separate from the existing bounty settlement, and disconnects, self-deaths, other players and spectators do not receive it.
+
+The shared death sound has a tighter second low-body answer at 65 ms, using its existing synthesis layers and node budget. Death visuals add a small matching pressure echo while preserving cause-specific effects, quiet disconnects, and player effect settings.

@@ -51,8 +51,9 @@ const PLATE_MAX_PUSH = 2 * 33
 /** ease time constant for the stacking offset: ~95 % of the way in 120 ms, no jitter when the order flips */
 const PLATE_EASE_TAU = 0.04
 
-function plateWidth(name: string, local: boolean): number {
-  return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5)) + PLATE_PAD_X
+function plateWidth(name: string, local: boolean, kills: number): number {
+  const pips = kills === 0 ? 0 : kills <= 3 ? kills * 9 + kills - 1 : 11 + String(kills).length * 6
+  return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5) + (pips ? pips + 4 : 0)) + PLATE_PAD_X
 }
 
 export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb'
@@ -150,7 +151,8 @@ const css = `
 .bl-ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;contain:strict;font-family:Nunito,ui-rounded,system-ui,sans-serif}
 .bl-num{position:absolute;left:0;top:0;will-change:transform,opacity;font-weight:900;white-space:nowrap;letter-spacing:.01em;line-height:1;transform-origin:50% 80%}
 .bl-plate{position:absolute;left:0;top:0;width:max-content;min-width:78px;padding:3px 7px 4px;border-radius:7px;background:rgba(12,7,7,.46);box-shadow:0 0 12px 5px rgba(12,7,7,.30);will-change:transform,opacity;display:flex;flex-direction:column;align-items:center}
-.bl-plate .nm{font-size:11px;font-weight:800;line-height:1.1;letter-spacing:.03em;margin-bottom:2px;text-shadow:0 0 2px #000,0 1px 1px #000,0 0 5px rgba(0,0,0,.9);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.bl-name-row{display:flex;align-items:center;gap:4px;margin-bottom:2px}
+.bl-plate .nm{font-size:11px;font-weight:800;line-height:1.1;letter-spacing:.03em;text-shadow:0 0 2px #000,0 1px 1px #000,0 0 5px rgba(0,0,0,.9);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .bl-plate .bar{position:relative;width:78px;height:8px;background:#120b0b;box-shadow:0 0 0 1px #000,0 1px 4px rgba(0,0,0,.7);overflow:hidden}
 .bl-plate .trail,.bl-plate .fill{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
 .bl-plate .trail{background:#f4efe6}
@@ -168,7 +170,8 @@ const css = `
 .bl-stamp svg{width:17px;height:17px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
 .bl-stamp .kn{text-shadow:0 0 2px #000,0 1px 1px #000,0 0 6px rgba(0,0,0,.8)}
 .bl-stamp .kc{color:#ffd27a;font-size:17px}
-.bl-pips{position:absolute;right:calc(100% - 2px);top:3px;display:flex;gap:1px;opacity:.78;pointer-events:none}
+.bl-pips{display:flex;align-items:center;flex-shrink:0;gap:1px;opacity:.78;pointer-events:none}
+.bl-pips:empty{display:none}
 .bl-pips svg{width:9px;height:9px;color:#e9d8c2}
 .bl-pips b{font-size:9px;font-weight:900;color:#e9d8c2;line-height:9px;margin-left:1px;text-shadow:0 0 2px #000}
 .bl-plate.local .mult{left:92px}
@@ -250,6 +253,7 @@ export class WorldOverlay {
       const el = div('bl-plate')
       el.style.display = 'none'
       const name = div('nm')
+      const nameRow = div('bl-name-row')
       const bar = div('bar')
       const trail = div('trail')
       const fill = div('fill')
@@ -269,11 +273,12 @@ export class WorldOverlay {
       stamp.append(stampName, stampCount)
       stampWrap.appendChild(stamp)
       const pips = div('bl-pips')
+      nameRow.append(pips, name)
       const bounty = div('bl-bounty')
       bounty.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#d59a31" stroke="#ffe2a0"/><path d="M6 3v6" stroke="#fff0be"/></svg>'
       const bountyText = document.createElement('span')
       bounty.append(bountyText)
-      el.append(stampWrap, pips, name, bar, kb, bounty)
+      el.append(stampWrap, nameRow, bar, kb, bounty)
       this.root.appendChild(el)
       this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
@@ -413,7 +418,7 @@ export class WorldOverlay {
       const owner = state?.pawns.find((p) => p.id === inp.id)?.owner
       const bounty = state?.settings.bounties && owner !== undefined ? bountyOf(state, owner) : 0
       this.pBounty[i] = bounty
-      this.pW[i] = plateWidth(inp.name, inp.local) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
+      this.pW[i] = plateWidth(inp.name, inp.local, this.kills.pipsOf(inp.id)) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
       this.pExtra[i] = this.kills.stampOf(inp.id, now) ? STAMP_H : 0
     }
     // 2. de-collide: stack overlapping plates upwards

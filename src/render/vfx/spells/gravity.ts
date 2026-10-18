@@ -1,7 +1,7 @@
 /**
  * Gravity (column 6 Knockbackless; black-violet lensing). spells.md §8.23.
- * Windup (0.2 s cast point): the light around the hand bends into a small lens and streaks
- * of light are sucked into the palm. Orb (sim r25 core, 450 u/s, 2 s): an event horizon (black
+ * Windup (0.2 s cast point): a tight lens mark bends light on the palm without a black core.
+ * Orb (sim r25 core, 450 u/s, 2 s): an event horizon (black
  * core, razor lilac photon ring) inside a gravitational lens that bends the arena behind it
  * (screen-space refraction, medium+ tiers), a tilted accretion disk spiralling inward, rock
  * chunks and light streaks spiralling into it from the pull radius, enemies inside the pull
@@ -288,15 +288,6 @@ registerSpellVfx({
         if (e.spell !== SPELL) return
         castFlash(ctx, e.pawn, LILAC, 0.9)
         return true
-      case 'castStart': {
-        if (e.spell !== SPELL) return
-        const info = ctx.pawn(e.pawn)
-        if (info) {
-          const o = originOf(info)
-          implode(ctx, o.x / S, -o.z / S, o.y / S, 26, 90, 170, 0.2, 9, LILAC, 1, 80)
-        }
-        return
-      }
       case 'projectileExpire':
       case 'projectileHit': {
         if (e.spell !== SPELL) return
@@ -321,7 +312,7 @@ registerSpellVfx({
     kitBegin(ctx)
     frameNo++
     for (const [id, o] of orbs) if (frameNo - o.seen > 30) orbs.delete(id)
-    // windup flavour: a small lens bends the light around the casting hand
+    // Palm-sized refraction, with no event horizon or preformed projectile.
     const st = ctx.state
     if (!st) return
     for (const pw of st.pawns) {
@@ -334,8 +325,9 @@ registerSpellVfx({
       const gx = o.x / S
       const gy = -o.z / S
       const gh = o.y / S
-      if (lens && lensOk(ctx)) lens.add(ctx, gx, gy, gh, 40 + 60 * k, 0.8, 0.12 * k, 0.6 * k)
-      glowG(gx, gy, gh, 60 + 80 * k, LILAC, 0.3 + 0.5 * k, 0.08, 1, 1, ctx.now * 2)
+      if (lens && lensOk(ctx)) lens.add(ctx, gx, gy, gh, 24, 0.15 + 0.2 * k, -0.1, 0)
+      glowG(gx, gy, gh, 46, LILAC_DIM, 0.8 + 0.6 * k, 0.08, 1, 0.6, 0)
+      glowG(gx, gy, gh, 29, LILAC, 0.35 + 0.4 * k, 0.08, 1, 0.6, Math.PI / 2)
     }
   },
   drawProjectile(p: ProjectileState, x: number, y: number, ctx: VfxCtx) {

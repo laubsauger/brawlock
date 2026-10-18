@@ -56,11 +56,10 @@ function sparkle(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
 
 /** signature charge-up: a purple charge-meter ring filling around the hand */
 function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  k.air.add(G_RUNE, o.x, o.y, o.h - 4, 46, 0, P.body[0], P.body[1], P.body[2], 1.3, w, 3)
-  k.air.add(G_REFRESH, o.x, o.y, o.h - 3, 30, -now * (4 + 8 * w), P.hot[0], P.hot[1], P.hot[2], 0.3 + 0.6 * w, 2, 1)
+  k.air.add(G_RUNE, o.x, o.y, o.h + 1, 29, 0, P.body[0], P.body[1], P.body[2], 1.1, w, 3)
+  k.air.add(G_REFRESH, o.x, o.y, o.h + 2, 21, -w * 0.8, P.body[0], P.body[1], P.body[2], 0.5 + 0.6 * w, 2, 1)
   const st = streakOf(ctx, info.owner)
-  if (st > 0) k.air.add(G_RUNE, o.x, o.y, o.h - 5, 56, now, P.edge[0], P.edge[1], P.edge[2], 0.6, Math.min(1, st / 5), 9)
+  if (st > 0) k.air.add(G_RUNE, o.x, o.y, o.h, 33, 0, P.edge[0], P.edge[1], P.edge[2], 0.6, Math.min(1, st / 5), 9)
 }
 
 const mod: SpellVfx = {

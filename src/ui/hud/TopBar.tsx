@@ -22,6 +22,37 @@ export function displayRound(s: SimState): number {
   return s.phase === 'shop' || s.phase === 'warmup' ? s.round + 1 : Math.max(1, s.round)
 }
 
+
+/** Scheduled ranked matches count rounds rather than racing to a win score. */
+export function roundLabel(state: SimState): string {
+  if (state.rankedFinal) return 'Final brawl'
+  const number = displayRound(state)
+  return state.settings.rankedRounds ? `Round ${number}/${state.settings.rankedRounds}` : `Round ${number}`
+}
+
+export function roundGoal(state: SimState): string {
+  if (state.rankedFinal) return 'Match decider'
+  return state.settings.rankedRounds ? `${state.settings.rankedRounds} scheduled rounds` : `first to ${state.settings.winScore}`
+}
+
+/** The final field is authoritative, including during its preceding shop. */
+export function finalBrawlInfo(state: SimState, local: number): { names: string; watching: boolean } | null {
+  if (!state.rankedFinal) return null
+  return {
+    names: state.slots.filter((slot) => state.rankedFinal!.contenders.includes(slot.id)).map((slot) => slot.name).join(' · '),
+    watching: !state.rankedFinal.contenders.includes(local),
+  }
+}
+
+export function FinalBrawlStatus() {
+  const value = usePolled(() => frame.curr ? finalBrawlInfo(frame.curr, frame.localPlayer) : null, JSON.stringify, 4)
+  if (!value) return null
+  return <div className="hud-backing mt-1 max-w-[calc((100vw_-_24px)/var(--ui-scale,1))] rounded px-2 py-1 text-center text-xs" role="status" aria-label="Final brawl contenders">
+    <span className="font-semibold text-gold">Finalists: {value.names}</span>
+    {value.watching && <span className="mt-0.5 block text-ash">Watching the final · inspect the contenders or bet during the fight</span>}
+  </div>
+}
+
 function clock(secs: number): string {
   const s = Math.max(0, Math.floor(secs))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -34,11 +65,12 @@ const phaseClock = { phase: '' as Phase | '', startTick: 0 }
  * The clock plate: round (with a quiet "first to N" under it), time left and
  * the phase. Text is written from the shared rAF, no React renders per frame.
  */
-export function PhasePlate({ winScore }: { winScore?: number }) {
+export function PhasePlate() {
   const round = useRef<HTMLSpanElement>(null)
   const timer = useRef<HTMLSpanElement>(null)
+  const goal = useRef<HTMLSpanElement>(null)
   const phase = useRef<HTMLSpanElement>(null)
-  const last = useRef({ round: '', timer: '', phase: '' })
+  const last = useRef({ round: '', timer: '', phase: '', goal: '' })
 
   useTick(() => {
     const s = frame.curr
@@ -48,8 +80,10 @@ export function PhasePlate({ winScore }: { winScore?: number }) {
       phaseClock.phase = s.phase
       phaseClock.startTick = s.tick
     }
-    const r = `Round ${displayRound(s)}`
+    const r = roundLabel(s)
     if (r !== l.round && round.current) round.current.textContent = l.round = r
+    const g = roundGoal(s)
+    if (g !== l.goal && goal.current) goal.current.textContent = l.goal = g
 
     const p = PHASE_LABEL[s.phase] ?? s.phase
     if (p !== l.phase && phase.current) {
@@ -65,7 +99,7 @@ export function PhasePlate({ winScore }: { winScore?: number }) {
     <div className="hud-plate hud-top flex h-9 shrink-0 items-center gap-3 px-4">
       <span className="flex flex-col items-end leading-none">
         <span ref={round} className="text-[0.86rem] font-semibold text-ash" />
-        {winScore ? <span className="mt-0.5 text-[0.66rem] font-semibold whitespace-nowrap text-ash/75">first to {winScore}</span> : null}
+        <span ref={goal} className="mt-0.5 text-[0.66rem] font-semibold whitespace-nowrap text-ash/75">{frame.curr ? roundGoal(frame.curr) : null}</span>
       </span>
       <span ref={timer} className="tabular min-w-[2.9rem] text-center text-[1.35rem] leading-none font-bold text-bone" />
       <span ref={phase} className="chip text-[0.8rem] text-[#ffd890]" />
@@ -297,7 +331,6 @@ function Side({ players, side, local, teams, density }: { players: StripPlayer[]
 export function TopCenter() {
   const players = usePolled(readPlayers, playersKey, 2)
   const local = frame.localPlayer
-  const winScore = frame.curr?.settings.winScore
   const teamMode = frame.curr?.settings.teamMode
   const teams = !!teamMode && teamMode !== 'ffa'
   if (players.length === 2 && !teams) {
@@ -305,7 +338,7 @@ export function TopCenter() {
     return (
       <div className="flex items-start gap-1" aria-label="Scores">
         <BroadcastSide p={a} side="left" local={a.id === local} />
-        <PhasePlate winScore={winScore} />
+        <PhasePlate />
         <BroadcastSide p={b} side="right" local={b.id === local} />
       </div>
     )
@@ -316,7 +349,7 @@ export function TopCenter() {
   return (
     <div className="flex w-[var(--top-row-w)] max-w-[var(--top-row-w)] items-start justify-center gap-1">
       <Side players={left} side="left" local={local} teams={teams} density={density} />
-      <PhasePlate winScore={winScore} />
+      <PhasePlate />
       <Side players={right} side="right" local={local} teams={teams} density={density} />
     </div>
   )

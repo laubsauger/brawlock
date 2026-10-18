@@ -1,6 +1,6 @@
 /**
  * PeerJS NetFactory. PeerJS only brokers the WebRTC connection (public 0.peerjs.com
- * signaling, default ICE servers incl. PeerJS TURN) and carries the reliable
+ * signaling, explicitly configured ICE servers) and carries the reliable
  * channel; gameplay rides a raw pre-negotiated unreliable RTCDataChannel on the
  * same RTCPeerConnection. (PeerJS `reliable: false` only sets ordered:false and
  * still retransmits, so it is not used.)
@@ -28,6 +28,7 @@ import { recoverFromChunkError } from '../lib/staleBuild'
 type PeerCtor = typeof import('peerjs').Peer
 
 const PEER_LOAD_FAILED = 'Could not load the networking code. Check your internet connection and reload the page.'
+const ICE_LOAD_FAILED = 'Could not load the connection servers. Check your internet connection and try again.'
 /** the chunk-error reload normally replaces the page at once; it is skipped when one ran < 30 s ago */
 const RELOAD_GRACE_MS = 5000
 /** a stalled chunk download must not leave hosting / joining on "connecting" forever */
@@ -198,14 +199,30 @@ const BROKER_DOWN = 'Could not reach the connection broker. Check your internet 
 class CodeTaken extends Error {}
 
 /** Register `brawlock-<code>` at the broker. Resolves once the id is ours. */
-function registerHost(Peer: PeerCtor, code: string): Promise<HostEndpoint> {
+function registerHost(Peer: PeerCtor, code: string, config: RTCConfiguration, getConfig: () => Promise<RTCConfiguration>): Promise<HostEndpoint> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer(peerIdForCode(code))
+    const peer = new Peer(peerIdForCode(code), { config })
+    let closed = false
+    let refreshing = false
+    // PeerJS reads this config for each new incoming RTCPeerConnection. Refresh
+    // credentials without disturbing channels already established by the host.
+    const refresh = setInterval(async () => {
+      if (closed || refreshing || peer.destroyed) return
+      refreshing = true
+      try {
+        const next = await getConfig()
+        if (!closed) config.iceServers = next.iceServers
+      } catch {
+        console.warn('[net] Could not refresh relay credentials; new relay connections may be unavailable until the service returns.')
+      } finally { refreshing = false }
+    }, 30_000)
+    const stopRefresh = () => { closed = true; clearInterval(refresh) }
     let opened = false
     let listener: ((t: Transport) => void) | null = null
     const backlog: Transport[] = []
     const timeout = setTimeout(() => {
       if (opened) return
+      stopRefresh()
       peer.destroy()
       reject(new Error(BROKER_DOWN))
     }, BROKER_TIMEOUT_MS)
@@ -221,6 +238,7 @@ function registerHost(Peer: PeerCtor, code: string): Promise<HostEndpoint> {
           for (const t of backlog.splice(0)) cb(t)
         },
         close() {
+          stopRefresh()
           setTimeout(() => peer.destroy(), FLUSH_MS + 50)
         },
       })
@@ -234,6 +252,7 @@ function registerHost(Peer: PeerCtor, code: string): Promise<HostEndpoint> {
     })
     peer.on('error', (err) => {
       if (!opened) {
+        stopRefresh()
         clearTimeout(timeout)
         peer.destroy()
         if (err.type === 'unavailable-id') reject(new CodeTaken(code))
@@ -246,99 +265,119 @@ function registerHost(Peer: PeerCtor, code: string): Promise<HostEndpoint> {
   })
 }
 
-export const peerNet: NetFactory = {
-  /** Endpoint id = the room code clients type or open via ?room=. */
-  async host(): Promise<HostEndpoint> {
-    const Peer = await loadPeer()
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await registerHost(Peer, newRoomCode())
-      } catch (e) {
-        if (!(e instanceof CodeTaken) || attempt >= HOST_CODE_ATTEMPTS) {
-          throw e instanceof CodeTaken ? new Error('Could not reserve a room code. Try again.') : e
-        }
-      }
-    }
-  },
-
-  /** `code` must already be normalized (parseRoomCode). */
-  async join(code: string, onStatus?: (msg: string) => void): Promise<Transport> {
-    const Peer = await loadPeer()
-    const hostPeerId = peerIdForCode(code)
-    return new Promise((resolve, reject) => {
-      const peer = new Peer()
-      let conn: DataConnection | null = null
-      let attempts = 0
-      let timer: ReturnType<typeof setTimeout> | null = null
-      let done = false
-
-      const finish = (err: string | null, t?: Transport) => {
-        if (done) return
-        done = true
-        if (timer) clearTimeout(timer)
-        if (err) {
-          conn?.close()
-          peer.destroy()
-          reject(new Error(err))
-        } else {
-          resolve(t!)
-        }
-      }
-      const retry = (why: string) => {
-        if (done) return
-        if (attempts >= JOIN_MAX_ATTEMPTS) {
-          finish('No room with that code. It may have closed (codes change every time the host opens a lobby). Ask the host for the current code.')
-          return
-        }
-        attempts++
-        onStatus?.(`${why} Retrying (${attempts}/${JOIN_MAX_ATTEMPTS})…`)
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(tryConnect, JOIN_RETRY_PAUSE_MS)
-      }
-      const tryConnect = () => {
-        if (done || peer.destroyed) return
-        conn?.close()
-        const c = peer.connect(hostPeerId, { reliable: true, serialization: 'raw' })
-        conn = c
-        c.on('open', () => {
-          if (c !== conn || done) return
-          finish(null, new PeerTransport(c, () => peer.destroy()))
-        })
-        c.on('error', (e) => {
-          if (c !== conn || done) return
-          if (e.type === 'negotiation-failed') {
-            finish(
-              'Could not open a direct connection to the host (strict NAT or firewall). Try another network, or let the other player host.',
-            )
-          }
-        })
-        if (timer) clearTimeout(timer)
-        // an offer relayed into a dead socket never errors: re-dial
-        timer = setTimeout(() => retry('Host not reachable (maybe app-switched).'), JOIN_ATTEMPT_MS)
-      }
-
-      armReconnect(peer)
-      onStatus?.('Connecting to host…')
-      peer.on('open', () => {
-        if (!conn) tryConnect()
-      })
-      peer.on('error', (err) => {
-        if (done) {
-          console.warn('[net] client peer error', err.type, err.message)
-          return
-        }
-        if (err.type === 'peer-unavailable') {
-          retry('Host not reachable (maybe app-switched).')
-          return
-        }
-        if (err.type === 'browser-incompatible') finish('This browser does not support WebRTC.')
-        else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed')
-          finish(BROKER_DOWN)
-        else finish(`Connection failed: ${err.message || err.type}`)
-      })
-    })
-  },
+/** Unconfigured/offline builds use explicit STUN only, never PeerJS's bundled
+ * TURN defaults. Configured builds inject their own credentialed relay config. */
+async function stunConfiguration(): Promise<RTCConfiguration> {
+  return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 }
+
+async function connectionConfiguration(getConfig: () => Promise<RTCConfiguration>): Promise<RTCConfiguration> {
+  try {
+    return await getConfig()
+  } catch (cause) {
+    throw new Error(ICE_LOAD_FAILED, { cause })
+  }
+}
+
+/** Fetch fresh credentials for each host/join operation, then keep that config
+ * for its existing retries. A config failure stops before broker registration. */
+export function createPeerNet(getConfig: () => Promise<RTCConfiguration> = stunConfiguration): NetFactory {
+  return {
+    /** Endpoint id = the room code clients type or open via ?room=. */
+    async host(): Promise<HostEndpoint> {
+      const [Peer, config] = await Promise.all([loadPeer(), connectionConfiguration(getConfig)])
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await registerHost(Peer, newRoomCode(), config, getConfig)
+        } catch (e) {
+          if (!(e instanceof CodeTaken) || attempt >= HOST_CODE_ATTEMPTS) {
+            throw e instanceof CodeTaken ? new Error('Could not reserve a room code. Try again.') : e
+          }
+        }
+      }
+    },
+
+    /** `code` must already be normalized (parseRoomCode). */
+    async join(code: string, onStatus?: (msg: string) => void): Promise<Transport> {
+      const [Peer, config] = await Promise.all([loadPeer(), connectionConfiguration(getConfig)])
+      const hostPeerId = peerIdForCode(code)
+      return new Promise((resolve, reject) => {
+        const peer = new Peer({ config })
+        let conn: DataConnection | null = null
+        let attempts = 0
+        let timer: ReturnType<typeof setTimeout> | null = null
+        let done = false
+
+        const finish = (err: string | null, t?: Transport) => {
+          if (done) return
+          done = true
+          if (timer) clearTimeout(timer)
+          if (err) {
+            conn?.close()
+            peer.destroy()
+            reject(new Error(err))
+          } else {
+            resolve(t!)
+          }
+        }
+        const retry = (why: string) => {
+          if (done) return
+          if (attempts >= JOIN_MAX_ATTEMPTS) {
+            finish('No room with that code. It may have closed (codes change every time the host opens a lobby). Ask the host for the current code.')
+            return
+          }
+          attempts++
+          onStatus?.(`${why} Retrying (${attempts}/${JOIN_MAX_ATTEMPTS})…`)
+          if (timer) clearTimeout(timer)
+          timer = setTimeout(tryConnect, JOIN_RETRY_PAUSE_MS)
+        }
+        const tryConnect = () => {
+          if (done || peer.destroyed) return
+          conn?.close()
+          const c = peer.connect(hostPeerId, { reliable: true, serialization: 'raw' })
+          conn = c
+          c.on('open', () => {
+            if (c !== conn || done) return
+            finish(null, new PeerTransport(c, () => peer.destroy()))
+          })
+          c.on('error', (e) => {
+            if (c !== conn || done) return
+            if (e.type === 'negotiation-failed') {
+              finish(
+                'Could not open a direct connection to the host (strict NAT or firewall). Try another network, or let the other player host.',
+              )
+            }
+          })
+          if (timer) clearTimeout(timer)
+          // an offer relayed into a dead socket never errors: re-dial
+          timer = setTimeout(() => retry('Host not reachable (maybe app-switched).'), JOIN_ATTEMPT_MS)
+        }
+
+        armReconnect(peer)
+        onStatus?.('Connecting to host…')
+        peer.on('open', () => {
+          if (!conn) tryConnect()
+        })
+        peer.on('error', (err) => {
+          if (done) {
+            console.warn('[net] client peer error', err.type, err.message)
+            return
+          }
+          if (err.type === 'peer-unavailable') {
+            retry('Host not reachable (maybe app-switched).')
+            return
+          }
+          if (err.type === 'browser-incompatible') finish('This browser does not support WebRTC.')
+          else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed')
+            finish(BROKER_DOWN)
+          else finish(`Connection failed: ${err.message || err.type}`)
+        })
+      })
+    },
+  }
+}
+
+export const peerNet: NetFactory = createPeerNet()
 
 /** Shareable invite link for a room code: the app URL with ?room=CODE. */
 export function joinUrlFor(code: string): string {

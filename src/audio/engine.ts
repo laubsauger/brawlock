@@ -307,7 +307,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
 
 export class AudioEngine {
   private g: Graph | null = null
-  private vol: Volumes = { master: 0.8, sfx: 1, music: 0.5, muted: false }
+  private vol: Volumes = { master: 0.8, sfx: 1, music: 0.65, muted: false }
   private readonly voiceEnds = new Map<SfxId, number[]>()
   private readonly lastStart = new Map<SfxId, number>()
   private readonly keyed = new Map<

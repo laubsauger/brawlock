@@ -3,7 +3,7 @@
  *
  * A physical weapon, not a fire bolt: it must read apart from Fireball by
  * shape and motion alone (grayscale test).
- * - signature windup: the steel glaive itself forms in the hand, spinning up
+ * - windup: a compact glow held at the palm
  * - flight: a solid three-pronged steel glaive (extruded mesh, lit metal that
  *   catches the moonlight, red-copper glowing cutting edges) spinning fast and
  *   flat, tips exactly on the collision radius (38); a faint spin-blur disc
@@ -21,8 +21,8 @@ import { float, length, positionGeometry, pow, smoothstep, varying, vec3 } from 
 import type { SimEvent, SimState } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_IMPLODE } from '../../scene/GroundFx'
-import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
-import { G_BLADE, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
+import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
+import { G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
 const P = palFor('boomerang')
@@ -126,15 +126,6 @@ function addGlaive(x: number, y: number, h: number, radius: number, spin: number
   im.needsUpdate = true
 }
 
-/** signature charge-up: the steel glaive forms in the hand, spinning up */
-function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  const r = 38 * (0.3 + 0.7 * w)
-  const spin = now * (6 + 24 * w)
-  addGlaive(o.x, o.y, o.h + 10, r, spin, 0.25)
-  k.air.add(G_BLADE, o.x, o.y, o.h + 9, r * 1.04, spin, P.body[0], P.body[1], P.body[2], 0.25 * w, 1, 3)
-}
-
 /** spin sweep: a bright motion-blur arc behind each tip on the tip circle, rim, glints */
 function spinFx(k: KitA, x: number, y: number, h: number, r: number, spin: number, fl: number): void {
   // motion-blur rim on the tip circle + a ground glint ring under the blade
@@ -200,7 +191,7 @@ const mod: SpellVfx = {
     K = acquireKit(ctx)
     glaive = buildGlaive(ctx)
   },
-  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  // The shared kit draws a compact palm glow, never a projectile during windup.
   windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     if (glaive) {
@@ -310,8 +301,7 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
+      k.glowAt(o.x, o.y, o.h, 20, P.body[0] * (0.08 + 0.08 * w), P.body[1] * (0.08 + 0.08 * w), P.body[2] * (0.08 + 0.08 * w), 1.4)
     }
     // forget positions of blades that are gone
     if (last.size > 0) {

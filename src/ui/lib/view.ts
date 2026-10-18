@@ -107,13 +107,8 @@ export function winnersText(slots: readonly Pick<PlayerSlot, 'id' | 'name' | 'te
 }
 
 /**
- * Whether the local player can buy right now. The sim's canBuy(state, player)
- * (shop phase, or your pawn is dead) when it exists; before that, shopOpen().
- * Looked up by key so the build works whether or not the sim exports it yet.
+ * Use the authoritative purchase rule, including final-brawl spectators.
  */
-type CanBuy = (state: SimState, player: number) => boolean
-const simApi = sim as unknown as Record<string, unknown>
 export function canBuyNow(state: SimState): boolean {
-  const fn = simApi['canBuy'] as CanBuy | undefined
-  return typeof fn === 'function' ? fn(state, frame.localPlayer) : sim.shopOpen(state)
+  return sim.canBuy(state, frame.localPlayer)
 }

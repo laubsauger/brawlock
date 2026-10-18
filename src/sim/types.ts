@@ -47,6 +47,8 @@ export interface MatchSettings {
   gameMode: GameMode
   /** rounds mode: game ends when a player/team reaches this many round wins */
   winScore: number
+  /** Dedicated ranked format: five scheduled scoring rounds, then at most one leaders-only final. */
+  rankedRounds?: 0 | 5
   startGold: number
   roundGold: number
   killGold: number
@@ -397,6 +399,8 @@ export interface SimState {
   /** ticks until the current phase ends, -1 = until condition */
   phaseTicksLeft: number
   round: number
+  /** Present from final preparation onward. Winners persist after the final resolves, including shared draws. */
+  rankedFinal?: { contenders: PlayerId[]; winners?: PlayerId[] }
   arena: ArenaState
   scores: PlayerScore[]
   pawns: PawnState[]

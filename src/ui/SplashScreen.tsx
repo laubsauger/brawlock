@@ -11,10 +11,14 @@ import { useGame } from '../game/store'
 import { codeFromSearch } from '../net/code'
 import { joinRoom } from './flow'
 import { loadRender } from './renderBridge'
-import { chooseName, hasChosenName, NAME_MAX } from './lib/name'
+import { chooseName, hasChosenName, NAME_MAX, suggestedName } from './lib/name'
+import { getProfile, setPreferredColor } from '../game/profile'
+import { PLAYER_COLORS } from '../net/lobbyColors'
+import { PreferredColorPicker } from './screens/PlayerColorPicker'
 import { isTypingTarget } from './lib/keys'
 import { forcedMute } from './lib/sound'
 import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
+import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
 
 /** Matches the fade in index.html. */
 const FADE_MS = 700
@@ -33,7 +37,7 @@ const initialRoom: string | null = (() => {
     }
     const code = codeFromSearch(url.search)
     // survives a stale-build reload (src/lib/staleBuild.ts)
-    if (code) rememberPendingRoom(code)
+    if (code && isPlaySupported()) rememberPendingRoom(code)
     else clearPendingRoom()
     url.searchParams.delete('room')
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
@@ -68,13 +72,22 @@ const STAGES: { id: Stage; label: string }[] = [
 ]
 
 export function SplashScreen() {
+  const playSupported = usePlaySupported()
   const [root] = useState(() => document.getElementById('splash'))
   const [done, setDone] = useState<Record<Stage, boolean>>({ gpu: false, fonts: false, arena: false, music: false })
   const [entered, setEntered] = useState(!root)
   const gpu = useGame((s) => s.gpu)
   // first run: ask for a name right here, so the first lobby already shows it
   const [askName] = useState(() => !hasChosenName())
-  const [name, setName] = useState(() => useGame.getState().settings.playerName)
+  const [name, setName] = useState(() => {
+    const current = useGame.getState().settings.playerName
+    return askName && current === 'Warlock' ? suggestedName() : current
+  })
+  const [color, setColor] = useState(() => getProfile().color ?? PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)])
+
+  useEffect(() => {
+    if (!playSupported) clearPendingRoom()
+  }, [playSupported])
 
   useEffect(() => {
     if (started) return
@@ -110,7 +123,10 @@ export function SplashScreen() {
 
   const enter = () => {
     if (entered) return
-    if (askName) chooseName(name)
+    if (askName && isPlaySupported()) {
+      chooseName(name)
+      setPreferredColor(color)
+    }
     try {
       audio.unlock()
       const s = useGame.getState().settings
@@ -124,9 +140,10 @@ export function SplashScreen() {
     }
     setEntered(true)
     const store = useGame.getState()
-    if (initialRoom) {
+    if (initialRoom && isPlaySupported()) {
       if (joinRoom(initialRoom)) store.setScreen('menu')
     } else {
+      clearPendingRoom()
       store.setScreen('menu')
     }
   }
@@ -144,7 +161,8 @@ export function SplashScreen() {
     if (!root || mode !== 'ready') return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Enter' && e.key !== ' ') return
-      if (e.key === ' ' && isTypingTarget(e.target)) return
+      if (e.isComposing || (e.key === ' ' && isTypingTarget(e.target))) return
+      if (e.target instanceof HTMLElement && e.target.closest('[aria-label="Preferred player color"]')) return
       e.preventDefault()
       e.stopPropagation()
       enter()
@@ -154,15 +172,19 @@ export function SplashScreen() {
   })
 
   const action = root?.querySelector<HTMLElement>('#splash-action') ?? null
-  if (!root || !action || mode !== 'ready') return null
+  if (!root || !action) return null
+  const controlsNotice = <p data-testid="splash-play-requirement" className={`max-w-[min(340px,calc(100vw-40px))] text-center text-sm leading-snug ${playSupported ? 'text-ash' : 'rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-[#f3d3a1]'}`}>{playSupported ? 'Mouse and keyboard to play · Sound starts when you enter' : PLAY_REQUIREMENT}</p>
+  if (mode !== 'ready') return mode === 'loading' ? createPortal(controlsNotice, action) : null
 
   return createPortal(
     <div className="fade-in flex flex-col items-center gap-3">
-      {askName && (
+      {controlsNotice}
+      {askName && playSupported && <div className="flex w-[min(340px,calc(100vw-40px))] flex-col gap-4 rounded-lg border border-gold/25 bg-[#140e0b]/90 p-4">
         <label className="flex flex-col items-center gap-1.5">
           <span className="text-[1.05rem] font-semibold text-[#f0d9b8]">What should your rivals call you?</span>
           <input
             className="field w-[260px] text-center text-[1.25rem] font-bold"
+            aria-label="Your player name"
             autoFocus
             maxLength={NAME_MAX}
             spellCheck={false}
@@ -172,9 +194,10 @@ export function SplashScreen() {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
-      )}
-      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName} onClick={enter}>
-        {initialRoom ? `Join room ${initialRoom}` : 'Enter the arena'}
+        <PreferredColorPicker color={color} onChange={setColor} />
+      </div>}
+      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName || !playSupported} onClick={enter}>
+        {initialRoom && playSupported ? `Join room ${initialRoom}` : playSupported ? 'Enter the arena' : 'Enter menu'}
       </button>
       <span className="text-sm text-ash">or press Enter</span>
       {gpu === 'fallback' && (

@@ -17,6 +17,8 @@
 
 ## How it plays
 
+Playing requires a desktop mouse or trackpad and a keyboard. Touch-only devices can use the menu, music and guides; match entry is disabled.
+
 - Right-click to move, press a key to cast at the cursor.
 - Hits push you around. The more damage you take, the farther the next hit throws you.
 - The arena shrinks. Last warlock standing takes the round.

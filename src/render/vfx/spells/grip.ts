@@ -1,7 +1,7 @@
 /**
  * Grip (column 6 Knockbackless; toxic green). spells.md §8.24.
- * Windup (0.2 s cast point): spectral talons curl closed around the casting hand while
- * ectoplasm motes are drawn in. Bolt (sim r39, 1000 u/s): a toxic-green core trailing
+ * Windup (0.2 s cast point): three spectral talon marks sit on the casting fingers.
+ * Bolt (sim r39, 1000 u/s): a toxic-green core trailing
  * ectoplasm wisps, with three talon flares raking forward. On a warlock (`grip` root, 4.5..6 s):
  * spectral claws burst out of a bubbling ectoplasm pool and close over the victim, holding it;
  * each spell the gripped warlock casts (+5 DP) makes the claws clench and flash. Release: the
@@ -15,7 +15,7 @@ import { PROJECTILE_H, S } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, hexRgb, implode, kitAdopt, kitBegin,
+  InstPool, STYLE_RING, STYLE_RIPPLES, TAU, burst, castFlash, drawCircle, drawCore, drawShadow, floorH, glowG, hexRgb, kitAdopt, kitBegin,
   kitInit, kitRelease, light, mixRgb, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, levelOf, tierOfLevel,
 } from './kitB'
 
@@ -139,7 +139,8 @@ registerSpellVfx({
   modifiers: [SPELL],
   init(ctx: VfxCtx) {
     kitInit(ctx)
-    claws = kitAdopt(new InstPool(clawGeometry(), 1, 12 * N_CLAW, (A) => clawMaterial(ctx, A), 8, 'vfxB-grip-claws'))
+    // Reserve the three finger marks as well as each active victim's full claw set.
+    claws = kitAdopt(new InstPool(clawGeometry(), 1, 12 * (N_CLAW + 3), (A) => clawMaterial(ctx, A), 8, 'vfxB-grip-claws'))
   },
   dispose() {
     claws = null
@@ -156,15 +157,6 @@ registerSpellVfx({
         if (e.spell !== SPELL) return
         castFlash(ctx, e.pawn, TOXIC, 0.9)
         return true
-      }
-      case 'castStart': {
-        if (e.spell !== SPELL) return
-        const info = ctx.pawn(e.pawn)
-        if (info) {
-          const o = originOf(info)
-          implode(ctx, o.x / S, -o.z / S, o.y / S, 20, 80, 150, 0.2, 10, TOXIC, 1, 60)
-        }
-        return
       }
       case 'projectileHit':
       case 'projectileExpire':
@@ -189,7 +181,7 @@ registerSpellVfx({
     kitBegin(ctx)
     frameNo++
     for (const [id, h] of holds) if (frameNo - h.seen > 2) holds.delete(id)
-    // windup flavour: spectral talons curl closed around the hand
+    // Fixed finger talons: no orbiting bodies and nothing emitted before commit.
     const st = ctx.state
     if (st) {
       for (const pw of st.pawns) {
@@ -199,12 +191,16 @@ registerSpellVfx({
         if (!info) continue
         const o = originOf(info)
         const k = 1 - c.ticksLeft / 12
-        for (let i = 0; i < 4; i++) {
-          const a = (i / 4) * TAU + ctx.now * 3
-          const rr = 34 * (1 - 0.6 * k)
-          glowG(o.x / S + Math.cos(a) * rr, -o.z / S + Math.sin(a) * rr, o.y / S + 8, 26, TOXIC, 0.5 + 0.5 * k, 2.4, 0, 2.2, a + Math.PI / 2)
+        if (claws) {
+          claws.quat.setFromAxisAngle(Y, -pw.facing)
+          for (let i = 0; i < 3; i++) {
+            const side = (i - 1) * 11
+            const len = (i === 1 ? 30 : 25) * S
+            const idx = claws.add(o.x - Math.sin(pw.facing) * side * S, o.y - 10 * S, o.z - Math.cos(pw.facing) * side * S, len, len, len)
+            claws.set(idx, 0, 0.25 + 0.45 * k, 0, 0, 0)
+          }
         }
-        glowG(o.x / S, -o.z / S, o.y / S, 50 + 50 * k, TOXIC_HOT, 0.3 + 0.4 * k, 2.2)
+        glowG(o.x / S, -o.z / S, o.y / S, 28, TOXIC, 0.25 + 0.3 * k, 2.2)
       }
     }
     // released claws sinking back into the pool

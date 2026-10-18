@@ -1,77 +1,55 @@
-# Multiplayer, presentation and shop session
+# Combined release — 2026-10-19
 
-Committed and deployed at the user’s later explicit request: **6cd960a**. Client: https://laubsauger.github.io/brawlock/ . Dedicated server: protocol **6**, netcode **73190d1c8b01**, healthy. No checkout or reset performed. Separate audio-feedback assets, tools, docs and selected SFX edits remain unstaged for the other agent.
+Previously deployed: a0ae2e044221, protocol7/netf5e7a2c073f1 on Pages +USWest.
 
-## Multiplayer and identity
+The user explicitly authorized the combined commit/push/deployment and has confirmed the other prediction/cast-feedback thread is finished. Its changes are included in the combined release gate. Preserve all concurrent edits; never checkout/reset.
 
-- Local and remote players retain shared simulation prediction. Bot decisions already delayed by their reaction time are now published before execution, reducing speculative wrong turns without adding remote presentation delay.
-- Quickplay reuses public games with available or replaceable bot seats. A joining player reserves a seat, watches the current round finish, and activates next round. Waiting, activation, joins and departures are communicated in the browser and match HUD. Leaving while waiting releases the reservation.
-- Persistent records, reconnects, payouts and renamed players resolve by profile/device identity. Names update in the live session and leaderboard while past match records retain their historical labels. Duplicate active identities cannot steal another profile’s seat.
-- Bot targeting uses opportunity, soft crowd pressure and fading retaliation rather than fixed chase timers, spacing rules or chaser caps.
+## Current implementation
 
-## Shop, HUD and onboarding
+- Room-wide reliable chat across lobby/match/results, bounded history, host-owned identity, rate limits and protected typing.
+- Casual Quick Play never changes Elo; separate fixed-rule Ranked waits for two distinct humans, then a60-second lobby, eight seats and Brutal bots. New ranked admission closes once started; authenticated reconnect proofs retain seats.
+- Ranked now has five scheduled scoring rounds, early clinch and one smaller-arena leaders-only final; see docs/RANKED-FORMAT.md.341 sim tests, dedicated ranked cases, finalist-only ratings/results regressions, deterministic final replay/seek and actual desktop/phone HUD proof pass.
+- Shared global ratings: existing US SQLite is canonical; EU sends authenticated HTTPS mutations through a durable outbox. Atomic receipts prevent double rewards after retries/lost replies. Delayed saves cannot override a later explicit lobby transition.
+- Wider tabbed settings; first-run suggested name+preferred color; profile editor; preferred colors requested at lobby entry without stealing another human's color. Stats unifies leaderboard access; profile Elo shortcut and footer credits.
+- Betting choices fit a3×3 grid; knockout feedback higher; seven-level progression table fits its hover card.
+- Winner camera holds until phase boundary and returns once; forward replay seeks do not retain another round's shot. Floor albedo lifted about4%.
+- Ten-warlock menu tableau; old sparring scene retained at ?menuScene=sparring, reduced-motion static composition.
+- Shoulder facing cue retains its player-color panel and chevron, with a softer transition, thinner woven line and no chevron emission; avoids the bright diagonal strip amplified by bloom.
+- Quick Play's prominent action line states whether it creates a public game with bots or joins an existing lobby/match; casual/no-Elo rules remain visible alongside the regional badge.
+- Explicit authenticated TURN configuration replaces broken bundled PeerJS TURN hosts. Credential issuer limits origins/rate/TTL, client caches until renewal, long-lived hosts refresh credentials without dropping existing channels.
+- Deployment kit preserves protected config/secrets/data and requires the dedicated unprivileged runtime. Internal rating proxy body limit aligned with128KiB backend contract.
 
-- Bottom toolbar is a single compact icon row, with redundant HP/knockback readouts removed. Cooldowns use large numbers and radial progress.
-- Spell columns have distinct subtle category colors, a choose-one cue, selected states and clear upgrade behavior. Spell icons share the left-hand item icon size.
-- Ability, item and mastery cards retain current-to-next comparisons and now include the entire level progression without buying. Long tables scroll; cards fit the viewport and support pointer and keyboard interaction.
-- Hover cards and Character Sheet values include the owner’s mastery, level, item effects, relevant active effects and public match multipliers. Fixed-range exceptions and actual projectile travel caps follow the simulation. Target-dependent values are identified.
-- Loadout inspection works while shopping or spectating. Shopping shows the last committed combat build, explicitly labeled; current purchases and masteries remain hidden. Tooltips use that same saved build. Living opponents cannot be inspected during combat. This is presentation privacy, not server-side secrecy: shared simulation state still contains the builds.
-- First-play guide intercepts play actions before matchmaking, hosting or offline startup. It uses four existing clips, can be skipped, remembers completion and stays available from How to play. Established players bypass automatic onboarding.
-- Main menu has clearer play/browser hierarchy, a profile editor, larger gently glowing logo and icons for secondary actions. Background sparring uses the real simulation and a restrained moving camera; reduced motion keeps it static.
+## Infrastructure staged/live components
 
-## Combat and round presentation
+- Additional AmsterdamEU host167.99.216.102 provisioned only for Brawlock. US147.182.251.185 retained; other US apps untouched.
+- Both us.brawlock.osc.link and eu.brawlock.osc.link TLS ready; old brawlock.osc.link alias retained.
+- Both hosts have brawlock user +enabled pm2-brawlock service, protected regional config/rating token/TURN secret. US Brawlock is STILL on its original root PM2 until coordinated migration; EU game bundle not started. Existing US ratings remain in place.
+- Authenticated coturn is live on EU, nonroot, UDP/TCP3478/TLS5349 and a bounded relay range. Private/loopback/link-local targets denied, coherent96-allocation quota/120-port range/64KiB per-link and6MiB aggregate bandwidth budget configured; no anonymous allocation. Real UDP/TCP/TLS payload and Chrome unreliable datachannel checks passed from the phone hotspot, selected relay candidates both ends. A separate54-simultaneous-allocation proof (ten-player star, three transports) relayed all54 payloads and released every allocation.
+- The user has confirmed the combined source is ready. Final immutable build and verification precede the coordinated deployment. Infra audit/scripts are local under /private/tmp/brawlock-eu-infra-audit; contain protected operational evidence, never stage secrets.
 
-- Small impacts keep an upright bounce; strong sustained displacement can launch the warlock. Launch clips no longer restart repeatedly, and late confirmed death causes do not rewind the death animation.
-- Confirmed local deaths have stronger feedback and a cause recap. Round epochs prevent stale corpse state from carrying into a later round.
-- The last killer gets a subtle personal red health-bar outline, retained across rounds and name changes but never inherited by a replacement occupant.
-- Living round winners perform a summoning celebration. A sole survivor gets a modest front-facing full-body camera move during the existing round-end interval. Reduced motion disables the camera move.
-- Confirmed shield ownership reversals get a short inward/outward filament accent. Collected bounties transfer a bounded gold effect toward the collector and show the exact credited amount.
-- Results select up to five varied, evidence-based praise and roast facts, including shield returns, environmental kills, demolition, streaks, repeated misses and substantial rivalries. Sample thresholds suppress empty or misleading awards.
-- Floor is slightly brighter; lava uses existing shader noise for broader swells and bubbles. Charge-up rings emphasize the final moment while reducing particle emission. Cape mantle geometry is slimmer at the upper back with existing body collision preserved.
-- Lavafalls have more irregular cooled banks and hot threads. Environment props are divided into conservatively bounded sectors so unseen geometry can be culled.
-- Earlier synthesis work added low-mid weight and reduced brittle clicks/source counts. The subsequent audio-feedback round is handled separately; no subjective listening approval is claimed here.
+## Verification so far
 
-## Spectator wagers and bounties
+-35/35 latest dedicated TCP tests pass (156seconds, after ranked8/final and global rating updates): chat/waiting seat, ranked identity/countdown/rematch, shared ratings/recovery and ICE HTTP.
+- Focused session/rating/ICE tests pass; typecheck and client build pass.
+- Real two-browser clients chat in lobby +shop; sender labels/literal markup/Enter/no game input verified.
+- Real victory camera return sampled45→55.41degrees monotonically through shop boundary; clears after~.8seconds, no reversal.
+- Responsive browser QA passed: menus fit1440×900/1280×720/390×844; all five settings tabs, first-run identity/profile editing, nine betting choices and ten-player KO strip at desktop/phone/landscape UI scales1/1.2; Grip/Fireball seven-level cards fit without inner scrolling.42 focused UI tests, typecheck and diff-check pass. Fifteen final UI captures archived.
+- Latest pre-release combined unit snapshot passes1181/1181 across110 files; earlier four prediction-event failures are resolved in this checkout. See [prediction-release-gate.md](prediction-release-gate.md). The other thread is now declared done; verify/build the final frozen source and rerun dedicated checks.
+- Composed chat/betting stacking and pointer input are verified. User then explicitly scoped gameplay to desktop: touch-only devices are menu-only, with mouse/keyboard notices and UI+session guards for offline/host/queues/invites/rejoin. Menu/music/settings/stats/guides/replays remain accessible. Latest unverified landscape match-polish edits were precisely removed; do not continue mobile gameplay QA.
+- Nemesis skull pips now participate in the badge name row; border encloses them, names retain4px clearance, and width estimates include kills. Real desktop rendering verified1/3/12kill presentations.
+- Shoulder material verified at a frozen pose before/after, through movement/casts, and across four player colors at gameplay scale. A separate tiny pre-existing tunic/arm seam remains: experimental cap deletion was fully removed because eliminating its boundary would risk visible garment holes. Those experimental screenshots do not represent shipped geometry.
+- Final accepted-source non-TCP suite:1181/1181 across110files. Production build under `/brawlock/` passes; actual desktop splash→menu→solo lobby→ten-player Brutal fight, movement and Fireball cast verified with no page/asset errors. Desktop menu fits1280×720 and1440×900; Quick Play empty/existing/error states verified.
+- Final dedicated TCP suite:35/35 pass after a test-only owner-lobby readiness correction; no extra timeout or production change. Both hosts passed read-only deployment preflight: US has no connected clients, existing ratings/other-app inventory intact; EU services and protected configuration ready.
 
-- Dead human players can place one immutable 1-gold pick per round while at least two teams remain alive. Stake, target, round and duplicate commands are validated by the simulation.
-- A correct pick returns its stake plus at most 1 bonus gold, while the pool lasts. Remaining gold becomes a next-round bounty on surviving round winners. Bounties accumulate until an attributed kill claims them; identity changes cannot redirect ownership or held credits.
-- Draws refund stakes. Disabling bounties refunds unmatched losing stakes instead of silently destroying them. Betting and bounties have independent host settings; neither applies in deathmatch.
-- Bounty value sits beside the overhead name without adding another vertical HUD row. State, command validation and settlement survive prediction, replay and late/resend handling.
+## Local capture archive and next sprint
 
-## Reference behavior preserved
+Ignored gallery: media/session-2026-10-18/index.html; refresh with python3 media/collect-session.py. Includes recent screenshots, before/after evidence and motion clips; originals retained and manifest records sources. Entire /media/ is gitignored and user-deletable.
 
-The reference actively heals accumulated knockback points by nominal healing / 2, including healing at full HP; passive HP regeneration is separate. The user confirmed preserving this behavior. Regression coverage was added without changing the healing rules.
+Next release: [account identity and reserved names](../docs/ACCOUNT-IDENTITY-PLAN.md), then [persistent earned progression currency](../docs/NEXT-SPRINT.md). Neither is implemented in this release.
 
-Reference: [Warlock pawn healing implementation](https://github.com/warlockbrawl/warlock/blob/1cc00c90b960fe77772d61b24083f238554006c4/game/dota_addons/warlock/scripts/vscripts/base/pawn.lua#L219-L225).
+## Ability readability pass — current thread
 
-## Measured evidence and limits
-
-- Scripted bot turns at about 160 ms RTT and 10% packet loss: mean remote error 28.12 → 0.26 units; largest displayed step 28.14 → 4.02 units; local input reaction 5 ms. This isolates the network mechanism, not a full human multiplayer playtest.
-- Eight-player stream: 18.8 KB/s versus 221.0 KB/s snapshots; ten-player: 24.7 versus 265.3 KB/s. Existing ≥10× bandwidth gate retained.
-- Seeded FFA mean largest target pile: hard 2.11 → 1.91, mixed 2.09 → 1.89, brutal 2.44 → 2.10. Weakest-victim kill share was mixed; no blanket claim of reduced finishing.
-- Same-view environment comparison: 83 → 86 draw calls, 126,024 → 112,804 scene triangles; environment triangles 46,650 → 33,430. Authored geometry unchanged; sectorization costs roughly 2 MB additional vertex buffers. Both samples held 60 FPS; no GPU timing improvement is claimed.
-- Character remains 12,145 triangles and five preview draw calls. Cape checks covered idle, run, turn and celebration from three angles. Motion fixture reduced five clip restarts in 1.5 seconds to one launch.
-- Browser checks used one existing isolated Chrome process, with sequential fixtures. Verified responsive menu/shop/HUD, guide entry and cleanup, celebration and rival marker identity, wagers and collection, results, and ability progression. Synthetic fixtures supplement, rather than replace, human online playtesting.
-
-Review captures: [menu](polish-session/menu-desktop.png), [mobile menu](polish-session/menu-mobile.png), [shop](polish-session/shop-desktop.png), [mobile shop](polish-session/shop-mobile.png), [victory](polish-session/victory.png), [bounty collection](polish-session/bounty-collection.png), [results](polish-session/results.png), [mobile results](polish-session/results-mobile.png), [ability progression](polish-session/progression-desktop.png), [mobile progression](polish-session/progression-mobile.png).
-
-## Verification
-
-- Latest non-dedicated run: **83 files / 949 tests passed** (18.66 s), including the final tooltip and pointer-travel regressions.
-- Dedicated server integration run: **26 tests passed** (93.70 s), covering real loopback room reuse, reservation, next-round activation, renaming, database cache and restart behavior. No network runtime code changed after that run; the later simulation stats edit only widens readonly input types.
-- Total verified: **84 files / 975 tests**, across those two runs.
-- Client production build (including TypeScript) and dedicated-server production build passed. Existing Three/R3F and large-chunk warnings remain. Whitespace checks passed.
-- Actual browser progression check passed: seven future levels, effective Duration, pointer travel across other icons, horizontal scrolling, keyboard entry/exit, no preview purchases, live upgrades, and bounded desktop/narrow-screen layout. The isolated verification browser was closed afterward.
-- No required implementation work remains in this session’s scope. A human high-latency multiplayer playtest and listening review remain useful release review, not completed automated proof.
-
-## Menu music and live release
-
-- Added both supplied Circle of Ash songs as one streaming MP3 queue, with first-song-only splash preload. The second song waits until its turn. Source audio was copied without re-encoding, removing only cover art and metadata.
-- Fresh-install music volume is 50%; saved choices and mute still apply. Menu navigation is continuous; entering a match fades and pauses, returning resumes the same position with a fade-in. Hidden tabs pause playback.
-- Browser verification passed for real preload/gesture start, queue 1 → 2 → 1, lobby continuity, match fade/pause, position-preserving return and a single song player.
-- Exact staged release validation: **956 tests / 84 files passed**, then **26 dedicated integration tests passed** after fixing their predicted-versus-confirmed combat-entry synchronization. Total **982 tests / 85 files**. The initial combined run exposed those two test timing races; production joining rules did not change for that correction.
-- Exact staged client build and deployed GitHub Pages build passed. Existing dedicated deployment script built and reloaded the server from the same commit, preserving leaderboard data.
-- Commit: [6cd960a](https://github.com/laubsauger/brawlock/commit/6cd960a60403a9c386d0dbd1a4a61d8d018fa8e1). [Client deployment](https://github.com/laubsauger/brawlock/actions/runs/39151787244) succeeded.
-- Live-page smoke passed: client version `6cd960a60403`, server protocol `6`, netcode `73190d1c8b01`, Quick Play enabled, first song served under the Pages base path and playing after Enter, one song player, no page errors. No public test room was created.
-
-[Playtest build](https://laubsauger.github.io/brawlock/). Refresh existing tabs before testing.
+- All28 abilities audited:20 cancellable windups and8 instant abilities. See docs/ABILITY-READABILITY-AUDIT.md and artifacts/ability-readability/README.md.
+- Attached hand/body signature pass implemented; warm projectile charges now differ by shape, Gravity has a palm spiral, old detached charge forms/free motes removed. Correct spell palette drives sleeve runes. Cancel extinguishes inward; committed release remains the first outbound object/flash.
+- Scourge local-only pose/radius contract preserved, with visibility/cancel regressions. Previous prediction cancellation boundary retained;118 focused VFX/sim/predictor/session tests, typecheck and production build pass.
+- Normal-camera and lowFX/reduced-motion captures cover20 windups. Local comparison gallery at /artifacts/ability-readability/index.html; motion/grayscale/POV review complete; controls and captures verified. No git commit or deployment performed by this thread.

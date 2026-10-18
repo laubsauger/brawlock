@@ -8,6 +8,13 @@ import { useGame } from '../../game/store'
 const KEY = 'brawlock.nameChosen.v1'
 export const NAME_MAX = 16
 
+/** A usable first-run suggestion; confirmation remains explicit in the splash. */
+export function suggestedName(random: () => number = Math.random): string {
+  const first = ['Ashen', 'Cinder', 'Ember', 'Iron', 'Moss', 'Rogue', 'Hexed', 'Smug']
+  const last = ['Badger', 'Imp', 'Wisp', 'Toad', 'Owl', 'Moth', 'Fox', 'Mage']
+  return `${first[Math.floor(random() * first.length)]}${last[Math.floor(random() * last.length)]}${10 + Math.floor(random() * 90)}`
+}
+
 export function hasChosenName(): boolean {
   try {
     return localStorage.getItem(KEY) === '1'

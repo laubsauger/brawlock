@@ -12,6 +12,12 @@ describe('global Elo labels', () => {
     expect(liveEloLabel(room()).title).toContain('distinct devices')
     expect(liveEloLabel(room({ bots: 0 })).label).toBe('Elo enabled')
   })
+  it('explains the scheduled eight-player ranked format without promising a deadline', () => {
+    const label = liveEloLabel(room({ ranked: true, rankedRounds: 5, max: 8, bots: 6 }))
+    expect(label.title).toContain('8 players · 5 rounds plus a final brawl for tied leaders')
+    expect(label.title).toContain('Target 15–20 minutes; match length varies')
+    expect(label.title).toContain('Bots do not contribute to Elo')
+  })
   it('distinguishes disabled and player-hosted games from unknown server policy', () => {
     expect(liveEloLabel(room({ kind: 'p2p' })).label).toBe('Unranked')
     expect(liveEloLabel(room({ elo: { enabled: false, minSeconds: 120 } })).label).toBe('Unranked')

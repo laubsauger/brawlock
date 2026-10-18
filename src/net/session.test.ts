@@ -64,6 +64,7 @@ interface PeerOpts {
   createBot?: SessionDeps['createBot']
   /** this suite pins the classic (snapshot interpolation) path; predict mode: session.predict.test.ts */
   netMode?: NetMode
+  recorder?: MatchRecorder
 }
 
 /** MatchRecorder fake: what this peer would write to its local stats. */
@@ -113,7 +114,7 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
   const pending: InputCommand[] = []
   const rec = fakeRecorder()
   const deps: SessionDeps = {
-    recorder: rec.recorder,
+    recorder: opts.recorder ?? rec.recorder,
     profile: () => ({ id: opts.profileId ?? `profile-${name}`, name, color: opts.color ?? null }),
     ...(opts.device ? { device: () => opts.device! } : {}),
     ui: {
@@ -200,6 +201,97 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('ignores forged sender fields and enforces chat limits on the host', async () => {
+    const { net, host, client, code } = await hostAndClient()
+    const joining = net.join(code)
+    await vi.advanceTimersByTimeAsync(100)
+    const raw = await joining
+    raw.sendReliable(JSON.stringify({ t: 'say', text: 'not seated' }))
+    raw.sendReliable(JSON.stringify({ t: 'chat', line: { id: 99, player: 0, name: 'Spoof', color: 1, text: 'forged' } }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(host.store.lobby.chat).toEqual([])
+    raw.sendReliable(encode({ t: 'hello', name: 'Raw guest', version: PROTOCOL_VERSION, key: 'raw-key', profileId: 'profile-raw-guest', color: null }))
+    await vi.advanceTimersByTimeAsync(200)
+    raw.sendReliable(JSON.stringify({ t: 'say', player: 0, name: 'Hosty', text: 'actual guest' }))
+    for (let i = 0; i < 4; i++) raw.sendReliable(JSON.stringify({ t: 'say', text: `raw burst ${i}` }))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.lobby.chat).toHaveLength(4)
+    expect(host.store.lobby.chat?.[0]).toMatchObject({ id: 1, player: 2, name: 'Raw guest', text: 'actual guest' })
+    expect(client.store.lobby.chat).toEqual(host.store.lobby.chat)
+    raw.close()
+    client.session.leave()
+    host.session.leave()
+  })
+
+  it('delivers room chat reliably with host-owned identity, renamed senders and bounded history on join', async () => {
+    const { net, host, client, code } = await hostAndClient()
+    expect(host.session.sendChat(' Hello room ')).toBe('sent')
+    expect(client.session.sendChat('Good round 🔥')).toBe('sent')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(client.store.lobby.chat).toEqual(host.store.lobby.chat)
+    expect(host.store.lobby.chat?.map((x) => [x.player, x.name, x.text])).toEqual([[0, 'Hosty', 'Hello room'], [1, 'Clienta', 'Good round 🔥']])
+    client.session.setDisplayName('New name')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(client.session.sendChat('<b>literal text</b>')).toBe('sent')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.lobby.chat?.at(-1)).toMatchObject({ player: 1, name: 'New name', text: '<b>literal text</b>' })
+    for (let i = 0; i < 55; i++) {
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(host.session.sendChat(`line ${i}`)).toBe('sent')
+    }
+    const late = makePeer(net, 'Latecomer', 'late-key')
+    const joining = late.session.join(code)
+    await vi.advanceTimersByTimeAsync(500)
+    await joining
+    expect(late.store.lobby.chat).toHaveLength(50)
+    expect(late.store.lobby.chat).toEqual(host.store.lobby.chat)
+    expect(late.store.lobby.chat?.at(-1)?.text).toBe('line 54')
+    late.session.leave()
+    expect(late.store.lobby.chat).toEqual([])
+    client.session.leave()
+    host.session.leave()
+  })
+
+  it('limits chat bursts, rejects invalid input and clears conversation when opening another room', async () => {
+    const { host, client } = await hostAndClient()
+    expect(client.session.sendChat(' \n ')).toBe('invalid')
+    expect(client.session.sendChat('x'.repeat(241))).toBe('invalid')
+    for (let i = 0; i < 4; i++) expect(client.session.sendChat(`burst ${i}`)).toBe('sent')
+    expect(client.session.sendChat('too fast')).toBe('limited')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.lobby.chat).toHaveLength(4)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(client.session.sendChat('after refill')).toBe('sent')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.lobby.chat?.at(-1)?.text).toBe('after refill')
+    client.session.leave()
+    expect(client.session.sendChat('left room')).toBe('unavailable')
+    await client.session.openHost()
+    expect(client.store.lobby.chat).toEqual([])
+    expect(client.session.sendChat('new room')).toBe('sent')
+    expect(client.store.lobby.chat?.[0].id).toBe(1)
+    client.session.leave()
+    host.session.leave()
+  })
+
+  it('keeps the conversation through combat and returning to the lobby', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client } = await hostAndClient(sim)
+    host.session.updateSettings({ shopSeconds: 0.1 })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(client.store.screen).toBe('match')
+    expect(client.session.sendChat('still here')).toBe('sent')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.lobby.chat?.at(-1)?.text).toBe('still here')
+    host.session.backToLobby()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(client.store.lobby.chat).toEqual(host.store.lobby.chat)
+    expect(host.store.lobby.chat).toHaveLength(1)
+    client.session.leave()
+    host.session.leave()
+  })
+
   it('authoritatively swaps bot colors, reserves human colors and rejects match-time changes', async () => {
     if (!sim) throw new Error(simMissing)
     const { host, client } = await hostAndClient(sim, { ...LINK, loss: 0 })
@@ -384,7 +476,7 @@ describe('session lobby over the network', () => {
     }
   })
 
-  it('a renamed returning profile reclaims its seat even with a new tab key and device', async () => {
+  it.each(['device', 'key'] as const)('a renamed returning profile proves its original %s before reclaiming a seat', async (proof) => {
     if (!sim) throw new Error(simMissing)
     const { host, client, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, { createBot }, { profileId: 'stable-profile-guest', device: 'stable-device-guest' })
     host.session.updateSettings({ botsReplaceLeavers: true })
@@ -393,7 +485,7 @@ describe('session lobby over the network', () => {
     const id = client.store.lobby.localPlayer
     client.session.leave()
     await vi.advanceTimersByTimeAsync(300)
-    const back = makePeer(net, 'New guest', 'new-tab-key', sim, { profileId: 'stable-profile-guest', device: 'new-device-guest' })
+    const back = makePeer(net, 'New guest', proof === 'key' ? 'client-key' : 'new-tab-key', sim, { profileId: 'stable-profile-guest', device: proof === 'device' ? 'stable-device-guest' : 'new-device-guest' })
     const joined = back.session.join(code)
     await vi.advanceTimersByTimeAsync(500)
     await joined
@@ -401,6 +493,39 @@ describe('session lobby over the network', () => {
     expect(back.store.lobby.localPlayer).toBe(id)
     expect(host.store.lobby.slots.find((s) => s.id === id)).toMatchObject({ name: 'New guest', profileId: 'stable-profile-guest' })
     expect(host.out.states.at(-1)!.slots.find((s) => s.id === id)).toMatchObject({ name: 'New guest', profileId: 'stable-profile-guest' })
+  })
+
+  it('rejects a stolen public profile ID without the private device or reconnect key, including ranked seats', async () => {
+    if (!sim) throw new Error(simMissing)
+    const net = createMemoryNet({ latencyMs: 1 })
+    const host = makePeer(net, 'Server', 'server-key', sim)
+    const guest = makePeer(net, 'Guest', 'guest-key', sim, { profileId: 'public-roster-profile', device: 'private-guest-device' })
+    await host.session.openHost({ dedicated: true })
+    host.session.setRoom({ ranked: true, quick: true, public: true })
+    const code = host.store.lobby.roomCode!
+    const first = guest.session.join(code)
+    await vi.advanceTimersByTimeAsync(20)
+    await first
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(50)
+    const id = guest.store.lobby.localPlayer
+    guest.session.leave()
+    await vi.advanceTimersByTimeAsync(20)
+    const attacker = makePeer(net, 'Impostor', 'other-private-key', sim, { profileId: 'public-roster-profile', device: 'other-private-device' })
+    const attack = attacker.session.join(code)
+    await vi.advanceTimersByTimeAsync(30)
+    await attack
+    expect(attacker.store.lobby.status).toBe('error')
+    expect(host.out.states.at(-1)!.scores.find((s) => s.id === id)?.connected).toBe(false)
+    expect(host.store.lobby.slots.find((s) => s.id === id)?.name).toBe('Guest')
+    const back = makePeer(net, 'Guest renamed', 'new-tab-key', sim, { profileId: 'public-roster-profile', device: 'private-guest-device' })
+    const joined = back.session.join(code)
+    await vi.advanceTimersByTimeAsync(30)
+    await joined
+    expect(back.store.lobby.status).toBe('open')
+    expect(back.store.lobby.localPlayer).toBe(id)
+    host.session.leave()
+    back.session.leave()
   })
 
   it('never reclaims another profile seat merely because a tab key or device matches', async () => {
@@ -611,6 +736,45 @@ const bots = await import('../bots').catch(() => null)
 
 describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () => {
   const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms)
+
+  it.each([false, true])('waits for persistence and preserves an explicit lobby transition: cancel UI = %s', async (cancelUi) => {
+    let resolveSave!: () => void
+    const save = new Promise<void>((resolve) => { resolveSave = resolve })
+    const persisted = vi.fn()
+    const recorder: MatchRecorder = {
+      start() {}, observe() {}, abort() {},
+      finish: async (result) => { await save; result.rating = { status: 'rated' }; persisted(result) },
+    }
+    // A completed real state isolates async result delivery from combat duration.
+    const completed: SimApi = {
+      createMatch: (settings, slots, seed) => {
+        const state = sim!.createMatch(settings, slots, seed)
+        state.phase = 'gameOver'
+        return state
+      },
+      step: sim!.step,
+    }
+    const { host, client } = await hostAndClient(completed, { latencyMs: 1 }, { recorder })
+    host.session.startMatch()
+    await advance(1000)
+    expect(host.store.screen).toBe('match')
+    expect(host.store.result).toBeNull()
+    expect(persisted).not.toHaveBeenCalled()
+    if (cancelUi) {
+      host.session.backToLobby()
+      await advance(20)
+      expect(client.store.screen).toBe('lobby')
+    }
+    resolveSave()
+    await advance(20)
+    expect(persisted).toHaveBeenCalledTimes(1)
+    expect(host.store.screen).toBe(cancelUi ? 'lobby' : 'results')
+    expect(client.store.screen).toBe(cancelUi ? 'lobby' : 'results')
+    expect(client.stats.results).toHaveLength(cancelUi ? 0 : 1)
+    if (!cancelUi) expect(host.store.result?.rating).toEqual({ status: 'rated' })
+    host.session.leave()
+    client.session.leave()
+  })
 
   /**
    * Why: the results → rematch → match loop must be one host click and zero client

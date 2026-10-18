@@ -8,6 +8,22 @@ import type { InputCommand } from './types'
 
 const buy = (s: ReturnType<typeof newMatch>, ...c: InputCommand[]) => step(s, [cmd(0, ...c)])
 
+test('final spectators keep their gold and loadout while finalists can still prepare', () => {
+  const s = newMatch({ startGold: 100 })
+  s.settings.rankedRounds = 5
+  s.round = 6
+  s.rankedFinal = { contenders: [1] }
+  pawn(s, 0).alive = false
+  const gold = s.scores[0].gold
+  const slots = [...pawn(s, 0).slots]
+  expect(canBuy(s, 0)).toBe(false)
+  expect(canBuy(s, 1)).toBe(true)
+  buy(s, { kind: 'buySpell', spell: 'teleport' }, { kind: 'buyItem', item: 'health' }, { kind: 'buyMastery', mastery: 'range' })
+  expect(s.scores[0].gold).toBe(gold)
+  expect(pawn(s, 0).slots).toEqual(slots)
+  expect(s.scores[0].masteries.range).toBe(0)
+})
+
 describe('starting kit (spells.md §2.1)', () => {
   test('12 slots, Fireball L1 in slot 6, Scourge L1 in slot 7, start gold 30', () => {
     const s = newMatch()

@@ -45,7 +45,7 @@ export function isEnemy(state: SimState, a: PlayerId, b: PlayerId): boolean {
 }
 
 /**
- * Active = plays rounds (gets respawned, counts for arena size and spawn layout).
+ * Active = connected or controlled by a replacement bot.
  * A disconnected player stays active while a bot holds the pawn (botsReplaceLeavers).
  */
 export function isActive(state: SimState, player: PlayerId): boolean {
@@ -54,9 +54,14 @@ export function isActive(state: SimState, player: PlayerId): boolean {
   return sc.connected || state.settings.botsReplaceLeavers
 }
 
-/** Active player ids in ascending order. */
+/** Final noncontenders keep their identity/connection, but spectate instead of respawning. */
+export function isRoundParticipant(state: SimState, player: PlayerId): boolean {
+  return isActive(state, player) && (!state.rankedFinal || state.rankedFinal.contenders.includes(player))
+}
+
+/** Participating player ids in ascending order. */
 export function activePlayers(state: SimState): PlayerId[] {
-  return state.slots.filter((s) => isActive(state, s.id)).map((s) => s.id)
+  return state.slots.filter((s) => isRoundParticipant(state, s.id)).map((s) => s.id)
 }
 
 /** Team mode at round start (systems.md §6.2). */

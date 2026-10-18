@@ -229,6 +229,24 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
     expect(inspectStore.get().inspect).toBe(-1)
   })
 
+  it('entering chat clears held targeting and overlays without firing a release cast', () => {
+    useGame.getState().setSettings({ castMode: 'release' })
+    frame.cursor = { x: 410, y: 10, valid: true }
+    fire(win, 'keydown', { code: 'KeyQ' })
+    expect(inputViz.aim?.mode).toBe('release')
+    useGame.getState().toggle('scoreboardOpen', true)
+    const field = Object.assign(new (g.HTMLElement as new () => object)(), { tagName: 'INPUT', type: 'text' })
+    const focus = new Event('focusin')
+    Object.defineProperty(focus, 'target', { value: field })
+    win.dispatchEvent(focus)
+    expect(inputViz.aim).toBeNull()
+    expect(useGame.getState().scoreboardOpen).toBe(false)
+    const release = new Event('keyup')
+    Object.defineProperties(release, { target: { value: field }, code: { value: 'KeyQ' } })
+    win.dispatchEvent(release)
+    expect(input.drain()).toEqual([])
+  })
+
   it('while down, the right arrow moves on from the warlock on screen (not back to it)', async () => {
     const { inspectStore } = await import('./inspect')
     const s = frame.curr as unknown as { pawns: ReturnType<typeof pawn>[]; slots: { id: number; team: number }[] }

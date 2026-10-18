@@ -1,7 +1,7 @@
 /**
  * Pact (item; identity dark wine / blood). spells.md §8.4.
  *
- * - windup: blood motes into the hand; cast: the pact sigil slams down under
+ * - windup: a blood sigil on the hand; cast: the pact sigil slams down under
  *   the caster with a dark burst
  * - 'pact' (armed, up to 5 s): the sigil turns slowly under the feet, blood
  *   motes rise, the cast hand smoulders: the next damaging spell is boosted
@@ -45,17 +45,9 @@ function shatter(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   ctx.shakeNear(x, y, 0.12)
 }
 
-/** signature charge-up: the blood sigil inks itself onto the floor under the caster */
-function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  k.ground.add(G_SIGIL, info.x, info.y, info.h + 2, 66 + 10 * (1 - w), now * 0.8, P.body[0], P.body[1], P.body[2], 0.3 + 1.1 * w, 0, id)
-  const ps = ctx.particles
-  const n = ps.budget(ctx.dt * 30 * (0.3 + w))
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2
-    const rr = 50 + Math.random() * 20
-    pspawn(ps, info.x + Math.cos(a) * rr, info.y + Math.sin(a) * rr, info.h + 4, -Math.cos(a) * 60, -Math.sin(a) * 60, 70 + Math.random() * 60, 0.6, 7, 2, P.spark[0], P.spark[1], P.spark[2], 0, 1, 3)
-  }
+/** A blood seal held on the hand. Free blood motes belong to the committed buff. */
+function signature(k: KitA, _ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
+  k.air.add(G_SIGIL, o.x, o.y, o.h + 1, 31, 0, P.body[0], P.body[1], P.body[2], 0.5 + 1.0 * w, 0, id)
 }
 
 const mod: SpellVfx = {

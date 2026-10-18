@@ -1,7 +1,7 @@
 /**
  * Twin (column 1, Knockout; identity gold-orange). spells.md §8.8.
  *
- * - windup / cast: motes into the hand, a split muzzle burst (two cones)
+ * - windup / cast: glow at the hand, a split muzzle burst (two cones)
  * - flight: two gold bolts (core = sim radius 35, short comet tail along the
  *   velocity), each with a heat trail; the pair reads as one spell: a thin
  *   flickering thread joins them, the remaining mirrored half-ellipse paths
@@ -13,7 +13,7 @@
  */
 import type { ProjectileState, SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
-import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { G_CROSS, G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
@@ -62,19 +62,13 @@ function burst(k: KitA, ctx: VfxCtx, x: number, y: number, big: number): void {
   for (let i = 0; i < ns; i++) ctx.smoke.spawn(x, y, PH, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, 60, 0.9, 30, 100, 0.05, 0.035, 0.02, 25, 1.2, 8)
 }
 
-const ORBIT: TrailStyle = trailFrom(P, { life: 0.08, width: 10, widthTail: 0.2, intensity: 1.6, falloff: 1.6, noise: 0, spacing: 4, rim: 0 }, 0.7)
-
-/** signature charge-up: two gold orbs circling the hand in mirror */
-function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
-  k.orbit(o.x, o.y, o.h, 2, 30 + 8 * w, ctx.now * (7 + 9 * w), 8 + 5 * w, P, 0.8 + 0.6 * w, -6000 - id * 4, ORBIT, 16)
-}
 
 const mod: SpellVfx = {
   spell: 'twin',
   init(ctx) {
     K = acquireKit(ctx)
   },
-  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  // The shared kit draws a compact palm glow, never a projectile during windup.
   windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     releaseKit(K)
@@ -150,8 +144,7 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
+      k.glowAt(o.x, o.y, o.h, 20, P.body[0] * (0.08 + 0.08 * w), P.body[1] * (0.08 + 0.08 * w), P.body[2] * (0.08 + 0.08 * w), 1.4)
     }
     if (arcs.size > 0) for (const [id, a] of arcs) if (frameNo - a.seen > 2) arcs.delete(id)
   },

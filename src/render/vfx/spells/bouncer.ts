@@ -1,8 +1,7 @@
 /**
  * Bouncer (column 3, Damage; identity pure light yellow). spells.md §8.14.
  *
- * - windup / cast: motes into the hand, muzzle
- * - windup signature: one bright spark ricocheting around the hand on a zigzag
+ * - windup / cast: glow at the hand, muzzle
  * - flight: a dense crackling energy ball: hot core on the sim radius (38), a
  *   flickering shell, arcs crawling over it, three sparks orbiting it, and a
  *   long bright trail that kinks hard at every ricochet (the whole bounce path
@@ -16,7 +15,7 @@
  */
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
-import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { G_SHOCK, PH, acquireKit, hash01, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type Pal, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 import { LivePool } from './livePool'
@@ -128,46 +127,12 @@ function ricochet(k: KitA, ctx: VfxCtx, x: number, y: number, s: number, vx: num
   ctx.shakeNear(x, y, 0.06 * s)
 }
 
-const za = { x: 0, y: 0, h: 0 }
-const zb = { x: 0, y: 0, h: 0 }
-
-/** corner c of the little ricochet triangle around the hand */
-function corner(c: number, id: number, now: number, out: { x: number; y: number; h: number }): void {
-  const a = (c / 3) * Math.PI * 2 + id + now * 0.7
-  out.x = o.x + Math.cos(a) * 36
-  out.y = o.y + Math.sin(a) * 36
-  out.h = o.h + (c % 2 === 0 ? 14 : -14)
-}
-
-/** signature charge-up: one bright spark ricocheting around the hand on a zigzag */
-function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  const speed = 5 + 9 * w
-  k.stripBegin(false, 1.8, 0, 0)
-  const N = 9
-  for (let i = 0; i <= N; i++) {
-    const s = now * speed - (N - i) * 0.07
-    const e = Math.floor(s)
-    const f = s - e
-    corner(((e % 3) + 3) % 3, id, now, za)
-    corner((((e + 1) % 3) + 3) % 3, id, now, zb)
-    k.stripPoint(za.x + (zb.x - za.x) * f, za.y + (zb.y - za.y) * f, za.h + (zb.h - za.h) * f, 8 * (i / N), P.hot[0], P.hot[1], P.hot[2], (0.5 + w) * (i / N))
-  }
-  k.stripEnd()
-  const s = now * speed
-  const e = Math.floor(s)
-  corner(((e % 3) + 3) % 3, id, now, za)
-  corner((((e + 1) % 3) + 3) % 3, id, now, zb)
-  const f = s - e
-  k.glowAt(za.x + (zb.x - za.x) * f, za.y + (zb.y - za.y) * f, za.h + (zb.h - za.h) * f, 22 + 12 * w, P.hot[0], P.hot[1], P.hot[2], 2.6)
-}
-
 const mod: SpellVfx = {
   spell: 'bouncer',
   init(ctx) {
     K = acquireKit(ctx)
   },
-  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  // The shared kit draws a compact palm glow, never a projectile during windup.
   windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     releaseKit(K)
@@ -282,8 +247,7 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
+      k.glowAt(o.x, o.y, o.h, 20, P.body[0] * (0.08 + 0.08 * w), P.body[1] * (0.08 + 0.08 * w), P.body[2] * (0.08 + 0.08 * w), 1.4)
     }
     if (arcs.n > 0) {
       k.begin()

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { cloneState, hashState, step } from '../sim'
-import { fight, pawn } from '../sim/testkit'
+import { cmd, fight, grant, pawn, place } from '../sim/testkit'
+import { FIREBALL_SLOT } from '../sim/config'
 import type { InputCommand, PlayerInput, SimEvent, SimState } from '../sim/types'
 import { EventLedger, FORCE_REBASE_TICKS, LeadClock, MAX_AHEAD_TICKS, Predictor, SNAP_DIST, type LocalFrame } from './predict'
 import { GradeTracker, LossTracker, gradeOf } from './netstats'
@@ -361,6 +362,169 @@ describe('Predictor events', () => {
   function cast(pawnId: number): SimEvent {
     return { type: 'cast', pawn: pawnId, spell: 'fireball', x: 1, y: 2 }
   }
+})
+
+describe('cancellable cast presentation', () => {
+  function setup(player: number) {
+    const state = fight(2)
+    place(pawn(state, 0), -500, -500)
+    place(pawn(state, 1), 0, 0, 0)
+    const pred = new Predictor(player, step, cloneState)
+    const shown: SimState[] = []
+    const events: SimEvent[] = []
+    const emit = (s: SimState, e: SimEvent[]) => { shown.push(s); events.push(...e) }
+    const cast: InputCommand = { kind: 'cast', slot: FIREBALL_SLOT, x: 800, y: 0 }
+    return { state, pred, shown, events, emit, cast }
+  }
+
+  it('keeps a remote windup charging until commit, so an unseen stop never launches a phantom', () => {
+    const { state, pred, shown, events, emit, cast } = setup(0)
+    step(state, [cmd(1, cast)])
+    const start = state.tick
+    const remaining = pawn(state, 1).cast!.ticksLeft
+    pred.offer(cloneState(state), 0)
+    pred.advance(start + remaining + 2, emit)
+    expect(shown.every((s) => s.projectiles.length === 0)).toBe(true)
+    expect(pawn(shown.at(-1)!, 1).cast?.spell).toBe('fireball')
+    expect(events.filter((e) => e.type === 'cast' || e.type === 'projectileSpawn')).toEqual([])
+    for (let i = 0; i < remaining - 1; i++) step(state, [])
+    step(state, [cmd(1, { kind: 'stop' })])
+    pred.offer(cloneState(state), 0, [{ tick: state.tick, events: state.events }])
+    pred.advance(start + remaining + 3, emit)
+    expect(state.projectiles).toEqual([])
+    expect(shown.at(-1)!.projectiles).toEqual([])
+    expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+    expect(events.filter((e) => e.type === 'castCancel')).toHaveLength(1)
+  })
+
+  it('holds an unacknowledged own release when a late original cast can still be stopped', () => {
+    const { state, pred, shown, events, emit, cast } = setup(1)
+    const start = state.tick
+    const trial = cloneState(state)
+    step(trial, [cmd(1, cast)])
+    const remaining = pawn(trial, 1).cast!.ticksLeft
+    pred.offer(cloneState(state), 0)
+    pred.advance(start, emit)
+    pred.local({ seq: 1, tick: start, cmds: [cast] })
+    pred.advance(start + remaining + 1, emit)
+    expect(shown.every((s) => s.projectiles.length === 0)).toBe(true)
+    expect(pawn(shown.at(-1)!, 1).cast?.spell).toBe('fireball')
+    expect(events.filter((e) => e.type === 'cast' || e.type === 'projectileSpawn')).toEqual([])
+    // The cast input reaches authority three ticks late. Stop is on time at
+    // the client's predicted release, but authority is still winding up.
+    for (let i = 0; i < 3; i++) step(state, [])
+    step(state, [cmd(1, cast)])
+    while (state.tick < start + remaining + 1) step(state, [])
+    expect(pawn(state, 1).cast!.ticksLeft).toBe(3)
+    pred.local({ seq: 2, tick: pred.stampNext(), cmds: [{ kind: 'stop' }] })
+    pred.advance(pred.tick + 1, emit)
+    expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+    step(state, [cmd(1, { kind: 'stop' })])
+    pred.offer(cloneState(state), 2, [{ tick: state.tick, events: state.events }])
+    pred.advance(state.tick + 1, emit)
+    expect(shown.every((s) => s.projectiles.length === 0)).toBe(true)
+    expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+    expect(events.filter((e) => e.type === 'cast' || e.type === 'projectileSpawn')).toEqual([])
+  })
+
+  it('keeps acknowledged own casts immediate and delivers confirmed remote releases once', () => {
+    for (const player of [0, 1]) {
+      const { state, pred, shown, events, emit, cast } = setup(player)
+      const start = state.tick
+      pred.offer(cloneState(state), 0)
+      pred.advance(start, emit)
+      if (player === 1) pred.local({ seq: 1, tick: start, cmds: [cast] })
+      step(state, [cmd(1, cast)])
+      const remaining = pawn(state, 1).cast!.ticksLeft
+      pred.offer(cloneState(state), player === 1 ? 1 : 0)
+      pred.advance(state.tick + remaining + 1, emit)
+      expect(shown.at(-1)!.projectiles).toHaveLength(player === 1 ? 1 : 0)
+      expect(events.filter((e) => e.type === 'cast')).toHaveLength(player === 1 ? 1 : 0)
+      const confirmed: { tick: number; events: SimEvent[] }[] = []
+      for (let i = 0; i < remaining; i++) {
+        step(state, [])
+        if (state.events.length) confirmed.push({ tick: state.tick, events: state.events.slice() })
+      }
+      pred.offer(cloneState(state), player === 1 ? 1 : 0, confirmed, true)
+      pred.advance(state.tick + 2, emit)
+      expect(shown.at(-1)!.projectiles).toHaveLength(1)
+      expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+      expect(events.filter((e) => e.type === 'cast')).toHaveLength(1)
+      expect(events.filter((e) => e.type === 'projectileSpawn')).toHaveLength(1)
+      pred.offer(cloneState(state), player === 1 ? 1 : 0, confirmed)
+      pred.advance(state.tick + 3, emit)
+      expect(events.filter((e) => e.type === 'cast')).toHaveLength(1)
+      expect(events.filter((e) => e.type === 'projectileSpawn')).toHaveLength(1)
+    }
+  })
+
+  it('creates no close-target hit, damage or explosion before a remote cast commits', () => {
+    const { state, pred, shown, events, emit, cast } = setup(0)
+    place(pawn(state, 0), 100, 0)
+    const hp = pawn(state, 0).hp
+    step(state, [cmd(1, cast)])
+    const remaining = pawn(state, 1).cast!.ticksLeft
+    pred.offer(cloneState(state), 0)
+    pred.advance(state.tick + remaining + 12, emit)
+    expect(shown.every((s) => pawn(s, 0).hp >= hp)).toBe(true)
+    expect(events.filter((e) => ['cast', 'projectileSpawn', 'projectileHit', 'projectileExpire', 'damage', 'explosion'].includes(e.type))).toEqual([])
+  })
+
+  it('does not invent a remote cancel when a later order supersedes a locally held commit', () => {
+    const { state, pred, shown, events, emit, cast } = setup(0)
+    step(state, [cmd(1, cast)])
+    const remaining = pawn(state, 1).cast!.ticksLeft
+    const start = state.tick
+    pred.offer(cloneState(state), 0)
+    pred.advance(start + remaining + 1, emit)
+    pred.hint(1, pred.tick, [{ kind: 'move', x: 700, y: 100 }])
+    pred.advance(pred.tick + 1, emit)
+    expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+    expect(events.filter((e) => e.type === 'castCancel')).toEqual([])
+    const confirmed: { tick: number; events: SimEvent[] }[] = []
+    for (let i = 0; i < remaining; i++) {
+      step(state, [])
+      if (state.events.length) confirmed.push({ tick: state.tick, events: state.events.slice() })
+    }
+    pred.offer(cloneState(state), 0, confirmed, true)
+    pred.advance(pred.tick + 1, emit)
+    expect(events.filter((e) => e.type === 'cast')).toHaveLength(1)
+    expect(events.filter((e) => e.type === 'castCancel')).toEqual([])
+  })
+
+  it('rebases an already-held own release when a confirming ack aligns the original cast', () => {
+    const { state, pred, shown, events, emit, cast } = setup(1)
+    const start = state.tick
+    pred.offer(cloneState(state), 0)
+    pred.advance(start, emit)
+    pred.local({ seq: 1, tick: start, cmds: [cast] })
+    step(state, [cmd(1, cast)])
+    const remaining = pawn(state, 1).cast!.ticksLeft
+    pred.advance(state.tick + remaining + 1, emit)
+    expect(shown.at(-1)!.projectiles).toEqual([])
+    const target = pred.tick + 1
+    const expected = cloneState(state)
+    while (expected.tick < target) step(expected, [])
+    pred.offer(cloneState(state), 1, [{ tick: state.tick, events: state.events }], true)
+    pred.advance(target, emit)
+    expect(shown.at(-1)!.projectiles).toEqual(expected.projectiles)
+    expect(pawn(shown.at(-1)!, 1).cast).toBeNull()
+    expect(events.filter((e) => e.type === 'cast')).toHaveLength(1)
+    expect(events.filter((e) => e.type === 'projectileSpawn')).toHaveLength(1)
+  })
+
+  it.each(['swap', 'splitter'])('keeps zero-point own %s casts immediate before acknowledgment', (spell) => {
+    const { state, pred, shown, events, emit } = setup(1)
+    const slot = grant(state, 1, spell)
+    const start = state.tick
+    pred.offer(cloneState(state), 0)
+    pred.advance(start, emit)
+    pred.local({ seq: 1, tick: start, cmds: [{ kind: 'cast', slot, x: 800, y: 0 }] })
+    pred.advance(start + 1, emit)
+    expect(events.some((e) => e.type === 'cast' && e.spell === spell)).toBe(true)
+    expect(events.some((e) => e.type === 'projectileSpawn' && e.spell === spell)).toBe(true)
+    expect(shown.at(-1)!.projectiles.length).toBeGreaterThan(0)
+  })
 })
 
 describe('LeadClock', () => {

@@ -6,6 +6,7 @@ import { reducedMotion } from './lib/motion'
 import { tutorial } from './lib/onboarding'
 import { playOffline } from './flow'
 import { Button, Kbd, Modal } from './widgets'
+import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
 
 const LESSONS = [
   { clip: 'fireball', title: 'Push them into the lava', text: 'Hits push rivals back. More accumulated knockback means a harder push. Be the last warlock standing.', short: 'Push' },
@@ -42,6 +43,7 @@ export function Tutorial() {
 }
 
 function Guide({ label }: { label: string | null }) {
+  const playSupported = usePlaySupported()
   const content = useRef<HTMLElement>(null)
   const [index, setIndex] = useState(0)
   const binds = useBinds()
@@ -67,16 +69,17 @@ function Guide({ label }: { label: string | null }) {
     return () => dialog.removeEventListener('keydown', onKey)
   }, [])
   const practice = () => {
+    if (!isPlaySupported()) return
     tutorial.continue()
     playOffline()
   }
   return (
     <Modal title="How to play" onClose={tutorial.dismiss} width="max-w-2xl" footer={
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
-        <Button size="sm" variant="ghost" onClick={tutorial.continue}>{label ? 'Skip & continue' : 'Back to menu'}</Button>
+        <Button size="sm" variant="ghost" disabled={!!label && !playSupported} title={label && !playSupported ? PLAY_REQUIREMENT : undefined} onClick={tutorial.continue}>{label ? 'Skip & continue' : 'Back to menu'}</Button>
         <div className="flex items-center gap-2">
           {index > 0 && <Button size="sm" onClick={() => setIndex((n) => n - 1)}>Previous</Button>}
-          {last ? <Button variant="primary" onClick={label ? tutorial.continue : practice}>{label ?? 'Practice vs bots'}</Button>
+          {last ? <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={label ? tutorial.continue : practice}>{label ?? 'Practice vs bots'}</Button>
             : <Button variant="primary" onClick={() => setIndex((n) => n + 1)}>Next <span aria-hidden>→</span></Button>}
         </div>
       </div>
@@ -100,7 +103,7 @@ function Guide({ label }: { label: string | null }) {
         <span><Kbd>{slotKeyLabel(binds, 6)}</Kbd> Fireball</span>
         <span><Kbd>{bindLabel(binds, 'shop')}</Kbd> Shop</span>
       </div>}
-      <p className="mt-4 text-xs text-ash/80">Aim with the mouse. Your spell keys are shown on the toolbar. Reopen this guide from How to play.</p>
+      <p className="mt-4 text-xs text-ash/80">{!playSupported && <span className="mb-1 block text-[#f3d3a1]">{PLAY_REQUIREMENT}</span>}Aim with the mouse. Your spell keys are shown on the toolbar. Reopen this guide from How to play.</p>
     </Modal>
   )
 }

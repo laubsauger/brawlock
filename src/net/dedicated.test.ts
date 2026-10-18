@@ -4,12 +4,14 @@
  * hybrid net the browser uses (online.ts). Real timers: real sockets. Session clocks run
  * TIME_SCALE× faster than wall time on both sides (same code paths, shorter matches).
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MatchResult, Screen } from '../game/store'
 import { createBot } from '../bots'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import type { SimState } from '../sim/types'
-import { startServer, type DedicatedServer } from '../../server/listen.mjs'
+import { startServer, type DedicatedServer, type ServerOptions } from '../../server/listen.mjs'
+import { remoteRatingAuthority } from '../../server/rating-client.mjs'
+import type { RatingSubmission } from './ratingAuthority'
 import { DEFAULT_SERVER_CONFIG } from './server'
 import { startClock } from './clock'
 import { Online, ServerError, hybridNet, parseRegions, type ServerRegion } from './online'
@@ -52,6 +54,8 @@ interface ClientOpts {
   /** extra regions next to `base` (multi-region builds) */
   regions?: ServerRegion[]
   name?: string
+  profileId?: string
+  color?: number
   /** peer-to-peer net (default: none) */
   p2p?: NetFactory
 }
@@ -67,12 +71,14 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
   const online = new Online({ regions: [...(base ? [{ id: 'test', label: 'Test', url: base }] : []), ...(opts.regions ?? [])], build: opts.build ?? 'dev-test' })
   let routed: ServerRegion | null = null
   const notices: string[] = []
+  const autoStarts: NonNullable<LobbyView['autoStart']>[] = []
   const session = createSession({
     ui: {
       lobby: () => lobby,
       setLobby: (p) => {
         lobby = { ...lobby, ...p }
         if (p.notice) notices.push(p.notice)
+        if (p.autoStart) autoStarts.push({ ...p.autoStart })
       },
       screen: () => screen,
       setScreen: (s) => {
@@ -82,7 +88,7 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
       paused: () => false,
       onScreen: () => () => {},
     },
-    profile: () => ({ id: `profile-${opts.device ?? opts.key ?? 'headless'}`, name: opts.name ?? 'Headless', color: null }),
+    profile: () => ({ id: opts.profileId ?? `profile-${opts.device ?? opts.key ?? 'headless'}`, name: opts.name ?? 'Headless', color: opts.color ?? null }),
     recorder: {
       start: (info) => {
         bot = opts.play !== false && info.localPlayer >= 0 ? createBot(info.localPlayer, 'hard', 99) : null
@@ -118,16 +124,46 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
     device: opts.device ? () => opts.device! : undefined,
     build: opts.build ?? 'dev-test',
   })
-  return { session, online, lobby: () => lobby, screen: () => screen, results, notices, shown: () => shown, routed: () => routed }
+  return { session, online, lobby: () => lobby, screen: () => screen, results, notices, autoStarts, shown: () => shown, routed: () => routed }
 }
 
-async function start(config: Record<string, unknown> = {}, build = 'dev-server', extra: { dataDir?: string; log?: (level: string, event: string, fields?: Record<string, unknown>) => void } = {}) {
-  const srv = await startServer({ port: 0, build, config, timeScale: TIME_SCALE, log: extra.log ?? quiet, dataDir: extra.dataDir })
+async function start(config: Record<string, unknown> = {}, build = 'dev-server', extra: Omit<ServerOptions, 'port' | 'build' | 'config' | 'timeScale'> = {}) {
+  const srv = await startServer({ ...extra, port: 0, build, config, timeScale: TIME_SCALE, log: extra.log ?? quiet })
   servers.push(srv)
   return { srv, base: `ws://127.0.0.1:${srv.port}`, http: `http://127.0.0.1:${srv.port}` }
 }
 
 describe('dedicated server (M4.1)', () => {
+  it('delivers shared chat and history to a newcomer waiting for a bot seat during combat', async () => {
+    const { base, srv } = await start()
+    const owner = headlessClient(base, { key: 'chat-owner', name: 'Owner', play: false })
+    const friend = headlessClient(base, { key: 'chat-friend', name: 'Friend', play: false })
+    const late = headlessClient(base, { key: 'chat-late', name: 'Late guest', play: false })
+    try {
+      const code = await owner.online.createRoom('test')
+      await owner.session.join(code)
+      await friend.session.join(code)
+      await until(() => owner.lobby().slots.length === 2, 3000, 'chat members seated')
+      expect(owner.session.sendChat('Hello everyone')).toBe('sent')
+      expect(friend.session.sendChat('Ready 🔥')).toBe('sent')
+      await until(() => friend.lobby().chat?.length === 2, 3000, 'reliable room chat')
+      expect(friend.lobby().chat).toEqual(owner.lobby().chat)
+      owner.session.addBot('dummy')
+      owner.session.updateSettings({ shopSeconds: 0.1 })
+      await until(() => owner.lobby().slots.length === 3 && owner.lobby().settings?.shopSeconds === 0.1, 3000, 'the bot seat')
+      owner.session.startMatch()
+      await until(() => owner.shown()?.phase === 'fight', 5000, 'combat on the client')
+      const fightTick = owner.shown()!.tick
+      await until(() => srv.core.room(code)!.debug().tick >= fightTick, 5000, 'confirmed combat')
+      await late.session.join(code)
+      await until(() => !!late.lobby().waitingForRound && late.lobby().chat?.length === 2, 3000, 'waiting member receives history')
+      expect(late.session.sendChat('Watching until next round')).toBe('sent')
+      await until(() => owner.lobby().chat?.length === 3, 3000, 'waiting spectator chat')
+      expect(owner.lobby().chat?.at(-1)).toMatchObject({ name: 'Late guest', text: 'Watching until next round' })
+      expect(late.lobby().chat).toEqual(owner.lobby().chat)
+    } finally { owner.session.leave(); friend.session.leave(); late.session.leave() }
+  }, 15000)
+
   it('replicates owner-only timed votes and human-safe bot color swaps over real connections', async () => {
     const { base } = await start()
     const owner = headlessClient(base, { key: 'vote-owner', device: 'vote-owner-device', name: 'Owner', play: false })
@@ -407,6 +443,7 @@ describe('public rooms and quick play (M4.3)', () => {
     const r = await a.online.quickPlay('test')
     expect(r.created).toBe(true)
     await a.session.join(r.code)
+    await until(() => a.lobby().quick === true, 3000, 'the authoritative quick room metadata')
     expect(a.lobby()).toMatchObject({ quick: true, public: true, role: 'client', status: 'open' })
     expect(a.lobby().autoStart).toMatchObject({ fill: true })
     await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
@@ -494,6 +531,7 @@ describe('public rooms and quick play (M4.3)', () => {
     const owner = headlessClient(base, { key: 'idle-owner', play: false })
     const code = await owner.online.createRoom('test')
     await owner.session.join(code)
+    await until(() => owner.lobby().role === 'host' && owner.lobby().slots.length === 1, 3000, 'the owner lobby before editing')
     owner.session.addBot('easy')
     owner.session.setPublic(true)
     await until(() => owner.lobby().public === true && owner.lobby().slots.length === 2, 3000, 'a public manual lobby')
@@ -587,8 +625,8 @@ describe('public rooms and quick play (M4.3)', () => {
     for (const c of [a, ...late]) c.session.leave()
   }, 80000)
 
-  /** Why: a quick-play room holds 8 humans at most; quick play sends the next one to a new room, a link is refused. */
-  it('quick play: the room is capped (8 by default); the next player gets a new room', async () => {
+  /** Why: a quick-play room enforces its configured human cap; the next player gets a new room, and a full-room link is refused. */
+  it('quick play respects its configured room cap; the next player gets a new room', async () => {
     const { base } = await start(quick({ seats: 3, startMs: 60000 }))
     const cs = ['a', 'b', 'c', 'd'].map((k) => headlessClient(base, { key: `cap${k}`, device: `device-cap${k}`, play: false }))
     const codes = []
@@ -782,6 +820,155 @@ describe('lobby state from room to room (P0: the host lost its Rematch button)',
   }, 120000)
 })
 
+describe('ranked queue over real TCP', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const d of dirs.splice(0)) removeDir(d)
+  })
+
+  async function queue(http: string, query = '') {
+    const res = await fetch(`${http}/ranked${query}`, { method: 'POST' })
+    expect([200, 201]).toContain(res.status)
+    return await res.json() as { code: string; created: boolean }
+  }
+
+  it('requires distinct device identities before counting humans and honors a preferred bot color on entry', async () => {
+    const dir = tempDir('brawlock-ranked-identities-')
+    dirs.push(dir)
+    const { base, http, srv } = await start({}, 'dev-server', { dataDir: dir })
+    const a = headlessClient(base, { key: 'identity-a', device: 'ranked-identity-device', play: false })
+    const absent = headlessClient(base, { key: 'identity-absent', play: false })
+    const duplicate = headlessClient(base, { key: 'identity-duplicate', device: 'ranked-identity-device', profileId: 'another-player-profile', play: false })
+    let b: ReturnType<typeof headlessClient> | null = null
+    try {
+      const opened = await queue(http)
+      const room = srv.core.room(opened.code)!
+      await a.session.join(opened.code)
+      await absent.session.join(opened.code)
+      expect(absent.lobby().status).toBe('error')
+      expect(absent.lobby().error).toMatch(/device identity/i)
+      await duplicate.session.join(opened.code)
+      expect(duplicate.lobby().status).toBe('error')
+      expect(duplicate.lobby().error).toMatch(/device already/i)
+      expect(room.humans()).toBe(1)
+      expect(a.lobby().autoStart).toBeNull()
+      const favorite = a.lobby().slots.filter((s) => s.kind === 'bot').at(-1)!
+      b = headlessClient(base, { key: 'identity-b', device: 'ranked-identity-other', color: favorite.color, play: false })
+      await b.session.join(opened.code)
+      await until(() => room.humans() === 2 && !!a.lobby().autoStart, 3000, 'two distinct ranked devices')
+      expect(b.lobby().localPlayer).toBe(favorite.id)
+      expect(b.lobby().slots.find((s) => s.id === favorite.id)).toMatchObject({ kind: 'human', color: favorite.color })
+    } finally { a.session.leave(); absent.session.leave(); duplicate.session.leave(); b?.session.leave() }
+  }, 10000)
+
+  it('prefills Brutal bots, waits for two humans, preserves and cancels the countdown, and closes running admission', async () => {
+    const dir = tempDir('brawlock-ranked-queue-')
+    dirs.push(dir)
+    const { base, http, srv } = await start({
+      ranked: { ...DEFAULT_SERVER_CONFIG.ranked, startMs: 6000, nextMs: 1200 },
+    }, 'dev-server', { dataDir: dir })
+    const a = headlessClient(base, { key: 'ranked-a', device: 'ranked-device-a', play: false })
+    const b = headlessClient(base, { key: 'ranked-b', device: 'ranked-device-b', play: false })
+    const c = headlessClient(base, { key: 'ranked-c', device: 'ranked-device-c', play: false })
+    try {
+      expect(DEFAULT_SERVER_CONFIG.ranked).toMatchObject({
+        seats: 8, fill: 8, bots: 'brutal', minHumans: 2, startMs: 60_000,
+        settings: { rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+      })
+      const first = await queue(http, '?bots=easy&seats=2&fill=2&startGold=999&rankedRounds=1')
+      const room = srv.core.room(first.code)!
+      expect(room.isRanked()).toBe(true)
+      expect(room.summary()).toMatchObject({ ranked: true, quick: true, humans: 0, bots: 8, max: 8, joinable: 8, rankedRounds: 5, elo: { enabled: true, minSeconds: 120 } })
+      expect(await a.online.browseRegion('test')).toContainEqual(expect.objectContaining({ code: first.code, ranked: true, rankedRounds: 5, max: 8, bots: 8 }))
+      await a.session.join(first.code)
+      await until(() => a.lobby().slots.length === 8, 3000, 'the prefilled ranked lobby')
+      expect(a.lobby()).toMatchObject({ role: 'client', ranked: true, quick: true, public: true, autoStart: null })
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(7)
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
+      expect(a.lobby().settings).toMatchObject({ rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 })
+      // fillMs is zero: a mistaken solo fill timer would already have fired.
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(a.screen()).toBe('lobby')
+      expect(a.lobby().autoStart).toBeNull()
+      expect((await a.online.quickPlay('test')).code).not.toBe(first.code)
+      a.session.updateSettings({ startGold: 999, winScore: 1 })
+      a.session.removeSlot(a.lobby().slots.find((s) => s.kind === 'bot')!.id)
+      a.session.startMatch()
+      expect((await queue(http)).code).toBe(first.code)
+      await b.session.join(first.code)
+      await until(() => !!a.lobby().autoStart && room.humans() === 2, 3000, 'two-human ranked countdown')
+      const deadline = a.lobby().autoStart!.at
+      expect(a.lobby().autoStart!.fill).toBe(false)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await c.session.join(first.code)
+      await until(() => room.humans() === 3 && a.lobby().slots.filter((s) => s.kind === 'human').length === 3, 3000, 'a third human')
+      expect(Math.abs(a.lobby().autoStart!.at - deadline)).toBeLessThan(150)
+      expect(a.lobby().settings?.startGold).toBe(40)
+      expect(a.lobby().slots).toHaveLength(8)
+      b.session.leave()
+      c.session.leave()
+      await until(() => room.humans() === 1 && a.lobby().autoStart === null, 3000, 'the canceled ranked countdown')
+      await new Promise((resolve) => setTimeout(resolve, 1700))
+      expect(room.screen()).toBe('lobby')
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(7)
+      await b.session.join(first.code)
+      await until(() => !!a.lobby().autoStart, 3000, 'a fresh ranked countdown')
+      expect(a.lobby().autoStart!.at).toBeGreaterThan(deadline)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 4000, 'ranked automatic start')
+      expect(room.summary()).toMatchObject({ ranked: true, quick: true, joinable: 0 })
+      expect(room.joinableSeats()).toBe(0)
+      await c.session.join(first.code)
+      expect(c.lobby().status).toBe('error')
+      expect(c.lobby().error).toMatch(/ranked.*(started|progress)/i)
+      expect(room.humans()).toBe(2)
+      const next = await queue(http)
+      expect(next.created).toBe(true)
+      expect(next.code).not.toBe(first.code)
+    } finally { a.session.leave(); b.session.leave(); c.session.leave() }
+  }, 20000)
+
+  it('reviews results, returns to a prefilled lobby, and requires two humans for a fresh match', async () => {
+    const dir = tempDir('brawlock-ranked-rematch-')
+    dirs.push(dir)
+    const { base, http, srv } = await start({
+      leaderboardMinSeconds: 1,
+      ranked: {
+        ...DEFAULT_SERVER_CONFIG.ranked, startMs: 1000, nextMs: 2400,
+        settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, rankedRounds: 0, winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 },
+      },
+    }, 'dev-server', { dataDir: dir })
+    const a = headlessClient(base, { key: 'ranked-rematch-a', device: 'ranked-rematch-device-a', play: true })
+    const b = headlessClient(base, { key: 'ranked-rematch-b', device: 'ranked-rematch-device-b', play: true })
+    try {
+      const opened = await queue(http)
+      const room = srv.core.room(opened.code)!
+      await a.session.join(opened.code)
+      await b.session.join(opened.code)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 4000, 'ranked first match')
+      b.session.leave()
+      await until(() => a.screen() === 'results' && a.results.length === 1, 60000, 'ranked result review')
+      expect(room.screen()).toBe('results')
+      expect(a.lobby().autoStart).toBeNull()
+      await until(() => a.screen() === 'lobby' && room.screen() === 'lobby', 3000, 'ranked returns to lobby after review')
+      expect(room.summary()).toMatchObject({ humans: 1, bots: 7, ranked: true, joinable: 7 })
+      expect(a.lobby().autoStart).toBeNull()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(a.screen()).toBe('lobby')
+      expect(a.results).toHaveLength(1)
+      expect((await queue(http)).code).toBe(opened.code)
+      const previousCountdowns = a.autoStarts.length
+      await b.session.join(opened.code)
+      expect(b.lobby().status, b.lobby().error ?? 'ranked reconnect status').toBe('open')
+      expect(room.humans(), JSON.stringify({ room: room.summary(), a: a.lobby(), b: b.lobby() })).toBe(2)
+      await until(() => a.autoStarts.length > previousCountdowns, 3000, 'ranked rematch lobby countdown')
+      expect(a.autoStarts.at(-1)!.fill).toBe(false)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 4000, 'ranked second match')
+      expect(a.results).toHaveLength(1)
+      expect(a.lobby().slots).toHaveLength(8)
+    } finally { a.session.leave(); b.session.leave() }
+  }, 75000)
+})
+
 describe('leaderboard over the server (M4.3)', () => {
   const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 }
   const dirs: string[] = []
@@ -789,15 +976,17 @@ describe('leaderboard over the server (M4.3)', () => {
     for (const d of dirs.splice(0)) removeDir(d)
   })
 
-  async function playMatch(base: string, humans: { key: string; device: string; name: string }[], bots: number) {
+  async function playMatch(base: string, humans: { key: string; device: string; name: string }[], bots: number, ranked = false) {
     const cs = humans.map((h) => headlessClient(base, { ...h, play: true }))
-    const code = await cs[0].online.createRoom('test')
+    const code = ranked ? (await cs[0].online.rankedPlay('test')).code : await cs[0].online.createRoom('test')
     for (const c of cs) await c.session.join(code)
-    await until(() => cs[0].lobby().slots.length === humans.length, 3000, 'everyone seated')
-    for (let i = 0; i < bots; i++) cs[0].session.addBot('easy')
-    cs[0].session.updateSettings(FAST)
-    await until(() => cs[0].lobby().slots.length === humans.length + bots && cs[0].lobby().settings?.winScore === 1, 3000, 'lobby set up')
-    cs[0].session.startMatch()
+    await until(() => cs[0].lobby().slots.filter((s) => s.kind === 'human').length === humans.length, 3000, 'everyone seated')
+    if (!ranked) {
+      for (let i = 0; i < bots; i++) cs[0].session.addBot('easy')
+      cs[0].session.updateSettings(FAST)
+      await until(() => cs[0].lobby().slots.length === humans.length + bots && cs[0].lobby().settings?.winScore === 1, 3000, 'lobby set up')
+      cs[0].session.startMatch()
+    }
     await until(() => cs.every((c) => c.screen() === 'results'), 60000, 'the match to finish')
     const results = cs.map((c) => c.results.at(-1)!)
     for (const c of cs) c.session.leave()
@@ -806,25 +995,32 @@ describe('leaderboard over the server (M4.3)', () => {
 
   /**
    * Why: the board is only worth something if it counts real server matches between
-   * people: a solo match against bots is ignored, the device id never leaks, and the
+   * people: casual matches are ignored, the device id never leaks, and the
    * data survives the restart every deploy does.
    */
-  it('counts eligible server matches only, never shows device ids, survives a restart', async () => {
+  it('counts eligible ranked matches only, never shows device ids, survives a restart', async () => {
     const dir = tempDir('brawlock-lb-e2e-')
     dirs.push(dir)
     const events: string[] = []
     const log = (_level: string, event: string, f?: Record<string, unknown>) => events.push(f?.reason ? `${event}:${String(f.reason)}` : event)
-    let { base, http, srv } = await start({ leaderboardMinSeconds: 1, region: 'test' }, 'dev-server', { dataDir: dir, log })
+    let { base, http, srv } = await start({
+      leaderboardMinSeconds: 1, region: 'test',
+      ranked: { ...DEFAULT_SERVER_CONFIG.ranked, fill: 3, startMs: 1000, settings: { ...FAST, rankedRounds: 0 } },
+    }, 'dev-server', { dataDir: dir, log })
     const ann = { key: 'ann', device: 'device-ann-0001', name: 'Ann' }
     const bob = { key: 'bob', device: 'device-bob-0001', name: 'Bob' }
-    // alone with bots: not counted
+    // Custom rooms stay casual, with one human or with two humans and a bot.
     const solo = await playMatch(base, [ann], 2)
-    expect(solo[0].rating).toEqual({ status: 'unrated', reason: 'fewer than 2 humans' })
-    await until(() => events.some((e) => e.startsWith('leaderboard.skip')), 3000, 'the skip')
-    expect(events).toContain('leaderboard.skip:fewer than 2 humans')
+    expect(solo[0].rating).toEqual({ status: 'unrated', reason: 'Casual games do not affect global Elo.' })
+    const casual = await playMatch(base, [ann, bob], 1)
+    expect(casual.map((r) => r.rating)).toEqual([
+      { status: 'unrated', reason: 'Casual games do not affect global Elo.' },
+      { status: 'unrated', reason: 'Casual games do not affect global Elo.' },
+    ])
+    expect(events).not.toContain('leaderboard.match')
     expect(((await (await fetch(`${http}/leaderboard`)).json()) as { entries: unknown[] }).entries).toEqual([])
-    // two humans and a bot: counted
-    const rated = await playMatch(base, [ann, bob], 1)
+    // Ranked queue: two humans and a bot are eligible.
+    const rated = await playMatch(base, [ann, bob], 1, true)
     expect(rated.map((r) => r.rating)).toEqual([{ status: 'rated' }, { status: 'rated' }])
     await until(() => events.includes('leaderboard.match'), 3000, 'the recorded match')
     const read = async (h: string) => {
@@ -854,7 +1050,7 @@ describe('leaderboard over the server (M4.3)', () => {
     const renamedClient = headlessClient(base, { ...ann, play: false })
     const renameRoom = await renamedClient.online.createRoom('test')
     await renamedClient.session.join(renameRoom)
-    expect(srv.core.room(renameRoom)!.summary().elo).toEqual({ enabled: true, minSeconds: 1 })
+    expect(srv.core.room(renameRoom)!.summary().elo).toEqual({ enabled: false, minSeconds: 1 })
     renamedClient.session.setDisplayName('Ann renamed')
     await until(() => renamedClient.lobby().slots.some((s) => s.name === 'Ann renamed'), 3000, 'the current lobby rename')
     const renamed = await read(http)
@@ -1066,4 +1262,137 @@ describe('rate limiter', () => {
     k.sweep(10_000)
     expect(k.size).toBe(0)
   })
+})
+
+describe('shared global ratings authority over TCP', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const dir of dirs.splice(0)) removeDir(dir)
+  })
+  const directory = () => { const dir = tempDir('brawlock-global-rating-'); dirs.push(dir); return dir }
+  const submission = (key = crypto.randomUUID()): RatingSubmission => ({
+    key, room: 'ABCDE', region: 'us-west', at: Date.now(), minSeconds: 1,
+    match: { ticks: 9000, rounds: 1, teamMode: 'ffa', gameMode: 'rounds', bots: 1,
+      seats: [
+        { player: 0, device: 'global-ann-device', name: 'Ann', roundsPlayed: 1, roundsWon: 1, kills: 1, deaths: 0, won: true },
+        { player: 1, device: 'global-bob-device', name: 'Bob', roundsPlayed: 1, roundsWon: 0, kills: 0, deaths: 1, won: false },
+      ], ranked: [{ groups: [[0], [1]], team: { 0: 0, 1: 1 } }] },
+  })
+
+  it('authenticates private mutations and lets the EU simulate locally while both regions expose one global board', async () => {
+    const token = crypto.randomUUID() + crypto.randomUUID()
+    const us = await start({ region: 'us-west', leaderboardMinSeconds: 1 }, 'dev-server', { dataDir: directory(), ratingAuthorityToken: token })
+    const record = (body: unknown, headers: Record<string, string> = {}) => fetch(`${us.http}/internal/rating/record`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+    })
+    expect((await record(submission())).status).toBe(403)
+    expect((await record(submission(), { authorization: `Bearer ${token}`, origin: 'https://game.invalid' })).status).toBe(403)
+    expect((await record({ ...submission(), match: { ticks: -1 } }, { authorization: `Bearer ${token}` })).status).toBe(400)
+    expect((await record({ oversized: 'x'.repeat(129 * 1024) }, { authorization: `Bearer ${token}` })).status).toBe(413)
+    expect(await (await record(submission(), { authorization: `Bearer ${token}` })).json()).toEqual({ status: 'rated' })
+    const eu = await start({ region: 'eu', leaderboardMinSeconds: 1,
+      ranked: { ...DEFAULT_SERVER_CONFIG.ranked, fill: 3, startMs: 400, settings: { rankedRounds: 0, winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 } },
+    }, 'dev-server', { dataDir: directory(), ratingAuthorityUrl: us.http, ratingAuthorityToken: token, ratingAuthorityAllowInsecureForTests: true })
+    const ann = headlessClient(eu.base, { key: 'global-ann', device: 'global-ann-device', name: 'Ann', play: true })
+    const bob = headlessClient(eu.base, { key: 'global-bob', device: 'global-bob-device', name: 'Bob', play: true })
+    try {
+      const opened = await ann.online.rankedPlay('test')
+      await ann.session.join(opened.code)
+      await bob.session.join(opened.code)
+      await until(() => ann.screen() === 'match' && bob.screen() === 'match', 4000, 'EU-local ranked match')
+      expect(eu.srv.core.stats().rooms).toBe(1)
+      expect(us.srv.core.stats().rooms).toBe(0)
+      await until(() => ann.results.length === 1 && bob.results.length === 1, 60000, 'the EU result to wait for US commit')
+      expect(ann.results[0].rating).toEqual({ status: 'rated' })
+      expect(bob.results[0].rating).toEqual({ status: 'rated' })
+      const read = async (http: string, region: string) => (await fetch(`${http}/leaderboard?region=${region}`)).json() as Promise<{ entries: { name: string; matches: number }[] }>
+      const global = await read(us.http, 'us-west')
+      expect(await read(eu.http, 'eu')).toEqual(global)
+      expect(global.entries.map((p) => p.matches)).toEqual([2, 2])
+      expect(JSON.stringify(global)).not.toContain('global-ann-device')
+      const profile = await (await fetch(`${eu.http}/players/global-ann-device`)).json() as { recent: { region: string }[] }
+      expect(profile.recent.map((r) => r.region)).toEqual(['eu', 'us-west'])
+      ann.session.setDisplayName('Ann across regions')
+      await until(() => ann.lobby().slots.some((s) => s.name === 'Ann across regions'), 3000, 'EU rename accepted')
+      // The public read is fresh from the authority; no regional cache can fork it.
+      let renamed: { name?: string; matches?: number } = {}
+      for (let attempt = 0; attempt < 40; attempt++) {
+        renamed = await (await fetch(`${us.http}/players/global-ann-device`)).json() as typeof renamed
+        if (renamed.name === 'Ann across regions') break
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(renamed).toMatchObject({ name: 'Ann across regions', matches: 2 })
+    } finally { ann.session.leave(); bob.session.leave() }
+  }, 75000)
+
+  it('durably retries an outage and a lost committed reply across restarts without double rating', async () => {
+    const token = crypto.randomUUID() + crypto.randomUUID()
+    const us = await start({ region: 'us-west', leaderboardMinSeconds: 1 }, 'dev-server', { dataDir: directory(), ratingAuthorityToken: token })
+    const file = `${directory()}/rating-outbox.sqlite`
+    const events: string[] = []
+    const opts = { url: us.http, token, file, allowInsecureForTests: true, retryMs: 500, log: (_level: string, event: string) => { events.push(event) } }
+    let client = remoteRatingAuthority(opts)
+    const realFetch = globalThis.fetch
+    const request = { ...submission(), region: 'eu' }
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        if (String(url).endsWith('/internal/rating/record')) throw new Error('simulated authority outage')
+        return realFetch(url, init)
+      })
+      expect(await client.record(request)).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('saved and queued') })
+      expect(client.pending()).toBe(1)
+      client.close!()
+      vi.restoreAllMocks()
+      expect((await (await fetch(`${us.http}/leaderboard`)).json() as { entries: unknown[] }).entries).toEqual([])
+      // The next process delivers the saved match, but loses the authority's reply.
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        const response = await realFetch(url, init)
+        if (String(url).endsWith('/internal/rating/record')) throw new Error('simulated lost committed reply')
+        return response
+      })
+      client = remoteRatingAuthority(opts)
+      await until(() => events.filter((e) => e === 'rating.outbox.pending').length === 2, 3000, 'lost committed reply to remain queued')
+      expect(client.pending()).toBe(1)
+      client.close!()
+      vi.restoreAllMocks()
+      const committed = await (await fetch(`${us.http}/leaderboard`)).json() as { entries: { matches: number }[] }
+      expect(committed.entries.map((p) => p.matches)).toEqual([1, 1])
+      // Third process repeats the same key. The atomic authority receipt prevents a second update.
+      client = remoteRatingAuthority({ ...opts, retryMs: 20 })
+      await until(() => client.pending() === 0, 4000, 'the durable retry receipt')
+      expect(await (await fetch(`${us.http}/leaderboard`)).json()).toEqual(committed)
+      expect(events).toContain('rating.outbox.delivered')
+    } finally { client.close!(); vi.restoreAllMocks() }
+  }, 15000)
+})
+
+describe('anonymous ICE credentials over HTTP', () => {
+  it('serves only configured short-lived credentials, applies browser origins and bounds requests', async () => {
+    const plain = await start()
+    expect((await fetch(`${plain.http}/ice`)).status).toBe(503)
+    const secret = crypto.randomUUID() + crypto.randomUUID()
+    const origin = 'https://game.example'
+    const { http } = await start({ allowedOrigins: [origin] }, 'independent-ice-build', {
+      turnSecret: secret,
+      turnUrls: ['turn:eu.brawlock.osc.link:3478?transport=udp', 'turn:eu.brawlock.osc.link:3478?transport=tcp', 'turns:eu.brawlock.osc.link:5349?transport=tcp'],
+      turnTtlSeconds: 3600, clock: () => 1_700_000_000_000,
+    })
+    expect((await fetch(`${http}/ice`, { headers: { origin: 'https://other.example' } })).status).toBe(403)
+    const accepted = await fetch(`${http}/ice`, { headers: { origin } })
+    expect(accepted.status).toBe(200)
+    expect(accepted.headers.get('cache-control')).toBe('no-store')
+    expect(accepted.headers.get('vary')).toBe('Origin')
+    expect(accepted.headers.get('access-control-allow-origin')).toBe(origin)
+    const text = await accepted.text()
+    const body = JSON.parse(text) as { expiresAt: number; iceServers: { urls: string | string[]; username?: string; credential?: string }[] }
+    expect(body.expiresAt).toBe(1_700_003_600_000)
+    expect(body.iceServers).toHaveLength(2)
+    expect(body.iceServers[1].username).toMatch(/^1700003600:[a-f0-9-]{36}$/)
+    expect(body.iceServers[1].credential).toMatch(/^[A-Za-z0-9+/]{27}=$/)
+    expect(text).not.toContain(secret)
+    expect((await fetch(`${http}/ice`)).status).toBe(200) // native/no-Origin clients
+    for (let i = 0; i < 10; i++) expect((await fetch(`${http}/ice`)).status).toBe(200)
+    expect((await fetch(`${http}/ice`)).status).toBe(429)
+  }, 10000)
 })

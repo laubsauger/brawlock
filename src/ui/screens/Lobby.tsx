@@ -61,6 +61,7 @@ function statusLine(l: LobbyView, humans: number): { text: string; tone: 'idle' 
   if (l.status === 'error' || l.error) return { text: l.error ?? 'Something went wrong with the connection.', tone: 'error' }
   if (l.notice) return { text: l.notice, tone: 'wait' }
   if (l.role === 'offline') return { text: 'Add bots, set the rules, start when ready.', tone: 'idle' }
+  if (l.ranked && l.status === 'open') return { text: humans < 2 ? 'Waiting for another human · ranked rules are locked' : 'Ranked starts automatically · more players can join during the countdown', tone: humans < 2 ? 'wait' : 'ok' }
   if (l.role === 'host') {
     if (l.status === 'connecting' || l.status === 'idle') return { text: 'Opening a room…', tone: 'wait' }
     if (humans < 2) return { text: 'Waiting for a friend. Send them the room code.', tone: 'wait' }
@@ -90,7 +91,7 @@ export function AutoStart({ at, fill, between = false }: { at: number; fill: boo
     const t = between ? `Next match in ${secs} s` : fill ? `Filling with bots in ${secs} s` : `Starting in ${secs} s`
     if (t !== last.current && ref.current) ref.current.textContent = last.current = t
   })
-  return <span ref={ref} className="tabular" title={between ? undefined : 'Bots fill the table up to 4 players'} data-testid="auto-start" />
+  return <span ref={ref} className="tabular" title={between ? undefined : 'Bots fill empty seats until replaced by players'} data-testid="auto-start" />
 }
 
 /** a room hosted from your PC that has not opened after this long offers the game server instead */
@@ -331,7 +332,7 @@ export function Lobby() {
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-end gap-4">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Lobby</h1>
-          <span className="chip mb-1.5">{lobby.quick ? 'Quick play' : ROLE_LABEL[lobby.role]}</span>
+          <span className="chip mb-1.5">{lobby.ranked ? 'Ranked · Elo' : lobby.quick ? 'Quick play · Casual' : ROLE_LABEL[lobby.role]}</span>
           {transport && (
             <span
               className="chip mb-1.5 text-ash"
@@ -355,6 +356,10 @@ export function Lobby() {
         </div>
       </header>
 
+      {lobby.ranked && <p className="mb-4 rounded border border-[#bfc3d3]/20 bg-black/25 px-4 py-2 text-sm text-[#e3d9ba]" data-testid="ranked-rules">
+        8 players · 5 rounds · tied leaders fight a final brawl · Brutal bots fill empty seats.
+        <span className="ml-1 text-ash">Aim for 15–20 minutes; match length varies. Wait for 2 humans, then a 60s lobby.</span>
+      </p>}
       <LobbyVote />
 
       <div className="grid shrink-0 grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
@@ -362,7 +367,7 @@ export function Lobby() {
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="section-title text-[1.9rem]">Warlocks</h2>
             <span className="tabular text-ash">
-              {lobby.slots.length} / {MAX_PLAYERS}
+              {lobby.slots.length} / {lobby.ranked ? 8 : MAX_PLAYERS}
             </span>
           </div>
           <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
@@ -418,7 +423,7 @@ export function Lobby() {
                 <span className="flex flex-col">
                   <span className="font-semibold">Listed publicly</span>
                   <span className="text-[0.88rem] text-ash">
-                    {lobby.quick ? 'Quick play games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
+                    {lobby.ranked ? 'Ranked lobbies are open while matchmaking; rules are locked' : lobby.quick ? 'Quick play games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
                   </span>
                 </span>
                 <Switch label="Listed publicly" checked={lobby.quick ? true : !!lobby.public} disabled={!!lobby.quick} onChange={(v) => session.setPublic(v)} />

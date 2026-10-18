@@ -54,3 +54,8 @@ __pycache__/
 
 # local media library (showcase clips, stills): big binaries, never committed
 /media/
+
+# Local browser/audio evidence; sharing candidates are also archived in /media/.
+/artifacts/ability-readability/
+/artifacts/audio-polish/
+/artifacts/cast-cancel/

@@ -183,6 +183,8 @@ export class Online {
   private readonly subs = new Set<() => void>()
   private readonly fetch: FetchLike
   private readonly now: () => number
+  private ice: { config: RTCConfiguration; expiresAt: number } | null = null
+  private iceRequest: Promise<RTCConfiguration> | null = null
 
   constructor(private readonly cfg: OnlineConfig) {
     this.regions = cfg.regions.map((r) => ({ ...r }))
@@ -196,6 +198,37 @@ export class Online {
   /** Does this build have any game server? */
   get configured(): boolean {
     return this.regions.length > 0
+  }
+
+  /** Relay credentials are independent of game versions; either region can issue them. */
+  iceConfiguration(): Promise<RTCConfiguration> {
+    if (this.ice && this.ice.expiresAt > Date.now() + 60_000) return Promise.resolve(structuredClone(this.ice.config))
+    if (this.iceRequest) return this.iceRequest.then((config) => structuredClone(config))
+    if (!this.configured) return Promise.reject(new Error('No relay credential service is configured.'))
+    this.iceRequest = Promise.any(this.regions.map(async (region) => {
+      const response = await this.fetch(`${httpBase(region.url)}/ice`, { cache: 'no-store', signal: timeout(REQUEST_TIMEOUT_MS) })
+      if (!response.ok) throw new Error('Relay credential service unavailable.')
+      const data = await response.json() as { iceServers?: unknown; expiresAt?: unknown }
+      if (!data || !Array.isArray(data.iceServers) || data.iceServers.length < 1 || data.iceServers.length > 4
+        || typeof data.expiresAt !== 'number' || data.expiresAt <= Date.now() + 5000 || data.expiresAt > Date.now() + 86_400_000 + 5000) throw new Error('Invalid relay credentials.')
+      let relay = false
+      const iceServers: RTCIceServer[] = data.iceServers.map((entry: unknown) => {
+        const server = entry as RTCIceServer
+        const urls = typeof server?.urls === 'string' ? [server.urls] : server?.urls
+        if (!Array.isArray(urls) || urls.length < 1 || urls.length > 12 || urls.some((url) => typeof url !== 'string' || url.length > 256 || !/^(stun|stuns|turn|turns):[a-z0-9.\-\[\]:]+(?:\?transport=(?:udp|tcp))?$/i.test(url))) throw new Error('Invalid relay URLs.')
+        if (urls.some((url) => /^turns?:/.test(url))) {
+          if (typeof server.username !== 'string' || server.username.length > 128 || !server.username || typeof server.credential !== 'string' || server.credential.length > 256 || !server.credential) throw new Error('Invalid relay authentication.')
+          relay = true
+          return { urls, username: server.username, credential: server.credential }
+        }
+        return { urls }
+      })
+      if (!relay) throw new Error('Relay credentials are missing.')
+      const config: RTCConfiguration = { iceServers }
+      this.ice = { config, expiresAt: data.expiresAt }
+      return config
+    })).catch(() => { throw new Error('Could not load the connection relay. Please try hosting or joining again.') }).finally(() => { this.iceRequest = null })
+    return this.iceRequest.then((config) => structuredClone(config))
   }
 
   /** Last known status of every region, in config order (synchronous, no request). */
@@ -338,10 +371,18 @@ export class Online {
 
   /** Quick play on a region: the code of an open quick-play room there (or a new one). Throws ServerError. */
   async quickPlay(regionId: string, bots?: BotDifficulty): Promise<{ code: string; created: boolean }> {
+    return this.queue(regionId, 'quickplay', bots)
+  }
+
+  async rankedPlay(regionId: string): Promise<{ code: string; created: boolean }> {
+    return this.queue(regionId, 'ranked')
+  }
+
+  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty): Promise<{ code: string; created: boolean }> {
     const r = await this.usable(regionId)
     let res
     try {
-      res = await this.fetch(`${httpBase(r.url)}/quickplay${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', signal: timeout(REQUEST_TIMEOUT_MS) })
+      res = await this.fetch(`${httpBase(r.url)}/${kind}${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', signal: timeout(REQUEST_TIMEOUT_MS) })
     } catch {
       this.markDown(r.id)
       throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)
@@ -354,7 +395,7 @@ export class Online {
   /** A region's leaderboard; `device` (this device's id) adds its own line. Throws ServerError. */
   async leaderboard(regionId: string, period: Period, device?: string): Promise<LeaderboardPage> {
     const r = await this.usable(regionId)
-    const q = new URLSearchParams({ period, region: r.id })
+    const q = new URLSearchParams({ period })
     if (device) q.set('device', device)
     const body = (await this.read(r, `/leaderboard?${q}`)) as { entries?: unknown; you?: unknown } | null
     if (!body) throw new ServerError('error', `The ${r.label} server keeps no leaderboard.`)

@@ -459,7 +459,7 @@ export function AbilityCardPanel({ t }: { t: CardTarget }) {
       }}
       data-ability-card={model.icon}
     >
-      {/* preview clip: full card width, fixed 300x169 box (no layout shift), masteries have none */}
+      {/* Compact full-width preview; masteries have none. */}
       {t.kind !== 'mastery' && <AbilityMedia id={model.icon} />}
       <header className="ability-card-head">
         <span className="tile-icon shrink-0" style={{ width: 48, height: 48 }}>
@@ -505,12 +505,13 @@ export function AbilityCardPanel({ t }: { t: CardTarget }) {
       {progression.length > 0 && <section className="min-h-0 shrink-0 border-t border-white/10 pt-2" aria-label="Full level progression">
         <div className="mb-1 flex items-center justify-between gap-2 text-[0.72rem]">
           <h3 className="font-semibold text-bone">Changes by level</h3>
-          <span className="text-right text-ash">{model.level > 0 ? 'Owned / next' : 'All future levels'} · scroll ↔</span>
+          <span className="text-right text-ash">{model.level > 0 ? 'Owned / next' : 'All future levels'}</span>
         </div>
-        <div className="overflow-x-auto pb-1" tabIndex={0} aria-label="Scroll all ability levels">
-          <table className="tabular w-full text-[0.68rem]" style={{ minWidth: Math.max(240, 72 + model.progression.length * 38) }}>
-            <thead><tr><th scope="col" className="pr-2 text-left font-normal text-ash">Level</th>{model.progression.map(({ level }) => <th key={level} scope="col" className={`px-1 py-0.5 text-right ${level === model.level ? 'bg-gold/10 text-gold' : level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-ash'}`} aria-label={`Level ${level}${level === model.level ? ', owned' : level === model.level + 1 ? ', next purchase' : ''}`}>{level}</th>)}</tr></thead>
-            <tbody>{progression.map((row) => <tr key={row.label}><th scope="row" className="py-0.5 pr-2 text-left font-normal leading-tight text-ash">{row.label}</th>{row.values.map((value, i) => <td key={i} className={`whitespace-nowrap px-1 py-0.5 text-right ${model.progression[i].level === model.level ? 'bg-gold/10 font-semibold text-gold' : model.progression[i].level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-bone'}`}>{value}</td>)}</tr>)}</tbody>
+        <div aria-label="All ability levels">
+          <table className="tabular w-full table-fixed text-[0.7rem] [overflow-wrap:anywhere]">
+            <colgroup><col style={{ width: '24%' }} />{model.progression.map(({ level }) => <col key={level} />)}</colgroup>
+            <thead><tr><th scope="col" className="pr-1 text-left font-normal text-ash">Level</th>{model.progression.map(({ level }) => <th key={level} scope="col" className={`px-0.5 py-0.5 text-right ${level === model.level ? 'bg-gold/10 text-gold' : level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-ash'}`} aria-label={`Level ${level}${level === model.level ? ', owned' : level === model.level + 1 ? ', next purchase' : ''}`}>{level}</th>)}</tr></thead>
+            <tbody>{progression.map((row) => <tr key={row.label}><th scope="row" className="py-0.5 pr-1 text-left font-normal leading-tight text-ash">{row.label}</th>{row.values.map((value, i) => <td key={i} className={`px-0.5 py-0.5 text-right ${model.progression[i].level === model.level ? 'bg-gold/10 font-semibold text-gold' : model.progression[i].level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-bone'}`}>{value}</td>)}</tr>)}</tbody>
           </table>
         </div>
       </section>}

@@ -16,6 +16,7 @@ vi.mock('../../game/session', () => ({ session: {
 
 let saved: Map<string, string>
 beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }))
   tutorial.dismiss()
   vi.clearAllMocks()
   vi.mocked(getCareer).mockReturnValue(null)

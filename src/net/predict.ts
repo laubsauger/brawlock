@@ -114,6 +114,8 @@ export class Predictor {
   private shownTick = -1
   /** base tick of the last real rollback */
   private rebasedAt = -Infinity
+  /** First step where a cancellable commit was held; later authority must rebase. */
+  private deferredCastAt = Infinity
   readonly stats: PredictorStats = {
     resimTicks: 0,
     maxResimTicks: 0,
@@ -187,7 +189,7 @@ export class Predictor {
     if (state.tick <= this.baseTick) return
     if (this.pending && state.tick <= this.pending.state.tick) return
     const sim = this.sim
-    if (confirms && !this.pending && sim && state.tick <= sim.tick && state.tick - this.rebasedAt < FORCE_REBASE_TICKS) {
+    if (confirms && !this.pending && sim && state.tick <= sim.tick && !Number.isFinite(this.deferredCastAt) && state.tick - this.rebasedAt < FORCE_REBASE_TICKS) {
       this.baseTick = state.tick
       this.baseState = state
       this.baseAck = ack
@@ -290,6 +292,7 @@ export class Predictor {
     }
     const old = this.sim
     const fresh = this.clone(state)
+    this.deferredCastAt = Infinity
     this.baseTick = fresh.tick
     this.rebasedAt = fresh.tick
     // keep what the authoritative stream can still match (it carries the last few ticks)
@@ -324,7 +327,23 @@ export class Predictor {
     }
     const inputs: PlayerInput[] = cmds ? [{ player: this.player, tick: t, cmds }] : []
     for (const player of this.hintedAt(t)) inputs.push({ player, tick: t, cmds: this.hintAt(t, player)! })
+    // Other players can still stop a known windup. Our own input can also
+    // arrive late and shift its cast point until its original frame is acked.
+    // Hold only that final cancellable tick: no speculative projectile,
+    // launch sound or downstream impact is created. Orders/death still cancel
+    // through the real sim; an authoritative rebase resolves the held commit.
+    for (const p of state.pawns) {
+      const c = p.cast
+      if (!p.alive || !c?.started || c.ticksLeft > 1) continue
+      const unacked = p.owner === this.player && this.frames.some((f) => f.seq > this.baseAck && f.tick <= t && f.cmds.some((cmd) => cmd.kind === 'cast' && cmd.slot === c.slot && cmd.x === c.x && cmd.y === c.y))
+      if (p.owner === this.player && !unacked) continue
+      c.ticksLeft += 1
+      this.deferredCastAt = Math.min(this.deferredCastAt, t)
+    }
     this.step(state, inputs)
+    // A later remote order may supersede our held windup after its real
+    // commit. Only authority can say whether it actually cancelled a cast.
+    state.events = state.events.filter((e) => e.type !== 'castCancel' || state.pawns.some((p) => p.id === e.pawn && p.owner === this.player))
   }
 
   /** Visual continuity: the displayed position stays where it was and the error decays. */

@@ -36,6 +36,7 @@ function read() {
     affordable: score.gold >= BET_STAKE,
     teams: state.settings.teamMode !== 'ffa',
     bounty: state.settings.bounties,
+    final: !!state.rankedFinal,
     payout: payout ? { amount: payout.amount, correct: payout.correct } : null,
     bountyAdded: settlement?.bountyAdded ?? 0,
   }
@@ -52,8 +53,8 @@ export function SpectatorBets() {
     sfx('click')
   }
   const result = value.payout
-  return <div className="pointer-events-none absolute inset-x-3 flex justify-center sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:right-3 sm:[@media(max-height:520px)]:w-[min(52vw,440px)]" style={{ bottom: 'calc(var(--hud-bottom-h) * var(--ui-scale, 1) + 18px)' }}>
-    <section data-testid="spectator-bets" className="interactive hud-scale w-full max-w-[440px] origin-bottom rounded border border-[#d6a44e]/30 bg-[#17100c]/95 px-3 py-2 text-sm shadow-lg" aria-label="Spectator betting">
+  return <div className="pointer-events-none absolute inset-x-3 bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px)] flex justify-center max-sm:bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px+var(--room-chat-offset,0px))] max-sm:[display:var(--spectator-bets-display,flex)] sm:[@media(min-height:521px)_and_(max-width:1199px)]:bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px+var(--room-chat-offset,0px))] sm:[@media(min-height:521px)_and_(max-width:1199px)]:[display:var(--spectator-bets-display,flex)] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:right-3 sm:[@media(max-height:520px)]:w-[min(52vw,440px)]">
+    <section data-testid="spectator-bets" className="interactive hud-scale w-full max-w-[440px] origin-bottom rounded border border-[#d6a44e]/30 bg-[#17100c]/95 px-3 py-2 text-sm shadow-lg sm:[@media(max-height:520px)]:max-h-[calc((100dvh_-_100px)/var(--ui-scale,1))] sm:[@media(max-height:520px)]:overflow-y-auto" aria-label="Spectator betting">
     <div className="flex items-center justify-between gap-3">
       <span className="font-semibold text-[#e7c58c]">{value.teams ? 'Bet on which team wins' : 'Bet on who wins'}</span>
       <span className="shrink-0 text-xs tabular-nums text-gold">Total bets: {value.pot} gold</span>
@@ -64,12 +65,12 @@ export function SpectatorBets() {
           : !value.affordable ? <p className="mt-1 text-ash">You need {BET_STAKE} gold to bet</p>
             : value.choices.length === 0 ? <p className="mt-1 text-ash">Betting closed for this round</p>
             : <><p className="mt-1 text-bone">Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold</p>
-              <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto overscroll-contain">{value.choices.map((choice) => <button key={choice.player} type="button" className="flex min-w-0 max-w-full flex-[1_1_150px] items-center gap-2 rounded border border-white/15 bg-white/5 px-2 py-1 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. One bet per round; it cannot be changed.`}>
-              <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} />
-              <span className="shrink-0 text-gold">Bet {BET_STAKE} gold ·</span><span className="min-w-0 max-w-40 truncate">{choice.name}</span>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">{value.choices.map((choice) => <button key={choice.player} type="button" className="flex min-w-0 flex-col items-start gap-0.5 rounded border border-white/15 bg-white/5 px-2 py-1 text-left text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. One bet per round; it cannot be changed.`}>
+              <span className="flex w-full min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} /><span className="min-w-0 truncate text-xs">{choice.name}</span></span>
+              <span className="text-xs text-gold">Bet {BET_STAKE} gold</span>
             </button>)}</div></>}
     <p className="mt-2 text-xs leading-snug text-bone" title="Correct bets get their gold back. Profit is paid in bet order while other bets cover it.">Win: up to {BET_MAX_RETURN} gold total back ({BET_MAX_RETURN - BET_STAKE} gold profit)</p>
-    <p className="mt-1 text-[0.7rem] leading-snug text-ash">Wrong pick: lose {BET_STAKE} gold. One bet per round · profit depends on other bets.{value.bounty ? ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
+    <p className="mt-1 text-[0.7rem] leading-snug text-ash">Wrong pick: lose {BET_STAKE} gold. One bet per round · profit depends on other bets.{value.bounty ? value.final ? '' : ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
     </section>
   </div>
 }

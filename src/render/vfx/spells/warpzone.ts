@@ -1,6 +1,6 @@
 /**
  * Warpzone (column 6 Knockbackless; teal). spells.md §8.25.
- * Windup (0.2 s cast point): teal clock rings spin up around the hand and a clock face starts
+ * Windup (0.2 s cast point): a teal clock marks the hand and a clock face starts
  * to draw itself at the (clamped, 700) target. Zone (static, radius 200..260 = sim radius,
  * 4.5 s): a time sphere - a clock-face floor decal whose crisp edge IS the radius (tick marks,
  * counter-rotating dashed rings, a sweeping hand), a faint dome of slow horizontal time bands
@@ -203,8 +203,8 @@ registerSpellVfx({
       const info = ctx.pawn(pw.id)
       if (!info) continue
       const o = originOf(info)
-      glowG(o.x / S, -o.z / S, o.y / S, 70 + 40 * k, TEAL, 0.6 + 0.6 * k, 0.07, 1, 1, ctx.now * 4)
-      glowG(o.x / S, -o.z / S, o.y / S, 45 + 30 * k, TEAL_HOT, 0.5 + 0.5 * k, 0.08, 1, 1, -ctx.now * 6)
+      drawCircle(o.x / S, -o.z / S, o.y / S + 1, 30, STYLE_CLOCK, TEAL[0], TEAL[1], TEAL[2], 0.6 + 0.7 * k, 0, 0, pw.id, 0, 1.2, 0, ctx.now - 1)
+      glowG(o.x / S, -o.z / S, o.y / S, 25, TEAL, 0.3 + 0.3 * k, 2.2)
     }
   },
   drawProjectile(p: ProjectileState, _x: number, _y: number, ctx: VfxCtx) {

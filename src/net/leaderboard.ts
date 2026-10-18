@@ -1,5 +1,5 @@
 /**
- * Casual global leaderboard (M4.3): server rooms only. The dedicated server records each
+ * Ranked global leaderboard (M4.3): server rooms only. The dedicated server records each
  * finished match it ran; clients never report outcomes. Player-hosted (P2P) games, listed
  * in Browse games or not, never reach it: the server does not run them.
  *
@@ -151,10 +151,12 @@ export class ServerMatchTracker implements MatchRecorder {
   private ranked: RoundRanking[] = []
   private team = new Map<PlayerId, number>()
   private alive = new Set<PlayerId>()
+  /** The extra final rates only its contenders; benched seats keep their five-round totals. */
+  private roundParticipants: Set<PlayerId> | null = null
   private active = false
 
   constructor(
-    private readonly onDone: (m: FinishedMatch, result: MatchResult) => void,
+    private readonly onDone: (m: FinishedMatch, result: MatchResult) => void | Promise<void>,
     private readonly onName?: (device: string, name: string) => void,
   ) {}
 
@@ -170,6 +172,7 @@ export class ServerMatchTracker implements MatchRecorder {
     this.botted.clear()
     this.deaths = []
     this.ranked = []
+    this.roundParticipants = null
     this.settings = info.settings
     this.bots = info.slots.filter((s) => s.kind === 'bot').length
     for (const s of info.slots) {
@@ -192,11 +195,16 @@ export class ServerMatchTracker implements MatchRecorder {
   }
 
   private human(p: PlayerId | null): SeatStats | null {
-    return p !== null && !this.botted.has(p) ? (this.seats.get(p) ?? null) : null
+    return p !== null && !this.botted.has(p) && (!this.roundParticipants || this.roundParticipants.has(p)) ? (this.seats.get(p) ?? null) : null
   }
 
   observe(state: SimState, events: readonly SimEvent[]): void {
     if (!this.active) return
+    // The final roster is selected during round 5's ending. That scoring round still
+    // belongs to everyone; membership applies only once the extra fight has started.
+    this.roundParticipants = state.rankedFinal && state.round > (this.settings?.rankedRounds ?? 0)
+      ? new Set(state.rankedFinal.contenders)
+      : null
     // teams (shuffle mode changes them per round) and survivors after these events
     this.team.clear()
     this.alive.clear()
@@ -238,11 +246,11 @@ export class ServerMatchTracker implements MatchRecorder {
     this.deaths = []
   }
 
-  finish(result: MatchResult): void {
+  finish(result: MatchResult): void | Promise<void> {
     if (!this.active || !this.settings) return
     this.active = false
     const winners = new Set(result.winners)
-    for (const s of this.seats.values()) s.won = winners.has(s.player)
+    for (const s of this.seats.values()) s.won = !this.botted.has(s.player) && winners.has(s.player)
     // deathmatch (no rounds): the whole match is one ranking by score
     if (this.ranked.length === 0 && result.scores.length > 0) {
       const score = new Map(result.scores.map((x) => [x.id, x.score]))
@@ -254,7 +262,7 @@ export class ServerMatchTracker implements MatchRecorder {
       if (players.length > 0) this.ranked.push({ groups, team })
       for (const p of players) this.seats.get(p)!.roundsPlayed++
     }
-    this.onDone({
+    return this.onDone({
       ticks: result.ticks ?? 0,
       rounds: result.rounds,
       teamMode: this.settings.teamMode,

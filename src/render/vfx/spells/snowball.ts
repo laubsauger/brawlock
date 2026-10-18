@@ -15,7 +15,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
-  InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, implode, kitAdopt, kitBegin,
+  InstPool, STYLE_FROST, TAU, burst, castFlash, drawCircle, floorH, glowG, kitAdopt, kitBegin,
   kitInit, kitRelease, light, originOf, projShadow, rand, type RGB,
   pal, flashT, levelOfThing, tierOfLevel, tierCap,
 } from './kitB'
@@ -291,15 +291,6 @@ registerSpellVfx({
   },
   onEvent(e: SimEvent, ctx: VfxCtx): boolean | void {
     switch (e.type) {
-      case 'castStart': {
-        if (e.spell !== SPELL) return
-        const info = ctx.pawn(e.pawn)
-        if (info) {
-          const o = originOf(info)
-          implode(ctx, o.x / S, -o.z / S, o.y / S, 24, 60, 130, 0.2, 10, FROST, 1.2, 70)
-        }
-        return
-      }
       case 'cast': {
         if (e.spell !== SPELL) return
         const o = castFlash(ctx, e.pawn, FROST, 1)
@@ -337,7 +328,7 @@ registerSpellVfx({
   frame(ctx: VfxCtx) {
     kitBegin(ctx)
     frameNo++
-    // signature windup: frost condenses into a growing ice ball in the hand, breath of vapour
+    // Cancellable frost charge stays on the hand; the ball exists only after release.
     const st = ctx.state
     if (st && balls) {
       for (const pw of st.pawns) {
@@ -347,11 +338,7 @@ registerSpellVfx({
         if (!info) continue
         const o = originOf(info)
         const k = 1 - c.ticksLeft / 12
-        const r = 8 + 22 * k
-        balls.quat.setFromAxisAngle(UP, ctx.now * 4)
-        balls.add(o.x, o.y + r * 0.5 * S, o.z, r * S, r * S, r * S)
-        glowG(o.x / S, -o.z / S, o.y / S + r * 0.5, r * 4, FROST, 0.25 + 0.3 * k, 1.6)
-        if (Math.random() < ctx.dt * 30) ctx.smoke.spawn(o.x / S + rand(-10, 10), -o.z / S + rand(-10, 10), o.y / S, rand(-20, 20), rand(-20, 20), rand(20, 60), 0.6, 14, 40, MIST[0], MIST[1], MIST[2], 0, 1.5, 6)
+        glowG(o.x / S, -o.z / S, o.y / S, 20, FROST, 0.05 + 0.08 * k, 1.4)
       }
     }
     for (let i = patches.length - 1; i >= 0; i--) {

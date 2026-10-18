@@ -117,17 +117,16 @@ function drawTurns(k: KitA, ctx: VfxCtx): void {
 }
 
 /** signature charge-up: a bronze compass, its needle swinging onto the target */
-function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, tx: number, ty: number, w: number): void {
-  const now = ctx.now
-  k.air.add(G_RETICLE, o.x, o.y, o.h - 4, 44, now * 0.6, P.body[0], P.body[1], P.body[2], 0.8 + 0.6 * w, w)
+function signature(k: KitA, _ctx: VfxCtx, info: PawnRenderInfo, _id: number, tx: number, ty: number, w: number): void {
+  k.air.add(G_RETICLE, o.x, o.y, o.h + 1, 28, 0, P.body[0], P.body[1], P.body[2], 0.8 + 0.6 * w, w)
   const want = Math.atan2(ty - info.y, tx - info.x)
-  // the needle overshoots and settles as the cast point runs out
-  const ang = want + Math.sin(now * 14) * (1 - w) * 0.9
-  const L = 34 + 10 * w
+  // The needle settles within the seal without traveling away from the palm.
+  const ang = want + (1 - w) * 0.35
+  const L = 23
   k.stripBegin(false, 2, 0, 0)
-  k.stripPoint(o.x - Math.cos(ang) * L * 0.4, o.y - Math.sin(ang) * L * 0.4, o.h, 6, P.edge[0], P.edge[1], P.edge[2], 0.9)
-  k.stripPoint(o.x, o.y, o.h, 9, P.body[0], P.body[1], P.body[2], 1.2)
-  k.stripPoint(o.x + Math.cos(ang) * L, o.y + Math.sin(ang) * L, o.h, 2, P.hot[0], P.hot[1], P.hot[2], 1.4)
+  k.stripPoint(o.x - Math.cos(ang) * L * 0.65, o.y - Math.sin(ang) * L * 0.65, o.h + 2, 5, P.edge[0], P.edge[1], P.edge[2], 0.9)
+  k.stripPoint(o.x, o.y, o.h + 2, 7, P.body[0], P.body[1], P.body[2], 1.2)
+  k.stripPoint(o.x + Math.cos(ang) * L, o.y + Math.sin(ang) * L, o.h + 2, 2, P.body[0], P.body[1], P.body[2], 1.2)
   k.stripEnd()
 }
 

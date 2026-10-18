@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS players (
   first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS players_rating ON players(rating DESC);
+CREATE TABLE IF NOT EXISTS rating_receipts (
+  key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, verdict TEXT NOT NULL
+);
 `
 
 const player = (r) => ({
@@ -79,7 +82,7 @@ const result = (r) => ({
 export function openLeaderboard(file) {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;')
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
   db.exec(SCHEMA)
 
   const insMatch = db.prepare('INSERT INTO matches (at, region, room, ticks, rounds, humans, bots) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -91,9 +94,45 @@ export function openLeaderboard(file) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(device) DO UPDATE SET name = excluded.name, tag = excluded.tag, rating = excluded.rating,
       matches = excluded.matches, wins = excluded.wins, rounds_played = excluded.rounds_played,
-      rounds_won = excluded.rounds_won, kills = excluded.kills, deaths = excluded.deaths, last_at = excluded.last_at`)
+      rounds_won = excluded.rounds_won, kills = excluded.kills, deaths = excluded.deaths,
+      first_at = MIN(players.first_at, excluded.first_at), last_at = excluded.last_at`)
   const getPlayer = db.prepare('SELECT * FROM players WHERE device = ?')
   const renamePlayer = db.prepare('UPDATE players SET name = ? WHERE device = ? AND name <> ?')
+  const getReceipt = db.prepare('SELECT fingerprint, verdict FROM rating_receipts WHERE key = ?')
+  const insReceipt = db.prepare('INSERT INTO rating_receipts (key, fingerprint, verdict) VALUES (?, ?, ?)')
+
+  function receipt(key, fingerprint) {
+    const r = getReceipt.get(key)
+    if (!r) return null
+    if (r.fingerprint !== fingerprint) throw new Error('Rating idempotency key conflicts with a different match')
+    return JSON.parse(r.verdict)
+  }
+
+  function writeMatch(m, results, players) {
+    const id = insMatch.run(m.at, m.region, m.room, m.ticks, m.rounds, m.humans, m.bots).lastInsertRowid
+    for (const r of results) {
+      insResult.run(id, r.device, r.name, r.at, r.region, r.won ? 1 : 0, r.roundsPlayed, r.roundsWon, r.kills, r.deaths, r.delta, r.rating)
+    }
+    for (const p of players) {
+      upPlayer.run(p.device, p.name, p.tag, p.rating, p.matches, p.wins, p.roundsPlayed, p.roundsWon, p.kills, p.deaths, p.firstAt, p.lastAt)
+    }
+  }
+
+  function commit(m, results, players, saved) {
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      if (saved && receipt(saved.key, saved.fingerprint)) {
+        db.exec('COMMIT')
+        return
+      }
+      writeMatch(m, results, players)
+      if (saved) insReceipt.run(saved.key, saved.fingerprint, JSON.stringify(saved.rating))
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+  }
 
   // 'all': players by rating. 'week': players with results since ?, by rating gained then.
   // Region filter: devices with a result in that region (each server holds its own region).
@@ -134,20 +173,30 @@ export function openLeaderboard(file) {
       return out
     },
 
-    commit(m, results, players) {
+    commit,
+    receipt,
+    rememberReceipt(key, fingerprint, rating) {
+      if (!receipt(key, fingerprint)) insReceipt.run(key, fingerprint, JSON.stringify(rating))
+    },
+    commitReceipt(key, fingerprint, rating, m, results, players) {
+      commit(m, results, players, { key, fingerprint, rating })
+    },
+    applyReceipt(key, fingerprint, calculate) {
       db.exec('BEGIN IMMEDIATE')
       try {
-        const id = insMatch.run(m.at, m.region, m.room, m.ticks, m.rounds, m.humans, m.bots).lastInsertRowid
-        for (const r of results) {
-          insResult.run(id, r.device, r.name, r.at, r.region, r.won ? 1 : 0, r.roundsPlayed, r.roundsWon, r.kills, r.deaths, r.delta, r.rating)
+        const previous = receipt(key, fingerprint)
+        if (previous) {
+          db.exec('COMMIT')
+          return previous
         }
-        for (const p of players) {
-          upPlayer.run(p.device, p.name, p.tag, p.rating, p.matches, p.wins, p.roundsPlayed, p.roundsWon, p.kills, p.deaths, p.firstAt, p.lastAt)
-        }
+        const settled = calculate()
+        if (settled.commit) writeMatch(...settled.commit)
+        insReceipt.run(key, fingerprint, JSON.stringify(settled.rating))
         db.exec('COMMIT')
-      } catch (e) {
+        return settled.rating
+      } catch (error) {
         db.exec('ROLLBACK')
-        throw e
+        throw error
       }
     },
 

@@ -18,7 +18,7 @@ Research that backs this plan lives in `docs/research/`:
 ## 1. Pillars
 
 1. **Precision under pressure.** Fast, readable, skill-expressive. Every hit, knockback and lava tick must be legible within a frame. Latency is a design constraint, not an afterthought.
-2. **Faithful core, standalone polish.** The original mechanics and numbers, presented like a real game: splash, menus, lobby, settings, quality tiers, audio mixing, results. No mod-era hacks. No chat or console commands; every control has a UI.
+2. **Faithful core, standalone polish.** The original mechanics and numbers, presented like a real game: splash, menus, lobby, settings, quality tiers, audio mixing, results. Room chat connects players; gameplay controls use the UI rather than chat or console commands.
 3. **Always a match.** Bots fill any slot at any difficulty. Solo vs bots, mixed lobbies, bot-only spectating, bot takeover for leavers.
 4. **Web-native.** Opens from a link. No install. Runs on GitHub Pages. Multiplayer by sharing a URL.
 

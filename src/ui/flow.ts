@@ -12,6 +12,15 @@ import { useGame } from '../game/store'
 import { parseRoomCode } from '../net/code'
 import { tutorial } from './lib/onboarding'
 import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
+import { isPlaySupported, PLAY_REQUIREMENT } from './lib/playAccess'
+
+/** Reject before onboarding or reserving a matchmaking seat. Browsing stays available. */
+function allowPlay(): boolean {
+  if (isPlaySupported()) return true
+  clearPendingRoom()
+  useGame.getState().setScreen('menu')
+  return false
+}
 
 function closeOverlays() {
   const s = useGame.getState()
@@ -22,11 +31,12 @@ function closeOverlays() {
 }
 
 export function playOffline(): void {
+  if (!allowPlay()) return
   tutorial.request({ label: 'Play vs bots', run: () => session.openOffline() })
 }
 
 /** What the last attempt was, for the failure line ("Couldn't join quick play.") */
-export type HostAction = 'pc' | 'server' | 'quick'
+export type HostAction = 'pc' | 'server' | 'quick' | 'ranked'
 let lastAction: HostAction | null = null
 export function lastHostAction(): HostAction | null {
   return lastAction
@@ -55,6 +65,7 @@ export function useLastHostResult(): HostResult | null {
 
 /** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
 export function hostGame(listed = false): void {
+  if (!allowPlay()) return
   tutorial.request({
     label: 'Host from your PC',
     run: () => {
@@ -70,6 +81,7 @@ export function hostGame(listed = false): void {
 
 /** Quick play: an open game on the server (or a new one, filled with bots). */
 export function quickPlay(region: string): void {
+  if (!allowPlay()) return
   tutorial.request({
     label: 'Find a game',
     run: () => {
@@ -80,8 +92,22 @@ export function quickPlay(region: string): void {
   })
 }
 
+/** Ranked keeps its fixed rules and waits for an opponent after the first-play guide. */
+export function rankedPlay(region: string): void {
+  if (!allowPlay()) return
+  tutorial.request({
+    label: 'Find a ranked opponent',
+    run: () => {
+      lastAction = 'ranked'
+      setLastHost(null)
+      void session.rankedPlay({ region }).then(setLastHost)
+    },
+  })
+}
+
 /** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
 export function hostOnServer(region: string, listed = false): void {
+  if (!allowPlay()) return
   tutorial.request({
     label: 'Host on a server',
     run: () => {
@@ -97,6 +123,7 @@ export function hostOnServer(region: string, listed = false): void {
 
 /** Join by room code (typed, pasted with dashes / spaces, or a whole ?room= link). */
 export function joinRoom(text: string, onCancel?: () => void, route?: RoomRoute): { problem: string } | null {
+  if (!allowPlay()) return { problem: PLAY_REQUIREMENT }
   const r = parseRoomCode(text)
   if ('problem' in r) return r
   rememberPendingRoom(r.code)

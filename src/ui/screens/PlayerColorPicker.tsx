@@ -2,6 +2,22 @@ import { session } from '../../game/session'
 import { PLAYER_COLOR_OPTIONS, planPlayerColor } from '../../net/lobbyColors'
 import type { PlayerSlot } from '../../sim/types'
 
+/** A saved preference, requested by the session as soon as the lobby is joined. */
+export function PreferredColorPicker({ color, onChange }: { color: number | null; onChange: (color: number) => void }) {
+  return <fieldset className="min-w-0">
+    <legend className="mb-2 text-sm font-semibold text-ash">Preferred color</legend>
+    <div className="flex flex-wrap justify-center gap-2" role="group" aria-label="Preferred player color">
+      {PLAYER_COLOR_OPTIONS.map((choice) => <button key={choice.color} type="button"
+        className="relative h-9 w-9 shrink-0 rounded border-2 hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+        style={{ background: `#${choice.color.toString(16).padStart(6, '0')}`, borderColor: choice.color === color ? '#fff7df' : '#1b100a' }}
+        title={choice.name} aria-label={choice.name} aria-pressed={choice.color === color} onClick={() => onChange(choice.color)}>
+        {choice.color === color && <span aria-hidden className="font-bold text-white" style={{ textShadow: '0 1px 3px #000' }}>✓</span>}
+      </button>)}
+    </div>
+    <p className="mt-2 text-xs leading-snug text-ash">Selected when you join a lobby, if another human hasn’t taken it. Bots swap with you.</p>
+  </fieldset>
+}
+
 /** Selection stays authoritative: this component neither recolors slots nor saves preferences. */
 export function PlayerColorPicker({ local, slots, editable }: { local: PlayerSlot; slots: readonly PlayerSlot[]; editable: boolean }) {
   if (local.kind !== 'human') return null

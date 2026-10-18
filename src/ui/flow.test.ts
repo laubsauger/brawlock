@@ -9,11 +9,14 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../game/session', () => ({ session: mocks }))
 vi.mock('./lib/onboarding', () => ({ tutorial: { request: mocks.request } }))
-import { hostGame, hostOnServer, joinRoom } from './flow'
+import { hostGame, hostOnServer, joinRoom, playOffline, quickPlay, rankedPlay } from './flow'
 import { PENDING_ROOM_KEY } from '../lib/pendingRoom'
+import { PLAY_REQUIREMENT } from './lib/playAccess'
+import { useGame } from '../game/store'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal('matchMedia', () => ({ matches: true }))
   const values = new Map<string, string>()
   vi.stubGlobal('sessionStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) })
   mocks.openHost.mockResolvedValue({ ok: true, mode: 'p2p', region: null })
@@ -23,6 +26,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('shared play setup hosting', () => {
+  it('blocks every touch-only entry before onboarding, clears pending invites and keeps the menu available', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    sessionStorage.setItem(PENDING_ROOM_KEY, 'KRZBW')
+    useGame.getState().setScreen('boot')
+    playOffline()
+    hostGame(true)
+    hostOnServer('us-west', true)
+    quickPlay('auto')
+    rankedPlay('auto')
+    expect(joinRoom('KRZBW')).toEqual({ problem: PLAY_REQUIREMENT })
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(mocks.openHost).not.toHaveBeenCalled()
+    expect(mocks.openHostServer).not.toHaveBeenCalled()
+    expect(mocks.join).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem(PENDING_ROOM_KEY)).toBeNull()
+    expect(useGame.getState().screen).toBe('menu')
+  })
+
   it('waits for onboarding before opening or listing a browser-created room', async () => {
     hostOnServer('us-west', true)
     expect(mocks.openHostServer).not.toHaveBeenCalled()

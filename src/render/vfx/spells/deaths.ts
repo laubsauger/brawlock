@@ -196,11 +196,11 @@ function genericDeath(ctx: VfxCtx, pawn: EntityId, x: number, y: number, base: n
   const a0 = Math.atan2(dir.y, dir.x)
   for (let i = 0; i < n; i++) {
     const a = omni ? rnd() * Math.PI * 2 : a0 + (rnd() - 0.5) * 2.2
-    const sp = 200 + rnd() * 500
-    ctx.particles.spawn(x, y, base + 30 + rnd() * 80, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 280, 0.3 + rnd() * 0.4, 7 + rnd() * 5, 1, s[0] * 2.6, s[1] * 2.6, s[2] * 2.6, -700, 2.6, -0.1)
+    const sp = 260 + rnd() * 520
+    ctx.particles.spawn(x, y, base + 30 + rnd() * 80, Math.cos(a) * sp, Math.sin(a) * sp, 80 + rnd() * 280, 0.24 + rnd() * 0.36, 7 + rnd() * 5, 1, s[0] * 2.6, s[1] * 2.6, s[2] * 2.6, -700, 2.6, -0.1)
   }
   ctx.ground.spawn(RING_EXPAND, x, y, base + 1.5, 20, 200 * Math.min(1.3, k), 0.5, 14, s[0] * 1.6 * load, s[1] * 1.6 * load, s[2] * 1.6 * load)
-  flash(ctx, x, y, base + 70, [c[0] * 0.5 + s[0], c[1] * 0.5 + s[1], c[2] * 0.5 + s[2]], 1.2, 300, 210, 0.3)
+  flash(ctx, x, y, base + 70, [c[0] * 0.5 + s[0], c[1] * 0.5 + s[1], c[2] * 0.5 + s[2]], 1.0, 300, 170, 0.25)
   // looks the character already has get their kit piece
   if (look === 'lightning') xrayFlash(ctx, x, y, base, tint)
   else if (look === 'freeze') freezeShatter(ctx, x, y, base, k, tint)

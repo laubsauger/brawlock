@@ -8,12 +8,12 @@
  *
  * Who sees the windup (close to the original, where Scourge had no tell
  * until the blast): only the LOCAL caster sees the telegraph below (ring at
- * the exact radius, runes, threads, sphere, beam / crown, tremor) plus a faint
+ * the exact radius, runes, threads, hand crown, tremor) plus a faint
  * dashed inner line at R - pawn radius ("who will actually be hit").
  * Everyone else (opponents, allies, spectators / replays) gets a subtle but
  * noticeable "charging" cue on the caster (see windupCue: pulsing crimson
- * ember aura on the body, a heartbeat on its ground identity ring that
- * quickens toward the release). No radius ring, runes, beam or
+ * ember aura on the body, with a heartbeat that quickens toward release).
+ * No radius ring, runes, beam or
  * crown, no floor light (the shared windup's light is hidden for them via
  * windupStyle 'light'), no tremor. The blast is unchanged and shown to all.
  *
@@ -22,13 +22,11 @@
  *     the first frame; a band of runes just inside it ignites around the
  *     circle, and from every rune a thread of crimson crawls inward toward
  *     the caster while a shadow pool creeps in from the edge
- *   - dark shadow tendrils rise off the ground and stream to the raised hands
- *   - a crimson energy sphere gathers above the head, fed by converging motes
- *   - the caster's own life leaves the body as red wisps into the sphere
- *     (the 100 HP cost), a low ground tremor ramps up (fx scaled)
- * Cancel: the runes shatter into falling shards, the sphere pops into dark
- *   wisps, the smoke collapses outward along the floor; the circle flickers
- *   out in 0.45 s. Reads as a fake.
+ *   - a crimson crown seal stays on the real raised hands, with additional
+ *     strokes at higher levels; no sphere, free motes, or airborne charge
+ *   - a low ground tremor ramps up (fx scaled)
+ * Cancel: hand/body marks extinguish immediately; the local target circle
+ *   breaks apart in place over 0.45 s, without emitted shards or smoke.
  * Release (hands slam down):
  *   - a dark shockwave sweeps centre -> exactly R in 0.22 s with a hot crimson
  *     edge, then rests as the thin boundary and fades
@@ -43,13 +41,13 @@
  * Level tiers (edge always the crisp ring at the sim radius: who gets hit):
  *   L1 (everyone, from round 1, so the look seen constantly) is tame: mostly
  *     outline, not fill. A thin ember-crimson edge, sparse runes, no threads,
- *     a faint floor tint, a small sphere and no beam, ~35 % of the particles;
+ *     a faint floor tint, a dim hand crown and ~35 % of release particles;
  *     release = a quick shockwave ring + a short flash, no filled disc or
  *     crack blaze.
  *   L2: some fill, all runes plus an inner ring, the threads, an echo
  *     shockwave, moderate particles and cracks.
- *   L3: the full escalation: three rune rings, the full red pool, beam and a
- *     crown of blades that bursts on release, dense flames, glowing cracks.
+ *   L3: the full escalation: three rune rings, the full red pool, a detailed
+ *     hand crown, a blade burst on release, dense flames, glowing cracks.
  *   Level comes from the event (`level`) when the sim sends it, else from the
  *   caster's slot level.
  * Caster identity: with bots spamming Scourge, 2-4 overlapping r250 circles are
@@ -58,8 +56,7 @@
  *   slot colour in FFA, like the pawn ring) through the windup and while the
  *   released edge rests. The
  *   edge, runes and blast stay Scourge crimson. The shared hand-cast rings and
- *   arm spiral are hidden (windupStyle): the gathering orb above the head is
- *   this module's.
+ *   arm spiral are hidden (windupStyle): this module draws the hand crown.
  * Aftermath (one clean curve, nothing lingers as a smear): glow cools fast and
  *   is gone by ~1.1 s, the charred fill fades out crisply by 1.4 s, the dark
  *   crack lines by 1.8 s; decal alpha reaches exactly 0. Smoke <= 1 s.
@@ -83,7 +80,7 @@ import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
 import { cameraZoomParam } from '../../cameraRig'
 import { colorForPawn } from '../../teamColors'
-import { BODY_H, BODY_R, decalFloor } from '../deathKit'
+import { BODY_H, decalFloor } from '../deathKit'
 import { registerSpellVfx, type VfxCtx, type WindupStyle } from '../registry'
 
 const TAU = Math.PI * 2
@@ -91,7 +88,7 @@ const rnd = Math.random
 /** sim AoE radius (all levels) */
 const R_DEFAULT = 250
 const WINDUP_S = 0.9
-const CANCEL_S = 0.45
+const CANCEL_S = 0.18
 const SWEEP_S = 0.22
 /** decal lifetime: everything has faded to exactly 0 by then */
 const RELEASE_LIFE = 1.8
@@ -635,95 +632,43 @@ function levelOf(ctx: VfxCtx, e: object, pawnId: EntityId | null, x?: number, y?
 
 // ---------------------------------------------------------------- per-frame emission
 
-function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
-  const ps = ctx.particles
-  const R = R_DEFAULT
-  const hx = w.x
-  const hy = w.y
-  const handsH = w.h + BODY_H * 1.12
-  const sphereH = w.h + BODY_H + 46
-  const L = w.level
-  // particle budget per tier: L3 is the full look, L1 ~35 % of the old L1
-  const pk = tier(L, 0.35, 0.8, 1.6)
-  // shadow tendrils: off the floor inside the circle, streaming to the raised hands
-  const nt = emitN(ctx, w, 'acc', 34 * (0.3 + p) * pk)
-  for (let i = 0; i < nt; i++) {
-    const a = rnd() * TAU
-    const r0 = R * (0.3 + rnd() * 0.62)
-    const sx = hx + Math.cos(a) * r0
-    const sy = hy + Math.sin(a) * r0
-    const life = 0.55 + rnd() * 0.3
-    const vx = ((hx - sx) * 0.7) / life
-    const vy = ((hy - sy) * 0.7) / life
-    const vh = ((handsH - w.h) * 0.6) / life
-    const g = 0.012 + rnd() * 0.012
-    ctx.smoke.spawn(sx, sy, w.h + 6, vx, vy, vh, life, 14, 36, g + 0.02, g * 0.2, g * 0.4, 0, 0.4, 10)
-    if (rnd() < 0.55) ps.spawn(sx, sy, w.h + 6, vx, vy, vh, life * 0.9, 5, 2, CRIMSON[0] * 1.1, CRIMSON[1], CRIMSON[2], 0, 0.4, 6)
-  }
-  // motes converging into the sphere
-  const nm = emitN(ctx, w, 'acc2', 46 * p * tier(L, 0.35, 0.7, 1))
-  for (let i = 0; i < nm; i++) {
-    const a = rnd() * TAU
-    const e = (rnd() - 0.5) * 1.4
-    const r0 = 60 + rnd() * 40
-    const dx = Math.cos(a) * Math.cos(e)
-    const dy = Math.sin(a) * Math.cos(e)
-    const dh = Math.sin(e)
-    const life = 0.2 + rnd() * 0.08
-    const sp = r0 / life
-    ps.spawn(hx + dx * r0, hy + dy * r0, sphereH + dh * r0, -dx * sp, -dy * sp, -dh * sp, life, 6, 2, CRIMSON[0] * 1.2, CRIMSON[1] * 1.5, CRIMSON[2] * 1.5, 0, 0, -0.06)
-  }
-  // the caster's own life drained into the sphere (the 100 HP cost)
-  const nl = emitN(ctx, w, 'acc3', 22 * tier(L, 0.4, 0.7, 1))
-  for (let i = 0; i < nl; i++) {
-    const a = rnd() * TAU
-    const rr = BODY_R * (1.05 + rnd() * 0.25)
-    const sx = hx + Math.cos(a) * rr
-    const sy = hy + Math.sin(a) * rr
-    const sh = w.h + 25 + rnd() * BODY_H * 0.6
-    const life = 0.45 + rnd() * 0.2
-    ps.spawn(sx, sy, sh, ((hx - sx) * 0.9) / life, ((hy - sy) * 0.9) / life, ((sphereH - sh) * 0.85) / life, life, 8 + rnd() * 4, 3, 2.0, 0.07, 0.1, 0, 0, 7)
-  }
-  // the gathering sphere: dark-hearted crimson orb + spinning ring + halo
-  if (bb) {
-    const X = hx * S
-    const Y = sphereH * S
-    const Z = -hy * S
-    const flick = 0.88 + Math.sin(ctx.now * 37) * 0.08 + Math.sin(ctx.now * 23) * 0.04
-    // sphere size / brightness per tier: L1 a small ember orb
-    const sz = tier(L, 0.5, 0.75, 1)
-    const k = (0.25 + p * 0.95) * tier(L, 0.55, 0.8, 1)
-    bb.add(X, Y, Z, (40 + 90 * p) * sz * S, CRIMSON[0] * 0.55 * k, CRIMSON[1] * 0.4 * k, CRIMSON[2] * 0.45 * k, 1.5)
-    bb.add(X, Y, Z, (14 + 30 * p) * sz * S, HOT[0] * 0.7 * k * flick, HOT[1] * 0.5 * k * flick, HOT[2] * 0.5 * k * flick, 2.6)
-    if (L >= 2) bb.add(X, Y, Z, (34 + 46 * p) * sz * S, CRIMSON[0] * 0.8 * k, CRIMSON[1] * k, CRIMSON[2] * k, -2.5)
-    // the column linking hands and sphere: none on L1, faint on L2, full on L3
-    if (L >= 2) bb.addStreak(X, (handsH + 20) * S, Z, 16 * S, 3.2, Math.PI / 2, CRIMSON[0] * tier(L, 0, 0.18, 0.35) * p, 0.02, 0.03, 1.6)
-    if (L >= 3) crown(hx, hy, sphereH + 40, p, ctx.now - w.t0)
-  }
-  if (ctx.quality !== 'low') ctx.glow.add(hx, hy, R * 0.7, (0.06 + 0.2 * p) * tier(L, 0.35, 0.7, 1), 1.0, 0.03, 0.04)
-  // low ground tremor, ramping (shake trauma per frame ~ target * 6 dt)
-  ctx.shakeNear(hx, hy, (0.02 + 0.16 * p) * tier(L, 0.5, 0.75, 1) * 6 * ctx.dt)
-}
-
-/** L3: a crown of crimson blades circling above the caster, tilted toward the camera. */
-const CROWN_N = 9
-function crown(x: number, y: number, h: number, p: number, age: number): void {
+/** Camera-plane stroke on the real raised hands, rebuilt every rendered frame. */
+function bloodStroke(ctx: VfxCtx, hand: THREE.Vector3, x0: number, y0: number, x1: number, y1: number, strength: number): void {
   if (!bb) return
-  const r = 52 + 14 * p
-  const k = Math.min(1, p * 2.2)
-  const spin = age * 2.4
-  for (let i = 0; i < CROWN_N; i++) {
-    const a = spin + (i / CROWN_N) * TAU
-    const cx = x + Math.cos(a) * r
-    const cy = y + Math.sin(a) * r * 0.55
-    const ch = h + Math.sin(a) * 6
-    // upright blade: vertical streak + hot tip
-    bb.addStreak(cx * S, (ch + 16) * S, -cy * S, 13 * S, 3.8, Math.PI / 2, CRIMSON[0] * 1.3 * k, CRIMSON[1] * 2 * k, CRIMSON[2] * 2 * k, 1.8)
-    bb.add(cx * S, (ch + 40) * S, -cy * S, 11 * S, HOT[0] * 0.9 * k, HOT[1] * 0.9 * k, HOT[2] * 0.9 * k, 2.4)
-  }
-  bb.add(x * S, h * S, -y * S, (r * 2.2) * S, CRIMSON[0] * 0.5 * k, 0.015 * k, 0.02 * k, -3)
+  const e = ctx.camera.matrixWorld.elements
+  const mx = (x0 + x1) * 0.5 * S
+  const my = (y0 + y1) * 0.5 * S
+  const dx = x1 - x0
+  const dy = y1 - y0
+  const width = 4 * S
+  bb.addStreak(hand.x + e[0] * mx + e[4] * my, hand.y + e[1] * mx + e[5] * my, hand.z + e[2] * mx + e[6] * my,
+    width, Math.hypot(dx, dy) * S / width, Math.atan2(dy, dx), CRIMSON[0] * strength, CRIMSON[1] * 2 * strength, CRIMSON[2] * 2 * strength, 0.8)
 }
 
+function windupFx(ctx: VfxCtx, w: Windup, p: number): void {
+  const info = ctx.pawn(w.pawn)
+  if (!info) return
+  const hand = info.castOrigin
+  const k = (0.45 + p * 0.55) * tier(w.level, 0.55, 0.8, 1)
+  // A blood crown stays on the joined hands: three connected teeth, no orb,
+  // free motes, overhead body, or growing outward flight silhouette.
+  bloodStroke(ctx, hand, -23, -12, -23, 9, k)
+  bloodStroke(ctx, hand, -23, 9, -10, -2, k)
+  bloodStroke(ctx, hand, -10, -2, 0, 19, k)
+  bloodStroke(ctx, hand, 0, 19, 10, -2, k)
+  bloodStroke(ctx, hand, 10, -2, 23, 9, k)
+  bloodStroke(ctx, hand, 23, 9, 23, -12, k)
+  bloodStroke(ctx, hand, 23, -12, -23, -12, k)
+  if (w.level >= 2) bloodStroke(ctx, hand, -19, -18, 19, -18, k * 0.7)
+  if (w.level >= 3) {
+    bloodStroke(ctx, hand, -7, -5, 0, 7, k * 0.8)
+    bloodStroke(ctx, hand, 0, 7, 7, -5, k * 0.8)
+  }
+  if (ctx.quality !== 'low') ctx.glow.add(w.x, w.y, R_DEFAULT * 0.7, (0.06 + 0.2 * p) * tier(w.level, 0.35, 0.7, 1), 1.0, 0.03, 0.04)
+  ctx.shakeNear(w.x, w.y, (0.02 + 0.16 * p) * tier(w.level, 0.5, 0.75, 1) * 6 * ctx.dt)
+}
+
+const CROWN_N = 9
 function crownBurst(ctx: VfxCtx, x: number, y: number, h: number): void {
   const ps = ctx.particles
   for (let i = 0; i < CROWN_N; i++) {
@@ -777,107 +722,21 @@ function hitImpact(ctx: VfxCtx, target: EntityId, x: number, y: number, kb: numb
   ctx.ground.spawn(RING_EXPAND, x, y, f, 14, 70 + 50 * k, 0.3, 8, CRIMSON[0] * 0.9, CRIMSON[1], CRIMSON[2])
 }
 
-/** radius of the pawn's own ground identity ring (Pawns.ts decal) */
-const PAWN_RING_R = 39
-
-/**
- * What everyone but the caster sees during the windup: "that warlock is
- * charging something", never the radius.
- *   - a pulsing crimson ember aura on the body (rim ring + soft glow) and
- *     ember motes rising off the silhouette, building with the windup
- *   - a crimson heartbeat on the caster's own ground identity ring (same
- *     size as the ring, plus a short ripple to ~1.5x), beating faster as the
- *     release nears
- * Calm at L1, a little stronger at L3; saturated reds (<= 1.6 HDR) so Low and
- * Medium clip to red, not white.
- */
+/** Others see only an immediate body heartbeat, never the local pose or blast radius. */
 function windupCue(ctx: VfxCtx, w: Windup, p: number): void {
   if (!bb) return
   const lk = tier(w.level, 0.65, 0.85, 1.05)
   const X = w.x * S
   const Z = -w.y * S
-  // heartbeat: interval 0.42 s -> 0.11 s as the release nears (frozen clock: no beats)
   const interval = 0.42 - 0.31 * Math.pow(p, 1.3)
   w.acc2 += ctx.dt
-  let beat = false
-  if (w.acc2 >= interval) {
-    w.acc2 = 0
-    beat = true
-  }
-  // beat envelope for the body aura (w.acc2 = seconds since the last beat)
+  if (w.acc2 >= interval) w.acc2 = 0
   const env = Math.exp(-w.acc2 * 14)
   const base = (0.3 + 0.7 * p) * lk
   const k = base * (0.55 + 0.45 * env)
-  // zoomed far out the aura grows a little so it still reads (1x at the default 1100)
   const zs = Math.min(1.8, Math.max(1, Math.sqrt(cameraZoomParam.distance / 1100)))
-  // ember aura on the silhouette: rim ring around the body + soft inner glow
   bb.add(X, (w.h + BODY_H * 0.5) * S, Z, (96 + 14 * env) * zs * S, CRIMSON[0] * 0.8 * k, CRIMSON[1] * 1.4 * k, CRIMSON[2] * 1.3 * k, -2.0)
   bb.add(X, (w.h + BODY_H * 0.5) * S, Z, 78 * zs * S, CRIMSON[0] * 0.26 * k, CRIMSON[1] * 0.4 * k, CRIMSON[2] * 0.45 * k, 1.4)
-  // ember motes rising off the silhouette
-  const n = emitN(ctx, w, 'acc', (10 + 30 * p) * lk)
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * TAU
-    const rr = BODY_R * (1.0 + rnd() * 0.3)
-    const life = 0.5 + rnd() * 0.35
-    ctx.particles.spawn(w.x + Math.cos(a) * rr, w.y + Math.sin(a) * rr, w.h + 10 + rnd() * BODY_H * 0.8, Math.cos(a) * 12, Math.sin(a) * 12, 70 + rnd() * 70, life, 6 + rnd() * 3, -1.5, CRIMSON[0] * 1.05, CRIMSON[1] * 2.4, CRIMSON[2] * 1.8, 30, 0.8, 5)
-  }
-  // heartbeat on the ground identity ring: a crimson ring exactly over it plus a
-  // short ripple (stays within ~1.5x the ring, never hints at the blast radius)
-  if (beat) {
-    const f = decalFloor(ctx, w.x, w.y) + 1.4
-    const g = (0.55 + 0.6 * p) * lk
-    ctx.ground.spawn(RING_EXPAND, w.x, w.y, f, PAWN_RING_R, PAWN_RING_R, Math.min(0.3, interval * 0.9), 5 * zs, CRIMSON[0] * g, CRIMSON[1] * 1.5 * g, CRIMSON[2] * 1.5 * g)
-    ctx.ground.spawn(RING_EXPAND, w.x, w.y, f, PAWN_RING_R, PAWN_RING_R * 1.5, 0.3, 3 * zs, CRIMSON[0] * g * 0.6, CRIMSON[1] * g, CRIMSON[2] * g)
-  }
-}
-
-/** A cancelled windup seen from outside: the aura sputters out in a few embers. */
-function cueFizzle(ctx: VfxCtx, w: Windup): void {
-  const info = ctx.pawn(w.pawn)
-  if (!info) return
-  const n = ctx.particles.budget(10)
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * TAU
-    const sp = 50 + rnd() * 70
-    ctx.particles.spawn(info.x + Math.cos(a) * BODY_R, info.y + Math.sin(a) * BODY_R, info.h + 20 + rnd() * BODY_H * 0.7, Math.cos(a) * sp, Math.sin(a) * sp, (rnd() - 0.2) * 80, 0.25 + rnd() * 0.15, 5, 1, CRIMSON[0], CRIMSON[1] * 2, CRIMSON[2] * 2, -600, 2, -0.05)
-  }
-}
-
-function cancelFx(ctx: VfxCtx, w: Windup): void {
-  const ps = ctx.particles
-  const R = R_DEFAULT
-  const p = w.cancelP
-  // runes shatter: shards flung up off the band, falling back
-  const n = ps.budget(60 * (0.4 + p))
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * TAU
-    const rr = R * (0.86 + rnd() * 0.08)
-    const sp = 40 + rnd() * 120
-    ps.spawn(w.x + Math.cos(a) * rr, w.y + Math.sin(a) * rr, w.h + 4, -Math.cos(a) * sp * 0.4, -Math.sin(a) * sp * 0.4, 150 + rnd() * 220, 0.45 + rnd() * 0.3, 7, -2, CRIMSON[0] * 1.2, CRIMSON[1] * 2, CRIMSON[2] * 2, -1300, 1, -0.05)
-  }
-  // the sphere pops into dark wisps + a few shards
-  const sh = w.h + BODY_H + 46
-  const ns = ctx.smoke.budget(14)
-  for (let i = 0; i < ns; i++) {
-    const a = rnd() * TAU
-    const sp = 60 + rnd() * 90
-    ctx.smoke.spawn(w.x, w.y, sh, Math.cos(a) * sp, Math.sin(a) * sp, (rnd() - 0.3) * 80, 0.8 + rnd() * 0.4, 18, 50, 0.03, 0.004, 0.01, -150, 1.5, 8)
-  }
-  const nb = ps.budget(18)
-  for (let i = 0; i < nb; i++) {
-    const a = rnd() * TAU
-    const e = (rnd() - 0.3) * 1.2
-    const sp = 150 + rnd() * 250
-    ps.spawn(w.x, w.y, sh, Math.cos(a) * Math.cos(e) * sp, Math.sin(a) * Math.cos(e) * sp, Math.sin(e) * sp, 0.3 + rnd() * 0.2, 5, 1, HOT[0], HOT[1], HOT[2], -800, 2, -0.08)
-  }
-  // smoke collapses outward along the floor
-  const nc = ctx.smoke.budget(20 * (0.4 + p))
-  for (let i = 0; i < nc; i++) {
-    const a = rnd() * TAU
-    const r0 = R * rnd() * 0.6
-    const sp = 120 + rnd() * 140
-    ctx.smoke.spawn(w.x + Math.cos(a) * r0, w.y + Math.sin(a) * r0, w.h + 20 + rnd() * 50, Math.cos(a) * sp, Math.sin(a) * sp, -30, 0.7 + rnd() * 0.4, 24, 60, 0.03, 0.006, 0.012, -60, 2.2, 10)
-  }
 }
 
 function releaseBurst(ctx: VfxCtx, x: number, y: number, h: number, R: number, level: number): void {
@@ -947,13 +806,7 @@ function releaseTick(ctx: VfxCtx, r: Release): void {
   if (ctx.quality !== 'low') ctx.glow.add(r.x, r.y, R * 0.9, 0.35 * (1 - age / 0.7) * tier(r.level, 0.35, 0.7, 1), 1.0, 0.04, 0.04)
 }
 
-/** emission helpers: tier-scaled continuous counts with a fractional carry */
-function emitN(ctx: VfxCtx, w: Windup, which: 'acc' | 'acc2' | 'acc3', rate: number): number {
-  const v = w[which] + rate * ctx.dt * ctx.tier.particles
-  const n = Math.floor(v)
-  w[which] = v - n
-  return n
-}
+/** Release-only tier-scaled continuous counts with a fractional carry. */
 function emitN2(ctx: VfxCtx, r: Release, which: 'acc' | 'acc2', rate: number): number {
   const v = r[which] + rate * ctx.dt * ctx.tier.particles
   const n = Math.floor(v)
@@ -999,8 +852,6 @@ registerSpellVfx({
           w.active = false
           w.cancelAt = now
           w.cancelP = Math.min(1, (now - w.t0) / w.total)
-          if (w.local) cancelFx(ctx, w)
-          else cueFizzle(ctx, w)
         }
         return true
       }
@@ -1062,10 +913,10 @@ registerSpellVfx({
     return false
   },
   // the shared hand-cast arm rings and spiral clash with the summon pose and
-  // the tame L1; this module draws its own gathering orb
+  // the tame L1; this module draws its own hand crown
   // + 'ground': the shared cast ring under the caster would warn everyone;
   // + 'light' for anyone but the local caster: no floor-light tell either
-  windupStyle: (_spell, caster) => (caster && vctx && caster.owner !== vctx.localPlayer ? STYLE_OTHER : STYLE_LOCAL),
+  windupStyle: (_spell, caster) => (caster && vctx && caster.owner >= 0 && caster.owner === vctx.localPlayer ? STYLE_LOCAL : STYLE_OTHER),
   beginFrame() {
     // every rendered frame (also frozen ones): the batches are refilled in frame()
     circles?.begin()
@@ -1078,31 +929,26 @@ registerSpellVfx({
     for (const w of windups) {
       if (w.pawn < 0) continue
       const info = ctx.pawn(w.pawn)
+      // Recheck even while cancelling: a spectator/POV change must never
+      // retain the previous local caster's full-radius targeting preview.
+      w.local = !!info && info.owner >= 0 && info.owner === ctx.localPlayer
       if (w.active) {
-        // progress straight from the sim's cast state (interpolated), else the clock
-        let p = Math.min(1, (now - w.t0) / w.total)
         const ps = st?.pawns.find((q) => q.id === w.pawn)
-        if (ps && ps.cast && isScourge(ps.cast.spell) && ps.cast.started !== false) {
-          const total = Math.max(1, Math.round(w.total * 60))
-          p = Math.max(0, Math.min(1, 1 - (ps.cast.ticksLeft - ctx.alpha) / total))
-        } else if (ps && !ps.cast && now - w.t0 > 0.1) {
-          // the cast vanished without an event (death, missed snapshot): fold it up
+        if (!ps || !ps.alive || !ps.cast || !isScourge(ps.cast.spell) || ps.cast.started === false || !info || !info.alive) {
+          // A charge only exists while that exact kind of live cast exists.
+          // Missing cancel events must not leave its marks or radius behind.
           w.active = false
-          w.cancelAt = now
-          w.cancelP = p
-        }
-        if (!info || !info.alive) {
-          w.active = false
-          w.cancelAt = now
-          w.cancelP = p
+          w.cancelAt = -1
+          w.pawn = -1
           continue
         }
+        const total = Math.max(1, Math.round(w.total * 60))
+        const p = Math.max(0, Math.min(1, 1 - (ps.cast.ticksLeft - ctx.alpha) / total))
         w.x = info.x
         w.y = info.y
         w.h = info.h
         // read live: Shuffle re-teams between rounds; the POV can change (spectating)
         casterRGB(colorForPawn(st, info.owner), w.col)
-        w.local = info.owner === ctx.localPlayer
         if (w.active) {
           if (w.local) {
             circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level, w.col)

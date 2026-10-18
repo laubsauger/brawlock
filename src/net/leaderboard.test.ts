@@ -5,10 +5,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MatchResult } from '../game/store'
 import type { MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState } from '../sim/types'
-import { DEFAULT_SETTINGS } from '../sim'
+import { createMatch, DEFAULT_SETTINGS } from '../sim'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { LB_K, LB_RATING_START, ServerMatchTracker, deviceTag, ineligible, rateMatch, settleMatch, type FinishedMatch, type PlayerRow } from './leaderboard'
+import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
+import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 
 const slot = (id: PlayerId, kind: 'human' | 'bot', team = id): PlayerSlot => ({ id, name: kind === 'bot' ? `Bot ${id}` : `P${id}`, color: 0, team, kind })
 const death = (owner: PlayerId, killer: PlayerId | null, cause = 'fireball'): SimEvent => ({ type: 'death', pawn: 100 + owner, owner, killer, cause }) as SimEvent
@@ -17,7 +19,7 @@ const roundWin = (players: PlayerId[], team = players[0] ?? -1): SimEvent => ({ 
 /** Scripted match: per round, the order of deaths (with killers) and the winners. */
 function play(slots: PlayerSlot[], devices: Record<PlayerId, string>, rounds: { deaths: [PlayerId, PlayerId | null][]; winners: PlayerId[] }[], opts: { ticks?: number; settings?: Partial<MatchSettings>; takeover?: { player: PlayerId; afterRound: number } } = {}): FinishedMatch {
   let out: FinishedMatch | null = null
-  const t = new ServerMatchTracker((m) => (out = m))
+  const t = new ServerMatchTracker((m) => { out = m })
   const settings = { ...DEFAULT_SETTINGS, ...opts.settings }
   t.start({ slots, settings, devices })
   if (opts.takeover?.afterRound === -1) t.control(opts.takeover.player, 'bot')
@@ -37,9 +39,63 @@ function play(slots: PlayerSlot[], devices: Record<PlayerId, string>, rounds: { 
 }
 
 describe('leaderboard: what counts', () => {
+  it('keeps all five scoring rounds, then rates only the human finalists and their final death order', () => {
+    const slots = [0, 1, 2, 3].map((id) => slot(id, 'human'))
+    const devices = Object.fromEntries(slots.map((s) => [s.id, `dev-player-${s.id}`]))
+    const settings = { ...DEFAULT_SETTINGS, rankedRounds: 5 as const }
+    const state = createMatch(settings, slots, 42)
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((match) => { finished = match })
+    tracker.start({ slots, settings, devices })
+    for (const [index, winner] of [0, 1, 0, 1, 2].entries()) {
+      state.round = index + 1
+      // The fifth round selects the final roster before the recorder sees its events.
+      if (state.round === 5) state.rankedFinal = { contenders: [0, 1] }
+      for (const pawn of state.pawns) pawn.alive = pawn.owner === winner
+      tracker.observe(state, [...slots.filter((s) => s.id !== winner).map((s) => death(s.id, winner)), roundWin([winner])])
+    }
+    state.round = 6
+    state.rankedFinal = { contenders: [0, 1], winners: [1] }
+    for (const pawn of state.pawns) pawn.alive = pawn.owner === 1
+    tracker.observe(state, [death(0, 1), roundWin([1])])
+    tracker.finish({ winners: [1], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    const match = finished as unknown as FinishedMatch
+    expect(match.ranked).toHaveLength(6)
+    expect(match.ranked[4].groups.flat().sort()).toEqual([0, 1, 2, 3])
+    expect(match.ranked[5].groups).toEqual([[1], [0]])
+    expect(match.seats.map((s) => [s.player, s.roundsPlayed, s.roundsWon, s.won])).toEqual([
+      [0, 6, 2, false], [1, 6, 3, true], [2, 5, 1, false], [3, 5, 0, false],
+    ])
+    const withoutFinal = rateMatch({ ...match, ranked: match.ranked.slice(0, 5) }, new Map())
+    const withFinal = rateMatch(match, new Map())
+    expect(withFinal.get(devices[1])!).toBeGreaterThan(withoutFinal.get(devices[1])!)
+    expect(withFinal.get(devices[0])!).toBeLessThan(withoutFinal.get(devices[0])!)
+    for (const id of [2, 3]) expect(withFinal.get(devices[id])).toBe(withoutFinal.get(devices[id]))
+    const settled = settleMatch(match, new Map(), 1000, 'eu')
+    if ('skipped' in settled) throw new Error(settled.skipped)
+    expect(settled.results.find((s) => s.device === devices[2])).toMatchObject({ roundsPlayed: 5, roundsWon: 1, won: false })
+  })
+
+  it('does not turn a benched seat into a rated final participant through cleanup death events', () => {
+    const slots = [0, 1, 2, 3].map((id) => slot(id, 'human'))
+    const settings = { ...DEFAULT_SETTINGS, rankedRounds: 5 as const }
+    const state = createMatch(settings, slots, 42)
+    state.round = 6
+    state.rankedFinal = { contenders: [0, 1, 2] }
+    state.pawns.forEach((p) => { p.alive = p.owner === 2 })
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((match) => { finished = match })
+    tracker.start({ slots, settings, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb', 2: 'dev-cccccccc', 3: 'dev-dddddddd' } })
+    tracker.observe(state, [death(3, null, 'disconnect'), death(1, 2), death(0, 2), roundWin([2])])
+    tracker.finish({ winners: [2], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    const match = finished as unknown as FinishedMatch
+    expect(match.ranked).toEqual([{ groups: [[2], [0], [1]], team: { 0: 0, 1: 1, 2: 2 } }])
+    expect(match.seats[3]).toMatchObject({ roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0 })
+  })
+
   it('a live rename updates the display label without changing the device or resetting counters', () => {
     let finished: FinishedMatch | null = null
-    const tracker = new ServerMatchTracker((m) => (finished = m))
+    const tracker = new ServerMatchTracker((m) => { finished = m })
     const slots = [slot(0, 'human'), slot(1, 'human')]
     const state = (names = slots) => ({ tick: 0, slots: names, pawns: [{ owner: 0, alive: true }, { owner: 1, alive: false }] }) as unknown as SimState
     tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' } })
@@ -97,9 +153,33 @@ describe('leaderboard: what counts', () => {
     expect(m.seats.find((s) => s.player === 1)).toMatchObject({ roundsPlayed: 1, roundsWon: 0, kills: 0 })
   })
 
+  it.each([false, true])('awards a final match win only if the human controls their seat at finish (rejoined: %s)', (rejoined) => {
+    const slots = [slot(0, 'human'), slot(1, 'human')]
+    const settings = { ...DEFAULT_SETTINGS, rankedRounds: 5 as const }
+    const state = createMatch(settings, slots, 42)
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((match) => { finished = match })
+    tracker.start({ slots, settings, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' } })
+    state.round = 1
+    state.pawns[1].alive = false
+    tracker.observe(state, [death(1, 0), roundWin([0])])
+    tracker.control(0, 'bot')
+    if (rejoined) tracker.control(0, 'human')
+    state.round = 6
+    state.rankedFinal = { contenders: [0, 1], winners: [0] }
+    tracker.observe(state, [death(1, 0), roundWin([0])])
+    tracker.finish({ winners: [0], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    const match = finished as unknown as FinishedMatch
+    expect(match.seats[0]).toMatchObject({ won: rejoined, roundsPlayed: rejoined ? 2 : 1, roundsWon: rejoined ? 2 : 1 })
+    const settled = settleMatch(match, new Map(), 1000, 'eu')
+    if ('skipped' in settled) throw new Error(settled.skipped)
+    expect(settled.results.find((r) => r.device === 'dev-aaaaaaaa')?.won).toBe(rejoined)
+    expect(settled.players.find((p) => p.device === 'dev-aaaaaaaa')?.wins).toBe(rejoined ? 1 : 0)
+  })
+
   it('a human joining a bot seat counts only their later rounds and actions', () => {
     let finished: FinishedMatch | null = null
-    const tracker = new ServerMatchTracker((m) => (finished = m))
+    const tracker = new ServerMatchTracker((m) => { finished = m })
     let slots = [slot(0, 'human'), slot(1, 'bot'), slot(2, 'bot')]
     const state = (alive: PlayerId[]) => ({ tick: 0, slots, pawns: slots.map((s) => ({ owner: s.id, alive: alive.includes(s.id) })) }) as unknown as SimState
     tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: 'dev-aaaaaaaa' } })
@@ -254,5 +334,101 @@ describe('leaderboard store (node:sqlite)', () => {
     expect(s.recent('dev-old11111', 5)).toHaveLength(3)
     expect(s.players(['dev-old11111', 'dev-none1111']).size).toBe(1)
     s.close()
+  })
+})
+
+describe('one global authority and additive idempotency receipts', () => {
+  const dirs: string[] = []
+  afterEach(() => { for (const dir of dirs.splice(0)) removeDir(dir) })
+  const submission = (key = 'global-match-0001', region = 'eu'): RatingSubmission => ({
+    key, region, room: 'ABCDE', at: 100_000, minSeconds: 1,
+    match: play([slot(0, 'human'), slot(1, 'human')], { 0: 'dev-aaaaaaaa', 1: 'dev-cccccccc' }, [
+      { deaths: [[1, 0]], winners: [0] },
+    ]),
+  })
+
+  it('preserves old rows, rates both regions on the same scale, and deduplicates concurrent retries through a restart', async () => {
+    const dir = tempDir('brawlock-global-receipts-')
+    dirs.push(dir)
+    const file = `${dir}/leaderboard.sqlite`
+    let store = openLeaderboard(file)
+    const legacy = play([slot(0, 'human'), slot(1, 'human')], { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, [{ deaths: [[1, 0]], winners: [0] }])
+    const settled = settleMatch(legacy, new Map(), 90_000, 'us-west', 1)
+    if ('skipped' in settled) throw new Error(settled.skipped)
+    // Existing writers do not supply receipts; their data remains untouched.
+    store.commit({ at: 90_000, region: 'us-west', room: 'ABCDE', ticks: legacy.ticks, rounds: 1, humans: 2, bots: 0 }, settled.results, settled.players)
+    const original = store.players(['dev-aaaaaaaa']).get('dev-aaaaaaaa')!
+    store.close()
+    store = openLeaderboard(file)
+    let authority = localRatingAuthority(store, { minSeconds: 1, clock: () => 100_000 })
+    const request = submission()
+    expect(await Promise.all([authority.record(request), authority.record(request)])).toEqual([{ status: 'rated' }, { status: 'rated' }])
+    expect(store.players(['dev-aaaaaaaa']).get('dev-aaaaaaaa')).toMatchObject({ matches: 2, firstAt: original.firstAt })
+    expect(store.recent('dev-aaaaaaaa', 10).map((r) => r.region)).toEqual(['eu', 'us-west'])
+    const before = store.top({ period: 'all', region: null, since: 0 }, 10)
+    authority.close!()
+    store = openLeaderboard(file)
+    authority = localRatingAuthority(store, { minSeconds: 1, clock: () => 100_000 })
+    expect(await authority.record(request)).toEqual({ status: 'rated' })
+    expect(store.top({ period: 'all', region: null, since: 0 }, 10)).toEqual(before)
+    const all = await authority.read('/leaderboard?period=all&region=eu')
+    const west = await authority.read('/leaderboard?period=all&region=us-west')
+    expect(west).toEqual(all)
+    expect((all.body as { entries: unknown[] }).entries).toHaveLength(3)
+    expect(JSON.stringify(all)).not.toContain('dev-')
+    await authority.rename('dev-aaaaaaaa', 'Renamed globally')
+    expect((await authority.read('/players/dev-aaaaaaaa')).body).toMatchObject({ name: 'Renamed globally', matches: 2 })
+    const delayed = submission('global-delayed-0001')
+    delayed.at = 80_000
+    delayed.match.seats[0].name = 'Old label'
+    expect(await authority.record(delayed)).toEqual({ status: 'rated' })
+    expect(store.players(['dev-aaaaaaaa']).get('dev-aaaaaaaa')).toMatchObject({ name: 'Renamed globally', matches: 3, firstAt: 80_000, lastAt: 100_000 })
+    authority.close!()
+  })
+
+  it('rejects a reused key with changed contents and atomically rolls back a failed receipt-plus-match commit', async () => {
+    const store = openLeaderboard(':memory:')
+    const authority = localRatingAuthority(store, { minSeconds: 1 })
+    const request = submission()
+    const settled = settleMatch(request.match, new Map(), request.at, request.region, 1)
+    if ('skipped' in settled) throw new Error(settled.skipped)
+    const meta = { at: request.at, region: request.region, room: request.room, ticks: request.match.ticks, rounds: 1, humans: 2, bots: 0 }
+    expect(() => store.commitReceipt(request.key, 'failed-fingerprint', { status: 'rated' }, meta, [...settled.results, settled.results[0]], settled.players)).toThrow()
+    expect(store.receipt(request.key, 'failed-fingerprint')).toBeNull()
+    expect(store.top({ period: 'all', region: null, since: 0 }, 10)).toEqual([])
+    expect(await authority.record(request)).toEqual({ status: 'rated' })
+    const before = store.recent('dev-aaaaaaaa', 10)
+    await expect(authority.record({ ...request, match: { ...request.match, ticks: request.match.ticks + 1 } })).rejects.toThrow(/conflicts/)
+    expect(store.recent('dev-aaaaaaaa', 10)).toEqual(before)
+    authority.close!()
+  })
+
+  it('keeps the authority minimum authoritative and remembers an unrated verdict', async () => {
+    const store = openLeaderboard(':memory:')
+    const authority = localRatingAuthority(store, { minSeconds: 120 })
+    const request = submission()
+    request.match.ticks = 60 * 90
+    expect(await authority.record(request)).toEqual({ status: 'unrated', reason: 'shorter than 120 s' })
+    expect(await authority.record(request)).toEqual({ status: 'unrated', reason: 'shorter than 120 s' })
+    expect(store.top({ period: 'all', region: null, since: 0 }, 10)).toEqual([])
+    authority.close!()
+  })
+
+  it('bounds and validates finished simulation records before storage', () => {
+    const request = submission()
+    expect(validRatingSubmission(request)).toBe(true)
+    expect(validRatingSubmission({ ...request, extra: true })).toBe(false)
+    expect(validRatingSubmission({ ...request, minSeconds: -1 })).toBe(false)
+    expect(validRatingSubmission({ ...request, match: { ...request.match, seats: Array(11).fill(request.match.seats[0]) } })).toBe(false)
+    expect(validRatingSubmission({ ...request, match: { ...request.match, ranked: [{ groups: [[0], [0]], team: { 0: 0 } }] } })).toBe(false)
+    expect(validRatingSubmission({ ...request, match: { ...request.match, ranked: [{ groups: [[9]], team: { 9: 0 } }] } })).toBe(false)
+    expect(validRatingSubmission({ ...request, match: { ...request.match, seats: [{ ...request.match.seats[0], kills: Infinity }] } })).toBe(false)
+  })
+
+  it('refuses plaintext authority URLs and missing server credentials', () => {
+    const opts = { url: 'http://127.0.0.1:5350', token: crypto.randomUUID(), file: ':memory:', log: () => {} }
+    expect(() => remoteRatingAuthority(opts)).toThrow(/HTTPS/)
+    expect(() => remoteRatingAuthority({ ...opts, url: 'https://authority.invalid', token: '' })).toThrow(/token/)
+    expect(() => remoteRatingAuthority({ ...opts, url: 'https://authority.invalid/not-an-origin' })).toThrow(/origin/)
   })
 })

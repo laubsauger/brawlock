@@ -8,7 +8,9 @@
  *   active players with 2 s invulnerability, arena at 13 + active players (clamped 1..21),
  *   one layer removed every 10 s.
  * - roundEnd: entered the moment one team (or none) is left alive; +1 score to every member of
- *   the winning team at once; after 2 s round gold to everyone, then win check.
+ *   the winning team at once; after 3 s round gold to everyone, then win check.
+ * - rankedRounds=5: scheduled scoring rounds, early clinch, then one tied-leader final if needed.
+ *   The final awards the championship and win gold without changing scheduled-round scores.
  *
  * Deathmatch (ModeDeathmatch, §7.3): one shop phase before round 1, then back-to-back 60 s
  * 'fight' rounds (phaseTicksLeft counts down). Every round start re-teams and rebuilds the
@@ -32,6 +34,9 @@ import {
   OBSTACLE_MAX_COORD,
   OBSTACLE_RADII,
   ROUND_END_SECONDS,
+  RANKED_FINAL_SHOP_SECONDS,
+  RANKED_FINAL_SHRINK_PERIOD,
+  RANKED_SHRINK_PERIOD,
   SHRINK_PERIOD,
   SPAWN_INVULN_SECONDS,
   SPAWN_OBSTACLES,
@@ -41,7 +46,7 @@ import {
 import { MOD_SPAWN_INVULNERABLE, addModifier, removeTemporaryModifiers } from './modifiers'
 import { randomInt, randomRange } from './rng'
 import { respawnPawn } from './spawn'
-import { activePlayers, assignTeams, isActive, scoreOf, teamOf } from './teams'
+import { activePlayers, assignTeams, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
 import type { PawnState, PlayerId, SimState } from './types'
 
 /** Damage is only dealt while combat is on (original GAME.combat). */
@@ -51,6 +56,15 @@ export function isCombat(state: SimState): boolean {
 
 function isDeathmatch(state: SimState): boolean {
   return state.settings.gameMode === 'deathmatch'
+}
+
+function shrinkPeriod(state: SimState): number {
+  return state.rankedFinal ? RANKED_FINAL_SHRINK_PERIOD :
+    state.settings.rankedRounds ? RANKED_SHRINK_PERIOD : SHRINK_PERIOD
+}
+
+function finalLayer(state: SimState): number {
+  return Math.min(15, 9 + state.rankedFinal!.contenders.length)
 }
 
 function emitPhase(state: SimState): void {
@@ -84,13 +98,19 @@ function spawnInvulnerable(state: SimState, pawn: PawnState): void {
 /** Shop phase (Mode:prepareForRound). */
 export function prepareForRound(state: SimState): void {
   state.phase = 'shop'
-  state.phaseTicksLeft = ticks(state.settings.shopSeconds)
+  state.phaseTicksLeft = ticks(state.rankedFinal ? RANKED_FINAL_SHOP_SECONDS : state.settings.shopSeconds)
   state.projectiles = []
   state.arena.nextShrinkTick = -1
   newPlatform(state)
-  state.arena.layer = ARENA_SHOP_LAYER
+  state.arena.layer = state.rankedFinal ? finalLayer(state) : ARENA_SHOP_LAYER
   for (const pawn of state.pawns) {
-    if (isActive(state, pawn.owner)) respawnPawn(state, pawn)
+    if (isRoundParticipant(state, pawn.owner)) respawnPawn(state, pawn)
+    else if (state.rankedFinal) {
+      // Benching for the final is not a kill: no score, bounty or death event is earned.
+      pawn.alive = false
+      pawn.moveTarget = null
+      pawn.cast = null
+    }
   }
   emitPhase(state)
 }
@@ -126,10 +146,11 @@ export function startRound(state: SimState): void {
   for (const sc of state.scores) sc.damageThisRound = 0
   // the fight platform exists before anyone spawns on it (spawn radius is capped to it; the
   // original respawned first, which made no difference there because it never capped)
-  state.arena.layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
-  state.arena.nextShrinkTick = state.tick + ticks(SHRINK_PERIOD)
+  state.arena.layer = state.rankedFinal ? finalLayer(state) :
+    clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
+  state.arena.nextShrinkTick = state.tick + ticks(shrinkPeriod(state))
   for (const pawn of state.pawns) {
-    if (!isActive(state, pawn.owner)) {
+    if (!isRoundParticipant(state, pawn.owner)) {
       pawn.alive = false
       continue
     }
@@ -137,12 +158,17 @@ export function startRound(state: SimState): void {
     spawnInvulnerable(state, pawn)
   }
   emitPhase(state)
+  // Nobody needs to die to trigger resolution when finalists left during the preparation shop.
+  if (state.settings.rankedRounds) {
+    const teams = aliveTeams(state)
+    if (teams.length <= 1) roundWon(state, teams[0] ?? null)
+  }
 }
 
 /** Teams with at least one living active pawn, ascending. */
 export function aliveTeams(state: SimState): number[] {
   const teams = new Set<number>()
-  for (const p of state.pawns) if (p.alive && isActive(state, p.owner)) teams.add(teamOf(state, p.owner))
+  for (const p of state.pawns) if (p.alive && isRoundParticipant(state, p.owner)) teams.add(teamOf(state, p.owner))
   return Array.from(teams).sort((a, b) => a - b)
 }
 
@@ -166,14 +192,17 @@ export function roundWon(state: SimState, team: number | null): void {
   state.phase = 'roundEnd'
   state.phaseTicksLeft = ticks(ROUND_END_SECONDS)
   if (team === null) {
+    // A final with no eligible survivor is shared by the tied leaders; it never schedules another final.
+    if (state.rankedFinal) state.rankedFinal.winners = state.rankedFinal.contenders.slice()
     settleSpectateBets(state, [])
     state.events.push({ type: 'roundWin', team: TEAM_DRAW, players: [] })
   } else {
     const players = activePlayers(state).filter((id) => teamOf(state, id) === team)
+    if (state.rankedFinal) state.rankedFinal.winners = players.slice()
     settleSpectateBets(state, players)
     for (const id of players) {
       const sc = scoreOf(state, id)!
-      sc.score += 1
+      if (!state.rankedFinal) sc.score += 1
       sc.gold += state.settings.winGold
     }
     state.events.push({ type: 'roundWin', team, players })
@@ -186,8 +215,16 @@ export function roundWon(state: SimState, team: number | null): void {
  * No-draw rule: in FFA and Shuffle a shared top score keeps the match going.
  */
 export function gameWinners(state: SimState): PlayerId[] | null {
+  if (state.rankedFinal) return state.rankedFinal.winners ?? null
   let top = -Infinity
   for (const sc of state.scores) if (sc.score > top) top = sc.score
+  if (state.settings.rankedRounds) {
+    const leaders = state.scores.filter((sc) => sc.score === top).map((sc) => sc.id)
+    if (leaders.length !== 1) return null
+    const remaining = Math.max(0, state.settings.rankedRounds - state.round)
+    // A sole leader wins once nobody can catch their score in the scheduled rounds remaining.
+    return state.scores.every((sc) => sc.id === leaders[0] || sc.score + remaining < top) ? leaders : null
+  }
   if (top < state.settings.winScore) return null
   const winners = state.scores.filter((sc) => sc.score === top).map((sc) => sc.id)
   if (winners.length > 1 && state.settings.teamMode !== 'teams') return null
@@ -205,6 +242,10 @@ export function endRound(state: SimState): void {
     emitPhase(state)
     state.events.push({ type: 'gameOver', winners })
     return
+  }
+  if (state.settings.rankedRounds && !state.rankedFinal && state.round >= state.settings.rankedRounds) {
+    const top = Math.max(...state.scores.map((sc) => sc.score))
+    state.rankedFinal = { contenders: state.scores.filter((sc) => sc.score === top).map((sc) => sc.id) }
   }
   if (isDeathmatch(state)) startRound(state)
   else prepareForRound(state)
@@ -231,7 +272,7 @@ export function phaseTick(state: SimState): void {
       a.layer -= 1
       state.events.push({ type: 'arenaShrink', layer: a.layer })
     }
-    a.nextShrinkTick += ticks(SHRINK_PERIOD)
+    a.nextShrinkTick += ticks(shrinkPeriod(state))
   }
   if (isDeathmatch(state) && state.phase === 'fight') {
     respawnTick(state)

@@ -26,7 +26,8 @@ import { hashString } from '../sim/snapshot'
 import { newRoomCode, parseRoomCode } from './code'
 import { createRoom, type QuickPlayPolicy, type Room, type RoomDeps, type RoomSummary } from './dedicated'
 import { LISTING_HEARTBEAT_MS, LISTING_TTL_MS, ListingDirectory } from './listings'
-import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type FinishedMatch, type LeaderboardStore, type Period } from './leaderboard'
+import { LB_MIN_SECONDS, type FinishedMatch } from './leaderboard'
+import { localRatingAuthority, type RatingAuthority, type RatingReceiptStore } from './ratingAuthority'
 import { MAX_PLAYERS } from './session'
 import { PROTOCOL_VERSION, encode } from './protocol'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
@@ -58,6 +59,8 @@ export interface ServerConfig {
   boardReadsPerMin: number
   /** quick-play rooms: timers, table size, default bots, and match settings over the defaults */
   quickplay: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
+  /** Fixed-rule ranked queue; waits for humans rather than starting solo. */
+  ranked: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
   /** a server match shorter than this does not count for the leaderboard */
   leaderboardMinSeconds: number
   /** player-hosted room listings: per IP creations / heartbeats per minute, live listings per IP, per server */
@@ -85,6 +88,10 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
     fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'brutal',
     settings: { startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
   },
+  ranked: {
+    fillMs: 0, startMs: 60_000, nextMs: 15_000, seats: 8, fill: 8, bots: 'brutal', minHumans: 2,
+    settings: { rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+  },
   leaderboardMinSeconds: LB_MIN_SECONDS,
   listingCreatesPerMin: 6,
   listingBeatsPerMin: 30,
@@ -94,12 +101,9 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
 
 /** how long the public room list and a leaderboard page are served from cache (server clock) */
 const LIST_CACHE_MS = 1000
-const BOARD_CACHE_MS = 5000
 /** a quick-play seat handed out is held this long for its player to connect */
 const RESERVE_MS = 15_000
-const WEEK_MS = 7 * 24 * 3600 * 1000
 const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
-const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/
 
 export type LogLevel = 'info' | 'warn' | 'error'
 export type LogFn = (level: LogLevel, event: string, fields?: Record<string, unknown>) => void
@@ -125,6 +129,7 @@ export type Admission = { kind: 'room'; code: string } | { kind: 'message'; mess
 
 /** Options of a room created directly (demo / test rooms); POST /rooms makes plain owner rooms. */
 export interface RoomSetup {
+  ranked?: boolean
   code?: string
   auto?: boolean
   bots?: BotDifficulty[]
@@ -164,7 +169,9 @@ export function createServerCore(
     log: LogFn
     now: () => number
     /** finished server matches are rated and stored here (none: no leaderboard) */
-    leaderboard?: LeaderboardStore
+    leaderboard?: RatingReceiptStore
+    /** The one global authority; remote regions never keep independent rating tables. */
+    ratingAuthority?: RatingAuthority
     /** ms since epoch, for stored results (default Date.now) */
     clock?: () => number
   },
@@ -181,12 +188,11 @@ export function createServerCore(
   const quickLimit = new KeyedLimiter(cfg.quickplaysPerMin, cfg.quickplaysPerMin / 60)
   const boardLimit = new KeyedLimiter(cfg.boardReadsPerMin, cfg.boardReadsPerMin / 60)
   const clock = deps.clock ?? (() => Date.now())
-  const store = deps.leaderboard ?? null
+  const authority = deps.ratingAuthority ?? (deps.leaderboard ? localRatingAuthority(deps.leaderboard, { minSeconds: cfg.leaderboardMinSeconds, clock }) : null)
   let listCache: { at: number; body: unknown } | null = null
   const listings = new ListingDirectory({ ttlMs: LISTING_TTL_MS, maxTotal: cfg.maxListings, perIp: cfg.listingsPerIp, maxSeats: MAX_PLAYERS }, deps.now)
   const listingCreateLimit = new KeyedLimiter(cfg.listingCreatesPerMin, cfg.listingCreatesPerMin / 60)
   const listingBeatLimit = new KeyedLimiter(cfg.listingBeatsPerMin, cfg.listingBeatsPerMin / 60)
-  const boardCache = new Map<string, { at: number; entries: unknown }>()
   const conns = new Map<string, number>()
   let connections = 0
   const log = deps.log
@@ -216,25 +222,28 @@ export function createServerCore(
   }
 
   async function newRoom(code: string, setup: RoomSetup = {}): Promise<Room> {
+    const policy = setup.ranked ? cfg.ranked : cfg.quickplay
+    const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : DEFAULT_SERVER_CONFIG.quickplay
     const room = await createRoom(
       {
         code,
         bots: setup.bots ?? [],
         auto: setup.auto ?? false,
-        settings: setup.quick ? { botsReplaceLeavers: true, ...DEFAULT_SERVER_CONFIG.quickplay.settings, ...cfg.quickplay.settings, ...setup.settings } : setup.settings,
+        settings: setup.quick ? { botsReplaceLeavers: true, ...defaults.settings, ...policy.settings, ...setup.settings } : setup.settings,
         autoStartMs: setup.autoStartMs,
         rematchMs: setup.rematchMs,
-        ...(setup.quick ? { quick: { fillMs: cfg.quickplay.fillMs, startMs: cfg.quickplay.startMs, nextMs: cfg.quickplay.nextMs, seats: cfg.quickplay.seats, fill: cfg.quickplay.fill, bots: setup.quick } } : {}),
+        ...(setup.quick ? { quick: { ...policy, bots: setup.quick } } : {}),
+        ranked: setup.ranked === true,
         public: setup.public,
-        elo: { enabled: !!store, minSeconds: cfg.leaderboardMinSeconds },
-        onMatch: (m, result) => { result.rating = record(code, m) },
+        elo: { enabled: !!authority && setup.ranked === true, minSeconds: cfg.leaderboardMinSeconds },
+        onMatch: async (m, result) => {
+          result.rating = setup.ranked ? await record(code, m) : { status: 'unrated', reason: 'Casual games do not affect global Elo.' }
+        },
         onName: (device, name) => {
-          if (!store) return
-          try {
-            if (store.rename(device, name)) boardCache.clear()
-          } catch (error) {
+          if (!authority) return
+          void authority.rename(device, name).catch((error) => {
             log('error', 'leaderboard.error', { room: code, error: String(error) })
-          }
+          })
         },
         log: (msg) => log('info', 'room.policy', { room: code, msg }),
       },
@@ -246,19 +255,12 @@ export function createServerCore(
   }
 
   /** A finished server match: rated and stored when it counts (leaderboard.ts). */
-  function record(room: string, m: FinishedMatch): MatchRating {
-    if (!store) return { status: 'unrated', reason: 'This server does not record global Elo.' }
+  async function record(room: string, m: FinishedMatch): Promise<MatchRating> {
+    if (!authority) return { status: 'unrated', reason: 'This server does not record global Elo.' }
     try {
-      const devices = m.seats.map((x) => x.device)
-      const settled = settleMatch(m, store.players(devices), clock(), cfg.region, cfg.leaderboardMinSeconds)
-      if ('skipped' in settled) {
-        log('info', 'leaderboard.skip', { room, reason: settled.skipped, humans: m.seats.length, ticks: m.ticks })
-        return { status: 'unrated', reason: settled.skipped }
-      }
-      store.commit({ at: clock(), region: cfg.region, room, ticks: m.ticks, rounds: m.rounds, humans: m.seats.length, bots: m.bots }, settled.results, settled.players)
-      boardCache.clear()
-      log('info', 'leaderboard.match', { room, players: settled.players.length, rounds: m.rounds })
-      return { status: 'rated' }
+      const rating = await authority.record({ key: crypto.randomUUID(), region: cfg.region, room, at: clock(), minSeconds: cfg.leaderboardMinSeconds, match: m })
+      log(rating.status === 'unavailable' ? 'error' : 'info', rating.status === 'rated' ? 'leaderboard.match' : 'leaderboard.skip', { room, reason: rating.reason, humans: m.seats.length, ticks: m.ticks })
+      return rating
     } catch (e) {
       log('error', 'leaderboard.error', { room, error: String(e) })
       return { status: 'unavailable', reason: 'The server could not save Elo for this match.' }
@@ -272,13 +274,15 @@ export function createServerCore(
   }
 
   /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
-  function openQuickRoom(): Entry | null {
+  function openQuickRoom(ranked = false): Entry | null {
     let best: Entry | null = null
     let bestN = -1
     for (const e of rooms.values()) {
       const r = e.room
       if (!r.isPublic()) continue
+      if (r.isRanked() !== ranked) continue
       const phase = r.screen()
+      if (ranked && phase !== 'lobby') continue
       if (phase !== 'lobby' && phase !== 'results' && phase !== 'match') continue
       // Owner rooms need someone to press Start; quick players can join them once
       // playing, but must not be stranded in a manual lobby or rematch screen.
@@ -304,13 +308,6 @@ export function createServerCore(
       .sort((a, b) => order(a) - order(b) || b.humans - a.humans || a.code.localeCompare(b.code))
     listCache = { at: now, body: { region: cfg.region, rooms: list, listings: listings.list() } }
     return listCache.body
-  }
-
-  function boardQuery(url: URL): BoardQuery | null {
-    const period = (url.searchParams.get('period') ?? 'all') as Period
-    if (period !== 'all' && period !== 'week') return null
-    const region = url.searchParams.get('region') || null
-    return { period, region, since: clock() - WEEK_MS }
   }
 
   function freeCode(): string {
@@ -393,13 +390,15 @@ export function createServerCore(
         }
         return json(200, { ok: true, ...(r.gone ? { gone: true } : {}) }, req.origin)
       }
-      if (parts[0] === 'quickplay' && parts.length === 1 && req.method === 'POST') {
+      if ((parts[0] === 'quickplay' || parts[0] === 'ranked') && parts.length === 1 && req.method === 'POST') {
+        const ranked = parts[0] === 'ranked'
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
+        if (ranked && !authority) return json(503, { error: 'Ranked matchmaking is unavailable: this server has no Elo storage.' }, req.origin)
         if (!quickLimit.take(req.ip, deps.now())) {
           log('warn', 'quickplay.limited', { ip: tag(req.ip) })
           return json(429, { error: 'Too many quick-play requests, try again in a minute.' }, req.origin)
         }
-        const open = openQuickRoom()
+        const open = openQuickRoom(ranked)
         if (open) {
           open.reserved.push(deps.now() + RESERVE_MS)
           log('info', 'quickplay.join', { room: open.room.code, ip: tag(req.ip) })
@@ -410,11 +409,11 @@ export function createServerCore(
           return json(503, { error: 'The server is full right now.' }, req.origin)
         }
         const want = url.searchParams.get('bots') as BotDifficulty | null
-        const bots = want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : DEFAULT_SERVER_CONFIG.quickplay.bots
+        const bots = ranked ? cfg.ranked.bots : want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : DEFAULT_SERVER_CONFIG.quickplay.bots
         const code = freeCode()
         creating.add(code)
         try {
-          await newRoom(code, { quick: bots })
+          await newRoom(code, { quick: bots, ranked })
         } finally {
           creating.delete(code)
         }
@@ -424,40 +423,18 @@ export function createServerCore(
       }
       if ((parts[0] === 'leaderboard' && parts.length === 1) || (parts[0] === 'players' && parts.length === 2)) {
         if (req.method !== 'GET') return json(405, { error: 'method not allowed' }, req.origin)
-        if (!store) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
+        if (!authority) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
         if (!boardLimit.take(req.ip, deps.now())) {
           log('warn', 'leaderboard.limited', { ip: tag(req.ip) })
           return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
         }
-        if (parts[0] === 'players') {
-          const device = decodeURIComponent(parts[1])
-          if (!DEVICE_ID.test(device)) return json(400, { error: 'bad device id' }, req.origin)
-          const all: BoardQuery = { period: 'all', region: null, since: 0 }
-          const r = store.rank(all, device)
-          if (!r) return json(200, { found: false }, req.origin)
-          const p = store.players([device]).get(device)!
-          return json(
-            200,
-            {
-              found: true,
-              ...publicRow(r.rank, r.row),
-              firstAt: p.firstAt,
-              recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })),
-            },
-            req.origin,
-          )
+        try {
+          const r = await authority.read(req.path)
+          return json(r.status, r.body, req.origin)
+        } catch (error) {
+          log('error', 'leaderboard.read.error', { error: String(error) })
+          return json(503, { error: 'Global ratings are temporarily unavailable.' }, req.origin)
         }
-        const q = boardQuery(url)
-        if (!q) return json(400, { error: 'period must be all or week' }, req.origin)
-        const key = `${q.period}|${q.region ?? ''}`
-        let cached = boardCache.get(key)
-        if (!cached || deps.now() - cached.at >= BOARD_CACHE_MS) {
-          cached = { at: deps.now(), entries: store.top(q, LB_TOP).map((row, i) => publicRow(i + 1, row)) }
-          boardCache.set(key, cached)
-        }
-        const device = url.searchParams.get('device')
-        const mine = device && DEVICE_ID.test(device) ? store.rank(q, device) : null
-        return json(200, { period: q.period, region: q.region ?? cfg.region, entries: cached.entries, you: mine ? publicRow(mine.rank, mine.row) : null }, req.origin)
       }
       if (parts[0] === 'rooms' && parts.length === 2 && req.method === 'GET') {
         if (!lookupLimit.take(req.ip, deps.now())) {
@@ -590,7 +567,7 @@ export function createServerCore(
     close() {
       for (const e of rooms.values()) e.room.close()
       rooms.clear()
-      store?.close()
+      authority?.close?.()
     },
 
     stats() {

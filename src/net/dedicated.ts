@@ -13,6 +13,8 @@
  * - arrivals reserve bot seats during a match and start playing next round;
  *   between matches they can also take free seats
  * - results: after nextMs the next match starts
+ * Ranked quick rooms prefill bots, require minHumans, and return to a fresh lobby
+ * countdown between matches. A lone ranked player never starts against only bots.
  * Always: a match nobody is connected to goes back to the lobby.
  * `onMatch` gets every finished match (the leaderboard, leaderboard.ts).
  * The same prediction, stamped inputs, snapshots and link monitor as P2P apply; the
@@ -40,10 +42,12 @@ export interface RoomOptions {
   rematchMs?: number
   /** a quick-play room (public, no owner, runs itself) */
   quick?: QuickPlayPolicy
+  /** a ranked queue room: lobby-only admission, minimum humans, fresh countdowns */
+  ranked?: boolean
   /** listed in the public room browser from the start (quick-play rooms always are) */
   public?: boolean
   /** every finished match, with the device ids of its human seats */
-  onMatch?: (m: FinishedMatch, result: MatchResult) => void
+  onMatch?: (m: FinishedMatch, result: MatchResult) => void | Promise<void>
   /** Explicit server rating policy; absent when the caller supplies no policy. */
   elo?: { enabled: boolean; minSeconds: number }
   /** a connected device's display label, including lobby changes before the next match */
@@ -63,6 +67,8 @@ export interface QuickPlayPolicy {
   /** bots top the table up to this many players when fewer humans are in */
   fill: number
   bots: BotDifficulty
+  /** minimum humans before any countdown can start; casual quick play defaults to one */
+  minHumans?: number
 }
 
 /** One line of the public room browser (GET /rooms?public=1). */
@@ -77,9 +83,12 @@ export interface RoomSummary {
   joinable?: number
   phase: Screen
   quick: boolean
+  ranked?: boolean
   teamMode: MatchSettings['teamMode']
   gameMode: MatchSettings['gameMode']
   winScore: number
+  /** Scheduled ranked rounds before any tied-leader final; absent for score-race matches. */
+  rankedRounds?: number
   /** Rating availability and minimum duration; never exposes device identities. */
   elo?: { enabled: boolean; minSeconds: number }
 }
@@ -110,6 +119,7 @@ export interface Room {
   joinableSeats(): number
   isPublic(): boolean
   isQuick(): boolean
+  isRanked(): boolean
   summary(): RoomSummary
   /** connected links (humans and spectators) */
   peers(): number
@@ -143,6 +153,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   let accept: ((t: Transport) => void) | null = null
   const backlog: Transport[] = []
   let startTimer: ReturnType<typeof setTimeout> | null = null
+  let rankedLobbyTimer: ReturnType<typeof setTimeout> | null = null
   let closed = false
 
   const endpoint: HostEndpoint = {
@@ -256,14 +267,33 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   function scheduleQuick(): void {
     if (closed || !quick) return
     const n = humans()
+    if (opts.ranked && screen === 'results') {
+      if (quickAt !== null) setQuickTimer(null, false)
+      if (n === 0) {
+        if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
+        rankedLobbyTimer = null
+        return
+      }
+      // Keep the result visible before returning to a fresh lobby countdown.
+      // Never return synchronously: finishMatch broadcasts end after setScreen.
+      if (rankedLobbyTimer === null) rankedLobbyTimer = setTimeout(() => {
+        rankedLobbyTimer = null
+        if (!closed && screen === 'results') session.backToLobby()
+      }, quick.nextMs / timeScale())
+      return
+    }
+    // Ranked players can see the full bot table while waiting for another human.
+    if (screen === 'lobby' || screen === 'results') rebalance(opts.ranked === true)
     if (n === 0) {
       if (quickAt !== null) setQuickTimer(null, false)
       return
     }
     const now = deps.now()
-    // between matches a newcomer replaces a bot at once (the seat count stays the table size)
-    if (screen === 'lobby' || screen === 'results') rebalance(false)
     if (screen === 'lobby') {
+      if (n < (quick.minHumans ?? 1)) {
+        if (quickAt !== null) setQuickTimer(null, false)
+        return
+      }
       if (n >= 2) {
         const at = now + quick.startMs
         if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null && !quickFill ? Math.min(quickAt, at) : at, false)
@@ -276,7 +306,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   function quickFire(): void {
     startTimer = null
     quickAt = null
-    if (closed || !quick || humans() === 0 || session.debug().peers === 0) return
+    if (closed || !quick || humans() < (quick.minHumans ?? 1) || session.debug().peers === 0) return
     if (screen === 'results') session.backToLobby()
     else if (screen !== 'lobby') return
     rebalance(true)
@@ -306,7 +336,10 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }, EMPTY_CHECK_MS)
 
   await session.openHost({ dedicated: true })
-  if (quick || opts.public) session.setRoom({ quick: !!quick, public: true, cap: quick ? quick.seats : null })
+  if (opts.ranked && opts.settings) session.updateSettings(opts.settings)
+  if (quick || opts.public) session.setRoom({ quick: !!quick, ranked: opts.ranked === true, public: true, cap: quick ? quick.seats : null })
+
+  const joinableSeats = () => opts.ranked && screen === 'match' ? 0 : session.joinableSeats()
 
   return {
     code: opts.code,
@@ -316,9 +349,10 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     },
     humans,
     seats: () => lobby.slots.length,
-    joinableSeats: () => session.joinableSeats(),
+    joinableSeats,
     isPublic: () => session.roomState().public,
     isQuick: () => !!quick,
+    isRanked: () => opts.ranked === true,
     summary() {
       const st = lobby.settings ?? deps.defaultSettings
       const ownerSlot = quick ? null : lobby.slots.find((x) => x.kind === 'human')
@@ -328,12 +362,14 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         humans: humans(),
         bots: lobby.slots.length - humans(),
         max: quick ? Math.min(quick.seats, MAX_PLAYERS) : MAX_PLAYERS,
-        joinable: session.joinableSeats(),
+        joinable: joinableSeats(),
         phase: screen,
         quick: !!quick,
+        ...(opts.ranked !== undefined ? { ranked: opts.ranked } : {}),
         teamMode: st.teamMode,
         gameMode: st.gameMode,
         winScore: st.winScore,
+        ...(st.rankedRounds ? { rankedRounds: st.rankedRounds } : {}),
         ...(opts.elo ? { elo: { ...opts.elo } } : {}),
       }
     },
@@ -345,6 +381,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     close() {
       closed = true
       if (startTimer) clearTimeout(startTimer)
+      if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
       clearInterval(empty)
       session.leave()
     },

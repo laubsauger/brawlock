@@ -16,6 +16,17 @@ export interface ServerOptions {
   dataDir?: string
   /** ms since epoch for stored results (tests) */
   clock?: () => number
+  /** EU forwards ratings to this HTTPS origin; US leaves it unset to preserve its DB. */
+  ratingAuthorityUrl?: string
+  /** Server-only bearer secret. Also enables the private endpoint on the US authority. */
+  ratingAuthorityToken?: string
+  ratingAuthorityAllowInsecureForTests?: boolean
+  ratingAuthorityRequestMs?: number
+  ratingAuthorityRetryMs?: number
+  /** Tests inject config; production uses TURN_SECRET_FILE and JSON TURN_URLS. */
+  turnSecret?: string
+  turnUrls?: string[]
+  turnTtlSeconds?: number
 }
 
 export interface DedicatedServer {

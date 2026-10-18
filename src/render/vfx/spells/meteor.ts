@@ -2,8 +2,8 @@
  * Meteor (column 4 Devastator; deep violet fire). spells.md §8.17. Flagship effect.
  *
  * Arc:
- * - windup (0.2 s cast point): violet fire gathers in the hand, a sky-rune wheels open above the
- *   caster, and the rune circle at the (clamped, range 1000) target burns in at EXACTLY the hit
+ * - windup (0.2 s cast point): a violet sky-rune marks the raised hand,
+ *   and the rune circle at the (clamped, range 1000) target burns in at EXACTLY the hit
  *   radius 225..304 with a team-tinted edge;
  * - cast: hand flash and a bolt of light thrown into the sky;
  * - hover (0.55 s): a jagged violet RIFT tears open in the sky at the spawn point (void interior,
@@ -41,7 +41,7 @@ import { crater } from '../deathKit'
 import { registerSpellVfx, type VfxCtx } from '../registry'
 import {
   InstPool, STYLE_CRACKS, STYLE_RING, STYLE_RUNES, TAU, burst, castFlash, drawCircle, drawShadow, flashT, floorH, glowG, hexRgb,
-  implode, kitAdopt, kitBegin, kitInit, kitRelease, markRange, levelOfThing, light, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, tierOfLevel,
+  kitAdopt, kitBegin, kitInit, kitRelease, markRange, levelOfThing, light, originOf, pal, palMix, projShadow, rand, screenAngle, tierCap, tierOfLevel,
   type RGB,
 } from './kitB'
 
@@ -49,7 +49,6 @@ import {
 const VIOLET = pal('meteor', 'accent', 0.5)
 const MAGENTA = palMix('meteor', 0.35, 0.8)
 const PINK_HOT = pal('meteor', 'core', 1.7)
-const VIOLET_DEEP = pal('meteor', 'accent', 0.1)
 // fire ramp for the volume shader (linear, HDR on bloom tiers)
 const F_VIOLET = pal('meteor', 'accent', 0.3)
 /** saturated violet-magenta: the palette accent with its red pushed up (stays in the identity) */
@@ -658,15 +657,6 @@ registerSpellVfx({
   },
   onEvent(e: SimEvent, ctx: VfxCtx): boolean | void {
     switch (e.type) {
-      case 'castStart': {
-        if (e.spell !== SPELL) return
-        const info = ctx.pawn(e.pawn)
-        if (info) {
-          const o = originOf(info)
-          implode(ctx, o.x / S, -o.z / S, o.y / S, 22, 70, 140, 0.2, 14, MAGENTA, 1.2, 60)
-        }
-        return
-      }
       case 'cast': {
         if (e.spell !== SPELL) return
         const o = castFlash(ctx, e.pawn, MAGENTA, 1.2)
@@ -719,11 +709,12 @@ registerSpellVfx({
       const info = ctx.pawn(pw.id)
       if (info) {
         const o = originOf(info)
-        glowG(o.x / S, -o.z / S, o.y / S, 60 + 120 * k, MAGENTA, 0.6 + 1.2 * k, 2.2)
-        glowG(o.x / S, -o.z / S, o.y / S, 40 + 60 * k, PINK_HOT, 0.5 + k, 2, 2, 1, ctx.now * 3)
-        // signature: a violet sky-rune wheels open above the caster's raised arm
-        drawCircle(info.x, info.y, info.h + 250, 70 + 60 * k, STYLE_RUNES, VIOLET[0], VIOLET[1], VIOLET[2], 0.6 + 1.2 * k, 0, 2.5, pw.id, 0.1, 1.2, 12, ctx.now - 1)
-        glowG(info.x, info.y, info.h + 250, 140 + 100 * k, VIOLET_DEEP, 2, 1, 3, 1, ctx.now)
+        const gx = o.x / S
+        const gy = -o.z / S
+        const gh = o.y / S
+        // The sky pose and six-point hand seal identify the summon. No detached sky object.
+        drawCircle(gx, gy, gh + 1, 30, STYLE_RUNES, MAGENTA[0], MAGENTA[1], MAGENTA[2], 0.7 + 0.8 * k, 0, 0, pw.id, 0, 1.2, 6, ctx.now - 1)
+        glowG(gx, gy, gh, 28, MAGENTA, 0.3 + 0.4 * k, 2.2)
       }
     }
     // craters: glowing cracks and rim that cool, embers rising

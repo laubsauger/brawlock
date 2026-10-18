@@ -456,6 +456,10 @@ export const input: InputApi = {
     }
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) {
+        onBlur()
+        return
+      }
       if (actionForCode(currentBinds(), e.code) === 'peek') {
         peekKey = false
         inputViz.peek = peekMouse
@@ -477,6 +481,12 @@ export const input: InputApi = {
       useGame.getState().toggle('scoreboardOpen', false)
     }
 
+    const onFocus = (e: FocusEvent) => {
+      if (!isTypingTarget(e.target)) return
+      onBlur()
+      heldMove = null
+    }
+
     // a menu or the settings opening ends a peek (its key-up may never reach us)
     const unsubMenus = useGame.subscribe((s, prev) => {
       if ((s.paused && !prev.paused) || (s.settingsOpen && !prev.settingsOpen)) releasePeek()
@@ -488,6 +498,7 @@ export const input: InputApi = {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onBlur)
+    window.addEventListener('focusin', onFocus)
 
     return () => {
       stopHold()
@@ -503,6 +514,7 @@ export const input: InputApi = {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focusin', onFocus)
     }
   },
   issue(cmd) {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
-import { TICK_HZ, type InputCommand } from '../../sim'
+import { TICK_HZ, isRoundParticipant, type InputCommand } from '../../sim'
 import { Sigil } from '../icons'
 import {
   COLUMNS,
@@ -25,7 +25,7 @@ import { useMedia } from '../lib/media'
 import { abilityCardProps, hideAbilityCard } from './AbilityCard'
 import { Button, Kbd, KeyCaps } from '../widgets'
 import { CharacterBody } from './Overlays'
-import { displayRound } from './TopBar'
+import { roundLabel } from './TopBar'
 import { slotDragProps, slotDropProps } from '../lib/slotDnd'
 import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type OfferState } from './shopOffers'
 import { readShop } from './shopView'
@@ -126,8 +126,9 @@ function ShopClock() {
     let t = ''
     if (s.phase === 'shop' || s.phase === 'warmup') {
       const secs = Math.max(0, Math.ceil(s.phaseTicksLeft / TICK_HZ))
-      t = `Round ${displayRound(s)} in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
-    } else if (s.phase === 'fight') t = canBuyNow(s) ? 'You are out: buy for the next round' : 'Round in progress'
+      t = `${roundLabel(s)} in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+    } else if (s.rankedFinal && !isRoundParticipant(s, frame.localPlayer)) t = 'Watching the final brawl'
+    else if (s.phase === 'fight') t = canBuyNow(s) ? 'You are out: buy for the next round' : 'Round in progress'
     else if (s.phase === 'roundEnd') t = 'Round over'
     if (t !== last.current) {
       ref.current.textContent = last.current = t
@@ -386,7 +387,9 @@ export function Shop() {
           </header>
           {!v.open && (
             <p className="mx-4 mb-2 rounded-md bg-[rgba(255,140,60,0.1)] px-3 py-2 text-[0.98rem] font-semibold text-[#ffcf9a] ring-1 ring-[rgba(255,150,70,0.3)]" role="status">
-              Shop opens between rounds. Look around now; buying unlocks in the next shop phase.
+              {frame.curr?.rankedFinal && !isRoundParticipant(frame.curr, frame.localPlayer)
+                ? 'You are watching the final brawl. Inspect the contenders or bet during the fight; purchases are closed.'
+                : 'Shop opens between rounds. Look around now; buying unlocks in the next shop phase.'}
             </p>
           )}
           <div className="spell-grid min-h-0 flex-auto overflow-y-auto px-4 pb-3" onKeyDown={navKeys}>

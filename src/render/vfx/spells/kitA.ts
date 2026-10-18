@@ -1767,24 +1767,13 @@ export class KitA {
 
   /**
    * Base of every signature charge-up (render draws the shared "someone is
-   * casting" telegraph): motes in the spell's colour spiralling into the cast
-   * hand and a glow that grows with progress k (0..1). Each spell adds its own
-   * recognizable shape on top.
+   * casting" telegraph): a compact spell-coloured glow attached to the cast
+   * hand, growing with progress k (0..1). Character runes carry the motion.
    */
-  windupAt(x: number, y: number, h: number, k: number, pal: Pal, _now: number, dt: number, _seed: number): void {
-    const ps = this.ctx.particles
-    const n = ps.budget(dt * (30 + k * 60))
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * TAU
-      const rr = 55 + Math.random() * 45
-      const life = 0.16 + Math.random() * 0.08
-      // spawn on a ring, fly into the origin over its life (slight swirl)
-      const ox = Math.cos(a) * rr
-      const oy = Math.sin(a) * rr
-      const oh = (Math.random() - 0.5) * 60
-      pspawn(ps, x + ox, y + oy, h + oh, (-ox + oy * 0.6) / life, (-oy - ox * 0.6) / life, -oh / life, life, 5 + k * 4, 2, pal.spark[0], pal.spark[1], pal.spark[2], 0, 0, -0.03)
-    }
-    this.glowAt(x, y, h, 40 + k * 50, pal.body[0] * (0.3 + k * 0.7), pal.body[1] * (0.3 + k * 0.7), pal.body[2] * (0.3 + k * 0.7), 2.2)
+  windupAt(x: number, y: number, h: number, k: number, pal: Pal, _now: number, _dt: number, _seed: number): void {
+    // Immediate-mode and attached to this frame's hand: no moving cores,
+    // trails or free particles that can read as a launch before commitment.
+    this.glowAt(x, y, h, 24 + k * 20, pal.body[0] * (0.3 + k * 0.7), pal.body[1] * (0.3 + k * 0.7), pal.body[2] * (0.3 + k * 0.7), 1.4)
   }
 
   /**

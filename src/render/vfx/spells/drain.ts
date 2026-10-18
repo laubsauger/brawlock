@@ -82,22 +82,21 @@ function bloom(k: KitA, ctx: VfxCtx, x: number, y: number, h: number): void {
   kflash(ctx, x, y, h + 40, 0.22, 170, 110, H.body[0] * 1.2, H.body[1] * 1.2, H.body[2] * 1.2)
 }
 
-/** signature charge-up: sickly tendrils curling in from around the caster into the hand */
-function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  const R = 110 - 40 * w
-  for (let j = 0; j < 5; j++) {
-    const a0 = (j / 5) * Math.PI * 2 + id + now * 0.8
-    k.stripBegin(false, 1.6, 0.8, now * 3 + j)
+/** Three inward curls inked around the palm; no free gathering vortex. */
+function signature(k: KitA, _ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
+  const R = 27 - 7 * w
+  for (let j = 0; j < 3; j++) {
+    const a0 = (j / 3) * Math.PI * 2 + id
+    k.stripBegin(false, 2, 0, j)
     const N = 10
     for (let i = 0; i <= N; i++) {
       const t = i / N
       const rr = R * (1 - t)
-      const a = a0 + t * 2.2 + Math.sin(now * 5 + j + t * 4) * 0.3
+      const a = a0 + t * 2.2
       const px = o.x + Math.cos(a) * rr
       const py = o.y + Math.sin(a) * rr
-      const ph = info.h + 15 + (o.h - info.h - 15) * t
-      k.stripPoint(px, py, ph, 12 * (1 - t * 0.6), P.body[0], P.body[1], P.body[2], (0.3 + 0.7 * w) * Math.min(1, t * 3 + 0.2), P.hot[0], P.hot[1], P.hot[2], 0.15)
+      const ph = o.h + Math.sin(t * Math.PI) * 6
+      k.stripPoint(px, py, ph, 5 * (1 - t * 0.6), P.body[0], P.body[1], P.body[2], 0.55 + 0.65 * w, P.body[0], P.body[1], P.body[2], 0.15)
     }
     k.stripEnd()
   }

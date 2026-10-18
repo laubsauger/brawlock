@@ -63,6 +63,9 @@ export const SPAWN_MIN_RADIUS = 300
 /** platform layer during the shop phase (13 + 1) */
 export const ARENA_SHOP_LAYER = ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER
 export const SHRINK_PERIOD = 10
+export const RANKED_SHRINK_PERIOD = 8
+export const RANKED_FINAL_SHRINK_PERIOD = 6
+export const RANKED_FINAL_SHOP_SECONDS = 15
 export const LAVA_DAMAGE_PERIOD = 0.25
 export const LAVA_KB_POINT_FACTOR = 0.5
 

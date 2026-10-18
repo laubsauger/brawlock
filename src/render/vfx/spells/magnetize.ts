@@ -1,6 +1,6 @@
 /**
  * Magnetize (column 6 Knockbackless; steel blue). spells.md §8.26.
- * Windup (0.2 s cast point): small dipole field lines arc out of the casting hand.
+ * Windup (0.2 s cast point): opposed dipole marks clasp the casting palm.
  * Bolt (sim r36, 800 u/s): a steel-blue core with two pole sparks orbiting it and field-line
  * flickers. On a warlock (`magnetize`, 3.5..6.5 s): a dipole field of curved lines rises around
  * it; energy dashes FLOW INTO the warlock when it attracts (enemy target: your projectiles bend
@@ -139,7 +139,7 @@ registerSpellVfx({
     for (const [id, f] of fields) if (frameNo - f.seen > 2) fields.delete(id)
     const st = ctx.state
     if (!st) return
-    // windup: little dipole arcs blooming out of the hand
+    // Fixed, opposing pole brackets. Flow and orbit belong to the released bolt.
     for (const pw of st.pawns) {
       const c = pw.cast
       if (!pw.alive || !c || c.spell !== SPELL || !c.started || !lines) continue
@@ -147,13 +147,13 @@ registerSpellVfx({
       if (!info) continue
       const o = originOf(info)
       const k = 1 - c.ticksLeft / 12
-      for (let i = 0; i < 4; i++) {
-        lines.quat.setFromAxisAngle(Y, (i / 4) * TAU + ctx.now * 2)
-        const L = (16 + 22 * k) * S
+      for (let i = 0; i < 2; i++) {
+        lines.quat.setFromAxisAngle(Y, -pw.facing + i * Math.PI)
+        const L = 26 * S
         const idx = lines.add(o.x, o.y, o.z, L, L, L)
-        lines.set(idx, 0, 1.2, 1, i * 0.25, 0)
+        lines.set(idx, 0, 0.7 + 0.5 * k, 0, i * 0.25, 0)
       }
-      glowG(o.x / S, -o.z / S, o.y / S, 40 + 40 * k, STEEL_HOT, 0.4 + 0.4 * k, 2.2)
+      glowG(o.x / S, -o.z / S, o.y / S, 28, STEEL, 0.3 + 0.3 * k, 2.2)
     }
   },
   drawProjectile(p: ProjectileState, x: number, y: number, ctx: VfxCtx) {

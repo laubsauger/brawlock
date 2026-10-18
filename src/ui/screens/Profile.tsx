@@ -509,7 +509,7 @@ function BoardRowView({ r, you, period }: { r: PublicBoardRow; you: boolean; per
   )
 }
 
-/** Casual global leaderboard of the game server (server games between people only). */
+/** Global leaderboard of completed eligible ranked games. */
 function GlobalBoard() {
   const [period, setPeriod] = useState<Period>('all')
   const [page, setPage] = useState<LeaderboardPage | null>(null)
@@ -537,7 +537,7 @@ function GlobalBoard() {
   return (
     <div className="flex flex-col gap-3" data-testid="global-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-[0.92rem] text-ash">Global counts games on our servers with at least 2 players for 2+ minutes. Bots never count.</p>
+        <p className="max-w-xl text-[0.92rem] text-ash">Ranked games count with at least 2 human players for 2+ minutes. Your Elo is shared across regions. Bots never count.</p>
         <Segmented
           label="Period"
           value={period}

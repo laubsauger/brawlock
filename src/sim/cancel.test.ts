@@ -24,6 +24,28 @@ describe('cast canceling', () => {
     expect(of(run(s, 30), 'cast')).toHaveLength(0)
   })
 
+  test.each(['fireball', 'snowball', 'twin', 'cluster', 'bouncer', 'boomerang', 'lightning', 'homing', 'drain', 'recharge', 'redirector', 'gravity', 'grip', 'link', 'magnetize', 'meteor', 'rockpillar', 'warpzone', 'pact', 'scourge'])('%s cannot launch when canceled on its final windup tick', (spell) => {
+    const s = newMatch()
+    const p0 = pawn(s, 0)
+    place(p0, 0, 0, 0)
+    p0.slots[0] = spell
+    p0.levels[0] = 1
+    step(s, [cmd(0, { kind: 'cast', slot: 0, x: 1000, y: 0 })])
+    while (p0.cast && p0.cast.ticksLeft > 1) {
+      expect(s.projectiles).toHaveLength(0)
+      step(s, [])
+    }
+    expect(p0.cast?.ticksLeft).toBe(1)
+    step(s, [cmd(0, { kind: 'stop' })])
+    expect(of(s.events, 'castCancel')).toHaveLength(1)
+    expect(p0.cast).toBeNull()
+    expect(p0.cooldowns[0]).toBe(0)
+    const later = run(s, 30)
+    expect(of(later, 'cast')).toHaveLength(0)
+    expect(of(later, 'projectileSpawn')).toHaveLength(0)
+    expect(s.projectiles).toHaveLength(0)
+  })
+
   test('a move order while still turning cancels with started = false', () => {
     const s = newMatch()
     const p0 = pawn(s, 0)

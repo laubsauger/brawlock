@@ -20,6 +20,9 @@
  *   host → client  end     {match, result}            game over, show results
  *   host → client  screen  {screen: 'lobby'}          host went back to the lobby
  *   host → client  notice  {text}                     transient info ("Bob disconnected")
+ *   client → host  say     {text}                     room chat, sender resolved by host
+ *   host → client  chat    {line}                     accepted room message
+ *   host → client  chatlog {lines}                    bounded history on join / reconnect
  *   host → client  kick    {reason}
  *   either         leave   {}                         graceful goodbye
  *   host → client  error   {message}                  fatal (version mismatch, lobby full)
@@ -57,6 +60,7 @@ import type { TickEvents } from '../game/frame'
 import { decodeCmd, encodeCmd, type WireCmd, type WireInput, type WirePatch, type WireSlot } from './stream'
 import type { MatchResult } from '../game/store'
 import type { LobbyVoteChoice, LobbyVoteSetting, LobbyVoteWire, LobbyVoteResult } from './lobbyVotes'
+import type { ChatLine } from './chat'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
 export const PROTOCOL_VERSION = 7
@@ -89,11 +93,15 @@ export interface RoomState {
   public: boolean
   /** a quick-play room: the server runs it (no owner), it starts and refills by itself */
   quick: boolean
+  ranked?: boolean
   /** quick play: the automatic start in this many ms from the message ('fill': the one-human countdown; bots top the table up either way); null = none pending */
   auto: { inMs: number; fill: boolean } | null
 }
 
 export type Msg =
+  | { t: 'say'; text: string }
+  | { t: 'chat'; line: ChatLine }
+  | { t: 'chatlog'; lines: ChatLine[] }
   | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null; device?: string; build?: string }
   | { t: 'rename'; name: string }
   | { t: 'color'; color: number }
@@ -151,6 +159,9 @@ export type Msg =
   | { t: 'error'; message: string }
 
 const TYPES = new Set<Msg['t']>([
+  'say',
+  'chat',
+  'chatlog',
   'hello',
   'rename',
   'color',

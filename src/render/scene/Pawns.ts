@@ -111,6 +111,7 @@ export class PawnView {
   private releaseAt = -10
   private hadCast = false
   private fizzleAt = -10
+  private fizzleSpell = ''
   private castTarget = { x: 0, y: 0 }
   /** called once when a windup ends without a release (cancel / fake) */
   onFizzle: ((v: PawnView) => void) | null = null
@@ -495,11 +496,15 @@ export class PawnView {
   }
 
   castStart(spell: string, ticks: number): void {
+    this.fizzleAt = -10
+    this.fizzleSpell = ''
     this.castSpell = spell
     this.castTotal = Math.max(1, ticks)
   }
 
   castRelease(now: number): void {
+    this.fizzleAt = -10
+    this.fizzleSpell = ''
     this.releaseAt = now
     this.hadCast = false
   }
@@ -511,6 +516,7 @@ export class PawnView {
   }
 
   private fizzle(now: number): void {
+    this.fizzleSpell = this.castSpell
     this.fizzleAt = now
     this.releaseAt = -10
     this.onFizzle?.(this)
@@ -648,6 +654,14 @@ export class PawnView {
   /** 0..1 progress of the current windup (for flares). */
   get castFraction(): number {
     return this.warlock ? this.warlock.castCharge : this.castProgress
+  }
+
+  get canceledCastSpell(): string { return this.fizzleSpell }
+
+  /** Short extinguish phase, driven by the same frozen world clock as the charge. */
+  get castCancelFraction(): number {
+    const age = this.ctx.uTime.value - this.fizzleAt
+    return age >= 0 && age < 0.14 ? age / 0.14 : -1
   }
 
   /** The pawn vanished from state without a death event: dissolve it out. */

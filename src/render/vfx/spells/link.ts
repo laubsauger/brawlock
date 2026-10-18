@@ -1,6 +1,6 @@
 /**
  * Link (column 6 Knockbackless; chain green). spells.md §8.28.
- * Windup (0.2 s cast point): chain links spin up and lock together around the hand.
+ * Windup (0.2 s cast point): a short chain mark locks along the casting wrist.
  * Throw (sim r35 head, 950 u/s, retracts after 860 range): a glowing shackle head on an
  * energy chain paid out from the caster's hand (chain links + a green energy core in a
  * camera-facing ribbon). Latched ('link' modifier on the caster): the chain runs from the hand
@@ -203,7 +203,7 @@ registerSpellVfx({
     kitBegin(ctx)
     frameNo++
     for (const [id, t] of tethers) if (frameNo - t.seen > 30) tethers.delete(id)
-    // windup: chain links locking together around the hand
+    // A short wrist chain follows the current hand; no free orbit or paid-out chain.
     const st = ctx.state
     if (!st) return
     for (const pw of st.pawns) {
@@ -213,12 +213,10 @@ registerSpellVfx({
       if (!info) continue
       const o = originOf(info)
       const k = 1 - c.ticksLeft / 12
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * TAU + ctx.now * (4 + 3 * k)
-        const rr = 40 * (1 - 0.5 * k)
-        glowG(o.x / S + Math.cos(a) * rr, -o.z / S + Math.sin(a) * rr, o.y / S + Math.sin(a * 2) * 8, 22, CHAIN, 0.6 + 0.4 * k, 0.12, 1, 1.6, a)
-      }
-      glowG(o.x / S, -o.z / S, o.y / S, 50 + 40 * k, CHAIN_HOT, 0.3 + 0.4 * k, 2.2)
+      vA.copy(o)
+      vB.set(info.x * S, (info.h + 112) * S, -info.y * S).lerp(o, 0.45)
+      drawChain(ctx, vB, vA, 0.6 + 0.4 * k, 0, 0, 0.42)
+      glowG(o.x / S, -o.z / S, o.y / S, 25, CHAIN, 0.25 + 0.3 * k, 2.2)
     }
   },
   drawProjectile(p: ProjectileState, x: number, y: number, ctx: VfxCtx) {

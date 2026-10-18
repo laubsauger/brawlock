@@ -106,3 +106,87 @@ export function createMenuStage(theme = Math.floor(Math.random() * 3), seed = 41
     },
   }
 }
+
+/** A coven portrait, rather than a match: ten existing warlocks hold a quiet
+ * ceremony on the arena rim. Cast states direct the existing rig and pooled
+ * windup effects; no combat runs, so nothing fires into scenery or hurts a peer. */
+export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 41): MenuStage {
+  const out = { x: Math.cos(MENU_FOCUS_ANGLE), y: Math.sin(MENU_FOCUS_ANGLE) }
+  const tangent = { x: -out.y, y: out.x }
+  const centre = layerRadius(MENU_LAYER) - 460
+  const at = (along: number, depth: number): Vec2 => ({
+    x: out.x * (centre + depth) + tangent.x * along,
+    y: out.y * (centre + depth) + tangent.y * along,
+  })
+  // A forward conductor, a staggered inner crescent, then the five outer
+  // witnesses. The gaps preserve hands/hood silhouettes instead of a flat wall.
+  const marks = [
+    [0, -250], [-215, -125], [215, -100], [-420, 35], [420, 65],
+    [-560, 230], [-290, 240], [0, 255], [285, 265], [550, 245],
+  ] as const
+  const colors = [0xffb957, 0x4bdac9, 0xb98cff, 0xe66d52, 0x80bafa, 0xd1a367, 0x86b874, 0xd57fb4, 0x87c8d0, 0xd4bd8a]
+  const names = ['Sunbinder', 'Tidecaller', 'Nightveil', 'Ashkeeper', 'Stormwatch', 'Runewarden', 'Mosscloak', 'Dusksinger', 'Frostseer', 'Dawnguard']
+  const slots: PlayerSlot[] = names.map((name, id) => ({ id, name, color: colors[id], team: id, kind: 'bot' }))
+  const sim = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 0 }, slots, seed)
+  sim.phase = 'fight'
+  sim.phaseTicksLeft = -1
+  sim.round = 1
+  sim.arena = { layer: MENU_LAYER, nextShrinkTick: -1, theme }
+  sim.events = []
+  for (let i = 0; i < sim.pawns.length; i++) {
+    const pawn = sim.pawns[i]
+    Object.assign(pawn, at(marks[i][0], marks[i][1]))
+    // Converging three-quarter stances face the audience, not one another.
+    pawn.facing = Math.atan2(-out.y * 1500 - tangent.y * marks[i][0] * 0.35, -out.x * 1500 - tangent.x * marks[i][0] * 0.35)
+    pawn.modifiers = []
+    pawn.invulnerable = false
+    pawn.cast = null
+  }
+  const radii = OBSTACLE_RADII[theme]
+  sim.obstacles = [-1, 1].map((side, index) => ({
+    id: sim.nextEntityId++, ...at(side * 770, -25), radius: radii[index], hp: 400, variant: index,
+  }))
+
+  // Only three channels can overlap. The conductor anchors the image; the
+  // two slower replies travel across the crescent, with long idle rests.
+  const gestures = [
+    { player: 0, spell: 'gravity', start: 0, duration: 540 },
+    { player: 3, spell: 'meteor', start: 210, duration: 300 },
+    { player: 8, spell: 'shield', start: 420, duration: 240 },
+    { player: 2, spell: 'lightning', start: 810, duration: 300 },
+    { player: 6, spell: 'meteor', start: 1050, duration: 300 },
+    { player: 0, spell: 'gravity', start: 1170, duration: 450 },
+    { player: 4, spell: 'shield', start: 1470, duration: 240 },
+  ] as const
+  const cycle = 1920
+  return {
+    focus: at(0, 30),
+    out,
+    step() {
+      sim.events.length = 0
+      const moment = sim.tick % cycle
+      for (const gesture of gestures) {
+        const pawn = sim.pawns[gesture.player]
+        const age = moment - gesture.start
+        if (age === 0) {
+          pawn.cast = {
+            slot: 0, spell: gesture.spell, ticksLeft: gesture.duration,
+            x: pawn.x + Math.cos(pawn.facing) * 260,
+            y: pawn.y + Math.sin(pawn.facing) * 260, started: true,
+          }
+          sim.events.push({ type: 'castStart', pawn: pawn.id, spell: gesture.spell, ticks: gesture.duration })
+        } else if (age > 0 && age < gesture.duration && pawn.cast?.spell === gesture.spell) {
+          pawn.cast.ticksLeft = gesture.duration - age
+        } else if (age === gesture.duration) {
+          pawn.cast = null
+          // A restrained hand/floor flourish, using the existing cast effect.
+          // No projectile, explosion, damage, or simulation command is created.
+          sim.events.push({ type: 'cast', pawn: pawn.id, spell: gesture.spell, x: pawn.x, y: pawn.y, level: 1 })
+        }
+      }
+      sim.tick++
+      const state = cloneState(sim)
+      return { state, events: state.events }
+    },
+  }
+}

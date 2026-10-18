@@ -758,6 +758,19 @@ export function disintegrate(
     const g = 1.1 * load
     ctx.ground.spawn(RING_CHEVRON, x, y, f + 1, 34, 58, 0.55, 4, s[0] * g, s[1] * g, s[2] * g)
     ctx.ground.spawn(RING_IMPLODE, x, y, f + 1, 10, 95, 0.4, 6, s[0] * g * 0.8, s[1] * g * 0.8, s[2] * g * 0.8)
+    // Physical deaths snap at the body, then answer with a small pressure
+    // ring. Keep lava's splash and the inward shadow/gravity/drain looks.
+    if (kind === 'ash' || kind === 'fireball' || kind === 'meteor' || kind === 'lightning' || kind === 'freeze') {
+      const impact = ctx.fx * Math.min(1.25, e.k) * load
+      e.acc2 = impact
+      e.flags |= 1024
+      const n = ctx.particles.budget(12 * impact)
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + rnd() * 0.25
+        const sp = 340 + rnd() * 220
+        ctx.particles.spawn(x + Math.cos(a) * BODY_R, y + Math.sin(a) * BODY_R, h + BODY_H * (0.35 + rnd() * 0.4), Math.cos(a) * sp, Math.sin(a) * sp, 40 + rnd() * 100, 0.16 + rnd() * 0.1, 7, 1, s[0] * 1.8, s[1] * 1.8, s[2] * 1.8, -350, 3, -0.1)
+      }
+    }
   }
 }
 
@@ -775,6 +788,12 @@ function tickDisint(ctx: VfxCtx, K: DeathKitPools, e: Emitter, t: number): void 
   const dz = (lt - e.d0) / span
   const v = e.victim
   const s = e.spell
+  if ((e.flags & 1024) !== 0 && lt >= 0.075) {
+    e.flags &= ~1024
+    const g = e.acc2 * 1.1
+    const f = decalFloor(ctx, e.x, e.y)
+    ctx.ground.spawn(RING_EXPAND, e.x, e.y, f + 1.5, 38, 120, 0.24, 7, s[0] * g, s[1] * g, s[2] * g)
+  }
   if (dz > -0.15 && dz < 1.05) {
     // the burning edge climbs feet -> head (character dissolve: edge reaches the top at ~75 %)
     const f = Math.max(0, Math.min(1, dz / 0.78))

@@ -95,6 +95,8 @@ export interface Settings {
 export type NetRole = 'offline' | 'host' | 'client'
 
 export interface LobbyView {
+  /** Reliable room conversation; cleared when leaving or opening another room. */
+  chat?: import('../net/chat').ChatLine[]
   vote?: import('../net/lobbyVotes').LobbyVoteView | null
   voteResult?: import('../net/lobbyVotes').LobbyVoteResult | null
   role: NetRole
@@ -122,6 +124,8 @@ export interface LobbyView {
   public?: boolean
   /** server quick-play room: the server runs it (nobody has host controls) and starts it by itself */
   quick?: boolean
+  /** Dedicated fixed-rule ranked matchmaking; other games are casual. */
+  ranked?: boolean
   /** quick play: the pending automatic start, `at` on the session clock (performance.now); fill: the one-human countdown (bots top the table up to 4 either way) */
   autoStart?: { at: number; fill: boolean } | null
 }
@@ -174,7 +178,7 @@ const defaultSettings: Settings = {
   edgePan: true,
   masterVolume: 0.8,
   sfxVolume: 1,
-  musicVolume: 0.5,
+  musicVolume: 0.65,
   ambienceVolume: 1,
   announcerVolume: 0.8,
   announcerVoice: 'maverick',

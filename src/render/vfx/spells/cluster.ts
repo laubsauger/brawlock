@@ -1,7 +1,7 @@
 /**
  * Cluster (column 3, Damage; identity amber). spells.md §8.12.
  *
- * - windup: motes into the hand; cast: four flame tongues fanning out on the
+ * - windup: glow at the hand; cast: four flame tongues fanning out on the
  *   real bolt headings (+-0.06 / +-0.18 rad)
  * - flight (x4): small molten fireballs, core = sim radius 22 with a short
  *   comet tail, amber halo, short heat trail, a few embers (kept cheap: four
@@ -11,7 +11,7 @@
  */
 import type { SimEvent } from '../../../sim/types'
 import { RING_EXPAND } from '../../scene/GroundFx'
-import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
+import { registerSpellVfx, type SpellVfx, type VfxCtx } from '../registry'
 import { G_SHOCK, PH, acquireKit, kflash, kring, palFor, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
 import { spellDeath } from './deathsA'
 
@@ -50,19 +50,13 @@ function splash(k: KitA, ctx: VfxCtx, x: number, y: number, hit: boolean): void 
   for (let i = 0; i < ns; i++) ctx.smoke.spawn(x, y, PH, (Math.random() - 0.5) * 90, (Math.random() - 0.5) * 90, 50 + Math.random() * 30, 0.8 + Math.random() * 0.4, 24, 80, 0.05, 0.035, 0.02, 25, 1.2, 8)
 }
 
-const ORBIT: TrailStyle = trailFrom(P, { life: 0.07, width: 9, widthTail: 0.2, intensity: 1.5, falloff: 1.6, noise: 0.3, spacing: 4, rim: 0 }, 0.6)
-
-/** signature charge-up: four small embers circling the hand */
-function signature(k: KitA, ctx: VfxCtx, _info: PawnRenderInfo, id: number, _tx: number, _ty: number, w: number): void {
-  k.orbit(o.x, o.y, o.h, 4, 34 - 8 * w, -ctx.now * (6 + 8 * w), 6 + 3 * w, P, 0.8 + 0.5 * w, -7000 - id * 4, ORBIT, 6)
-}
 
 const mod: SpellVfx = {
   spell: 'cluster',
   init(ctx) {
     K = acquireKit(ctx)
   },
-  // our signature occupies the palm: keep render's arm rings + ground ring, drop its palm orb
+  // The shared kit draws a compact palm glow, never a projectile during windup.
   windupStyle: () => ({ hide: ['orb'] }),
   dispose() {
     releaseKit(K)
@@ -129,8 +123,7 @@ const mod: SpellVfx = {
       k.begin()
       k.origin(info, o)
       const w = windupProgress(k, ctx, p.id, p.cast.ticksLeft)
-      k.windupAt(o.x, o.y, o.h, w, P, ctx.now, ctx.dt, p.id)
-      signature(k, ctx, info, p.id, p.cast.x, p.cast.y, w)
+      k.glowAt(o.x, o.y, o.h, 20, P.body[0] * (0.08 + 0.08 * w), P.body[1] * (0.08 + 0.08 * w), P.body[2] * (0.08 + 0.08 * w), 1.4)
     }
   },
 

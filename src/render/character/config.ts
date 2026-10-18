@@ -13,9 +13,9 @@ export type WarlockLook = 'readable' | 'void'
 /** 1 = readable, 0 = void; read by every warlock material */
 export const lookUniform = uniform(1)
 /**
- * Facing cue (live switch): the front of the garment carries the player
- * colour while the back stays dark, and a chevron on the shoulder cape points
- * forward, so an idle warlock's facing reads from the gameplay camera.
+ * Facing cue (live switch): the front of the garment carries a soft player
+ * colour tint and a woven shoulder chevron while the back stays dark, so an
+ * idle warlock's facing reads without a glowing stripe across the shoulders.
  */
 export const facingUniform = uniform(1)
 /** Where spells visually originate: the casting palm (default) or the staff crystal. */

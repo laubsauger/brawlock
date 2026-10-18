@@ -90,4 +90,19 @@ describe('personal betting presentation', () => {
     pushState(contested)
     expect(markup()).toContain('2 gold returned · +1 gold profit')
   })
+
+  it('keeps final-brawl betting clear without promising a bounty in a nonexistent next round', () => {
+    const state = setup()
+    state.settings.rankedRounds = 5
+    state.rankedFinal = { contenders: [1, 2] }
+    state.round = 6
+    pushState(state)
+    expect(markup()).toContain('Bet on who wins')
+    expect(markup()).toContain('up to 2 gold total back')
+    expect(markup()).not.toContain('next round’s winner bounty')
+    state.settings.bounties = false
+    pushState(state)
+    expect(markup()).toContain('Unmatched bets are refunded')
+  })
+
 })

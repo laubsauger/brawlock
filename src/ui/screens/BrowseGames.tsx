@@ -6,6 +6,7 @@ import { RegionPing } from '../RegionPing'
 import { sfx } from '../lib/sound'
 import { joinRoom } from '../flow'
 import { liveEloLabel } from '../lib/elo'
+import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
 
 /** how often the list refreshes (the server caches it ~1 s and allows 60 lists a minute) */
 export const BROWSE_REFRESH_MS = 4000
@@ -19,8 +20,9 @@ const STATUS: Record<PublicRoom['phase'], { label: string; tone: string }> = {
 const MODE: Record<string, string> = { ffa: 'Free for all', teams: 'Teams', shuffle: 'Shuffled teams' }
 
 /** "Free for all · first to 5" */
-export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore'>): string {
+export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore' | 'rankedRounds'>): string {
   const mode = MODE[r.teamMode] ?? r.teamMode
+  if (r.rankedRounds) return `${mode} · ${r.rankedRounds} rounds · final if tied`
   return r.gameMode === 'rounds' || !r.gameMode ? `${mode} · first to ${r.winScore}` : `${mode} · ${r.gameMode}`
 }
 
@@ -30,6 +32,7 @@ export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore
  * Refreshes every few seconds while open.
  */
 export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: () => void }) {
+  const playSupported = usePlaySupported()
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
   const [joining, setJoining] = useState<string | null>(null)
   // a join that failed lands back here with lobby.error: say so and allow another try
@@ -57,6 +60,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
   }, [onBack])
 
   const join = (room: PublicRoom) => {
+    if (!isPlaySupported()) return
     const code = room.code
     sfx('click')
     if (failed) setLobby({ status: 'idle', error: null })
@@ -73,10 +77,11 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Browse games</h1>
-          <p className="text-[1rem] text-[#e6d3b8]">Open games you can join right now. Hosts choose whether their game is listed.</p>
+          <p className="text-[1rem] text-[#e6d3b8]">Open games. Hosts choose whether their game is listed.</p>
+          {!playSupported && <p data-testid="play-requirement" className="text-sm text-[#f3d3a1]">{PLAY_REQUIREMENT}</p>}
         </div>
         <div className="flex flex-wrap gap-3">
-        <Button variant="primary" onClick={onHost} data-testid="browse-host">Host a game</Button>
+        <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) onHost() }} data-testid="browse-host">Host a game</Button>
         <Button sound="back" onClick={onBack}>
           Back <Kbd>Esc</Kbd>
         </Button>
@@ -97,7 +102,8 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
             {rooms.map((r) => {
               const st = STATUS[r.phase] ?? STATUS.match
               const elo = liveEloLabel(r)
-              const full = r.humans >= r.max
+              const rankedClosed = r.ranked && r.phase !== 'lobby'
+              const full = r.humans >= r.max || rankedClosed
               const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
               const watch = r.phase === 'match' && r.joinable === 0
               const joinLabel = nextRound ? 'Join next round' : watch ? 'Watch' : 'Join'
@@ -106,7 +112,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                 <li key={`${r.kind}:${r.code}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
                   <span className="flex min-w-[12rem] flex-1 flex-col leading-tight">
                     <span className="truncate text-[1.08rem] font-bold">
-                      {r.quick ? 'Quick play' : r.host ? `${r.host}'s game` : 'Open game'}
+                      {r.ranked ? 'Ranked' : r.quick ? 'Quick play · Casual' : r.host ? `${r.host}'s game` : 'Open game'}
                       {r.kind === 'p2p' && <span className="ml-2 align-middle text-[0.78rem] font-semibold tracking-wide text-ash uppercase">Player-hosted</span>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.86rem] text-ash">
@@ -128,8 +134,8 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                       <RegionPing s={r.region} withName />
                     )}
                   </span>
-                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={full || joining !== null} onClick={() => join(r)} title={joinTitle}>
-                    {joining === r.code ? 'Joining…' : full ? 'Full' : joinLabel}
+                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={!playSupported || full || joining !== null} onClick={() => join(r)} title={!playSupported ? PLAY_REQUIREMENT : joinTitle}>
+                    {joining === r.code ? 'Joining…' : rankedClosed ? 'In progress' : full ? 'Full' : joinLabel}
                   </Button>
                 </li>
               )

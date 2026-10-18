@@ -39,7 +39,7 @@ if (params.has('hidecharge')) {
 // &probe  per-frame instance counts of workstream C's batches (frozen-clock accumulation check)
 const probe: Record<string, number> = {}
 if (params.has('probe')) {
-  const names = new Set(['scourge-glow', 'scourge-windup', 'death-glow', 'afterhit-arcs', 'death-runes', 'death-decals-glow'])
+  const names = new Set(['cast-hand-marks', 'projectile-cores', 'vfxA-cores', 'scourge-glow', 'scourge-windup', 'death-glow', 'afterhit-arcs', 'death-runes', 'death-decals-glow'])
   registerSpellVfx({
     spell: '__lab_probe',
     frame(ctx) {
@@ -62,6 +62,7 @@ if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
 if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(params.get('fx')) })
 ;(window as unknown as Record<string, unknown>).__labC = {
   devTime,
+  frame,
   stats: renderStats,
   zoom: cameraZoomParam,
   state: labState,
@@ -80,7 +81,7 @@ function Lab() {
     const causes = c === 'all' ? [...ALL_CAUSES] : c.split(',')
     const vc = params.get('vc')
     // &match8[=cb]: 8 bots fighting, standard or colourblind slot palette (palette review)
-    const stop = params.has('match8') ? startMatchLab({ n: Number(params.get('n') ?? 8), cb: params.get('match8') === 'cb', seed: Number(params.get('seed') ?? 7) }) : startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined, allCast: params.has('allcast'), killerColor: params.has('kc') ? parseInt(params.get('kc') ?? '', 16) : undefined }, setLabel)
+    const stop = params.has('match8') ? startMatchLab({ n: Number(params.get('n') ?? 8), cb: params.get('match8') === 'cb', seed: Number(params.get('seed') ?? 7) }) : startDeathLab({ causes, castOnly: params.has('cast'), every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined, allCast: params.has('allcast'), killerColor: params.has('kc') ? parseInt(params.get('kc') ?? '', 16) : undefined }, setLabel)
     // &pov=<player>: render from that player's view (-1 = spectator / replay)
     if (params.has('pov')) frame.localPlayer = Number(params.get('pov'))
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0

@@ -48,10 +48,10 @@ import { TILE_GAP } from '../scale'
 
 /**
  * Calm floor albedo lift per theme (same cool palette). Measured floor
- * luminance at the gameplay camera. A final five-percent albedo lift keeps
+ * luminance at the gameplay camera. A small additional albedo lift keeps
  * the texture and cool palette intact without raising lava bounce or bloom.
  */
-const FLOOR_LIFT = [1.21, 1.52, 1.21] as const
+const FLOOR_LIFT = [1.26, 1.58, 1.26] as const
 
 /**
  * Calm floor: the 45 degree bevels shade like the tile tops (normal pulled

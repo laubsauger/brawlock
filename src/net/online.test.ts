@@ -61,3 +61,45 @@ describe('known room rediscovery and routing', () => {
     ])
   })
 })
+
+
+describe('authenticated relay configuration', () => {
+  const credentials = () => ({ iceServers: [{ urls: 'stun:eu.test:3478' }, { urls: ['turn:eu.test:3478?transport=udp', 'turns:eu.test:5349?transport=tcp'], username: 'expires:user', credential: 'temporary-password' }], expiresAt: Date.now() + 3600_000 })
+  it('shares concurrent loads, accepts a healthy regional provider and caches expiring credentials', async () => {
+    const fetch = vi.fn(async (url: string) => url.includes('west') ? response(503, {}) : response(200, credentials()))
+    const online = new Online({ regions, build: 'different-game-version', fetch })
+    const [a, b] = await Promise.all([online.iceConfiguration(), online.iceConfiguration()])
+    expect(a).toEqual(b)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    a.iceServers!.length = 0
+    expect((await online.iceConfiguration()).iceServers).toHaveLength(2)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls.every(([url]) => url.endsWith('/ice'))).toBe(true)
+  })
+  it('rejects malformed, expired and STUN-only responses without registering peers, then permits a fresh attempt', async () => {
+    for (const bad of [{ ...credentials(), expiresAt: 1 }, { ...credentials(), iceServers: [{ urls: 'stun:eu.test:3478' }] }, { ...credentials(), iceServers: [{ urls: 'https://invalid.test' }] }, null]) {
+      const fetch = vi.fn().mockResolvedValueOnce(response(200, bad)).mockResolvedValueOnce(response(200, credentials()))
+      const online = new Online({ regions: [regions[0]], build: 'dev', fetch })
+      await expect(online.iceConfiguration()).rejects.toThrow('connection relay')
+      expect((await online.iceConfiguration()).iceServers).toHaveLength(2)
+    }
+  })
+  it('refreshes credentials before expiry', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    try {
+      const fetch = vi.fn(async () => response(200, credentials()))
+      const online = new Online({ regions: [regions[0]], build: 'dev', fetch })
+      await online.iceConfiguration()
+      clock.mockReturnValue(1_000_000 + 3600_000 - 30_000)
+      await online.iceConfiguration()
+      expect(fetch).toHaveBeenCalledTimes(2)
+    } finally { clock.mockRestore() }
+  })
+  it('accepts the server’s minimum 60-second TTL while renewing it before reuse', async () => {
+    const fetch = vi.fn(async () => response(200, { ...credentials(), expiresAt: Date.now() + 59_000 }))
+    const online = new Online({ regions: [regions[0]], build: 'dev', fetch })
+    expect((await online.iceConfiguration()).iceServers).toHaveLength(2)
+    await online.iceConfiguration()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})

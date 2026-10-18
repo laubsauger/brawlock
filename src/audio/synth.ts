@@ -543,21 +543,22 @@ const lavaSizzle: Recipe = (v) => {
   plops(v, 0.02, 0.2, 2, 0.08)
 }
 
-/** A warlock dies: a low-mid impact and short dark sting, without pitched bubble notes. */
+/** A warlock dies: a two-stage low-mid impact and short dark sting. */
 const death: Recipe = (v) => {
   const drv = v.drive(v.out, 2, 0.45)
   click(v, 0, 0.35, 1600)
   thump(v, 0, 135, 44, 0.8, 0.48, drv, 'triangle')
-  burst(v, { noise: 'brown', type: 'lowpass', freq: 1000, to: 120, q: 0.7, attack: 0.003, decay: 1, gain: 0.48 })
+  // The low body answers the initial crack instead of smearing into a long rumble.
+  burst(v, { at: 0.065, noise: 'brown', type: 'lowpass', freq: 1000, to: 180, q: 0.7, attack: 0.001, decay: 0.22, gain: 0.8 })
   burst(v, { freq: 1100, q: 0.6, attack: 0.001, decay: 0.04, gain: 0.85 })
   burst(v, { noise: 'pink', freq: 700, to: 180, q: 0.7, attack: 0.004, decay: 0.5, gain: 3.1 })
   whoosh(v, 0.05, 0.65, 350, 1300, 0.7, 0.55, 'pink')
   burst(v, { at: 0.1, noise: 'crackle', freq: 1650, q: 0.8, attack: 0.06, decay: 0.8, gain: 1.05 })
-  brass(v, 0.02, [65.41, 98, 130.81], 0.45, 0.45, [[0, 260], [0.04, 900], [0.45, 260]])
+  brass(v, 0.065, [65.41, 98, 130.81], 0.45, 0.45, [[0, 260], [0.04, 900], [0.45, 260]])
   tail(v, 0.03, 0.9, 220, 0.18)
 }
 
-/** Personal kill confirmation: dry slam, cracking body and a short rising dark-brass answer. */
+/** Personal kill confirmation: dry slam, dark brass and a short two-coin reward. */
 const killConfirm: Recipe = (v) => {
   const body = v.drive(v.out, 2.6, 0.55)
   click(v, 0, 0.48, 2300, body)
@@ -565,7 +566,9 @@ const killConfirm: Recipe = (v) => {
   burst(v, { noise: 'pink', freq: 880, to: 240, q: 0.8, attack: 0.001, decay: 0.18, gain: 2.2, dest: body })
   burst(v, { at: 0.012, noise: 'crackle', freq: 1300, q: 0.7, attack: 0.001, decay: 0.12, gain: 0.8 })
   brass(v, 0.025, [130.81, 196], 0.18, 0.42, [[0, 320], [0.025, 1500], [0.18, 280]])
-  brass(v, 0.13, [196, 261.63, 392], 0.28, 0.35, [[0, 500], [0.035, 1800], [0.28, 360]])
+  // Every credited kill gets this restrained ka-ching; bounty settlement is separate.
+  ring(v, 0.12, 1046.5, [1, 2.76], [0.11, 0.06], 0.14)
+  ring(v, 0.19, 1396.91, [1, 2.76], [0.16, 0.08], 0.16)
   tail(v, 0.08, 0.27, 200, 0.13)
 }
 

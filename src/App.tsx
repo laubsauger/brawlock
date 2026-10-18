@@ -21,6 +21,7 @@ import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { forcedMute, forcedSynth, music } from './ui/lib/sound'
 import { Tutorial } from './ui/Tutorial'
+import { RoomChatLayout } from './ui/hud/Chat'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -94,7 +95,7 @@ function useUiScale() {
       root.setProperty('--strip-max-w', `${Math.round(Math.max(300, (2 * clear) / scale))}px`)
       // top HUD row (unscaled px): the full width minus room for the connection readout (left)
       // and the fullscreen icon / kill feed (right), kept symmetric so the clock stays centred
-      root.setProperty('--top-row-w', `${Math.round(Math.max(480, (window.innerWidth - 2 * 190) / scale))}px`)
+      root.setProperty('--top-row-w', `${Math.round(Math.min(Math.max(480, (window.innerWidth - 2 * 190) / scale), (window.innerWidth - 16) / scale))}px`)
       root.setProperty('--dock-left-w', `${Math.round(Math.max(240, Math.min(330, (half - 120) / scale)))}px`)
     }
     apply()
@@ -157,7 +158,7 @@ export default function App() {
   }, [screen])
 
   return (
-    <div className="relative h-full overflow-hidden">
+    <RoomChatLayout screen={screen}>
       <InkFilters />
       {BACKDROP.has(screen) && <Backdrop />}
       {/* lobby -> match -> results: one match scene instance, warmed hidden in the lobby */}
@@ -177,6 +178,6 @@ export default function App() {
       <Toasts />
       <PerfHud />
       <NetGraph />
-    </div>
+    </RoomChatLayout>
   )
 }

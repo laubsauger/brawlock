@@ -4,15 +4,23 @@ import { victoryCameraOffset, victoryCameraWeight } from './victoryCamera'
 import { ROUND_END_SECONDS } from '../sim/config'
 
 describe('winner shot', () => {
-  it('starts and ends at the gameplay camera, with a continuous hold between', () => {
-    expect(victoryCameraWeight(0, ROUND_END_SECONDS)).toBe(0)
-    expect(victoryCameraWeight(1, 1)).toBe(1)
-    expect(victoryCameraWeight(2, 1)).toBe(1)
-    expect(victoryCameraWeight(ROUND_END_SECONDS, 0)).toBe(0)
+  it('holds through the round boundary, then returns once after respawn', () => {
+    expect(victoryCameraWeight(0)).toBe(0)
+    expect(victoryCameraWeight(1)).toBe(1)
+    expect(victoryCameraWeight(ROUND_END_SECONDS)).toBe(1)
+    expect(victoryCameraWeight(ROUND_END_SECONDS, 0)).toBe(1)
+    expect(victoryCameraWeight(ROUND_END_SECONDS + 0.75, 0.75)).toBe(0)
     for (let age = 0; age <= ROUND_END_SECONDS; age += 1 / 120) {
-      const before = victoryCameraWeight(age, ROUND_END_SECONDS - age)
-      const after = victoryCameraWeight(age + 1 / 120, ROUND_END_SECONDS - age - 1 / 120)
+      const before = victoryCameraWeight(age)
+      const after = victoryCameraWeight(age + 1 / 120)
+      expect(after).toBeGreaterThanOrEqual(before)
       expect(Math.abs(after - before)).toBeLessThan(0.03)
+    }
+    for (let release = 0; release <= 0.75; release += 1 / 120) {
+      const before = victoryCameraWeight(ROUND_END_SECONDS + release, release)
+      const after = victoryCameraWeight(ROUND_END_SECONDS + release + 1 / 120, release + 1 / 120)
+      expect(after).toBeLessThanOrEqual(before)
+      expect(before - after).toBeLessThan(0.03)
     }
   })
 

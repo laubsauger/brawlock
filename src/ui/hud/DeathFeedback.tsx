@@ -23,6 +23,27 @@ export function DeathFeedback() {
     return () => memory.current.animations.forEach((a) => a.cancel())
   }, [])
 
+  useEffect(() => {
+    const container = panel.current?.parentElement
+    const strip = panel.current?.closest('.hud')?.querySelector('.hud-top')?.closest('.hud-scale')
+    if (!container || !strip) return
+    const position = () => {
+      const shortLandscape = window.innerWidth >= 640 && window.innerHeight <= 520
+      const preferred = shortLandscape ? 64 : window.innerWidth >= 640 ? 124 : 88
+      container.style.top = `${Math.ceil(Math.max(preferred, strip.getBoundingClientRect().bottom + 10))}px`
+    }
+    position()
+    // Wrapping score pills and UI scaling can change the strip's height independently
+    // of the viewport. Measure only those layout changes, never every game frame.
+    const observer = new ResizeObserver(position)
+    observer.observe(strip)
+    window.addEventListener('resize', position)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', position)
+    }
+  }, [])
+
   useTick(() => {
     const state = frame.curr
     if (!state || !panel.current || !recap.current || !next.current) return
@@ -79,7 +100,7 @@ export function DeathFeedback() {
   return (
     <>
       <div ref={edge} className="pointer-events-none absolute inset-0" style={{ opacity: 0, background: 'radial-gradient(ellipse at center, transparent 40%, rgba(145, 20, 8, .7) 100%)' }} aria-hidden />
-      <div className="pointer-events-none absolute inset-x-3 top-[clamp(230px,30vh,280px)] flex justify-center sm:top-[clamp(88px,20vh,190px)] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
+      <div className="pointer-events-none absolute inset-x-3 top-[88px] flex justify-center sm:top-[124px] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
         <div ref={panel} hidden className="hud-scale w-full max-w-[360px] origin-top rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-4 py-3 text-center shadow-[0_8px_40px_#0008] max-sm:[@media(max-height:740px)]:py-2" role="status" aria-live="polite" aria-atomic="true">
           <div className="flex items-center justify-center gap-2 text-[#ffb69a]">
             <Skull size={22} />

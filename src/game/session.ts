@@ -18,7 +18,7 @@ import { audio } from '../audio'
 import { createBot } from '../bots'
 import { startClock } from '../net/clock'
 import { codeFromSearch } from '../net/code'
-import { joinUrlFor, peerNet } from '../net/peer'
+import { createPeerNet, joinUrlFor, peerNet } from '../net/peer'
 import { serverUrlFrom, wsNet } from '../net/ws'
 import { Online, ServerError, hybridNet, parseRegions, type LeaderboardPage, type RegionChoice, type RegionStatus, type ServerFailure, type ServerProfile, type ServerRegion } from '../net/online'
 import type { Period } from '../net/leaderboard'
@@ -32,6 +32,8 @@ import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
 import { getProfile, setPreferredColor } from './profile'
+import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
+import { clearPendingRoom } from '../lib/pendingRoom'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
@@ -99,7 +101,7 @@ if (online.configured) void online.probe()
 let routed: ServerRegion | null = null
 /** Consumed by exactly one dial. Explicit browser/rejoin routes never change backend. */
 let nextJoinRoute: RoomRoute | null = null
-const network = hybridNet(peerNet, online, (url) => wsNet(url), (region) => { routed = region })
+const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url), (region) => { routed = region })
 
 /** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
@@ -218,10 +220,11 @@ export interface HostingApi {
   /**
    * Quick play (M4.3): an open quick-play room on a game server (region as for
    * openHostServer), or a new one there. The server starts it once 2 humans are in, or
-   * fills the seats with bots (`bots`, default Hard) after ~10 s. Same HostResult as hosting.
+   * fills the seats with bots (`bots`, default Brutal) after ~10 s. Casual: no global Elo.
    */
   quickPlay(opts?: { region?: RegionChoice; bots?: BotDifficulty }): Promise<HostResult>
-  /** A region's casual leaderboard (server games only), with this device's line. Throws ServerError. */
+  rankedPlay(opts?: { region?: RegionChoice }): Promise<HostResult>
+  /** A region's ranked leaderboard, with this device's line. Throws ServerError. */
   leaderboard(period: Period, region?: RegionChoice): Promise<LeaderboardPage>
   /** This device's public profile on a region's server; null before its first counted match. Throws ServerError. */
   serverProfile(region?: RegionChoice): Promise<ServerProfile | null>
@@ -241,6 +244,17 @@ async function serverOption(): Promise<{ mode: HostMode; available: boolean; reg
 
 const P2P_OPTION = { mode: 'p2p', available: true, region: null } as const
 
+function blockUnsupportedPlay(): boolean {
+  if (isPlaySupported()) return false
+  clearPendingRoom()
+  useGame.getState().setLobby({ status: 'error', error: PLAY_REQUIREMENT })
+  return true
+}
+
+function unsupportedHost(mode: HostMode): HostResult {
+  return hostFailed(mode, 'unavailable', PLAY_REQUIREMENT, null, { mode: mode === 'p2p' ? 'server' : 'p2p', available: false, region: null })
+}
+
 /** Did the action that just finished open a room of this transport (and nothing replaced it meanwhile)? */
 function opened(t: 'server' | 'p2p'): boolean {
   const l = useGame.getState().lobby
@@ -252,6 +266,7 @@ export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' 
 }
 
 async function joinRoom(code: string, route?: RoomRoute): Promise<void> {
+  if (blockUnsupportedPlay()) return
   nextJoinRoute = route ?? null
   await impl.join(code)
   nextJoinRoute = null
@@ -279,11 +294,14 @@ async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
 }
 
 export const session: GameSession = {
+  sendChat: impl.sendChat,
   openOffline() {
+    if (blockUnsupportedPlay()) return
     rejoin.dismiss()
     impl.openOffline()
   },
   async openHost() {
+    if (blockUnsupportedPlay()) return unsupportedHost('p2p')
     rejoin.dismiss()
     await impl.openHost()
     if (opened('p2p')) return { ok: true, mode: 'p2p', region: null }
@@ -292,6 +310,7 @@ export const session: GameSession = {
     return hostFailed('p2p', 'unavailable', l.error ?? 'Could not host peer-to-peer.', null, await serverOption())
   },
   async openHostServer(choice) {
+    if (blockUnsupportedPlay()) return unsupportedHost('server')
     rejoin.dismiss()
     const want = choice ?? useGame.getState().settings.serverRegion ?? 'auto'
     if (!online.configured) return hostFailed('server', 'unavailable', 'This build has no game server.', null, P2P_OPTION)
@@ -314,6 +333,7 @@ export const session: GameSession = {
     return impl.transport() === 'server' && routed ? online.region(routed.id) : null
   },
   async quickPlay(opts = {}) {
+    if (blockUnsupportedPlay()) return unsupportedHost('server')
     rejoin.dismiss()
     let region: RegionStatus
     let code: string
@@ -329,6 +349,22 @@ export const session: GameSession = {
     const l = useGame.getState().lobby
     if (l.status !== 'error') return hostFailed('server', 'cancelled', 'Quick play was cancelled.', online.region(region.id), P2P_OPTION)
     return hostFailed('server', 'error', l.error ?? 'Could not join the quick-play room.', online.region(region.id), P2P_OPTION)
+  },
+  async rankedPlay(opts = {}) {
+    if (blockUnsupportedPlay()) return unsupportedHost('server')
+    rejoin.dismiss()
+    let region: RegionStatus
+    let code: string
+    try {
+      region = await serverRegion(opts.region)
+      code = (await online.rankedPlay(region.id)).code
+    } catch (e) {
+      return hostFailed('server', e instanceof ServerError ? e.reason : 'error', e instanceof Error ? e.message : String(e), null, { mode: 'p2p', available: false, region: null })
+    }
+    await joinRoom(code, { kind: 'server', region: region.id })
+    if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+    const l = useGame.getState().lobby
+    return hostFailed('server', l.status === 'error' ? 'error' : 'cancelled', l.error ?? 'Ranked matchmaking was cancelled.', online.region(region.id), { mode: 'p2p', available: false, region: null })
   },
   async leaderboard(period, choice) {
     return online.leaderboard((await serverRegion(choice)).id, period, getDeviceId())
@@ -371,7 +407,10 @@ export const session: GameSession = {
     return joinRoom(code, route)
   },
   setDisplayName: impl.setDisplayName,
-  setPlayerColor: impl.setPlayerColor,
+  setPlayerColor(color) {
+    setPreferredColor(color)
+    impl.setPlayerColor(color)
+  },
   startLobbyVote: impl.startLobbyVote,
   castLobbyVote: impl.castLobbyVote,
   addBot: impl.addBot,
@@ -415,11 +454,6 @@ function syncListing(): void {
   lister.want(listingTarget())
 }
 useGame.subscribe((s, prev) => {
-  if (s.lobby.status === 'open') {
-    const local = s.lobby.slots.find((slot) => slot.id === s.lobby.localPlayer && slot.kind === 'human' && slot.profileId === getProfile().id)
-    const previous = local && prev.lobby.slots.find((slot) => slot.id === local.id && slot.profileId === local.profileId)
-    if (local && previous?.color !== local.color) setPreferredColor(local.color)
-  }
   if (s.lobby.status === 'open' && s.lobby.roomCode) {
     const transport = impl.transport()
     const route: RoomRoute | null = transport === 'server' && routed ? { kind: 'server', region: routed.id }

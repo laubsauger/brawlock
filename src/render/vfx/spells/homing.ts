@@ -89,15 +89,11 @@ function pop(k: KitA, ctx: VfxCtx, x: number, y: number, big: boolean): void {
   if (big && !ctx.isLava(x, y)) ctx.scorches.spawn(x, y, fl - 0.4, 55)
 }
 
-/** signature charge-up: a magenta seeker eye locking down above the hand */
-function signature(k: KitA, ctx: VfxCtx, info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
-  const now = ctx.now
-  const hh = o.h + 44
-  const r = 72 - 40 * w
-  k.air.add(G_RETICLE, o.x, o.y, hh, r, now * 2.5, P.body[0], P.body[1], P.body[2], 0.7 + 0.9 * w, w)
-  k.air.add(G_RETICLE, o.x, o.y, hh + 1, r * 0.5, -now * 5, P.hot[0], P.hot[1], P.hot[2], 0.25 + 0.6 * w, 1)
-  k.glowAt(o.x, o.y, hh, 14 + 16 * w, P.hot[0] * w, P.hot[1] * w, P.hot[2] * w, 3)
-  void info
+/** A seeker-eye mark on the palm, never a floating preformed missile. */
+function signature(k: KitA, _ctx: VfxCtx, _info: PawnRenderInfo, _id: number, _tx: number, _ty: number, w: number): void {
+  const r = 30 - 6 * w
+  k.air.add(G_RETICLE, o.x, o.y, o.h + 1, r, 0, P.body[0], P.body[1], P.body[2], 0.7 + 0.9 * w, w)
+  k.air.add(G_RETICLE, o.x, o.y, o.h + 2, r * 0.48, Math.PI / 4, P.body[0], P.body[1], P.body[2], 0.3 + 0.45 * w, 1)
 }
 
 const mod: SpellVfx = {
