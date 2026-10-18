@@ -69,8 +69,11 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
   const history = useStats(readHistory)
   const replayIds = useReplayIds()
   const openRef = useRef<HTMLLIElement>(null)
-  // a Hall of Fame link opens its match: bring it into view
-  useEffect(() => openRef.current?.scrollIntoView({ block: 'nearest' }), [openId])
+  // a Hall of Fame link opens its match: bring it into view. Block body: Chrome 153+ returns a
+  // Promise from scrollIntoView, which React would keep as the cleanup and crash on (effectCleanup.test)
+  useEffect(() => {
+    openRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [openId])
   if (history.length === 0)
     return (
       <>

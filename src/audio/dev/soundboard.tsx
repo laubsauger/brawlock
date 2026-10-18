@@ -268,7 +268,9 @@ function Board() {
   useEffect(() => {
     engine.setVolumes({ master: volume, sfx: 1, music: 0.6, ambience: 1, announcer: 0.8, muted: volume === 0 })
   }, [volume])
-  useEffect(() => engine.setMode(mode), [mode])
+  useEffect(() => {
+    engine.setMode(mode)
+  }, [mode])
   const q = query.trim().toLowerCase()
   const total = groups.reduce((n, g) => n + g.items.length, 0)
   return (

@@ -154,7 +154,9 @@ function JoinRow({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => ref.current?.focus(), [])
+  useEffect(() => {
+    ref.current?.focus()
+  }, [])
   const submit = () => {
     const p = joinRoom(text)
     if (p) {
@@ -224,9 +226,13 @@ export function MainMenu() {
   const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
   // menu entries rise in one after another whenever the menu shows
-  useEffect(() => staggerIn(navRef.current), [profileOpen, browseOpen])
+  useEffect(() => {
+    staggerIn(navRef.current)
+  }, [profileOpen, browseOpen])
   const [draft, setDraft] = useState(name)
-  useEffect(() => setDraft(name), [name])
+  useEffect(() => {
+    setDraft(name)
+  }, [name])
 
   const commitName = () => setDraft(chooseName(draft))
 

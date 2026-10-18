@@ -211,7 +211,9 @@ export function SpectateChip() {
     6,
   )
   // tell render; back to automatic when you are playing again
-  useEffect(() => setSpectateTarget(watching >= 0 ? watching : null), [watching])
+  useEffect(() => {
+    setSpectateTarget(watching >= 0 ? watching : null)
+  }, [watching])
   // back in the game (respawn, next round): forget the pick
   useTick(() => {
     if (inspectStore.get().follow >= 0 && !isSpectating(frame.curr, frame.localPlayer)) inspectStore.set({ follow: -1 })
