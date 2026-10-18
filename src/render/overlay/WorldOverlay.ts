@@ -433,6 +433,8 @@ export class WorldOverlay {
         p.id = inp.id
         p.trailFrac = 1
         p.lastHp = -1
+        // UI hit-tests plates by this (click a nameplate to inspect / follow that warlock)
+        p.el.dataset.pawn = String(inp.id)
       }
       this.drawKills(p, inp.id, now)
       if (p.lastName !== inp.name) {

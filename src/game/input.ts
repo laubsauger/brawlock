@@ -22,12 +22,17 @@
  *   both net modes read the same queue.
  * - recenter (Space), scoreboard (hold), shop, character sheet, Esc menu
  * - camera peek (A in every preset, or hold the middle mouse button): inputViz.peek
+ * - left click on a warlock or its nameplate (outside normal-cast targeting, which
+ *   casts with that click): inspect its loadout; on empty ground: close the card.
+ *   While you are down (or spectating): the camera follows that warlock too, and
+ *   left / right arrows or 1-9 pick who to watch, Space goes back to automatic.
  * Keys are ignored while typing in a text field, while the in-match menu or
  * settings are open, and when Ctrl / Cmd / Alt is held (browser shortcuts).
  */
 import type { InputCommand } from '../sim/types'
 import { attr, masteryFactor, spellDef } from '../sim'
 import { frame } from './frame'
+import { cycle, inspectStore, isSpectating, livingPlayers, ownerOfPawn, pickPawnAt } from './inspect'
 import { useGame, type CastMode } from './store'
 import { actionForCode, currentBinds, isTypingTarget, type BindAction } from '../ui/lib/keys'
 
@@ -152,6 +157,57 @@ function releaseHeldMove(): void {
     heldMove = null
     push({ kind: 'move', x, y })
   }
+}
+
+/** The warlock under a click: its nameplate first (screen rects, read only on click), else the ground pick. */
+function warlockAt(clientX: number, clientY: number): number {
+  if (typeof document !== 'undefined') {
+    for (const el of document.querySelectorAll<HTMLElement>('.bl-plate[data-pawn]')) {
+      if (el.style.display === 'none') continue
+      const r = el.getBoundingClientRect()
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        const owner = ownerOfPawn(frame.curr, Number(el.dataset.pawn))
+        if (owner >= 0) return owner
+      }
+    }
+  }
+  const c = frame.cursor
+  return c.valid ? pickPawnAt(frame.curr, c.x, c.y) : -1
+}
+
+/** Plain left click: inspect (and, while watching, follow) the warlock under it; empty ground closes the card. */
+export function inspectClick(clientX: number, clientY: number): void {
+  const who = warlockAt(clientX, clientY)
+  if (who < 0) {
+    inspectStore.set({ inspect: -1 })
+    return
+  }
+  inspectStore.toggleInspect(who)
+  if (isSpectating(frame.curr, frame.localPlayer) && who !== frame.localPlayer) inspectStore.set({ follow: who })
+}
+
+/** Spectating keys; true when the key was used. */
+function spectateKey(code: string): boolean {
+  const s = frame.curr
+  const live = livingPlayers(s, frame.localPlayer)
+  // from the player on screen (the chosen one, else the automatic first one standing)
+  const follow = inspectStore.get().follow
+  const cur = live.includes(follow) ? follow : (live[0] ?? -1)
+  if (code === 'ArrowRight' || code === 'ArrowLeft') {
+    inspectStore.set({ follow: cycle(live, cur, code === 'ArrowRight' ? 1 : -1) })
+    return true
+  }
+  if (code === 'Space') {
+    inspectStore.set({ follow: -1 })
+    return true
+  }
+  const m = /^(?:Digit|Numpad)([1-9])$/.exec(code)
+  if (m) {
+    const p = live[Number(m[1]) - 1]
+    if (p != null) inspectStore.set({ follow: p })
+    return true
+  }
+  return false
 }
 
 /** Last ground point the cursor was valid on; casts fall back to it. */
@@ -288,7 +344,10 @@ export const input: InputApi = {
           const slot = inputViz.aim.slot
           clearAim()
           cast(slot)
+          return
         }
+        // otherwise a left click inspects the warlock under it (never casts, never moves)
+        inspectClick(e.clientX, e.clientY)
         return
       }
       if (e.button !== 2) return
@@ -324,6 +383,7 @@ export const input: InputApi = {
       if (code === 'Escape') {
         e.preventDefault()
         if (inputViz.aim) clearAim()
+        else if (inspectStore.get().inspect >= 0) inspectStore.set({ inspect: -1 })
         else if (store.settingsOpen) store.toggle('settingsOpen', false)
         else if (store.paused) store.toggle('paused', false)
         else if (store.shopOpen) store.toggle('shopOpen', false)
@@ -332,6 +392,12 @@ export const input: InputApi = {
         return
       }
       if (menusBlock()) return
+
+      // watching while down: arrows / 1-9 pick who to follow, Space goes back to automatic
+      if (isSpectating(frame.curr, frame.localPlayer) && spectateKey(code)) {
+        e.preventDefault()
+        return
+      }
 
       const action = actionForCode(currentBinds(), code)
       if (!action) return
@@ -426,6 +492,7 @@ export const input: InputApi = {
       stopHold()
       clearAim()
       releasePeek()
+      inspectStore.reset()
       unsubMenus()
       heldMove = null
       pendingCast = null

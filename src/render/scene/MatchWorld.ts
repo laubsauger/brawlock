@@ -4,7 +4,7 @@ import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
-import { cameraRig, devCamera, frameOffset, moveMarkers } from '../cameraRig'
+import { cameraRig, devCamera, frameOffset, moveMarkers, spectateTarget } from '../cameraRig'
 import { CameraReach, EDGE_SPEED, reachFor } from '../cameraReach'
 import { PawnLocator } from '../overlay/PawnLocator'
 import { renderPrefs } from '../prefs'
@@ -2222,8 +2222,18 @@ export class MatchWorld {
       fx = this.deathFocus.x
       fy = this.deathFocus.y
     } else {
-      // spectate: keep the current target if alive, else the first living pawn
-      let target: PawnView | undefined = this.views.get(this.spectateId)
+      // spectate: the player the UI picked (spectateTarget), else keep the current target
+      // if alive, else the first living pawn
+      let target: PawnView | undefined
+      if (spectateTarget.owner >= 0) {
+        for (const [id, v] of this.views) {
+          if (v.owner === spectateTarget.owner && v.alive && !v.dead) {
+            target = v
+            this.spectateId = id
+          }
+        }
+      }
+      if (!target) target = this.views.get(this.spectateId)
       if (!target || !target.alive || target.dead) {
         target = undefined
         for (const [id, v] of this.views) {
@@ -2234,7 +2244,8 @@ export class MatchWorld {
           }
         }
       }
-      if (target && lp >= 0) {
+      // spectators (no warlock of their own) follow too
+      if (target) {
         fx = target.x
         fy = target.y
       }

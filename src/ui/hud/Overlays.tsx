@@ -11,6 +11,8 @@ import { kbMultiplier, localView, playerColor, playerGlyph, teamName } from '../
 import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { useLinks } from '../lib/netmonitor'
+import { Loadout } from './Inspect'
+import { inspectStore, isSpectating } from '../../game/inspect'
 import { sfx } from '../lib/sound'
 
 /* ------------------------------------------------------------------------
@@ -247,6 +249,7 @@ export function Scoreboard() {
   const teamMode = state?.settings.teamMode
   const winScore = state?.settings.winScore
   const local = frame.localPlayer
+  const spectating = isSpectating(state, local)
   const ping = (r: BoardRow) => {
     if (r.kind === 'bot') return <span className="text-sm text-ash">Bot</span>
     if (!r.connected) return <span className="text-sm text-[#ff9b8a]">Left</span>
@@ -255,7 +258,7 @@ export function Scoreboard() {
   }
   return (
     <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center p-4">
-      <div className="panel fade-in w-[min(820px,100%)] p-6" role="dialog" aria-label="Scoreboard">
+      <div className="panel fade-in interactive pointer-events-auto w-[min(1120px,100%)] p-6" role="dialog" aria-label="Scoreboard">
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="display text-3xl leading-none text-[#ffd890]">Scoreboard</h2>
           {state && (
@@ -275,6 +278,9 @@ export function Scoreboard() {
               <th className="pb-2 text-right font-semibold" title="Damage dealt this round">
                 Damage
               </th>
+              <th className="pb-2 pl-5 font-semibold" title="Spells, items, masteries; gold for you and your allies">
+                Loadout
+              </th>
               <th className="pb-2 pl-4 text-right font-semibold">Ping</th>
             </tr>
           </thead>
@@ -282,8 +288,13 @@ export function Scoreboard() {
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className={`border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''} ${r.alive ? '' : 'text-bone/55'}`}
+                className={`scoreboard-row border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''} ${r.alive ? '' : 'text-bone/55'}`}
                 style={{ boxShadow: `inset 3px 0 0 ${r.color}` }}
+                title={spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
+                onClick={() => {
+                  inspectStore.set({ inspect: r.id })
+                  if (spectating && r.alive && r.id !== local) inspectStore.set({ follow: r.id })
+                }}
               >
                 <td className="py-2 pl-3">
                   <span className="flex items-center gap-2.5">
@@ -303,6 +314,9 @@ export function Scoreboard() {
                   {r.kills} / {r.deaths}
                 </td>
                 <td className="py-2 text-right">{r.dmg}</td>
+                <td className="py-1.5 pl-5">
+                  <Loadout player={r.id} size={20} />
+                </td>
                 <td className="py-2 pl-4 text-right">{ping(r)}</td>
               </tr>
             ))}

@@ -32,9 +32,12 @@ export type CardSide = 'top' | 'left' | 'right' | 'bar'
 export interface CardTarget {
   kind: CardKind
   id: string
-  context: 'shop' | 'hud'
+  /** shop: offers and next level; hud: your hotbar; inspect: another warlock's kit (level given) */
+  context: 'shop' | 'hud' | 'inspect'
   /** hotbar slot (HUD): its key cap and live level */
   slot?: number
+  /** inspect: that warlock's level of it */
+  level?: number
   side: CardSide
   /** anchor rect and the edge to sit beside (viewport px), read once on hover */
   anchor: { left: number; top: number; right: number; bottom: number }
@@ -90,7 +93,7 @@ export function abilityCardProps(get: () => Omit<CardTarget, 'anchor' | 'edge'> 
     window.clearTimeout(hideTimer)
     window.clearTimeout(showTimer)
     const anchor = rectOf(el)
-    const dock = el.closest('.dock')
+    const dock = el.closest('.dock, .inspect-card, [aria-label="Scoreboard"]')
     const d = dock ? rectOf(dock) : anchor
     const plate = t.side === 'bar' ? el.closest('.hud-bottom') : null
     const next: CardTarget = { ...t, anchor, edge: t.side === 'left' ? d.left : t.side === 'right' ? d.right : anchor.top, ...(plate ? { bar: rectOf(plate) } : null) }
@@ -215,7 +218,9 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
   const max = maxLevelOf(id)
   let level = 0
   let action: CardModel['action']
-  if (t.context === 'hud' && t.slot != null) {
+  if (t.context === 'inspect') {
+    level = t.level ?? 1
+  } else if (t.context === 'hud' && t.slot != null) {
     level = view?.pawn?.levels[t.slot] ?? 1
   } else {
     const shop = readShop()
@@ -244,7 +249,7 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
     stats: t.context === 'shop' ? abilityDelta(id, level, max, rangeLvl) : abilityDelta(id, level, level, rangeLvl),
     desc: sDef?.desc ?? iDef?.desc ?? '',
     action,
-    keyLabel: t.slot != null && !passive ? keyOf(t.slot) : undefined,
+    keyLabel: t.slot != null && !passive && t.context === 'hud' ? keyOf(t.slot) : undefined,
   }
 }
 
@@ -352,7 +357,7 @@ export function AbilityCardHost() {
   }, [t?.context])
   if (!t) return null
   // keyed by what it shows: a new target mounts fresh, so it never shows the previous card's numbers
-  return createPortal(<Card key={`${t.kind}:${t.id}:${t.slot ?? ''}:${t.context}`} t={t} />, document.body)
+  return createPortal(<Card key={`${t.kind}:${t.id}:${t.slot ?? ''}:${t.context}:${t.level ?? ''}`} t={t} />, document.body)
 }
 
 function Card({ t }: { t: CardTarget }) {

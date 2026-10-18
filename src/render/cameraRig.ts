@@ -74,6 +74,17 @@ function verticalFov(aspect: number): number {
 /** Dev-only: pin the match camera to a game position (look-dev screenshots). */
 export const devCamera = { focus: null as { x: number; y: number } | null }
 
+/**
+ * Spectating (local warlock dead, or a spectator): the player the camera
+ * follows, set by the UI (click a warlock, scoreboard row, arrow keys).
+ * -1 = automatic (the first warlock still standing).
+ */
+export const spectateTarget = { owner: -1 }
+
+export function setSpectateTarget(owner: number | null): void {
+  spectateTarget.owner = owner ?? -1
+}
+
 /** Free camera (replay viewer): hold the camera on a game-unit point; null = follow again. */
 export function setCameraFocus(p: { x: number; y: number } | null): void {
   devCamera.focus = p ? { x: p.x, y: p.y } : null

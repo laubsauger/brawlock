@@ -10,6 +10,7 @@ import { announce, Banner, KillCallout, Killfeed } from './Announce'
 import { ItemGrid, SpellRow } from './SpellBar'
 import { ShrinkWarning, TopCenter, displayRound } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
+import { InspectCard, SpectateChip } from './Inspect'
 import { Gold, ProtectChip, Vitals } from './Vitals'
 import { Button, KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
@@ -343,6 +344,7 @@ export function Hud() {
           <TopCenter />
           {/* at most one row under the clock: the shrink warning and your KO callout share it */}
           <div className="mt-0.5 flex items-center justify-center gap-2">
+            <SpectateChip />
             <ShrinkWarning />
             <KillCallout />
           </div>
@@ -361,6 +363,7 @@ export function Hud() {
 
       <Banner />
       <AimHint />
+      <InspectCard />
 
       {/* Dota-style bottom cluster flush to the screen edge, centered or in the bottom-right corner */}
       <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>

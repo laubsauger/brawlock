@@ -35,6 +35,8 @@ export interface DeathLabOptions {
   n?: number
   /** cancel the killer's windup (stop order) this many seconds after it started (Scourge fake) */
   cancelAfter?: number
+  /** killer slot colour (default red) */
+  killerColor?: number
   /** killer's Scourge level 1..3 (visual tiers) */
   level?: number
   /** Scourge: the victims cast it too, in the same tick (overlapping circles, caster identity) */
@@ -45,7 +47,7 @@ export const labState = { label: '', deathTick: -1, hitTick: -1, castTick: -1, t
 
 export function startDeathLab(o: DeathLabOptions, onLabel: (s: string) => void): () => void {
   const n = Math.max(1, Math.min(4, o.n ?? 1))
-  const slots: PlayerSlot[] = [{ id: 0, name: 'Killer', color: 0xff5a36, team: 0, kind: 'human' }]
+  const slots: PlayerSlot[] = [{ id: 0, name: 'Killer', color: o.killerColor ?? 0xff5a36, team: 0, kind: 'human' }]
   for (let i = 0; i < n; i++) {
     const color = i === 0 && o.victimColor !== undefined ? o.victimColor : VICTIM_COLORS[i]
     slots.push({ id: i + 1, name: n === 1 ? 'Victim' : `Victim ${i + 1}`, color, team: i + 1, kind: 'bot', difficulty: 'medium' })

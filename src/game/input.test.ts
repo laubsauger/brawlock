@@ -130,3 +130,73 @@ describe('camera peek: held while the key or the middle button is down, never st
     expect(inputViz.peek).toBe(false)
   })
 })
+
+describe('left click: inspect a warlock, never in the way of casting', () => {
+  const win = new EventTarget() as EventTarget & Record<string, unknown>
+  win.setInterval = setInterval
+  win.clearInterval = clearInterval
+  const g = globalThis as Record<string, unknown>
+  let el: EventTarget & { dataset: Record<string, string> }
+  let detach: () => void = () => {}
+  const fire = (target: EventTarget, type: string, props: Record<string, unknown>) =>
+    target.dispatchEvent(Object.assign(new Event(type), { preventDefault() {}, ...props }))
+  const pawn = (owner: number, x: number) => ({ id: 100 + owner, owner, x, y: 0, alive: true, cast: null, slots: [null, null, null, null, null, null, 'fireball', null, null, null, null, null], levels: Array(12).fill(1), cooldowns: Array(12).fill(0) })
+
+  beforeEach(async () => {
+    const { inspectStore } = await import('./inspect')
+    inspectStore.reset()
+    g.window = win
+    g.HTMLElement ??= class {}
+    el = Object.assign(new EventTarget(), { dataset: {} as Record<string, string> })
+    useGame.getState().setSettings({ keyPreset: 'brawlock', keybinds: {}, keybindsAlt: {}, castMode: 'normal' })
+    frame.localPlayer = 0
+    frame.curr = { tick: 1, pawns: [pawn(0, 0), pawn(1, 400)], slots: [{ id: 0, team: 0 }, { id: 1, team: 1 }], scores: [], settings: { teamMode: 'ffa' } } as unknown as SimState
+    input.drain()
+    detach = input.attach(el as unknown as HTMLElement)
+  })
+  afterEach(() => {
+    detach()
+    useGame.getState().setSettings({ castMode: 'quick' })
+    frame.curr = null
+    input.drain()
+  })
+
+  it('opens the card of the warlock under the cursor and sends no command', async () => {
+    const { inspectStore } = await import('./inspect')
+    frame.cursor = { x: 410, y: 10, valid: true }
+    fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
+    expect(inspectStore.get().inspect).toBe(1)
+    expect(input.drain()).toEqual([])
+  })
+
+  it('in normal-cast targeting, the left click casts and does not inspect, even on a warlock', async () => {
+    const { inspectStore } = await import('./inspect')
+    fire(win, 'keydown', { code: 'KeyQ' }) // Fireball, normal cast: enter targeting
+    expect(inputViz.aim?.mode).toBe('normal')
+    frame.cursor = { x: 410, y: 10, valid: true } // right on the other warlock
+    fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
+    expect(input.drain()).toEqual([{ kind: 'cast', slot: 6, x: 410, y: 10 }])
+    expect(inspectStore.get().inspect).toBe(-1)
+  })
+
+  it('closes the card on a click on empty ground', async () => {
+    const { inspectStore } = await import('./inspect')
+    inspectStore.set({ inspect: 1 })
+    frame.cursor = { x: 200, y: 300, valid: true }
+    fire(el, 'pointerdown', { button: 0, clientX: 0, clientY: 0 })
+    expect(inspectStore.get().inspect).toBe(-1)
+  })
+
+  it('while down, the right arrow moves on from the warlock on screen (not back to it)', async () => {
+    const { inspectStore } = await import('./inspect')
+    const s = frame.curr as unknown as { pawns: ReturnType<typeof pawn>[]; slots: { id: number; team: number }[] }
+    s.pawns = [{ ...pawn(0, 0), alive: false }, pawn(1, 400), pawn(2, 800)]
+    s.slots = [0, 1, 2].map((id) => ({ id, team: id }))
+    // automatic follow shows player 1 (first one standing): → must go to 2
+    fire(win, 'keydown', { code: 'ArrowRight' })
+    expect(inspectStore.get().follow).toBe(2)
+    fire(win, 'keydown', { code: 'Space' })
+    expect(inspectStore.get().follow).toBe(-1)
+    expect(input.drain()).toEqual([])
+  })
+})

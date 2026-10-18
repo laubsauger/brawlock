@@ -10,9 +10,10 @@
  * until the blast): only the LOCAL caster sees the telegraph below (ring at
  * the exact radius, runes, threads, sphere, beam / crown, tremor) plus a faint
  * dashed inner line at R - pawn radius ("who will actually be hit").
- * Everyone else (opponents, allies, spectators / replays) only gets a subtle
- * cue on the caster: a small flickering glow at the raised hands and a faint
- * body rim in the caster's identity colour. No floor ring, runes, beam or
+ * Everyone else (opponents, allies, spectators / replays) gets a subtle but
+ * noticeable "charging" cue on the caster (see windupCue: pulsing crimson
+ * ember aura on the body, a heartbeat on its ground identity ring that
+ * quickens toward the release). No radius ring, runes, beam or
  * crown, no floor light (the shared windup's light is hidden for them via
  * windupStyle 'light'), no tremor. The blast is unchanged and shown to all.
  *
@@ -80,6 +81,7 @@ import { S } from '../../coords'
 import { Billboards } from '../../scene/Billboards'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
+import { cameraZoomParam } from '../../cameraRig'
 import { colorForPawn } from '../../teamColors'
 import { BODY_H, BODY_R, decalFloor } from '../deathKit'
 import { registerSpellVfx, type VfxCtx, type WindupStyle } from '../registry'
@@ -775,43 +777,69 @@ function hitImpact(ctx: VfxCtx, target: EntityId, x: number, y: number, kb: numb
   ctx.ground.spawn(RING_EXPAND, x, y, f, 14, 70 + 50 * k, 0.3, 8, CRIMSON[0] * 0.9, CRIMSON[1], CRIMSON[2])
 }
 
+/** radius of the pawn's own ground identity ring (Pawns.ts decal) */
+const PAWN_RING_R = 39
+
 /**
- * What everyone but the caster sees during the windup: a small flickering
- * glow at the raised hands and a faint body rim in the caster's identity
- * colour, a few motes. Readable up close, no area tell (no floor, no light).
+ * What everyone but the caster sees during the windup: "that warlock is
+ * charging something", never the radius.
+ *   - a pulsing crimson ember aura on the body (rim ring + soft glow) and
+ *     ember motes rising off the silhouette, building with the windup
+ *   - a crimson heartbeat on the caster's own ground identity ring (same
+ *     size as the ring, plus a short ripple to ~1.5x), beating faster as the
+ *     release nears
+ * Calm at L1, a little stronger at L3; saturated reds (<= 1.6 HDR) so Low and
+ * Medium clip to red, not white.
  */
-function windupCue(ctx: VfxCtx, w: Windup, p: number, hand: THREE.Vector3): void {
+function windupCue(ctx: VfxCtx, w: Windup, p: number): void {
   if (!bb) return
-  const c = w.col
-  const t = ctx.now
-  const flick = 0.7 + 0.3 * Math.sin(t * 31 + w.seed) * Math.sin(t * 17 + w.seed * 2)
-  const k = (0.35 + 0.65 * p) * flick
-  // hands (palm socket; the summon holds both hands overhead, so a second glow
-  // sits a little above the head)
-  bb.add(hand.x, hand.y, hand.z, (14 + 10 * p) * S, c[0] * 1.3 * k, c[1] * 1.3 * k, c[2] * 1.3 * k, 2.4)
-  bb.add(w.x * S, (w.h + BODY_H * 1.08) * S, -w.y * S, (16 + 10 * p) * S, c[0] * 1.0 * k, c[1] * 1.0 * k, c[2] * 1.0 * k, 2.4)
-  // faint body rim (ring sprite) pulsing with the charge
-  const rk = 0.18 + 0.22 * p
-  bb.add(w.x * S, (w.h + BODY_H * 0.55) * S, -w.y * S, 74 * S, c[0] * rk, c[1] * rk, c[2] * rk, -2.2)
-  // a few motes drifting up off the hands
-  const n = emitN(ctx, w, 'acc', 10 * (0.3 + p))
+  const lk = tier(w.level, 0.65, 0.85, 1.05)
+  const X = w.x * S
+  const Z = -w.y * S
+  // heartbeat: interval 0.42 s -> 0.11 s as the release nears (frozen clock: no beats)
+  const interval = 0.42 - 0.31 * Math.pow(p, 1.3)
+  w.acc2 += ctx.dt
+  let beat = false
+  if (w.acc2 >= interval) {
+    w.acc2 = 0
+    beat = true
+  }
+  // beat envelope for the body aura (w.acc2 = seconds since the last beat)
+  const env = Math.exp(-w.acc2 * 14)
+  const base = (0.3 + 0.7 * p) * lk
+  const k = base * (0.55 + 0.45 * env)
+  // zoomed far out the aura grows a little so it still reads (1x at the default 1100)
+  const zs = Math.min(1.8, Math.max(1, Math.sqrt(cameraZoomParam.distance / 1100)))
+  // ember aura on the silhouette: rim ring around the body + soft inner glow
+  bb.add(X, (w.h + BODY_H * 0.5) * S, Z, (96 + 14 * env) * zs * S, CRIMSON[0] * 0.8 * k, CRIMSON[1] * 1.4 * k, CRIMSON[2] * 1.3 * k, -2.0)
+  bb.add(X, (w.h + BODY_H * 0.5) * S, Z, 78 * zs * S, CRIMSON[0] * 0.26 * k, CRIMSON[1] * 0.4 * k, CRIMSON[2] * 0.45 * k, 1.4)
+  // ember motes rising off the silhouette
+  const n = emitN(ctx, w, 'acc', (10 + 30 * p) * lk)
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
-    ctx.particles.spawn(hand.x / S + Math.cos(a) * 8, -hand.z / S + Math.sin(a) * 8, hand.y / S, Math.cos(a) * 20, Math.sin(a) * 20, 50 + rnd() * 50, 0.35 + rnd() * 0.2, 4, 1, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0, 0.5, 4)
+    const rr = BODY_R * (1.0 + rnd() * 0.3)
+    const life = 0.5 + rnd() * 0.35
+    ctx.particles.spawn(w.x + Math.cos(a) * rr, w.y + Math.sin(a) * rr, w.h + 10 + rnd() * BODY_H * 0.8, Math.cos(a) * 12, Math.sin(a) * 12, 70 + rnd() * 70, life, 6 + rnd() * 3, -1.5, CRIMSON[0] * 1.05, CRIMSON[1] * 2.4, CRIMSON[2] * 1.8, 30, 0.8, 5)
+  }
+  // heartbeat on the ground identity ring: a crimson ring exactly over it plus a
+  // short ripple (stays within ~1.5x the ring, never hints at the blast radius)
+  if (beat) {
+    const f = decalFloor(ctx, w.x, w.y) + 1.4
+    const g = (0.55 + 0.6 * p) * lk
+    ctx.ground.spawn(RING_EXPAND, w.x, w.y, f, PAWN_RING_R, PAWN_RING_R, Math.min(0.3, interval * 0.9), 5 * zs, CRIMSON[0] * g, CRIMSON[1] * 1.5 * g, CRIMSON[2] * 1.5 * g)
+    ctx.ground.spawn(RING_EXPAND, w.x, w.y, f, PAWN_RING_R, PAWN_RING_R * 1.5, 0.3, 3 * zs, CRIMSON[0] * g * 0.6, CRIMSON[1] * g, CRIMSON[2] * g)
   }
 }
 
-/** A cancelled windup seen from outside: the hand glow sputters out. */
+/** A cancelled windup seen from outside: the aura sputters out in a few embers. */
 function cueFizzle(ctx: VfxCtx, w: Windup): void {
   const info = ctx.pawn(w.pawn)
   if (!info) return
-  const o = info.castOrigin
-  const c = w.col
-  const n = ctx.particles.budget(8)
+  const n = ctx.particles.budget(10)
   for (let i = 0; i < n; i++) {
     const a = rnd() * TAU
-    const sp = 60 + rnd() * 80
-    ctx.particles.spawn(o.x / S, -o.z / S, o.y / S, Math.cos(a) * sp, Math.sin(a) * sp, (rnd() - 0.3) * 80, 0.25 + rnd() * 0.15, 4, 1, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, -600, 2, -0.05)
+    const sp = 50 + rnd() * 70
+    ctx.particles.spawn(info.x + Math.cos(a) * BODY_R, info.y + Math.sin(a) * BODY_R, info.h + 20 + rnd() * BODY_H * 0.7, Math.cos(a) * sp, Math.sin(a) * sp, (rnd() - 0.2) * 80, 0.25 + rnd() * 0.15, 5, 1, CRIMSON[0], CRIMSON[1] * 2, CRIMSON[2] * 2, -600, 2, -0.05)
   }
 }
 
@@ -957,6 +985,7 @@ registerSpellVfx({
         const owner = ctx.pawn(e.pawn)?.owner ?? -1
         casterRGB(colorForPawn(ctx.state, owner), w.col)
         w.local = owner >= 0 && owner === ctx.localPlayer
+        w.acc = w.acc2 = w.acc3 = 0
         w.active = true
         w.cancelAt = -1
         w.t0 = now
@@ -1079,7 +1108,7 @@ registerSpellVfx({
             circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level, w.col)
             windupFx(ctx, w, p)
           } else {
-            windupCue(ctx, w, p, info.castOrigin)
+            windupCue(ctx, w, p)
           }
         }
       }

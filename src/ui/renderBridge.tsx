@@ -94,6 +94,15 @@ export function setCameraFocus(p: { x: number; y: number } | null): void {
   }
 }
 
+/** Spectating: follow this player (null = automatic). Used while your warlock is down, and by spectators. */
+export function setSpectateTarget(owner: number | null): void {
+  try {
+    mod?.setSpectateTarget(owner)
+  } catch (e) {
+    console.error('[ui] setSpectateTarget failed', e)
+  }
+}
+
 export function recenterCamera(): void {
   try {
     mod?.recenterCamera()
