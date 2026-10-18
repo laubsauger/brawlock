@@ -96,7 +96,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
       data-empty={!info.spell}
       data-passive={passive}
       {...slotDragProps(index, !!info.spell)}
-      {...(info.spell ? abilityCardProps(() => ({ kind: isItem ? 'item' : 'spell', id: info.spell!, context: 'hud', slot: index, side: 'top' })) : null)}
+      {...(info.spell ? abilityCardProps(() => ({ kind: isItem ? 'item' : 'spell', id: info.spell!, context: 'hud', slot: index, side: 'bar' })) : null)}
       onClick={(e) => startSlotCapture(index, e.currentTarget)}
       aria-label={
         passive

@@ -21,6 +21,7 @@
  *   cancelled). Client-side only: the sim and the protocol are unchanged, and
  *   both net modes read the same queue.
  * - recenter (Space), scoreboard (hold), shop, character sheet, Esc menu
+ * - camera peek (A in every preset, or hold the middle mouse button): inputViz.peek
  * Keys are ignored while typing in a text field, while the in-match menu or
  * settings are open, and when Ctrl / Cmd / Alt is held (browser shortcuts).
  */
@@ -57,11 +58,14 @@ export interface InputApi {
  */
 export interface InputViz {
   move: { x: number; y: number; at: number; seq: number }
+  /** camera peek held (peek key or middle mouse); false on blur, menus and while typing. Render reads it every frame. */
+  peek: boolean
   aim: { slot: number; spell: string; range: number; mode: 'release' | 'normal' } | null
 }
 
 export const inputViz: InputViz = {
   move: { x: 0, y: 0, at: -1, seq: 0 },
+  peek: false,
   aim: null,
 }
 
@@ -215,6 +219,14 @@ export const input: InputApi = {
     let holdTimer = 0
     /** release-mode aim: the key code being held */
     let releaseCode: string | null = null
+    /** peek sources: the key and the middle button (peek holds while either is down) */
+    let peekKey = false
+    let peekMouse = false
+    const releasePeek = () => {
+      peekKey = false
+      peekMouse = false
+      inputViz.peek = false
+    }
 
     const setAim = (slot: number, mode: 'release' | 'normal') => {
       const { spell, level } = localSlot(slot)
@@ -262,6 +274,13 @@ export const input: InputApi = {
 
     const onPointerDown = (e: PointerEvent) => {
       if (menusBlock()) return
+      if (e.button === 1) {
+        // middle mouse: hold to peek (and no browser autoscroll)
+        e.preventDefault()
+        peekMouse = true
+        inputViz.peek = true
+        return
+      }
       if (e.button === 0) {
         // normal cast: left click confirms the target
         if (inputViz.aim?.mode === 'normal') {
@@ -286,11 +305,19 @@ export const input: InputApi = {
 
     const onPointerUp = (e: PointerEvent) => {
       if (e.button === 2) stopHold()
+      if (e.button === 1) {
+        peekMouse = false
+        inputViz.peek = peekKey
+      }
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      if (isTypingTarget(e.target)) return
+      if (isTypingTarget(e.target)) {
+        // typing: never peek
+        releasePeek()
+        return
+      }
       const store = useGame.getState()
       const code = e.code
 
@@ -316,6 +343,12 @@ export const input: InputApi = {
         return
       }
       if (action === 'mute') return // handled globally (App), works outside matches too
+      if (action === 'peek') {
+        e.preventDefault()
+        peekKey = true
+        inputViz.peek = true
+        return
+      }
       e.preventDefault()
       if (e.repeat) return
 
@@ -356,6 +389,11 @@ export const input: InputApi = {
     }
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (actionForCode(currentBinds(), e.code) === 'peek') {
+        peekKey = false
+        inputViz.peek = peekMouse
+        return
+      }
       if (releaseCode && e.code === releaseCode) {
         const slot = inputViz.aim?.slot
         clearAim()
@@ -368,8 +406,14 @@ export const input: InputApi = {
     const onBlur = () => {
       stopHold()
       clearAim()
+      releasePeek()
       useGame.getState().toggle('scoreboardOpen', false)
     }
+
+    // a menu or the settings opening ends a peek (its key-up may never reach us)
+    const unsubMenus = useGame.subscribe((s, prev) => {
+      if ((s.paused && !prev.paused) || (s.settingsOpen && !prev.settingsOpen)) releasePeek()
+    })
 
     el.addEventListener('contextmenu', onContextMenu)
     el.addEventListener('pointerdown', onPointerDown)
@@ -381,6 +425,8 @@ export const input: InputApi = {
     return () => {
       stopHold()
       clearAim()
+      releasePeek()
+      unsubMenus()
       heldMove = null
       pendingCast = null
       el.removeEventListener('contextmenu', onContextMenu)

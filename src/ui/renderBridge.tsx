@@ -56,7 +56,13 @@ export function matchRenderReady(): boolean {
 function syncRenderPrefs(m: RenderModule): void {
   const push = (s: Settings) => {
     try {
-      m.setRenderPrefs({ shake: s.screenShake ?? 1, fpsCap: s.fpsCap ?? 0, resolutionScale: s.resolutionScale ?? 1 })
+      m.setRenderPrefs({
+        shake: s.screenShake ?? 1,
+        fpsCap: s.fpsCap ?? 0,
+        resolutionScale: s.resolutionScale ?? 1,
+        cameraReach: s.cameraReach ?? 'normal',
+        edgePanSpeed: s.edgePanSpeed ?? 1,
+      })
     } catch (e) {
       console.error('[ui] setRenderPrefs failed', e)
     }
@@ -65,7 +71,7 @@ function syncRenderPrefs(m: RenderModule): void {
   useGame.subscribe((s, prev) => {
     const a = s.settings
     const b = prev.settings
-    if (a.screenShake !== b.screenShake || a.fpsCap !== b.fpsCap || a.resolutionScale !== b.resolutionScale) push(a)
+    if (a.screenShake !== b.screenShake || a.fpsCap !== b.fpsCap || a.resolutionScale !== b.resolutionScale || a.cameraReach !== b.cameraReach || a.edgePanSpeed !== b.edgePanSpeed) push(a)
   })
 }
 

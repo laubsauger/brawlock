@@ -393,6 +393,23 @@ export function SettingsModal() {
         <Row label="Colorblind-safe player colors" hint="Swaps the player and team colors for a palette that stays distinct with color vision deficiency, and adds a shape next to every name">
           <Switch label="Colorblind-safe player colors" checked={!!s.colorblindPalette} onChange={(colorblindPalette) => setSettings({ colorblindPalette })} />
         </Row>
+        <Row label="Camera reach" hint="How far edge pan and camera peek (hold A or the middle mouse button) can look away from your warlock">
+          <Segmented
+            label="Camera reach"
+            value={s.cameraReach ?? 'normal'}
+            options={[
+              { value: 'short', label: 'Short' },
+              { value: 'normal', label: 'Normal' },
+              { value: 'far', label: 'Far' },
+            ]}
+            onChange={(cameraReach) => setSettings({ cameraReach })}
+          />
+        </Row>
+        <Row label="Edge pan speed" hint="Point at the screen edge to pan the camera that way">
+          <div className="w-56">
+            <Slider label="Edge pan speed" value={s.edgePanSpeed ?? 1} min={0.25} max={2} step={0.05} format={(v) => `×${v.toFixed(2).replace(/0$/, '')}`} onChange={(edgePanSpeed) => setSettings({ edgePanSpeed })} />
+          </div>
+        </Row>
         <Row label="Key hints" hint="The small key legend at the bottom left of a match">
           <Switch label="Key hints" checked={s.showHints ?? true} onChange={(showHints) => setSettings({ showHints })} />
         </Row>

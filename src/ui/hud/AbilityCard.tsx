@@ -26,7 +26,8 @@ import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type 
 
 export type CardKind = 'spell' | 'item' | 'mastery'
 /** where the card goes relative to the anchor: above it (HUD), or beside the dock edge (shop) */
-export type CardSide = 'top' | 'left' | 'right'
+/** top: above the anchor; left / right: beside the shop dock edge; bar: beside the HUD spell bar */
+export type CardSide = 'top' | 'left' | 'right' | 'bar'
 
 export interface CardTarget {
   kind: CardKind
@@ -38,6 +39,8 @@ export interface CardTarget {
   /** anchor rect and the edge to sit beside (viewport px), read once on hover */
   anchor: { left: number; top: number; right: number; bottom: number }
   edge: number
+  /** side 'bar': the HUD plate the card sits beside (viewport px) */
+  bar?: { left: number; top: number; right: number; bottom: number }
 }
 
 const SHOW_DELAY_MS = 150
@@ -89,7 +92,8 @@ export function abilityCardProps(get: () => Omit<CardTarget, 'anchor' | 'edge'> 
     const anchor = rectOf(el)
     const dock = el.closest('.dock')
     const d = dock ? rectOf(dock) : anchor
-    const next: CardTarget = { ...t, anchor, edge: t.side === 'left' ? d.left : t.side === 'right' ? d.right : anchor.top }
+    const plate = t.side === 'bar' ? el.closest('.hud-bottom') : null
+    const next: CardTarget = { ...t, anchor, edge: t.side === 'left' ? d.left : t.side === 'right' ? d.right : anchor.top, ...(plate ? { bar: rectOf(plate) } : null) }
     // already showing a card: switch right away so moving along a row never blinks
     if (target) set(next)
     else showTimer = window.setTimeout(() => set(next), SHOW_DELAY_MS)
@@ -249,13 +253,28 @@ function modelFor(t: CardTarget, keyOf: (slot: number) => string): CardModel | n
 // ---------------------------------------------------------------------------
 
 /** Card position for a size: beside the dock edge or above the anchor, flipped and clamped to the viewport. */
-export function placeCard(t: Pick<CardTarget, 'side' | 'anchor' | 'edge'>, w: number, h: number, vw: number, vh: number): { x: number; y: number } {
+export function placeCard(t: Pick<CardTarget, 'side' | 'anchor' | 'edge' | 'bar'>, w: number, h: number, vw: number, vh: number): { x: number; y: number } {
   const clampX = (x: number) => Math.min(Math.max(MARGIN, x), vw - w - MARGIN)
   // stay below the clock and score row when the screen is tall enough for it
   const top = Math.max(MARGIN, Math.min(TOP_HUD, vh - h - MARGIN))
   const clampY = (y: number) => Math.min(Math.max(top, y), vh - h - MARGIN)
   const a = t.anchor
   const midY = (a.top + a.bottom) / 2
+  if (t.side === 'bar' && t.bar) {
+    // beside the HUD plate, bottoms level, so the arena centre stays clear: left of it, else right;
+    // a plate tucked into the corner (HUD layout "right") would push the card over the centre, so
+    // then it goes above the plate, flush with its right edge
+    const b = t.bar
+    const y = clampY(b.bottom - h)
+    const clear = (x: number) => !(x < vw / 2 && vw / 2 < x + w && y < vh / 2 && vh / 2 < y + h)
+    const leftX = b.left - GAP - w
+    const rightX = b.right + GAP
+    if (leftX >= MARGIN && clear(leftX)) return { x: leftX, y }
+    if (rightX + w <= vw - MARGIN && clear(rightX)) return { x: rightX, y }
+    const aboveY = b.top - GAP - h
+    if (aboveY >= top) return { x: clampX(b.right - w), y: aboveY }
+    if (leftX >= MARGIN) return { x: leftX, y }
+  }
   if (t.side === 'left' || t.side === 'right') {
     // beside the dock, level with the card; flip to the other side if there is no room
     const leftX = t.edge - GAP - w

@@ -14,9 +14,10 @@ export type Quality = 'low' | 'medium' | 'high' | 'ultra'
 
 /**
  * Hotkey preset (docs/PLAN.md §6, tables in src/ui/lib/keys.ts).
+ * Brawlock (default) = Fireball Q, Scourge W, spells E R T D F G, items Z X C V;
  * Dota = Q W E D F R + Z X C V B N, Modern = Q W E R D F + 1-6, Classic = D R T E C Y + 1-6.
  */
-export type KeyPreset = 'dota' | 'modern' | 'classic'
+export type KeyPreset = 'brawlock' | 'dota' | 'modern' | 'classic'
 
 /**
  * Dota cast modes. quick: the key casts at the cursor at once. release: hold
@@ -38,6 +39,10 @@ export interface Settings {
   fpsCap: 0 | 30 | 60 | 120 | 144
   /** 0.5..1, factor on the quality tier's pixel ratio (render prefs) */
   resolutionScale: number
+  /** how far edge pan and camera peek may look away from your warlock (render prefs) */
+  cameraReach: 'short' | 'normal' | 'far'
+  /** 0.25..2, edge-pan speed factor (render prefs) */
+  edgePanSpeed: number
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -68,6 +73,8 @@ export interface Settings {
   showHints: boolean
   /** a move during a cast windup cancels the cast (original / Dota); off: the move waits for the spell */
   moveCancelsCast: boolean
+  /** settings migrations already applied (see migrateSettings) */
+  settingsVersion: number
   /** colourblind-safe player palette plus a shape per player (game/playerPalette.ts) */
   colorblindPalette: boolean
   /**
@@ -143,6 +150,8 @@ const defaultSettings: Settings = {
   screenShake: 1,
   fpsCap: 0,
   resolutionScale: 1,
+  cameraReach: 'normal',
+  edgePanSpeed: 1,
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.6,
@@ -152,7 +161,7 @@ const defaultSettings: Settings = {
   muted: false,
   playerName: 'Warlock',
   showPerf: false,
-  keyPreset: 'dota',
+  keyPreset: 'brawlock',
   keybinds: {},
   keybindsAlt: {},
   castMode: 'quick',
@@ -163,14 +172,38 @@ const defaultSettings: Settings = {
   netGraph: false,
   showHints: true,
   moveCancelsCast: true,
+  settingsVersion: 2,
   colorblindPalette: false,
   netMode: 'predict',
+}
+
+const isEmpty = (o: object | undefined) => !o || Object.keys(o).length === 0
+
+/**
+ * One-time upgrades of saved settings. v2: the default keys moved from the
+ * Dota preset to Brawlock (Fireball Q, Scourge W). Players still on the old
+ * default with no key of their own move over once; anyone with custom keys or
+ * another preset keeps theirs.
+ */
+export function migrateSettings(saved: Partial<Settings>): Settings {
+  const s = { ...defaultSettings, ...saved, settingsVersion: saved.settingsVersion ?? 1 }
+  if (s.settingsVersion < 2) {
+    if (s.keyPreset === 'dota' && isEmpty(s.keybinds) && isEmpty(s.keybindsAlt)) s.keyPreset = 'brawlock'
+    s.settingsVersion = 2
+  }
+  return s
 }
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) return { ...defaultSettings, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Settings>
+      const s = migrateSettings(saved)
+      // store the result right away, so a migration runs once
+      if (s.settingsVersion !== saved.settingsVersion) localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
+      return s
+    }
   } catch {
     /* private mode or corrupt data: defaults */
   }

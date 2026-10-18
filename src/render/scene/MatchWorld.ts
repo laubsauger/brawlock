@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu'
-import { fog, rangeFogFactor, vec3 } from 'three/tsl'
+import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
 import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
-import { cameraRig, devCamera, moveMarkers } from '../cameraRig'
+import { cameraRig, devCamera, frameOffset, moveMarkers } from '../cameraRig'
+import { CameraReach, EDGE_SPEED, reachFor } from '../cameraReach'
+import { PawnLocator } from '../overlay/PawnLocator'
 import { renderPrefs } from '../prefs'
 import { createWarlock, warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
@@ -15,6 +17,8 @@ import { Arena } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
 import { FacingChevrons } from './FacingChevrons'
+import { MoveDestination } from './MoveDestination'
+import { resolveDestination, type DestClick } from './moveDestinationLogic'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava } from './Lava'
 import { Environment, Obstacles } from './props'
@@ -111,6 +115,9 @@ const WARLOCK_HEIGHT = 190
 /** below this fraction of the viewport height a warlock counts as far (detail 1): default zoom ~0.19, max zoom-out ~0.14 at screen centre, less toward the top edge */
 const DETAIL_FAR_FRAC = 0.12
 
+/** persistent move destination brightness (identity colour x this, additive) */
+const DEST_ALPHA = 1.3
+
 /** main-thread budget per frame for texture uploads (decoded bitmaps: ~1-3 ms each) */
 const UPLOAD_BUDGET_MS = 4
 
@@ -133,6 +140,14 @@ export class MatchWorld {
   private env: Environment
   /** distance haze for the scene (set as scene.fogNode by the owner) */
   readonly fogNode
+  private uFogNear = uniform(24)
+  private uFogFar = uniform(95)
+  /** current shadow frustum half-extent (three units), grows with zoom */
+  private shadowExt = SHADOW_EXT
+  /** edge pan / peek / aim look-ahead offset for the local warlock */
+  private reach = new CameraReach()
+  private reachSeq = 0
+  private locator: PawnLocator | null = null
   private particles: Particles
   private smoke: Particles
   private ground: GroundFx
@@ -148,6 +163,8 @@ export class MatchWorld {
   private billboardsTop: Billboards
   /** facing chevrons for every warlock (one draw), drawn over the bodies */
   private chevrons = new FacingChevrons(16)
+  /** local player's persistent move destination (after the click burst) */
+  private dest!: MoveDestination
   private projectiles: Projectiles
   private overlay: WorldOverlay | null
   private views = new Map<number, PawnView>()
@@ -201,7 +218,9 @@ export class MatchWorld {
     this.lava = new Lava(ctx)
     this.arena = new Arena(ctx)
     this.env = new Environment(ctx)
-    this.fogNode = fog(vec3(0.045, 0.014, 0.009), rangeFogFactor(24, 95))
+    // haze range follows the zoom (24..95 at the default distance), so the
+    // overview zoom does not drown the arena
+    this.fogNode = fog(vec3(0.045, 0.014, 0.009), rangeFogFactor(this.uFogNear, this.uFogFar))
     this.particles = new Particles(ctx, 4096 * Math.max(0.5, opts.tier.particles), 'add')
     this.smoke = new Particles(ctx, 768 * Math.max(0.5, opts.tier.particles), 'smoke')
     this.ground = new GroundFx(ctx)
@@ -245,7 +264,10 @@ export class MatchWorld {
     }
     this.root.add(this.hemi, this.moon, this.moon.target, this.contact.mesh)
     this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.projectiles.mesh, this.chevrons.mesh)
+    this.dest = new MoveDestination(this.ctx.uTime)
+    this.root.add(this.dest.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
+    this.locator = opts.mode === 'match' && opts.overlayParent ? new PawnLocator(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
       this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, nameColor: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
     }
@@ -660,9 +682,23 @@ export class MatchWorld {
     // key light + its shadow frustum follow the camera focus, snapped to whole
     // shadow-map texels in light space (no shimmering edges while panning)
     {
+      // centre of the visible floor (the framing offset moves it off the focus)
+      const ahead = this.opts.mode === 'menu' ? 0 : cameraRig.dist * frameOffset(cameraRig.dist)
       const fx = this.opts.mode === 'menu' ? 0 : cameraRig.fx * S
-      const fz = this.opts.mode === 'menu' ? 0 : -cameraRig.fy * S
-      const texel = (SHADOW_EXT * 2) / Math.max(512, this.opts.tier.shadowMap || 512)
+      const fz = this.opts.mode === 'menu' ? 0 : -(cameraRig.fy + ahead) * S
+      // cover the view at any zoom (14 fits up to the original max distance)
+      const ext = this.opts.mode === 'menu' ? SHADOW_EXT : Math.ceil(SHADOW_EXT * Math.max(1, cameraRig.dist / 1500) * 2) / 2
+      if (ext !== this.shadowExt && this.moon.castShadow) {
+        this.shadowExt = ext
+        const sc = this.moon.shadow.camera as THREE.OrthographicCamera
+        sc.left = -ext
+        sc.right = ext
+        sc.top = ext
+        sc.bottom = -ext
+        sc.updateProjectionMatrix()
+        this.moon.shadow.needsUpdate = true
+      }
+      const texel = (this.shadowExt * 2) / Math.max(512, this.opts.tier.shadowMap || 512)
       const R = this.lightRight
       const U = this.lightUp
       this.tmpV.set(fx, 0, fz)
@@ -1828,6 +1864,7 @@ export class MatchWorld {
         this.lastUiMarker = t
         this.lastMoveTarget.x = mv.x
         this.lastMoveTarget.y = mv.y
+        this.noteClick(mv.x, mv.y, t, curr)
       }
     }
     // UI-requested markers (showMoveMarker)
@@ -1837,9 +1874,11 @@ export class MatchWorld {
       this.lastUiMarker = t
       this.lastMoveTarget.x = m.x
       this.lastMoveTarget.y = m.y
+      this.noteClick(m.x, m.y, t, curr)
     }
     let local: PawnState | undefined
     for (const p of curr.pawns) if (p.owner === buf.localPlayer) local = p
+    this.updateDestination(local, t)
     if (local && local.alive && local.moveTarget && inputViz.move.seq === 0) {
       const mt = local.moveTarget
       const moved = Math.hypot(mt.x - this.lastMoveTarget.x, mt.y - this.lastMoveTarget.y)
@@ -1864,6 +1903,53 @@ export class MatchWorld {
       }
     }
   }
+
+  /** last move order from the input layer, until the sim's move target catches up */
+  private click: DestClick | null = null
+  private destShow = { x: 0, y: 0, alpha: 0, since: -10, queued: false }
+
+  private noteClick(x: number, y: number, t: number, curr: SimState): void {
+    const buf = this.opts.source.buf
+    let local: PawnState | undefined
+    for (const p of curr.pawns) if (p.owner === buf.localPlayer) local = p
+    // "Move cancels cast" off: a move issued during a windup is held by the
+    // input layer and sent when the windup ends (game/input.ts)
+    const holds = useGame.getState().settings.moveCancelsCast === false
+    this.click = { x, y, at: t, queued: holds && !!local?.cast }
+    // the old destination goes at once; the new one fades in after the burst
+    this.destShow.alpha = 0
+    this.destShow.since = t
+  }
+
+  /**
+   * Persistent destination: the sim's move target for the local pawn (so it
+   * follows prediction / rollback and stays through knockback), bridged by
+   * the last click until the order lands. Clears on arrival, stop, a cast,
+   * death and round end (the sim drops the target in all of those).
+   */
+  private updateDestination(local: PawnState | undefined, t: number): void {
+    const d = this.destShow
+    const r = resolveDestination(local, this.click, t)
+    this.click = r.click
+    const { show, x, y, queued } = r
+    if (show) {
+      // a moved target that did not come from a click (rollback, scripted): no fade
+      if (d.alpha > 0 && Math.hypot(x - d.x, y - d.y) > 2 && t - d.since > 0.6) d.since = t - 0.6
+      d.x = x
+      d.y = y
+      d.queued = queued
+      // after the click burst (~0.4 s): fade in, then stay
+      d.alpha = Math.max(0, Math.min(1, (t - d.since - 0.3) / 0.25))
+    } else d.alpha = Math.max(0, d.alpha - 1 / 8)
+    const v = local ? this.views.get(local.id) : undefined
+    if (d.alpha <= 0 || !v) {
+      this.dest.set(0, 0, 0, 0, this.white, false)
+      return
+    }
+    const floor = isLocationSafe(d.x, d.y, this.arena.currentLayer) ? TILE_TOP_H : LAVA_H
+    this.dest.set(d.x, d.y, floor, d.alpha * DEST_ALPHA, v.identityColor, d.queued)
+  }
+  private white = new THREE.Color(1, 1, 1)
 
   /**
    * Dota-style move marker, local player only: one quick chevron burst that
@@ -2110,23 +2196,27 @@ export class MatchWorld {
     if (curr && lp >= 0) {
       for (const v of this.views.values()) if (v.owner === lp) local = v
     }
+    if (cameraRig.recenterSeq !== this.reachSeq) {
+      // Space: back on the warlock at once, no pan left over
+      this.reachSeq = cameraRig.recenterSeq
+      this.reach.reset()
+    }
     if (local && local.alive && !local.dead) {
-      fx = local.x
-      fy = local.y
       this.deathFocus = null
-      const cur = this.opts.source.buf.cursor
-      if (cur.valid) {
-        // gentle look-ahead toward the cursor
-        let dx = (cur.x - local.x) * 0.12
-        let dy = (cur.y - local.y) * 0.12
-        const l = Math.hypot(dx, dy)
-        if (l > 160) {
-          dx *= 160 / l
-          dy *= 160 / l
-        }
-        fx += dx
-        fy += dy
-      }
+      const arenaR = curr ? layerRadius(curr.arena.layer) : 1500
+      const o = this.reach.step({
+        dt,
+        pointer: this.pointer,
+        peek: (inputViz as { peek?: boolean }).peek === true,
+        aiming: !!inputViz.aim,
+        cursor: this.opts.source.buf.cursor,
+        pawn: local,
+        arenaR,
+        reach: reachFor(renderPrefs.cameraReach, arenaR),
+        edgeSpeed: EDGE_SPEED * renderPrefs.edgePanSpeed,
+      })
+      fx = local.x + o.x
+      fy = local.y + o.y
     } else if (this.deathFocus && t - this.deathFocus.at < 1.6) {
       fx = this.deathFocus.x
       fy = this.deathFocus.y
@@ -2154,6 +2244,15 @@ export class MatchWorld {
     }
     // screen shake and kick scale with the screen-shake setting only (not fx intensity)
     cameraRig.update(camera, fx, fy, dt, aspect, renderPrefs.shake)
+    // matrices now, not at render: the cursor pick and the locator below use them
+    camera.updateMatrixWorld()
+    if (this.locator) {
+      const show = !!(local && local.alive && !local.dead)
+      this.locator.update(camera, local?.x ?? 0, local?.y ?? 0, (local?.floorH ?? 0) + 90, local ? `#${local.identityColor.getHexString()}` : '#fff', show)
+    }
+    // haze range follows the zoom
+    this.uFogNear.value = Math.max(24, (cameraRig.dist + 1300) * S)
+    this.uFogFar.value = this.uFogNear.value + 71
   }
 
   private updateCursor(camera: THREE.PerspectiveCamera): void {
@@ -2196,6 +2295,8 @@ export class MatchWorld {
     this.billboards.dispose()
     this.billboardsTop.dispose()
     this.chevrons.dispose()
+    this.dest.dispose()
+    this.locator?.dispose()
     this.contact.dispose()
     this.projectiles.dispose()
     this.ctx.field.dispose()

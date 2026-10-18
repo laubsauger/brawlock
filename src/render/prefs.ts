@@ -12,9 +12,13 @@ export interface RenderPrefs {
   fpsCap: number
   /** factor on the tier's pixel ratio and the dynamic-resolution cap, 0.5..1 */
   resolutionScale: number
+  /** how far edge pan / peek may look away from the warlock */
+  cameraReach: 'short' | 'normal' | 'far'
+  /** edge-pan speed factor, 0.25..2 (1 = default) */
+  edgePanSpeed: number
 }
 
-export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1 }
+export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1, cameraReach: 'normal', edgePanSpeed: 1 }
 
 const listeners = new Set<() => void>()
 
@@ -39,6 +43,16 @@ export function setRenderPrefs(p: Partial<RenderPrefs>): void {
     const v = clamp(p.resolutionScale, 0.5, 1, 1)
     changed ||= v !== renderPrefs.resolutionScale
     renderPrefs.resolutionScale = v
+  }
+  if (p.cameraReach !== undefined) {
+    const v = p.cameraReach === 'short' || p.cameraReach === 'far' ? p.cameraReach : 'normal'
+    changed ||= v !== renderPrefs.cameraReach
+    renderPrefs.cameraReach = v
+  }
+  if (p.edgePanSpeed !== undefined) {
+    const v = clamp(p.edgePanSpeed, 0.25, 2, 1)
+    changed ||= v !== renderPrefs.edgePanSpeed
+    renderPrefs.edgePanSpeed = v
   }
   if (changed) for (const l of listeners) l()
 }

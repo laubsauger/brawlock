@@ -6,11 +6,47 @@ import { S, TILE_TOP_H } from './coords'
  * (docs/research/systems.md §9.5): distance 500..1500 game units, start 1100,
  * 200 per wheel notch computed from the current (not target) distance,
  * smoothed every 1/60 s with dist = 0.8 * dist + 0.2 * target.
+ *
+ * Deviation (overview zoom, requested): past the original 1500 the camera
+ * zooms out further, to ZOOM_MAX, where a full-size arena (radius 2000, ten
+ * players) fits a 16:9 screen with a margin. Beyond 1500 a notch scales the
+ * distance by the same ratio the last original notch had (x 1.133), so the
+ * zoom feels the same, and the framing eases from "warlock a little below
+ * centre" to centred on the arena (see frameOffset).
  */
 export const ZOOM_MIN = 500
-export const ZOOM_MAX = 1500
+export const ZOOM_MAX = 3600
 export const ZOOM_DEFAULT = 1100
 export const ZOOM_STEP = 200
+/** end of the original zoom range */
+export const ZOOM_ORIGINAL_MAX = 1500
+const ZOOM_RATIO = 1 + ZOOM_STEP / ZOOM_ORIGINAL_MAX
+
+/**
+ * Vertical framing: how far past the focus the camera looks, as a fraction
+ * of the distance. 0.1 (warlock slightly below centre) up to the original max
+ * zoom, easing to -0.2 at the overview zoom, which centres a whole arena on
+ * screen (the near side of a 60 degree view is otherwise the limit).
+ */
+export function frameOffset(dist: number): number {
+  const t = Math.max(0, Math.min(1, (dist - ZOOM_ORIGINAL_MAX) / (ZOOM_MAX - ZOOM_ORIGINAL_MAX)))
+  const k = t * t * (3 - 2 * t)
+  return cameraParams.centerOffset + (-0.2 - cameraParams.centerOffset) * k
+}
+
+/** Next zoom distance from `dist` after `notches` wheel notches (+ = out, fractional ok). */
+export function zoomStep(dist: number, notches: number): number {
+  let d = dist
+  let n = notches
+  while (Math.abs(n) > 1e-6) {
+    const k = Math.sign(n) * Math.min(1, Math.abs(n))
+    n -= k
+    // original 200-unit steps up to 1500; beyond, the same relative step
+    if (k > 0) d = d < ZOOM_ORIGINAL_MAX ? d + ZOOM_STEP * k : d * Math.pow(ZOOM_RATIO, k)
+    else d = d > ZOOM_ORIGINAL_MAX ? d * Math.pow(ZOOM_RATIO, k) : d + ZOOM_STEP * k
+  }
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, d))
+}
 /**
  * Live-tunable camera shape (Inspector "Camera" group). Dota-matched:
  * pitch 60 degrees below horizontal; FOV 70 degrees horizontal on Dota's 4:3
@@ -66,11 +102,15 @@ class CameraRig {
   }
 
   zoom(notches: number): void {
-    this.targetDist = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, this.dist + notches * ZOOM_STEP))
+    this.targetDist = zoomStep(this.dist, notches)
   }
+
+  /** bumped by recenter(): the world drops any camera reach offset */
+  recenterSeq = 0
 
   recenter(): void {
     this.snap = true
+    this.recenterSeq++
   }
 
   /** Add trauma (0..1+). Shake amplitude decays quickly. */
@@ -126,7 +166,7 @@ class CameraRig {
     const d = this.dist
     const pitch = cameraParams.pitch * D2R
     // look slightly past the pawn so it sits a little below screen centre
-    const ahead = d * cameraParams.centerOffset
+    const ahead = d * frameOffset(d)
     const tx = this.fx * S
     const ty = TILE_TOP_H * S
     const tz = -(this.fy + ahead) * S

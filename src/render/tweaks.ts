@@ -5,6 +5,12 @@ import { uniform } from 'three/tsl'
  * deleted; the Inspector exposes them (Arena group) next to the camera.
  */
 export type TileMaterialMode = 'auto' | 'procedural' | 'textured'
+/**
+ * Floor surface look: 'calm' (default) = one readable surface with subtle
+ * tiles (flattened fine detail, thin low-contrast grout, ~20 % lighter);
+ * 'classic' = the earlier, more structured flagstone look.
+ */
+export type FloorStyle = 'calm' | 'classic'
 
 export const tweaks = {
   /** thin dark outline + halo on floating combat numbers (off = glow only) */
@@ -12,6 +18,8 @@ export const tweaks = {
 
   /** 'auto' = authored PBR set when it exists, else procedural */
   tileMaterial: 'auto' as TileMaterialMode,
+  /** floor surface look (rebuilds the tile material) */
+  floorStyle: 'calm' as FloorStyle,
   /** bumped whenever a switch needs a material rebuild */
   version: 0,
   /** lava bounce / edge heat on tiles near the shore */
@@ -41,6 +49,14 @@ export const tweakParams = {
   set tileMaterial(v: TileMaterialMode) {
     if (v === tweaks.tileMaterial) return
     tweaks.tileMaterial = v
+    tweaks.version++
+  },
+  get floorStyle(): FloorStyle {
+    return tweaks.floorStyle
+  },
+  set floorStyle(v: FloorStyle) {
+    if (v === tweaks.floorStyle) return
+    tweaks.floorStyle = v
     tweaks.version++
   },
   get edgeGlow(): number {

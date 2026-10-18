@@ -7,6 +7,7 @@ import {
   attribute,
   bumpMap,
   cameraPosition,
+  cameraViewMatrix,
   clamp,
   dFdx,
   dFdy,
@@ -34,6 +35,7 @@ import {
   varying,
   vec2,
   vec3,
+  vec4,
 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { GRID_MAX, TILE_SIZE, arenaTiles, cellIndex, clampLayer, tileExists } from '../arenaGeom'
@@ -43,6 +45,24 @@ import { THEME_DIRS, loadSurface, type SurfaceMaps } from './textures'
 import { buildTileGeometry } from './tileGeometry'
 import { asV4, gamePos, type WorldCtx } from './world'
 import { TILE_GAP } from '../scale'
+
+/**
+ * Calm floor albedo lift per theme (same cool palette). Measured floor
+ * luminance at the gameplay camera (with the thinner edge band and flattened
+ * mortar AO): temple and overgrown about +22 %, volcanic +44 % (it was 3.5x
+ * darker than the others and dark robes sank into it).
+ */
+const FLOOR_LIFT = [1.15, 1.45, 1.15] as const
+
+/**
+ * Calm floor: the 45 degree bevels shade like the tile tops (normal pulled
+ * toward up), so the moon no longer draws a bright and a dark line along
+ * every tile edge. The grout reads as the thin 4-unit gap only.
+ */
+function calmBevel(n: unknown, isBevel: Node<'float'>): Node<'vec3'> {
+  const upView = cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz
+  return mix(n as Node<'vec3'>, upView, isBevel.mul(0.8)).normalize()
+}
 
 /** Seconds a removed tile takes to sink out of sight. */
 export const SINK_DUR = 0.55
@@ -99,6 +119,8 @@ export class Arena {
   private uStoneB = uniform(new THREE.Color())
   private uRune = uniform(new THREE.Color())
   private uRough = uniform(0.8)
+  /** calm floor albedo lift for the current theme (fragment only) */
+  private uLift = uniform(1)
   private material: THREE.MeshStandardNodeMaterial
   private meshes = new Map<number, MaskMesh>()
   private tiles = new Map<number, TileEntry>()
@@ -140,6 +162,7 @@ export class Arena {
     this.uStoneB.value.copy(th.b)
     this.uRune.value.copy(th.rune)
     this.uRough.value = th.rough
+    this.uLift.value = FLOOR_LIFT[t]
     if (this.themeMaps[t]) this.applyThemeMaps()
   }
 
@@ -338,6 +361,9 @@ export class Arena {
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
 
     // ---------------- fragment: layered stone
+    // 'calm' floor (default): one readable surface with subtle tiles; 'classic'
+    // keeps the earlier structured look (tweaks.floorStyle, Inspector: Arena)
+    const calm = tweaks.floorStyle === 'calm'
     // fragment reads of the clock go through vertex varyings (the fragment
     // stage's own uniform copy did not track the frame clock)
     const tF = varying(t)
@@ -365,14 +391,17 @@ export class Arena {
     const crackHalo = smoothstep(0.86, 0.99, ridge).mul(isTop)
 
     let stone = mix(this.uStoneA, this.uStoneB, saturate(n.r.mul(1.1).add(nMacro.g.sub(0.5).mul(0.8)).sub(0.08).add(seed.sub(0.5).mul(0.35))))
-    stone = stone.mul(n2.g.mul(0.36).add(0.82)).mul(nMicro.r.mul(0.22).add(0.89))
+    stone = calm
+      ? stone.mul(n2.g.mul(0.14).add(0.93)).mul(nMicro.r.mul(0.07).add(0.965))
+      : stone.mul(n2.g.mul(0.36).add(0.82)).mul(nMicro.r.mul(0.22).add(0.89))
     // cavity: cracks and the halo around them darken, seams fall into shadow
-    stone = stone.mul(float(1).sub(crackLine.mul(0.7)).sub(crackHalo.mul(0.12)))
-    stone = stone.mul(mix(float(1), float(0.62), smoothstep(0.9, 1.0, edge).mul(isTop)))
+    stone = stone.mul(float(1).sub(crackLine.mul(calm ? 0.3 : 0.7)).sub(crackHalo.mul(calm ? 0.04 : 0.12)))
+    stone = stone.mul(calm ? mix(float(1), float(0.88), smoothstep(0.965, 1.0, edge).mul(isTop)) : mix(float(1), float(0.62), smoothstep(0.9, 1.0, edge).mul(isTop)))
     // edge wear: the chamfer and chipped rims are polished lighter by feet
-    const chips = smoothstep(0.55, 0.75, nMicro.g).mul(smoothstep(0.78, 0.95, edge)).mul(isTop)
-    const wear = saturate(isBevel.mul(0.8).add(chips))
+    const chips = smoothstep(0.55, 0.75, nMicro.g).mul(smoothstep(0.78, 0.95, edge)).mul(isTop).mul(calm ? 0.25 : 1)
+    const wear = saturate(isBevel.mul(calm ? 0.3 : 0.8).add(chips))
     stone = mix(stone, stone.mul(1.65).add(0.015), wear.mul(0.7))
+    if (calm) stone = stone.mul(this.uLift)
     stone = mix(stone, stone.mul(0.8), isSide)
 
     // engraved sigils on ~1 in 9 tiles: a square-and-diamond glyph (never a
@@ -440,13 +469,18 @@ export class Arena {
     const seamGlow = wallFall.mul(0.05).mul(seamAA)
     const sideHeat = isSide.mul(mix(seamGlow, wallFall.mul(0.6).add(0.4), outerWall))
 
-    const albedoLum = stone.r.add(stone.g).add(stone.b).mul(1.4).add(0.05)
+    // (calm: the albedo lift must not raise the lava bounce, or small late-game
+    // platforms wash out pink-cream; the shore heat stays as before)
+    const lumStone = calm ? stone.div(this.uLift) : stone
+    const albedoLum = lumStone.r.add(lumStone.g).add(lumStone.b).mul(1.4).add(0.05)
     // spell ground light: floors take it, walls a little, seam walls (deep
     // 4-unit grooves the light barely reaches) hardly at all
     let em = glow.at(gp).mul(albedoLum).mul(mix(float(0.5), mix(float(0.05), float(0.25), facesLava), isSide))
     // lava veins: heat seeping up through the cracks, stronger toward the shore
     const veinPulse = sin(tF.mul(0.9).add(n.b.mul(12)).add(seed.mul(20))).mul(0.25).add(0.75)
-    const vein = crackLine.mul(nearLava.mul(1.2).mul(tweaks.uEdgeGlow).add(0.05)).mul(veinPulse)
+    // calm: sparser veins (only the strongest ridges); the telegraph below keeps the dense set
+    const veinLine = calm ? smoothstep(0.972, 0.992, ridge).mul(isTop) : crackLine
+    const vein = veinLine.mul(nearLava.mul(1.2).mul(tweaks.uEdgeGlow).add(0.05)).mul(veinPulse)
     em = em.add(vec3(1.1, 0.22, 0.03).mul(vein)) // toned down from (1.5, 0.3, 0.04): the veins shone too hard through bloom
     em = em.add(this.uRune.mul(rune).mul(runePulse.mul(0.05)).mul(tele.mul(14).add(1)))
     em = em.add(vec3(1.2, 0.26, 0.04).mul(edgeHeat.mul(0.2)).mul(tweaks.uEdgeGlow))
@@ -516,17 +550,32 @@ export class Arena {
         const vg = vec2(V.x, V.z.negate())
         const vUv = vec2(vg.x.mul(cs).sub(vg.y.mul(sn)), vg.x.mul(sn).add(vg.y.mul(cs)))
         const hSlot: TexSlot = this.builtLumHeight ? 'top.albedo' : 'top.height'
-        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), (u) => tex(hSlot, u), this.builtLumHeight, 0.008, 8)
+        uvTopP = pomUv(uvTop, vUv.div(max(V.y, 0.25)), (u) => tex(hSlot, u), this.builtLumHeight, calm ? 0.0035 : 0.008, 8)
       }
       // POM only on the flat tops: on the 45 degree bevel the horizontal-surface
       // march stretched and darkened the albedo (the dark band under the rim)
       const uvT = mix(mix(uvTop, uvTopP, isTop), uvSide, isSide)
-      const alb = mix(tex('top.albedo', uvT).rgb, tex('side.albedo', uvT).rgb, isSide)
-      const orm = mix(tex('top.orm', uvT).rgb, tex('side.orm', uvT).rgb, isSide)
-      const tint = n.r.mul(0.3).add(0.85)
+      let alb: Node<'vec3'> = mix(tex('top.albedo', uvT).rgb, tex('side.albedo', uvT).rgb, isSide)
+      let orm: Node<'vec3'> = mix(tex('top.orm', uvT).rgb, tex('side.orm', uvT).rgb, isSide)
+      let tint: Node<'float'> = n.r.mul(0.3).add(0.85)
+      if (calm) {
+        // flatten the authored flagstone pattern: blend each texel toward its
+        // local mean (a coarse mip), so the tile reads as one stone with soft
+        // mottling instead of a sub-grid of small stones
+        // (1024 px spans two tiles: mip 7 = 128 px texels, about the size of
+        // the authored sub-stones, so they average out)
+        const meanTop = tex('top.albedo', uvT).level(float(7)).rgb
+        const meanSide = tex('side.albedo', uvT).level(float(6)).rgb
+        alb = mix(mix(meanTop, meanSide, isSide), alb, mix(float(0.3), float(0.65), isSide))
+        const aoMean = mix(tex('top.orm', uvT).level(float(7)).r, tex('side.orm', uvT).level(float(6)).r, isSide)
+        orm = vec3(mix(aoMean, orm.r, 0.25), orm.g, orm.b)
+        // per-tile variation: small, plus slow platform-wide patches
+        tint = float(1).add(n.r.sub(0.5).mul(0.07)).add(nMacro.g.sub(0.5).mul(0.16))
+      }
       let col = alb.mul(tint).mul(orm.r)
       col = col.mul(float(1).sub(rune.mul(0.45)))
-      col = col.mul(mix(float(1), float(0.65), smoothstep(0.9, 1.0, edge).mul(isTop)))
+      col = col.mul(calm ? mix(float(1), float(0.88), smoothstep(0.965, 1.0, edge).mul(isTop)) : mix(float(1), float(0.65), smoothstep(0.9, 1.0, edge).mul(isTop)))
+      if (calm) col = col.mul(this.uLift)
       m.colorNode = mix(col, col.mul(sinkTint), sinkDark)
       // the top maps are sampled in a per-tile rotated frame: rotate the
       // tangent-space normal back by -rot so it agrees with the mesh uv frame
@@ -535,8 +584,8 @@ export class Arena {
       const nSide = tex('side.normal', uvT).xyz.mul(2).sub(1)
       const nTS = mix(nTopR, nSide, isSide).mul(0.5).add(0.5)
       // calm relief: tops at ~40 % of the authored strength, walls a bit more
-      const nScale = mix(float(0.45), float(0.8), isSide)
-      m.normalNode = normalMap(nTS, vec2(nScale, nScale))
+      const nScale = calm ? mix(float(0.14), float(0.6), isSide) : mix(float(0.45), float(0.8), isSide)
+      m.normalNode = calm ? calmBevel(normalMap(nTS, vec2(nScale, nScale)), isBevel) : normalMap(nTS, vec2(nScale, nScale))
       // never mirror-smooth: low-roughness texels made tile-sized moon hotspots
       // matte basalt; only genuinely glossy texels (wet / obsidian) stay shiny
       m.roughnessNode = select(orm.g.lessThan(0.22), float(0.38), max(orm.g, 0.66))
@@ -545,7 +594,8 @@ export class Arena {
       m.colorNode = mix(stone, stone.mul(sinkTint), sinkDark)
       // relief: grain + chips + cut cracks and glyphs
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
-      m.normalNode = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(0.5))
+      const bump = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(calm ? 0.22 : 0.5))
+      m.normalNode = calm ? calmBevel(bump, isBevel) : bump
       m.roughnessNode = clamp(rough, 0.62, 1)
       m.metalnessNode = float(0)
     }

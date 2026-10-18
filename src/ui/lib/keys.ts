@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useGame, type KeyPreset, type Settings } from '../../game/store'
 
 /**
- * Keybindings. Three presets (docs/PLAN.md §6), every action rebindable in
+ * Keybindings. Four presets (docs/PLAN.md §6; Brawlock is the default), every action rebindable in
  * Settings > Controls; overrides live in settings.keybinds on top of the
  * preset. Physical key codes (KeyboardEvent.code), so the keyboard layout
  * does not matter. Slots 0..5 = spell columns, 6..11 = items.
@@ -26,6 +26,7 @@ export type BindAction =
   | 'character'
   | 'scoreboard'
   | 'recenter'
+  | 'peek'
   | 'mute'
 
 /** Key per action (KeyboardEvent.code); '' = unbound. */
@@ -74,6 +75,7 @@ export const BIND_GROUPS: { title: string; actions: { id: BindAction; label: str
       { id: 'character', label: 'Character stats' },
       { id: 'scoreboard', label: 'Scoreboard (hold)' },
       { id: 'recenter', label: 'Center camera' },
+      { id: 'peek', label: 'Camera peek (hold; also middle mouse)' },
       { id: 'mute', label: 'Mute' },
     ],
   },
@@ -84,10 +86,31 @@ export const ACTION_LABEL: Record<BindAction, string> = Object.fromEntries(BIND_
   string
 >
 
-const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', mute: 'KeyM' } as const
+// A is free in every preset, so camera peek sits there everywhere (middle mouse works too)
+const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', peek: 'KeyA', mute: 'KeyM' } as const
 const DIGITS = { item0: 'Digit1', item1: 'Digit2', item2: 'Digit3', item3: 'Digit4', item4: 'Digit5', item5: 'Digit6' } as const
 
 export const PRESETS: Record<KeyPreset, BindMap> = {
+  // Brawlock (default): Fireball and Scourge, used every round from round 1, get the prime keys;
+  // the six spell columns (empty at first) sit right next to them as a 3x2 block, items below.
+  // A is camera peek (COMMON).
+  brawlock: {
+    item0: 'KeyQ',
+    item1: 'KeyW',
+    spell0: 'KeyE',
+    spell1: 'KeyR',
+    spell2: 'KeyT',
+    spell3: 'KeyD',
+    spell4: 'KeyF',
+    spell5: 'KeyG',
+    item2: 'KeyZ',
+    item3: 'KeyX',
+    item4: 'KeyC',
+    item5: 'KeyV',
+    shop: 'KeyB',
+    character: 'KeyK',
+    ...COMMON,
+  },
   // Dota 2 defaults. B is item 5 there, so the shop sits on F4 as in Dota; C is item 3, so stats move to K.
   dota: {
     spell0: 'KeyQ',
@@ -134,6 +157,7 @@ export const PRESETS: Record<KeyPreset, BindMap> = {
 }
 
 export const PRESET_INFO: { value: KeyPreset; label: string; hint: string }[] = [
+  { value: 'brawlock', label: 'Brawlock', hint: 'Fireball Q, Scourge W, spells E R T D F G, items Z X C V' },
   { value: 'dota', label: 'Dota', hint: 'Spells Q W E D F R, items Z X C V B N, shop F4' },
   { value: 'modern', label: 'Modern', hint: 'Spells Q W E R D F, items 1 to 6' },
   { value: 'classic', label: 'Classic', hint: 'Spells D R T E C Y, items 1 to 6, as in the original' },
@@ -145,6 +169,7 @@ export const PRESET_INFO: { value: KeyPreset; label: string; hint: string }[] = 
  */
 const NO_KEYS = Object.fromEntries(Object.keys(PRESETS.dota).map((k) => [k, ''])) as BindMap
 export const PRESETS_ALT: Record<KeyPreset, BindMap> = {
+  brawlock: { ...NO_KEYS, shop: 'KeyP' },
   dota: { ...NO_KEYS, shop: 'KeyP' },
   modern: { ...NO_KEYS, shop: 'KeyP' },
   classic: { ...NO_KEYS, shop: 'KeyP' },
@@ -154,7 +179,7 @@ export const PRESETS_ALT: Record<KeyPreset, BindMap> = {
 export const RESERVED_KEYS = new Set(['Escape', 'F2', 'F3', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'ContextMenu'])
 
 export function resolveBinds(s: Pick<Settings, 'keyPreset' | 'keybinds' | 'keybindsAlt'>): Binds {
-  const preset = PRESETS[s.keyPreset] ? s.keyPreset : 'dota'
+  const preset = PRESETS[s.keyPreset] ? s.keyPreset : 'brawlock'
   const primary = { ...PRESETS[preset] }
   for (const [k, v] of Object.entries(s.keybinds ?? {})) if (k in primary && typeof v === 'string' && v) primary[k as BindAction] = v
   const secondary = { ...PRESETS_ALT[preset] }
@@ -172,7 +197,7 @@ export function resolveBinds(s: Pick<Settings, 'keyPreset' | 'keybinds' | 'keybi
 }
 
 let cacheKey: unknown = null
-let cacheVal: Binds = { primary: PRESETS.dota, secondary: PRESETS_ALT.dota }
+let cacheVal: Binds = { primary: PRESETS.brawlock, secondary: PRESETS_ALT.brawlock }
 /** Current bindings from the store (cached on the settings object). */
 export function currentBinds(): Binds {
   const s = useGame.getState().settings

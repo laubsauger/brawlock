@@ -78,3 +78,55 @@ describe('Move cancels cast, on (default, as in the original): unchanged', () =>
     expect(moves()).toEqual([{ kind: 'move', x: 100, y: 0 }])
   })
 })
+
+describe('camera peek: held while the key or the middle button is down, never stuck', () => {
+  // a minimal DOM for attach(): window / element event targets, no real browser needed
+  const win = new EventTarget() as EventTarget & Record<string, unknown>
+  win.setInterval = setInterval
+  win.clearInterval = clearInterval
+  const g = globalThis as Record<string, unknown>
+  let el: EventTarget & { dataset: Record<string, string> }
+  let detach: () => void = () => {}
+  const fire = (target: EventTarget, type: string, props: Record<string, unknown>) =>
+    target.dispatchEvent(Object.assign(new Event(type), { preventDefault() {}, ...props }))
+
+  beforeEach(() => {
+    g.window = win
+    g.HTMLElement ??= class {}
+    el = Object.assign(new EventTarget(), { dataset: {} as Record<string, string> })
+    useGame.getState().setSettings({ keyPreset: 'brawlock', keybinds: {}, keybindsAlt: {} })
+    useGame.getState().toggle('paused', false)
+    useGame.getState().toggle('settingsOpen', false)
+    detach = input.attach(el as unknown as HTMLElement)
+  })
+  afterEach(() => {
+    detach()
+    useGame.getState().toggle('paused', false)
+  })
+
+  it('peeks while A is held and stops on release', () => {
+    fire(win, 'keydown', { code: 'KeyA' })
+    expect(inputViz.peek).toBe(true)
+    fire(win, 'keyup', { code: 'KeyA' })
+    expect(inputViz.peek).toBe(false)
+  })
+
+  it('peeks while the middle mouse button is held', () => {
+    fire(el, 'pointerdown', { button: 1 })
+    expect(inputViz.peek).toBe(true)
+    fire(win, 'pointerup', { button: 1 })
+    expect(inputViz.peek).toBe(false)
+  })
+
+  it('lets go when the window loses focus (the key-up would never arrive)', () => {
+    fire(win, 'keydown', { code: 'KeyA' })
+    fire(win, 'blur', {})
+    expect(inputViz.peek).toBe(false)
+  })
+
+  it('lets go when the menu opens', () => {
+    fire(el, 'pointerdown', { button: 1 })
+    useGame.getState().toggle('paused', true)
+    expect(inputViz.peek).toBe(false)
+  })
+})
