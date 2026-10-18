@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Brawlock sound effects review</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e9e7e2;background:#111214;font-synthesis:none;--muted:#aaa9a4;--line:#323338;--amber:#edb673}
+    *{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit}button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button{cursor:pointer}a{color:var(--amber);text-underline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+    .wrap{max-width:1500px;margin:0 auto;padding:40px 40px 80px}.eyebrow{color:var(--amber);text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:750}header{display:flex;gap:28px;justify-content:space-between;align-items:flex-end;padding-bottom:28px;border-bottom:1px solid var(--line)}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.045em;margin:10px 0 12px;font-weight:650}header p{max-width:720px;color:var(--muted);line-height:1.6;margin:0;font-size:14px}.header-actions{display:flex;gap:10px;flex-wrap:wrap;flex-shrink:0}.button{background:#232429;border:1px solid #45464c;border-radius:8px;color:#eeece7;padding:10px 14px;font-size:13px;min-height:42px}.button.primary{color:#21180e;background:var(--amber);border-color:var(--amber);font-weight:650}.button:hover{filter:brightness(1.15)}
+    .toolbar{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:22px 0;flex-wrap:wrap}.volume{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}input[type=range]{accent-color:var(--amber);width:110px}.summary{color:var(--muted);font-size:13px}.summary strong{color:#eee}.status{min-height:20px;font-size:13px;color:var(--amber);max-width:650px}.notice{border-left:2px solid #67503b;background:#1d1b19;padding:13px 17px;margin:0 0 24px;font-size:13px;line-height:1.6;color:#c6b6a5}.error{color:#ffb3ab;border:1px solid #8b4c49;padding:14px;margin:16px 0}.layout{display:grid;grid-template-columns:215px minmax(0,1fr);gap:36px}aside{align-self:start;position:sticky;top:20px}.nav-label{text-transform:uppercase;letter-spacing:.1em;font-size:10px;color:#858681;margin:6px 0 12px}.nav{display:flex;flex-direction:column;gap:4px}.nav button{display:flex;justify-content:space-between;gap:8px;text-align:left;background:transparent;border:1px solid transparent;border-radius:7px;color:#bbbcb8;padding:10px 11px;font-size:13px}.nav button[aria-pressed=true]{background:#29241e;border-color:#59432d;color:#f0c18a}.nav button:hover{background:#222327}.nav .count{color:#858681}.filters{display:grid;gap:10px;margin:26px 0 16px}.filters input,.filters select{width:100%;background:#191a1d;color:#e1dfda;border:1px solid #3b3c41;border-radius:7px;padding:10px;font-size:13px}.aside-note{font-size:12px;color:#8e8f8a;line-height:1.65}.general{margin-top:24px;display:block;font-size:12px;color:var(--muted)}.general textarea{width:100%;min-height:100px;margin-top:9px;background:#191a1d;color:#e9e7e2;border:1px solid #3b3c41;border-radius:7px;padding:10px;resize:vertical}
+    .group{margin:0 0 42px;scroll-margin-top:20px}.group-title{display:flex;align-items:baseline;gap:12px;margin-bottom:9px}.group h2{font-size:22px;letter-spacing:-.025em;margin:0;font-weight:620}.group-index{font-size:11px;color:var(--amber);font-variant-numeric:tabular-nums}.group-description{color:var(--muted);font-size:13px;line-height:1.7;margin:0 0 16px;max-width:830px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.card{border:1px solid var(--line);border-radius:10px;background:#1a1b1e;padding:18px;display:flex;flex-direction:column;min-width:0}.card[data-vote=like]{border-color:#5f8261}.card[data-vote=maybe]{border-color:#9b7945}.card[data-vote=pass]{border-color:#7c5250}.card-top{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:11px}.badge{font-size:10px;letter-spacing:.065em;text-transform:uppercase;color:#b4b5b0}.candidate-id{color:var(--amber);font-size:11px;letter-spacing:.04em}.card h3{font-size:15px;line-height:1.45;font-weight:600;overflow-wrap:anywhere;margin:0 0 7px}.credit{color:#999b96;font-size:11px;line-height:1.7;margin-bottom:12px;overflow-wrap:anywhere}.role{color:#e4c69e;font-size:12px;margin:0 0 9px;line-height:1.6}.listen{font-size:12px;color:#b7b7b1;line-height:1.65;margin:0 0 16px}.card audio{width:100%;height:36px;margin-top:auto;margin-bottom:15px}.votes{display:flex;gap:6px;flex-wrap:wrap}.vote{background:#25262a;border:1px solid #414247;border-radius:6px;padding:8px 10px;color:#c7c7c0;font-size:12px;min-height:36px}.vote[aria-pressed=true][data-value=like]{background:#28412c;color:#c7e4c6;border-color:#648268}.vote[aria-pressed=true][data-value=maybe]{background:#46371f;color:#f3d39e;border-color:#987a48}.vote[aria-pressed=true][data-value=pass]{background:#442928;color:#edbfbb;border-color:#8c5e58}.note-label{color:#92938d;font-size:11px;display:block;margin-top:13px}.note{display:block;width:100%;min-height:62px;resize:vertical;margin-top:6px;background:#131416;border:1px solid #37383d;border-radius:6px;color:#e5e3dd;padding:9px;font-size:12px;line-height:1.5}.baseline{display:flex;gap:18px;align-items:center;justify-content:space-between;background:#191c1e;border:1px solid #394147;border-radius:8px;padding:13px 16px;margin-bottom:13px}.baseline h3{font-size:12px;margin:4px 0;color:#d4d9dc;font-weight:550}.baseline .badge{color:#92a5b3}.baseline audio{width:250px;height:34px;max-width:100%}.baselines{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.baseline-player{display:grid;gap:4px}.baseline-player span{font-size:10px;color:#9da6ad}.empty{padding:40px;border:1px dashed #444;color:var(--muted);font-size:14px}.hidden{display:none!important}footer{margin-top:30px;border-top:1px solid var(--line);padding-top:18px;color:#858681;font-size:12px;line-height:1.7}
+    @media(max-width:1150px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}header{align-items:flex-start;flex-direction:column}.header-actions{flex-shrink:1}.wrap{padding:28px}}@media(max-width:720px){.wrap{padding:22px 16px 50px}.layout{grid-template-columns:1fr;gap:20px}aside{position:static}.nav{flex-direction:row;overflow:auto;padding-bottom:7px}.nav button{white-space:nowrap}.filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:14px}.aside-note{display:none}.general{margin-top:12px}.general textarea{min-height:65px}.grid{grid-template-columns:1fr}.baseline{align-items:flex-start;flex-direction:column}.baselines{justify-content:flex-start;width:100%}.baseline-player{flex:1;min-width:180px}.baseline audio{width:100%}.toolbar{gap:12px}.status{width:100%}.header-actions{width:100%}.header-actions .button{flex:1}}
+    .layout>aside,.layout>main{min-width:0}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><div class="eyebrow">Brawlock · Audio exploration</div><h1 id="review-title">Sound effects review</h1><p id="review-subtitle">Audition a few directions for each part of the arena. Mark what you like, leave a note, then export your choices so we can try the strongest sounds in the game.</p></div>
+    <div class="header-actions"><button class="button" id="stop">Stop audio · Esc</button><button class="button primary" id="export">Export feedback</button></div>
+  </header>
+  <div id="fatal" class="error hidden" role="alert"></div>
+  <div class="toolbar"><div class="summary" id="summary" aria-live="polite"></div><label class="volume">Listening volume <input id="volume" type="range" min="0" max="100" value="45"><span id="volume-value">45%</span></label><div class="status" id="status" role="status">Your choices save in this browser. Export to share them.</div></div>
+  <p class="notice" id="review-notice">Current sounds are snapshots of the game's complete sound recipes. Candidates are individual source recordings to consider for layering or replacement. All previews are peak-matched to −6 dBFS for this review; final game loudness will be set separately. New candidates are indexed as CC0 by Openverse. Use their source links to inspect the originals.</p>
+  <div class="layout">
+    <aside>
+      <div class="nav-label">Explore by use</div><nav class="nav" id="nav" aria-label="Sound categories"></nav>
+      <div class="filters"><input id="search" type="search" placeholder="Search sounds…" aria-label="Search sounds"><select id="verdict" aria-label="Filter by verdict"><option value="all">All verdicts</option><option value="unreviewed">Unreviewed</option><option value="like">Liked</option><option value="maybe">Maybe</option><option value="pass">Passed</option></select></div>
+      <p class="aside-note">Playing a sound stops the previous one. Click a selected verdict again to clear it. Press Escape to stop playback.</p>
+      <label class="general">Overall direction<textarea id="general" placeholder="More gritty? Less sci-fi? Which sounds should stay as they are?"></textarea></label>
+    </aside>
+    <main id="groups"></main>
+  </div>
+  <footer id="footer"></footer>
+</div>
+<script id="review-data" type="application/json">@@DATA@@</script>
+<script>
+  const fatal = document.querySelector('#fatal');
+  window.addEventListener('error', event => { fatal.textContent = 'Review error: ' + event.message; fatal.classList.remove('hidden'); });
+  const data = JSON.parse(document.querySelector('#review-data').textContent);
+  if (data.title) { document.querySelector('#review-title').textContent = data.title; document.title = 'Brawlock — ' + data.title; }
+  if (data.subtitle) document.querySelector('#review-subtitle').textContent = data.subtitle;
+  if (data.notice) document.querySelector('#review-notice').textContent = data.notice;
+  const storageKey = data.storageKey;
+  if (typeof storageKey !== 'string' || !storageKey) throw new Error('Missing review storage key');
+  const stored = localStorage.getItem(storageKey);
+  const state = stored === null ? { version: 1, choices: {}, general: '' } : JSON.parse(stored);
+  if (state.version !== 1 || !state.choices || typeof state.choices !== 'object' || typeof state.general !== 'string') throw new Error('Saved feedback has an unsupported format. Export or inspect this browser’s saved review before resetting it.');
+  const tracks = data.groups.flatMap(group => group.candidates);
+  const labels = { like: 'Like', maybe: 'Maybe', pass: 'Pass' };
+  let category = 'all';
+  const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
+  function save() { localStorage.setItem(storageKey, JSON.stringify(state)); updateSummary(); }
+  function updateSummary() {
+    const reviewed = tracks.filter(track => state.choices[track.id]?.verdict).length;
+    const liked = tracks.filter(track => state.choices[track.id]?.verdict === 'like').length;
+    document.querySelector('#summary').innerHTML = '<strong>' + reviewed + ' / ' + tracks.length + '</strong> reviewed · <strong>' + liked + '</strong> liked';
+  }
+  function stopAudio(except) { document.querySelectorAll('audio').forEach(audio => { if (audio !== except) { audio.pause(); audio.currentTime = 0; } }); }
+  function audioPlayer(file, label) {
+    const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'metadata'; audio.src = file; audio.setAttribute('aria-label', label);
+    audio.volume = Number(document.querySelector('#volume').value) / 100;
+    audio.addEventListener('play', () => { stopAudio(audio); document.querySelector('#status').textContent = 'Playing: ' + label; });
+    audio.addEventListener('error', () => { document.querySelector('#status').textContent = 'Could not load ' + label + '. Check the local preview file or open its source link.'; });
+    return audio;
+  }
+  function makeCard(track, group) {
+    const card = el('article', 'card'); card.dataset.id = track.id; card.dataset.group = group.id;
+    card.dataset.search = [track.title, track.creator, track.role, track.listen, group.title, track.code].join(' ').toLowerCase();
+    const top = el('div', 'card-top'); top.append(el('span', 'candidate-id', track.code), el('span', 'badge', track.badge + ' · ' + track.duration.toFixed(2) + 's')); card.append(top);
+    card.append(el('h3', '', track.title));
+    const credit = el('div', 'credit', 'by ' + track.creator + ' · '); const source = el('a', '', 'Source ↗'); source.href = track.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; credit.append(source); card.append(credit);
+    card.append(el('p', 'role', track.role), el('p', 'listen', track.listen), audioPlayer(track.file, track.code + ' — ' + track.title));
+    const votes = el('div', 'votes'); votes.setAttribute('role', 'group'); votes.setAttribute('aria-label', 'Verdict for ' + track.code);
+    for (const [value, label] of Object.entries(labels)) {
+      const button = el('button', 'vote', label); button.type = 'button'; button.dataset.value = value;
+      button.addEventListener('click', () => {
+        const previous = state.choices[track.id] ?? { verdict: '', note: '' };
+        state.choices[track.id] = { ...previous, verdict: previous.verdict === value ? '' : value };
+        updateCard(card, track); save(); applyFilters();
+      }); votes.append(button);
+    }
+    card.append(votes);
+    const noteLabel = el('label', 'note-label', 'Your notes'); const note = el('textarea', 'note'); note.placeholder = 'What works? What would you change?'; note.value = state.choices[track.id]?.note ?? '';
+    note.addEventListener('input', () => { state.choices[track.id] = { verdict: '', ...state.choices[track.id], note: note.value }; save(); }); noteLabel.append(note); card.append(noteLabel);
+    updateCard(card, track); return card;
+  }
+  function updateCard(card, track) { const verdict = state.choices[track.id]?.verdict ?? ''; card.dataset.vote = verdict; card.querySelectorAll('.vote').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.value === verdict))); }
+  function applyFilters() {
+    const search = document.querySelector('#search').value.trim().toLowerCase(); const verdict = document.querySelector('#verdict').value;
+    document.querySelectorAll('.group').forEach(group => {
+      let visible = 0;
+      group.querySelectorAll('.card').forEach(card => {
+        const selected = state.choices[card.dataset.id]?.verdict ?? '';
+        const matches = (category === 'all' || card.dataset.group === category) && (!search || card.dataset.search.includes(search)) && (verdict === 'all' || (verdict === 'unreviewed' ? !selected : selected === verdict));
+        card.classList.toggle('hidden', !matches); if (matches) visible++;
+      }); group.classList.toggle('hidden', visible === 0);
+    });
+    const any = [...document.querySelectorAll('.group')].some(group => !group.classList.contains('hidden')); document.querySelector('#empty').classList.toggle('hidden', any);
+    document.querySelectorAll('#nav button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.category === category)));
+    document.querySelectorAll('audio').forEach(audio => { if (audio.closest('.hidden')) { audio.pause(); audio.currentTime = 0; } });
+  }
+  const nav = document.querySelector('#nav');
+  for (const item of [{ id: 'all', title: 'All sounds', candidates: tracks }, ...data.groups]) {
+    const button = el('button'); button.dataset.category = item.id; button.append(el('span', '', item.title), el('span', 'count', String(item.candidates.length))); button.addEventListener('click', () => { category = item.id; applyFilters(); }); nav.append(button);
+  }
+  const container = document.querySelector('#groups');
+  data.groups.forEach((group, index) => {
+    const section = el('section', 'group'); section.dataset.group = group.id;
+    const heading = el('div', 'group-title'); heading.append(el('span', 'group-index', String(index + 1).padStart(2, '0')), el('h2', '', group.title)); section.append(heading, el('p', 'group-description', group.description));
+    const baseline = el('div', 'baseline'); const info = el('div'); info.append(el('div', 'badge', 'Current game sound'), el('h3', '', group.baselineNote)); baseline.append(info);
+    const players = el('div', 'baselines'); group.baselines.forEach(track => { const player = el('div', 'baseline-player'); player.append(el('span', '', track.title), audioPlayer(track.file, 'Current — ' + track.title)); players.append(player); }); baseline.append(players); section.append(baseline);
+    const grid = el('div', 'grid'); group.candidates.forEach(track => grid.append(makeCard(track, group))); section.append(grid); container.append(section);
+  });
+  container.append(el('p', 'empty hidden', 'No sounds match these filters.')); container.lastChild.id = 'empty';
+  document.querySelector('#search').addEventListener('input', applyFilters); document.querySelector('#verdict').addEventListener('change', applyFilters);
+  document.querySelector('#stop').addEventListener('click', () => { stopAudio(); document.querySelector('#status').textContent = 'Playback stopped.'; });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') stopAudio(); });
+  document.querySelector('#volume').addEventListener('input', event => { const volume = Number(event.target.value); document.querySelector('#volume-value').textContent = volume + '%'; document.querySelectorAll('audio').forEach(audio => audio.volume = volume / 100); });
+  document.querySelector('#general').value = state.general; document.querySelector('#general').addEventListener('input', event => { state.general = event.target.value; save(); });
+  document.querySelector('#export').addEventListener('click', () => {
+    const choices = data.groups.flatMap(group => group.candidates.filter(track => state.choices[track.id]?.verdict || state.choices[track.id]?.note).map(track => ({ category: group.title, code: track.code, id: track.id, title: track.title, creator: track.creator, source: track.source, license: track.license, suggestedUse: track.role, ...state.choices[track.id] })));
+    const exported = { version: 1, review: data.review, exportedAt: new Date().toISOString(), general: state.general, reviewed: choices.length, totalCandidates: tracks.length, choices };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = 'brawlock-sound-feedback.json'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    document.querySelector('#status').textContent = 'Feedback exported. Attach brawlock-sound-feedback.json in our conversation.';
+  });
+  document.querySelector('#footer').textContent = data.groups.length + ' categories · ' + tracks.length + ' candidates · Openverse / Freesound · Current recipe snapshots: ' + data.baselineCapturedAt.slice(0, 10) + '. Originals and provenance are retained in the local audio-review archive. Candidate choices do not change game audio.';
+  if (data.footer) document.querySelector('#footer').textContent = data.footer;
+  updateSummary(); applyFilters();
+</script>
+</body>
+</html>

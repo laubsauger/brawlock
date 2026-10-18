@@ -844,14 +844,14 @@ const arcaneCast: Recipe = (v) => {
   whoosh(v, 0.02, 0.22, 1000, 3000, 1, 0.2)
 }
 
-/** Homing bolt seeking: an eerie whistle with a slow vibrato over a breathy hiss. p = seconds */
+/** Homing propulsion: soft low-mid pulses under broad, warm arcane air. p = seconds */
 const homingTravel: Recipe = (v, p) => {
   const { env, dur } = loopEnv(v, p)
-  const g = v.gain(0.05, env)
-  const o = v.osc('sine', 1180 * v.vary(0.04), 0, dur, g)
-  v.osc('sine', 5.5, 0, dur, v.gain(30, o.frequency))
-  v.osc('triangle', 590, 0, dur, v.gain(0.4, g))
-  v.noise('pink', 0, dur, v.filter('bandpass', 2400, 3, v.gain(0.35, env)))
+  // Pulse the level rather than the pitch: movement stays audible quietly without
+  // a sustained seeking whistle. Keep some air between pulses instead of chopping.
+  const pulse = tremolo(v, 0, dur, 5.2, 0.65, env)
+  v.osc('triangle', 210 * v.vary(0.03), 0, dur, v.gain(0.028, pulse))
+  v.noise('pink', 0, dur, v.filter('bandpass', 540, 0.65, v.gain(0.6, pulse)))
 }
 
 /** Homing detonation: an arcane burst, glassy and bright over a soft blast. */

@@ -1,0 +1,313 @@
+{
+  "review": "brawlock-openverse-sfx-round2-2026-10-18",
+  "storageKey": "brawlock-sound-review-round2-v1",
+  "title": "Sound effects second pass",
+  "subtitle": "Ten focused options based on your feedback: impact layers, shorter shield hits, earlier Fireball attacks, and natural thunder. Compare them with the current effects, then mark your choices.",
+  "notice": "R01–R03 are complete impact mixes. R04–R10 are edited source sounds to judge before mixing. All previews are peak-matched to −6 dBFS; perceived loudness can still differ. This page has its own saved feedback, and the original review remains available. These auditions do not change game audio.",
+  "baselineCapturedAt": "2026-10-18T16:52:46.677Z",
+  "footer": "Second listening pass · 10 candidates · 5 current references · Your first feedback is preserved. Production game audio is unchanged. Export this pass separately when ready.",
+  "groups": [
+    {
+      "id": "impact",
+      "title": "Impact layers",
+      "description": "Your S05 like was for impact layering. These are complete comparison mixes using the current effects, with its lead-in removed.",
+      "baselineNote": "Current physical impact and spell explosion",
+      "baselines": [
+        {
+          "id": "impact",
+          "title": "Physical impact",
+          "file": "audio/current-impact.wav",
+          "duration": 1.143
+        },
+        {
+          "id": "explosion",
+          "title": "Spell explosion",
+          "file": "audio/current-explosion.wav",
+          "duration": 1.776
+        }
+      ],
+      "candidates": [
+        {
+          "id": "round2-r01",
+          "code": "R01",
+          "title": "Physical impact · subtle layer",
+          "badge": "Review mix",
+          "creator": "Brawlock + ihitokage",
+          "source": "https://freesound.org/people/ihitokage/sounds/413219",
+          "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+          "license": "CC0 source + current game audio",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S05 under the current physical impact",
+          "listen": "Compare the body with the current physical impact. Is this enough extra weight?",
+          "file": "audio/r01-impact-subtle.wav",
+          "duration": 1.143,
+          "processing": {
+            "baseline": "impact",
+            "sourceEdit": {
+              "start": 0.705,
+              "duration": 0.55,
+              "highpassHz": 70,
+              "lowpassHz": 4800,
+              "fadeOutSeconds": 0.14
+            },
+            "relativeLayerGain": 0.18
+          }
+        },
+        {
+          "id": "round2-r02",
+          "code": "R02",
+          "title": "Physical impact · stronger layer",
+          "badge": "Review mix",
+          "creator": "Brawlock + ihitokage",
+          "source": "https://freesound.org/people/ihitokage/sounds/413219",
+          "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+          "license": "CC0 source + current game audio",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S05 under the current physical impact",
+          "listen": "The same source is more prominent here. Choose whether the extra weight improves the hit or overpowers it.",
+          "file": "audio/r02-impact-stronger.wav",
+          "duration": 1.143,
+          "processing": {
+            "baseline": "impact",
+            "sourceEdit": {
+              "start": 0.705,
+              "duration": 0.55,
+              "highpassHz": 70,
+              "lowpassHz": 4800,
+              "fadeOutSeconds": 0.14
+            },
+            "relativeLayerGain": 0.36
+          }
+        },
+        {
+          "id": "round2-r03",
+          "code": "R03",
+          "title": "Spell explosion · impact layer",
+          "badge": "Review mix",
+          "creator": "Brawlock + ihitokage",
+          "source": "https://freesound.org/people/ihitokage/sounds/413219",
+          "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+          "license": "CC0 source + current game audio",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S05 under the current explosion, not a cast",
+          "listen": "Does the liked impact character also suit an explosive spell hit?",
+          "file": "audio/r03-explosion-layer.wav",
+          "duration": 1.776,
+          "processing": {
+            "baseline": "explosion",
+            "sourceEdit": {
+              "start": 0.705,
+              "duration": 0.55,
+              "highpassHz": 70,
+              "lowpassHz": 4800,
+              "fadeOutSeconds": 0.14
+            },
+            "relativeLayerGain": 0.28
+          }
+        }
+      ]
+    },
+    {
+      "id": "shield",
+      "title": "Shorter shield impacts",
+      "description": "You found S11 closer to the right character but too long and chunky. These two edits test shorter tails and less low-end bulk.",
+      "baselineNote": "Current shield reflection",
+      "baselines": [
+        {
+          "id": "reflect",
+          "title": "Shield reflection",
+          "file": "audio/current-reflect.wav",
+          "duration": 1.16
+        }
+      ],
+      "candidates": [
+        {
+          "id": "round2-r04",
+          "code": "R04",
+          "title": "Shield impact · short",
+          "badge": "CC0 source edit",
+          "creator": "Kierham",
+          "source": "https://freesound.org/people/Kierham/sounds/646831",
+          "sourceId": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S11 reduced to a 0.28-second impact",
+          "listen": "The long tail is removed and some low-end bulk is reduced. Judge whether the remaining hit has the right character.",
+          "file": "audio/r04-shield-short.wav",
+          "duration": 0.28,
+          "processing": {
+            "start": 0,
+            "duration": 0.28,
+            "highpassHz": 170,
+            "lowpassHz": 5200,
+            "fadeOutSeconds": 0.1
+          }
+        },
+        {
+          "id": "round2-r05",
+          "code": "R05",
+          "title": "Shield impact · fuller",
+          "badge": "CC0 source edit",
+          "creator": "Kierham",
+          "source": "https://freesound.org/people/Kierham/sounds/646831",
+          "sourceId": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S11 reduced to a 0.52-second impact",
+          "listen": "A little more body and tail than R04. Which length feels appropriate for a reflection?",
+          "file": "audio/r05-shield-fuller.wav",
+          "duration": 0.52,
+          "processing": {
+            "start": 0,
+            "duration": 0.52,
+            "highpassHz": 140,
+            "lowpassHz": 5200,
+            "fadeOutSeconds": 0.2
+          }
+        }
+      ]
+    },
+    {
+      "id": "fire",
+      "title": "Earlier Fireball attacks",
+      "description": "Your S16 note was that the attack arrived too late. Both edits skip the long build-up and start around the main burst.",
+      "baselineNote": "Current Fireball cast",
+      "baselines": [
+        {
+          "id": "fireballCast",
+          "title": "Fireball cast",
+          "file": "audio/current-fireballCast.wav",
+          "duration": 2.011
+        }
+      ],
+      "candidates": [
+        {
+          "id": "round2-r06",
+          "code": "R06",
+          "title": "Fireball · earlier attack",
+          "badge": "CC0 source edit",
+          "creator": "Julien Matthey",
+          "source": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+          "sourceId": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S16 with 0.90 seconds of lead-in removed",
+          "listen": "The main attack now arrives near the beginning. Compare its character and responsiveness with the current Fireball.",
+          "file": "audio/r06-fireball-early.wav",
+          "duration": 0.48,
+          "processing": {
+            "start": 0.9,
+            "duration": 0.48,
+            "highpassHz": 65,
+            "lowpassHz": 6500,
+            "fadeOutSeconds": 0.1
+          }
+        },
+        {
+          "id": "round2-r07",
+          "code": "R07",
+          "title": "Fireball · compact attack",
+          "badge": "CC0 source edit",
+          "creator": "Julien Matthey",
+          "source": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+          "sourceId": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "S16 with 0.94 seconds removed and a shorter tail",
+          "listen": "The tighter option. Does it keep enough fire texture while responding immediately?",
+          "file": "audio/r07-fireball-compact.wav",
+          "duration": 0.32,
+          "processing": {
+            "start": 0.94,
+            "duration": 0.32,
+            "highpassHz": 65,
+            "lowpassHz": 6000,
+            "fadeOutSeconds": 0.1
+          }
+        }
+      ]
+    },
+    {
+      "id": "lightning",
+      "title": "Thunder for Lightning",
+      "description": "Your S20 note called for a snappy thunder clap. These are three natural recordings, trimmed into short attacks for comparison.",
+      "baselineNote": "Current Lightning beam zap",
+      "baselines": [
+        {
+          "id": "beamZap",
+          "title": "Lightning beam zap",
+          "file": "audio/current-beamZap.wav",
+          "duration": 1.52
+        }
+      ],
+      "candidates": [
+        {
+          "id": "round2-r08",
+          "code": "R08",
+          "title": "Lightning · close thunder",
+          "badge": "CC0 source edit",
+          "creator": "Fission9",
+          "source": "https://freesound.org/people/Fission9/sounds/505113",
+          "sourceId": "ae930eab-a48c-44a8-b749-ff10a8b21bf4",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "Natural thunder edited for a Lightning attack",
+          "listen": "A short close-thunder excerpt. Does this move Lightning toward the clap you described?",
+          "file": "audio/r08-thunder.wav",
+          "duration": 0.55,
+          "processing": {
+            "start": 0.78,
+            "duration": 0.55,
+            "highpassHz": 95,
+            "lowpassHz": 6500,
+            "fadeOutSeconds": 0.25
+          }
+        },
+        {
+          "id": "round2-r09",
+          "code": "R09",
+          "title": "Lightning · cracking thunderclap",
+          "badge": "CC0 source edit",
+          "creator": "Fission9",
+          "source": "https://freesound.org/people/Fission9/sounds/534023",
+          "sourceId": "679eb912-9136-415e-ba4a-e453152cffff",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "Natural thunder edited for a Lightning attack",
+          "listen": "A tighter natural thunderclap with the long rumble removed. Compare the attack with R08.",
+          "file": "audio/r09-thunder.wav",
+          "duration": 0.5,
+          "processing": {
+            "start": 1.02,
+            "duration": 0.5,
+            "highpassHz": 95,
+            "lowpassHz": 6500,
+            "fadeOutSeconds": 0.24
+          }
+        },
+        {
+          "id": "round2-r10",
+          "code": "R10",
+          "title": "Lightning · dry thunder crack",
+          "badge": "CC0 source edit",
+          "creator": "cognito perceptu",
+          "source": "https://freesound.org/people/cognito%20perceptu/sounds/536900",
+          "sourceId": "5e06dffa-1d5e-4053-9f69-0b3bd05b6715",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "role": "Natural thunder edited for a Lightning attack",
+          "listen": "An excerpt around the strongest dry crack. Pass if it is still too sharp or heavy for a frequent spell.",
+          "file": "audio/r10-thunder.wav",
+          "duration": 0.42,
+          "processing": {
+            "start": 2.62,
+            "duration": 0.42,
+            "highpassHz": 95,
+            "lowpassHz": 6500,
+            "fadeOutSeconds": 0.2
+          }
+        }
+      ]
+    }
+  ]
+}

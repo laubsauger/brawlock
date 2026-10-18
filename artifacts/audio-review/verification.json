@@ -1,0 +1,201 @@
+{
+  "url": "http://127.0.0.1:5187/artifacts/audio-review/index.html",
+  "candidates": 27,
+  "baselines": 10,
+  "decodedFiles": 37,
+  "playback": "passed",
+  "exclusivePlayback": "passed",
+  "persistence": "passed",
+  "filters": "passed",
+  "export": "passed",
+  "mobileWidth": 390,
+  "horizontalOverflow": false,
+  "browserErrors": [],
+  "audio": [
+    {
+      "label": "Current — Scourge blast",
+      "duration": 1.076,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "S01 — Magic Spell 09.wav",
+      "duration": 1.382,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "S02 — Magic Spell 07.wav",
+      "duration": 1.56,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S03 — Demonic Anger.wav",
+      "duration": 5.863041666666667,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "Current — Gravity cast",
+      "duration": 1.03,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S04 — Time warp effect",
+      "duration": 0.715,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S05 — Energy impact 1",
+      "duration": 1.8213333333333332,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "S06 — magicProjectile_impact.wav",
+      "duration": 1.9416041666666666,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "Current — Teleport out",
+      "duration": 1.0408333333333333,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "S07 — teleport",
+      "duration": 0.7517708333333334,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "S08 — Teleport Sound",
+      "duration": 2.7945416666666665,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "S09 — Teleport Slurp",
+      "duration": 1.0213541666666666,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "Current — Shield up",
+      "duration": 1.3861458333333334,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "S10 — Energy Field Loop 4",
+      "duration": 1.0097916666666666,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "S11 — Sci-Fi Impact",
+      "duration": 4.689333333333333,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S12 — Magic Spell 09, Remastered 01.wav",
+      "duration": 1.382,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "Current — Snow burst",
+      "duration": 1.6310208333333334,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "S13 — iceSpell.wav",
+      "duration": 0.6240416666666667,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S14 — Icy Magic Cast",
+      "duration": 2.875020833333333,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "S15 — Iceball",
+      "duration": 0.8125,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "Current — Fireball cast",
+      "duration": 1.9706041666666667,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "Current — Meteor impact",
+      "duration": 2.076,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "S16 — JM_FX_Fireball 02.wav",
+      "duration": 1.8043958333333334,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "S17 — magic fire, fire starter, flame .wav",
+      "duration": 5.688833333333333,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "S18 — Supernatural Explosion",
+      "duration": 2.575,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "Current — Beam zap",
+      "duration": 1.52,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S19 — electrocute.wav",
+      "duration": 3.9241875,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "S20 — Zap.ogg",
+      "duration": 1.2991666666666666,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S21 — Electricity.wav",
+      "duration": 0.5981875,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "Current — Pillar rise",
+      "duration": 1.5862083333333334,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "S22 — Brick dropped on other bricks",
+      "duration": 3.4285833333333335,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "S23 — Stein Aufschlag mit langem Decay 09.wav",
+      "duration": 3.3225208333333334,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "S24 — Foley_Impact_Stones_Strong_Debris_Stereo_DS.wav",
+      "duration": 12,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "Current — Buy new spell",
+      "duration": 1.3250208333333333,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "S25 — Coins",
+      "duration": 0.44125,
+      "peak": 0.5011749863624573
+    },
+    {
+      "label": "S26 — Real Coin Drop",
+      "duration": 0.16433333333333333,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "S27 — Coins Shuffle",
+      "duration": 2.786395833333333,
+      "peak": 0.5012055039405823
+    }
+  ]
+}

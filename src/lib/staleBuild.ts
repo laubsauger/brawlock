@@ -6,13 +6,21 @@
  * - A periodic check of version.json offers a reload outside of matches.
  */
 import { useGame } from '../game/store'
-import { toast } from '../ui/lib/toast'
+import { session } from '../game/session'
+import { PENDING_ROOM_KEY } from './pendingRoom'
 
 declare const __BUILD_ID__: string
 
-export const PENDING_ROOM_KEY = 'brawlock.pendingRoom'
+export { PENDING_ROOM_KEY } from './pendingRoom'
 const RELOAD_KEY = 'brawlock.staleReloadAt'
 const CHECK_MS = 90_000
+let updateAvailable = false
+const updateListeners = new Set<() => void>()
+export const getBuildUpdate = () => updateAvailable
+export function onBuildUpdate(listener: () => void): () => void {
+  updateListeners.add(listener)
+  return () => updateListeners.delete(listener)
+}
 
 function pendingRoom(): string | null {
   try {
@@ -31,9 +39,16 @@ function reloadOnce(): void {
   } catch {
     /* storage blocked: still reload once */
   }
+  reloadLatestBuild()
+}
+
+/** Explicit user action: preserve a guest's room, without the automatic-retry cooldown. */
+export function reloadLatestBuild(): void {
   const url = new URL(window.location.href)
   const room = pendingRoom()
-  if (room && useGame.getState().lobby.role !== 'host') url.searchParams.set('room', room)
+  const localHost = useGame.getState().lobby.role === 'host' && session.transport() === 'p2p'
+  url.searchParams.delete('room')
+  if (room && !localHost) url.searchParams.set('room', room)
   window.location.replace(url.toString())
 }
 
@@ -42,15 +57,25 @@ function isChunkError(reason: unknown): boolean {
   return /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg)
 }
 
-async function newerBuildAvailable(): Promise<boolean> {
-  if (__BUILD_ID__.startsWith('dev-')) return false
+async function newerBuildAvailable(currentBuild: string): Promise<boolean> {
+  if (currentBuild.startsWith('dev-')) return false
   try {
     const res = await fetch(`${import.meta.env.BASE_URL}version.json?t=${Date.now()}`, { cache: 'no-store' })
     if (!res.ok) return false
     const { build } = (await res.json()) as { build?: string }
-    return typeof build === 'string' && build !== __BUILD_ID__
+    return typeof build === 'string' && build !== currentBuild
   } catch {
     return false
+  }
+}
+
+export async function checkBuildVersion(currentBuild = __BUILD_ID__): Promise<void> {
+  if (updateAvailable || useGame.getState().screen === 'match') return
+  if (await newerBuildAvailable(currentBuild)) {
+    // The request may have started in a menu just before the player entered a match.
+    if (updateAvailable || useGame.getState().screen === 'match') return
+    updateAvailable = true
+    for (const listener of updateListeners) listener()
   }
 }
 
@@ -63,14 +88,7 @@ export function installStaleBuildRecovery(): void {
     if (isChunkError(e.reason)) reloadOnce()
   })
 
-  let notified = false
-  const check = async () => {
-    if (notified || useGame.getState().screen === 'match') return
-    if (await newerBuildAvailable()) {
-      notified = true
-      toast('A new version is available. Reload the page (Cmd/Ctrl+R) before joining a game.')
-    }
-  }
+  const check = () => checkBuildVersion()
   window.setInterval(check, CHECK_MS)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void check()

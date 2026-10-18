@@ -72,7 +72,7 @@ export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
   bladeSpin: { layers: [{ assets: ['fan_loop'], gain: 0.93, rate: [1.5, 1.8], loop: true }], synth: 0.7, trim: 0.94 },
   bladeHit: { layers: [{ assets: ['clank', 'clang_a'], gain: 0.19, rate: [0.95, 1.1] }], trim: 0.91 },
   tink: { layers: [{ assets: ['clank'], gain: 0.14, rate: [1, 1.2] }], trim: 0.89 },
-  reflect: { layers: [{ assets: ['clang_a', 'clang_ring'], gain: 0.26, rate: [0.95, 1.05] }], synth: 0.8, trim: 0.94 },
+  reflect: { layers: [{ assets: ['shield_impact'], gain: 0.26, rate: [0.95, 1.05] }], synth: 0.8, trim: 0.94 },
   ricochet: { layers: [{ assets: ['clank'], gain: 0.12, rate: [1.1, 1.35] }], trim: 0.85 },
   chains: { layers: [{ assets: ['chain_clicks'], gain: 0.49, slice: [0.35, 0.5] }], synth: 0.5, trim: 1.07 },
   // --- ice / stone -------------------------------------------------------------
@@ -121,6 +121,8 @@ export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
   impact: {
     layers: [
       { assets: ['thud_a', 'thud_b'], gain: 0.25, rate: [0.85, 0.98] },
+      // R01: a subtle impact-only layer; the stronger and explosion variants were rejected.
+      { assets: ['impact_energy'], gain: 0.1 },
     ],
     synth: 0.8,
     trim: 1.1,

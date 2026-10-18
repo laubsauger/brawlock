@@ -363,6 +363,46 @@ describe('audio: synthesis against a strict WebAudio mock', () => {
     expect(m.leakingSources()).toEqual([])
   })
 
+  it('homing propulsion stays in warm bands with amplitude pulses instead of a high pitch drone', () => {
+    const m = new MockAudioContext()
+    const synth = createSynth(asContext(m))
+    const out = m.createGain()
+    const before = m.nodes.length
+    const voice = new Voice(synth, out as never, 0.01, 0)
+    RECIPES.homingTravel(voice, 2)
+    const nodes = m.nodes.slice(before)
+    const oscillators = nodes.filter((n) => n.kind === 'osc') as ReturnType<MockAudioContext['createOscillator']>[]
+    const audible = oscillators.filter((n) => n.frequency.value >= 20)
+    expect(audible).toHaveLength(1)
+    expect(audible[0].frequency.value).toBeGreaterThanOrEqual(150)
+    expect(audible[0].frequency.value).toBeLessThanOrEqual(350)
+    expect(audible[0].type).toBe('triangle')
+    expect(audible[0].frequency.inputs).toHaveLength(0) // No persistent vibrato / FM whine.
+    const filters = nodes.filter((n) => n.kind === 'biquad') as ReturnType<MockAudioContext['createBiquadFilter']>[]
+    expect(filters).toHaveLength(1)
+    expect(filters[0].frequency.value).toBeLessThanOrEqual(900)
+    expect(filters[0].Q.value).toBeLessThanOrEqual(1) // Air, not a narrow resonant whistle.
+    const lfo = oscillators.find((n) => n.frequency.value < 20)!
+    expect(lfo.frequency.value).toBeGreaterThanOrEqual(3)
+    expect(lfo.frequency.value).toBeLessThanOrEqual(8)
+    const depth = lfo.outputs[0] as ReturnType<MockAudioContext['createGain']>
+    const modulated = nodes.find((n) => n.kind === 'gain' &&
+      (n as ReturnType<MockAudioContext['createGain']>).gain.inputs.includes(depth)) as ReturnType<MockAudioContext['createGain']>
+    expect(modulated).toBeDefined()
+    expect(modulated.gain.value - depth.gain.value).toBeGreaterThan(0)
+    expect(modulated.gain.value + depth.gain.value).toBeLessThanOrEqual(1)
+    expect(voice.buffers[0].node.buffer).toBe(synth.banks.pink)
+    expect(nodes.length).toBeLessThanOrEqual(9)
+    expect(m.sources()).toHaveLength(3)
+    expect(m.leakingSources()).toEqual([])
+    expect(voice.stopAt).toBeCloseTo(2.01)
+    // The shared travel envelope still fades in and out for the full requested flight.
+    const envelope = nodes[0] as ReturnType<MockAudioContext['createGain']>
+    expect(envelope.gain.calls.find((c) => c.fn === 'linearRamp' && c.v === 1)?.t).toBeCloseTo(0.06)
+    expect(envelope.gain.calls.at(-1)?.v).toBe(0.001)
+    expect(envelope.gain.calls.at(-1)?.t).toBeCloseTo(voice.stopAt)
+  })
+
   it('engine: unlock builds the graph, voices are limited, mute silences', () => {
     vi.useFakeTimers()
     ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext

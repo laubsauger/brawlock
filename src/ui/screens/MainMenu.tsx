@@ -3,8 +3,9 @@ import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd, Modal } from '../widgets'
 import { MenuGlyph } from '../icons'
-import { hostGame, hostOnServer, joinRoom, lastHostAction, playOffline, quickPlay, useLastHostResult } from '../flow'
+import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
+import { PlaySetup } from './PlaySetup'
 import { online } from '../../game/session'
 import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
 import { RegionPing } from '../RegionPing'
@@ -72,7 +73,6 @@ function QuickPlayEntry() {
   const problem = regionProblem(region)
   return (
     <MenuEntry
-      primary
       title="Quick play"
       sub={
         <span className="flex items-center gap-2">
@@ -85,41 +85,6 @@ function QuickPlayEntry() {
       onClick={() => region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
       testId="quick-play"
     />
-  )
-}
-
-/** Server hosting and region controls; browsing has its own main menu entry. */
-function ServerLinks() {
-  const statuses = useRegions(5000)
-  const choice = useRegionChoice()
-  const setSettings = useGame((s) => s.setSettings)
-  const region = pickRegion(statuses, choice)
-  const problem = regionProblem(region)
-  return (
-    <div className="-mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="host-server px-2"
-        disabled={!!problem}
-        title={problem ?? `Run a room on the game server in ${region?.label}. Everyone connects to it, so each player's ping depends on how far they are from ${region?.label}.`}
-        onClick={() => region && hostOnServer(choice === 'auto' ? 'auto' : region.id)}
-        data-testid="host-server"
-      >
-        Host on game server
-      </Button>
-      {statuses.length > 1 && (
-        <select className="field ml-auto w-28 py-1 text-[0.85rem]" aria-label="Game server region" value={choice} onChange={(e) => setSettings({ serverRegion: e.target.value })}>
-          <option value="auto">Auto</option>
-          {statuses.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-              {r.state === 'up' && r.rttMs != null ? ` (${r.rttMs} ms)` : r.state === 'up' ? '' : ' (offline)'}
-            </option>
-          ))}
-        </select>
-      )}
-    </div>
   )
 }
 
@@ -220,6 +185,7 @@ export function MainMenu() {
   const setLobby = useGame((s) => s.setLobby)
   const toggle = useGame((s) => s.toggle)
   const setScreen = useGame((s) => s.setScreen)
+  const [playMode, setPlayMode] = useState<'offline' | 'online' | null>(null)
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
@@ -244,7 +210,10 @@ export function MainMenu() {
   const dismissError = () => setLobby({ status: 'idle', error: null })
 
   if (profileOpen) return <Profile onBack={() => setProfileOpen(false)} />
-  if (browseOpen) return <BrowseGames onBack={() => setBrowseOpen(false)} />
+  if (browseOpen) return <>
+    <BrowseGames onBack={() => setBrowseOpen(false)} onHost={() => setPlayMode('online')} />
+    {playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
+  </>
 
   return (
     // bottom padding keeps the centred column clear of the footer row
@@ -283,15 +252,11 @@ export function MainMenu() {
         )}
 
         <nav ref={navRef} className="mt-6 flex flex-col gap-2.5" aria-label="Main menu">
+          <MenuEntry primary title="Play" sub="Set up a game · solo or with friends" onClick={() => setPlayMode('offline')} testId="play" />
           {online.configured && <QuickPlayEntry />}
-          {online.configured && <MenuEntry title="Browse games" sub="Find public rooms, players and ping" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
-          <MenuEntry primary={!online.configured} title="Play vs bots" sub="Offline practice against the AI" onClick={playOffline} />
-          <div className="menu-pair grid grid-cols-2 gap-2.5">
-            <MenuEntry title="Host a game" sub="From your PC" onClick={hostGame} />
-            <MenuEntry title="Join by code" sub="Have an invite?" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />
-          </div>
+          {online.configured && <MenuEntry title="Browse games" sub="Find a game or host your own" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
+          <Button variant="ghost" className="justify-start text-ash" aria-expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)}>Join by code</Button>
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
-          {online.configured && <ServerLinks />}
           <Button className="justify-start gap-2 text-[#ffe0a9]" variant="ghost" onClick={tutorial.open} data-testid="how-to-play">
             <MenuGlyph kind="guide" /> How to play <span className="ml-auto font-ui text-sm font-normal text-ash">Four quick lessons</span>
           </Button>
@@ -340,6 +305,7 @@ export function MainMenu() {
           </button>
         </span>
       </footer>
+      {playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
       {nameOpen && <Modal title="Your name" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save name</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name
           <input autoFocus aria-label="Display name" className="field" maxLength={NAME_MAX} spellCheck={false} value={draft} onFocus={(e) => e.target.select()} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitName() }} />

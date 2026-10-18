@@ -1,0 +1,508 @@
+{
+  "review": "brawlock-openverse-sfx-2026-10-18",
+  "baselineCapturedAt": "2026-10-18T16:30:13.877Z",
+  "previewProcessing": "Static peak normalization to -6 dBFS after 48 kHz resampling, full preview duration, lossless PCM WAV. No pitch changes or replacement of game assets.",
+  "groups": [
+    {
+      "id": "dark",
+      "title": "Dark spells",
+      "description": "Scourge and the darker spell family. Compare a compact magical gesture with a longer creature-like texture; prioritize a readable attack when spells overlap.",
+      "baselineNote": "Scourge blast · level 1",
+      "baselines": [
+        {
+          "id": "scourgeBlast",
+          "title": "Scourge blast",
+          "file": "audio/current-scourgeBlast.wav",
+          "duration": 1.076
+        }
+      ],
+      "candidates": [
+        {
+          "id": "1bd1fe86-ab33-4808-bd53-c74a7286d2ef",
+          "code": "S01",
+          "title": "Magic Spell 09.wav",
+          "creator": "MATRIXXX_",
+          "source": "https://freesound.org/people/MATRIXXX_/sounds/523204",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/1bd1fe86-ab33-4808-bd53-c74a7286d2ef.wav",
+          "duration": 1.382,
+          "role": "Try for Scourge cast or blast",
+          "listen": "Listen for a distinct magical attack that remains readable when repeated. Check whether it feels too synthetic."
+        },
+        {
+          "id": "2e84bdd5-c479-4cb6-95c0-0e5d65cd7912",
+          "code": "S02",
+          "title": "Magic Spell 07.wav",
+          "creator": "MATRIXXX_",
+          "source": "https://freesound.org/people/MATRIXXX_/sounds/506516",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/2e84bdd5-c479-4cb6-95c0-0e5d65cd7912.wav",
+          "duration": 1.56,
+          "role": "Try for a contrasting dark spell cast",
+          "listen": "Compare its onset and tail with the first option. Does it give a spell its own identity?"
+        },
+        {
+          "id": "3c3ed5bf-4b98-40e2-8e8a-45ff83d07984",
+          "code": "S03",
+          "title": "Demonic Anger.wav",
+          "creator": "MATRIXXX_",
+          "source": "https://freesound.org/people/MATRIXXX_/sounds/527636",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/3c3ed5bf-4b98-40e2-8e8a-45ff83d07984.wav",
+          "duration": 5.863,
+          "role": "Texture for a major blast or dangerous windup",
+          "listen": "Listen for a usable short portion. A creature-like sound may add menace, but reject it if it sounds like a character voice."
+        }
+      ]
+    },
+    {
+      "id": "force",
+      "title": "Arcane force",
+      "description": "Gravity, Warp Zone, and magical impacts. These are promising areas to explore because their current character comes mainly from synthesis.",
+      "baselineNote": "Gravity cast",
+      "baselines": [
+        {
+          "id": "gravityCast",
+          "title": "Gravity cast",
+          "file": "audio/current-gravityCast.wav",
+          "duration": 1.03
+        }
+      ],
+      "candidates": [
+        {
+          "id": "fdc49678-0f6a-4976-b1d5-8130c4088f1e",
+          "code": "S04",
+          "title": "Time warp effect",
+          "creator": "chinomaker",
+          "source": "https://freesound.org/people/chinomaker/sounds/324644",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/fdc49678-0f6a-4976-b1d5-8130c4088f1e.wav",
+          "duration": 0.715,
+          "role": "Try for a short warp or gravity transition",
+          "listen": "Check whether the effect communicates displacement quickly. Reject an overtly retro or cartoon character if it clashes with the arena."
+        },
+        {
+          "id": "145799e4-35dd-437f-b79d-787b85cef0f4",
+          "code": "S05",
+          "title": "Energy impact 1",
+          "creator": "ihitokage",
+          "source": "https://freesound.org/people/ihitokage/sounds/413219",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/145799e4-35dd-437f-b79d-787b85cef0f4.wav",
+          "duration": 1.821,
+          "role": "Try as the impact layer of a force spell",
+          "listen": "Look for weight and a clear attack. Would it help distinguish a magical hit from a physical collision?"
+        },
+        {
+          "id": "0e29ea12-efe8-4631-ba00-2100ce21d51f",
+          "code": "S06",
+          "title": "magicProjectile_impact.wav",
+          "creator": "rafaelzimrp",
+          "source": "https://freesound.org/people/rafaelzimrp/sounds/570855",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/0e29ea12-efe8-4631-ba00-2100ce21d51f.wav",
+          "duration": 1.942,
+          "role": "Try for a magical projectile impact",
+          "listen": "Listen for a compact impact with enough character to recognize during a crowded fight."
+        }
+      ]
+    },
+    {
+      "id": "teleport",
+      "title": "Teleport and swap",
+      "description": "Short position changes need a precise, recognizable gesture. Decide how organic or technological these spells should sound.",
+      "baselineNote": "Teleport departure",
+      "baselines": [
+        {
+          "id": "teleportOut",
+          "title": "Teleport out",
+          "file": "audio/current-teleportOut.wav",
+          "duration": 1.041
+        }
+      ],
+      "candidates": [
+        {
+          "id": "3cab5a3e-2a6b-45e5-a18a-f149fdc9a5ab",
+          "code": "S07",
+          "title": "teleport",
+          "creator": "Leszek_Szary",
+          "source": "https://freesound.org/people/Leszek_Szary/sounds/172207",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/3cab5a3e-2a6b-45e5-a18a-f149fdc9a5ab.wav",
+          "duration": 0.752,
+          "role": "Try for teleport departure or arrival",
+          "listen": "Compare its short timing with the current teleport. Does it communicate the movement without lingering?"
+        },
+        {
+          "id": "0bbebff8-758c-4690-b44d-b84831cc6390",
+          "code": "S08",
+          "title": "Teleport Sound",
+          "creator": "Breviceps",
+          "source": "https://freesound.org/people/Breviceps/sounds/453390",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/0bbebff8-758c-4690-b44d-b84831cc6390.wav",
+          "duration": 2.795,
+          "role": "Try for Swap or a more substantial teleport",
+          "listen": "Check the full gesture and whether a shorter portion could work. Listen for an unwanted science-fiction character."
+        },
+        {
+          "id": "d2ce37e1-a71b-4c45-b6d8-40748fb128fc",
+          "code": "S09",
+          "title": "Teleport Slurp",
+          "creator": "GameAudio",
+          "source": "https://freesound.org/people/GameAudio/sounds/220163",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/d2ce37e1-a71b-4c45-b6d8-40748fb128fc.wav",
+          "duration": 1.021,
+          "role": "Try for an organic teleport accent",
+          "listen": "Does the slurp-like character feel like dangerous magic, or does it become comic? That distinction matters here."
+        }
+      ]
+    },
+    {
+      "id": "shield",
+      "title": "Shield and reflection",
+      "description": "Explore a stable magical barrier, an impact, and a brighter spell accent. The final shield needs to read separately from teleport and damage effects.",
+      "baselineNote": "Shield activation",
+      "baselines": [
+        {
+          "id": "shieldUp",
+          "title": "Shield up",
+          "file": "audio/current-shieldUp.wav",
+          "duration": 1.386
+        }
+      ],
+      "candidates": [
+        {
+          "id": "778cc1c1-7635-408f-8e40-81dc60da4610",
+          "code": "S10",
+          "title": "Energy Field Loop 4",
+          "creator": "unfa",
+          "source": "https://freesound.org/people/unfa/sounds/209860",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/778cc1c1-7635-408f-8e40-81dc60da4610.wav",
+          "duration": 1.01,
+          "role": "Try as a subtle shield or barrier layer",
+          "listen": "Judge the sustained character rather than the loop seam. Is it convincing magic, and would it remain tolerable while a shield is held?"
+        },
+        {
+          "id": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+          "code": "S11",
+          "title": "Sci-Fi Impact",
+          "creator": "Kierham",
+          "source": "https://freesound.org/people/Kierham/sounds/646831",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/178c4ee7-cca2-464e-a6f4-cfed520a0838.wav",
+          "duration": 4.689,
+          "role": "Try a short portion for shield impact or reflection",
+          "listen": "Listen for a useful impact inside the longer recording. Pass if it reads as machinery or futuristic weaponry."
+        },
+        {
+          "id": "431268f6-da05-4af5-b6ae-f0edec2e0168",
+          "code": "S12",
+          "title": "Magic Spell 09, Remastered 01.wav",
+          "creator": "MATRIXXX_",
+          "source": "https://freesound.org/people/MATRIXXX_/sounds/659595",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/431268f6-da05-4af5-b6ae-f0edec2e0168.wav",
+          "duration": 1.382,
+          "role": "Try for shield activation",
+          "listen": "Compare its magical accent with the current shield. It should signal protection without resembling a reward jingle."
+        }
+      ]
+    },
+    {
+      "id": "ice",
+      "title": "Ice and snowball",
+      "description": "The current burst combines ice recordings with synthesis. Compare that physical crack against purpose-made magical ice effects.",
+      "baselineNote": "Snowball burst",
+      "baselines": [
+        {
+          "id": "snowBurst",
+          "title": "Snow burst",
+          "file": "audio/current-snowBurst.wav",
+          "duration": 1.631
+        }
+      ],
+      "candidates": [
+        {
+          "id": "71eaeee4-e99d-467f-921a-f6b12ca2b0e0",
+          "code": "S13",
+          "title": "iceSpell.wav",
+          "creator": "Relenzo2",
+          "source": "https://freesound.org/people/Relenzo2/sounds/160420",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/71eaeee4-e99d-467f-921a-f6b12ca2b0e0.wav",
+          "duration": 0.624,
+          "role": "Try for Snowball cast",
+          "listen": "Check whether its short gesture has an identifiable cold character, rather than a generic spell sound."
+        },
+        {
+          "id": "8bc3f5b4-7b1e-4668-ba04-349a1de2ff54",
+          "code": "S14",
+          "title": "Icy Magic Cast",
+          "creator": "DustyWind",
+          "source": "https://freesound.org/people/DustyWind/sounds/691005",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/8bc3f5b4-7b1e-4668-ba04-349a1de2ff54.wav",
+          "duration": 2.875,
+          "role": "Try for a fuller icy cast or burst",
+          "listen": "Listen for a useful attack and tail. Would the longer effect become cluttered when several players cast?"
+        },
+        {
+          "id": "80b3c704-a35e-4007-9da5-002bc508488b",
+          "code": "S15",
+          "title": "Iceball",
+          "creator": "stevenmaertens",
+          "source": "https://freesound.org/people/stevenmaertens/sounds/683180",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/80b3c704-a35e-4007-9da5-002bc508488b.wav",
+          "duration": 0.812,
+          "role": "Try for Snowball launch or a compact burst",
+          "listen": "Compare its weight and clarity with the existing snow burst. Keep only the character you prefer."
+        }
+      ]
+    },
+    {
+      "id": "fire",
+      "title": "Fire and big impacts",
+      "description": "Two current references: the frequent Fireball cast and the heavier Meteor impact. Candidates can supply a new launch character, fire texture, or an accent for a major hit.",
+      "baselineNote": "Fireball cast and Meteor impact",
+      "baselines": [
+        {
+          "id": "fireballCast",
+          "title": "Fireball cast",
+          "file": "audio/current-fireballCast.wav",
+          "duration": 1.971
+        },
+        {
+          "id": "meteorImpact",
+          "title": "Meteor impact",
+          "file": "audio/current-meteorImpact.wav",
+          "duration": 2.076
+        }
+      ],
+      "candidates": [
+        {
+          "id": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+          "code": "S16",
+          "title": "JM_FX_Fireball 02.wav",
+          "creator": "Julien Matthey",
+          "source": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/0f416b9b-57ff-412e-830e-f3f5f43fae9b.wav",
+          "duration": 1.804,
+          "role": "Try as a Fireball cast variation",
+          "listen": "Compare this alternate take with our existing Fireball sound. Judge its repeated whoosh, not just the first impression."
+        },
+        {
+          "id": "b4ccf13c-77aa-40bf-b207-df956a60cdc6",
+          "code": "S17",
+          "title": "magic fire, fire starter, flame .wav",
+          "creator": "FALL-E",
+          "source": "https://freesound.org/people/FALL-E/sounds/705539",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/b4ccf13c-77aa-40bf-b207-df956a60cdc6.wav",
+          "duration": 5.689,
+          "role": "Fire texture for a cast, ignition, or windup",
+          "listen": "Listen for a useful section of magical fire. Check whether the recording has too much lead-in for a responsive spell."
+        },
+        {
+          "id": "a46d595e-2336-40cd-93b1-4536d7fde0cf",
+          "code": "S18",
+          "title": "Supernatural Explosion",
+          "creator": "Quaker540",
+          "source": "https://freesound.org/people/Quaker540/sounds/256960",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/a46d595e-2336-40cd-93b1-4536d7fde0cf.wav",
+          "duration": 2.575,
+          "role": "Try as a Meteor or major magical explosion layer",
+          "listen": "Judge the impact character separately from loudness. Is the tail short enough to coexist with the next spell?"
+        }
+      ]
+    },
+    {
+      "id": "electric",
+      "title": "Lightning and electricity",
+      "description": "Lightning needs an immediate attack; sustained electrical texture belongs on held effects. Compare these against the current beam zap.",
+      "baselineNote": "Lightning beam zap",
+      "baselines": [
+        {
+          "id": "beamZap",
+          "title": "Beam zap",
+          "file": "audio/current-beamZap.wav",
+          "duration": 1.52
+        }
+      ],
+      "candidates": [
+        {
+          "id": "003502d0-4d7c-4a01-81e7-eea0787b93b3",
+          "code": "S19",
+          "title": "electrocute.wav",
+          "creator": "aust_paul",
+          "source": "https://freesound.org/people/aust_paul/sounds/30933",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/003502d0-4d7c-4a01-81e7-eea0787b93b3.wav",
+          "duration": 3.924,
+          "role": "Electrical texture for Lightning or Link",
+          "listen": "Look for a decisive usable transient or sustained texture. Pass if it sounds like a human vocal reaction."
+        },
+        {
+          "id": "9a44b778-169b-4db9-b8c4-f0551de27794",
+          "code": "S20",
+          "title": "Zap.ogg",
+          "creator": "egomassive",
+          "source": "https://freesound.org/people/egomassive/sounds/536741",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/9a44b778-169b-4db9-b8c4-f0551de27794.wav",
+          "duration": 1.299,
+          "role": "Try for a compact zap or Bouncer hit",
+          "listen": "Does it have a clear electrical identity without a playful laser-gun character?"
+        },
+        {
+          "id": "5cedddd5-cd7e-4608-a607-be859366916b",
+          "code": "S21",
+          "title": "Electricity.wav",
+          "creator": "danielpodlovics",
+          "source": "https://freesound.org/people/danielpodlovics/sounds/530356",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/5cedddd5-cd7e-4608-a607-be859366916b.wav",
+          "duration": 0.598,
+          "role": "Try as a short Lightning hit layer",
+          "listen": "Listen for a crisp attack that will cut through the arena without becoming sharp or tiring."
+        }
+      ]
+    },
+    {
+      "id": "stone",
+      "title": "Stone and arena",
+      "description": "Physical material for Rockpillar, broken obstacles and collapsing arena tiles. The strongest candidates may supply small fragments for a layered effect.",
+      "baselineNote": "Rockpillar rise",
+      "baselines": [
+        {
+          "id": "pillarRise",
+          "title": "Pillar rise",
+          "file": "audio/current-pillarRise.wav",
+          "duration": 1.586
+        }
+      ],
+      "candidates": [
+        {
+          "id": "66a58a4c-9275-4874-89db-e717df199970",
+          "code": "S22",
+          "title": "Brick dropped on other bricks",
+          "creator": "jackthemurray",
+          "source": "https://freesound.org/people/jackthemurray/sounds/429402",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/66a58a4c-9275-4874-89db-e717df199970.wav",
+          "duration": 3.429,
+          "role": "Try as a stone impact or pillar debris layer",
+          "listen": "Check the material weight and whether the sound reads as stone at game scale."
+        },
+        {
+          "id": "2062d9f6-36e7-4fcd-882b-a34db40d7ec7",
+          "code": "S23",
+          "title": "Stein Aufschlag mit langem Decay 09.wav",
+          "creator": "mbezzola",
+          "source": "https://freesound.org/people/mbezzola/sounds/105286",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/2062d9f6-36e7-4fcd-882b-a34db40d7ec7.wav",
+          "duration": 3.323,
+          "role": "Try for a heavier stone impact",
+          "listen": "Compare the attack and decay with the brick recording. A long natural tail may need a shorter edit."
+        },
+        {
+          "id": "851b36f3-6cff-49f3-9791-7e45170e84df",
+          "code": "S24",
+          "title": "Foley_Impact_Stones_Strong_Debris_Stereo_DS.wav",
+          "creator": "Nox_Sound",
+          "source": "https://freesound.org/people/Nox_Sound/sounds/554148",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/851b36f3-6cff-49f3-9791-7e45170e84df.wav",
+          "duration": 12.0,
+          "role": "Source material for obstacle break or arena collapse",
+          "listen": "This longer recording is for choosing individual impacts and debris textures. Note a timestamp if a particular moment works."
+        }
+      ]
+    },
+    {
+      "id": "shop",
+      "title": "Shop purchases",
+      "description": "Explore physical coin sounds as a small material layer for buying spells. Compare them with the current complete purchase sound; a liked source would still need timing and mix work.",
+      "baselineNote": "New spell purchase",
+      "baselines": [
+        {
+          "id": "buyNew",
+          "title": "Buy new spell",
+          "file": "audio/current-buyNew.wav",
+          "duration": 1.325
+        }
+      ],
+      "candidates": [
+        {
+          "id": "48a3cf26-f793-464a-a91a-905bc1cf9d08",
+          "code": "S25",
+          "title": "Coins",
+          "creator": "Mateusz_Chenc",
+          "source": "https://freesound.org/people/Mateusz_Chenc/sounds/512216",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/48a3cf26-f793-464a-a91a-905bc1cf9d08.wav",
+          "duration": 0.441,
+          "role": "Try as a compact purchase accent",
+          "listen": "Would a physical coin accent suit the spell shop? Keep it restrained enough for several quick purchases."
+        },
+        {
+          "id": "5ae65b94-d34b-42e0-9cbc-bec2ea5b60ef",
+          "code": "S26",
+          "title": "Real Coin Drop",
+          "creator": "Rocotilos",
+          "source": "https://freesound.org/people/Rocotilos/sounds/343462",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/5ae65b94-d34b-42e0-9cbc-bec2ea5b60ef.wav",
+          "duration": 0.164,
+          "role": "Try as a very short purchase or upgrade accent",
+          "listen": "Check whether the transient is satisfying on its own or would need a quieter magical layer."
+        },
+        {
+          "id": "1d330255-5d01-430a-99d1-6b1bdc021f89",
+          "code": "S27",
+          "title": "Coins Shuffle",
+          "creator": "adgawrhbshbffsfgvsrf",
+          "source": "https://freesound.org/people/adgawrhbshbffsfgvsrf/sounds/492017",
+          "license": "cc0",
+          "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "file": "audio/1d330255-5d01-430a-99d1-6b1bdc021f89.wav",
+          "duration": 2.786,
+          "role": "Coin texture for a major purchase or reward",
+          "listen": "Listen for a shorter useful portion. Note whether the material feels substantial or too fussy for the shop."
+        }
+      ]
+    }
+  ]
+}

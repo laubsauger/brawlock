@@ -14,6 +14,7 @@ import { loadRender } from './renderBridge'
 import { chooseName, hasChosenName, NAME_MAX } from './lib/name'
 import { isTypingTarget } from './lib/keys'
 import { forcedMute } from './lib/sound'
+import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
 
 /** Matches the fade in index.html. */
 const FADE_MS = 700
@@ -26,10 +27,14 @@ const FADE_MS = 700
 const initialRoom: string | null = (() => {
   try {
     const url = new URL(window.location.href)
-    if (!url.searchParams.has('room')) return null
+    if (!url.searchParams.has('room')) {
+      clearPendingRoom()
+      return null
+    }
     const code = codeFromSearch(url.search)
     // survives a stale-build reload (src/lib/staleBuild.ts)
-    if (code) sessionStorage.setItem('brawlock.pendingRoom', code)
+    if (code) rememberPendingRoom(code)
+    else clearPendingRoom()
     url.searchParams.delete('room')
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
     return code

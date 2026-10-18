@@ -69,6 +69,8 @@ export const AUDIO_CREDITS: readonly AudioCredit[] = [
   { title: "Thud2.wav", creator: "BMacZero", license: 'CC0', url: "https://freesound.org/people/BMacZero/sounds/96137" },
   { title: "Thud3.wav", creator: "BMacZero", license: 'CC0', url: "https://freesound.org/people/BMacZero/sounds/96138" },
   { title: 'Announcer voice generated with ElevenLabs', creator: 'ElevenLabs text-to-speech (voices Maverick and Daniel)', license: 'ElevenLabs', url: 'https://elevenlabs.io' },
+  { title: 'Energy impact 1', creator: 'ihitokage', license: 'CC0', url: 'https://freesound.org/people/ihitokage/sounds/413219' },
+  { title: 'Sci-Fi Impact', creator: 'Kierham', license: 'CC0', url: 'https://freesound.org/people/Kierham/sounds/646831' },
 ]
 
 export const AUDIO_ASSETS = {
@@ -81,8 +83,8 @@ export const AUDIO_ASSETS = {
   rumble: { loop: false, duration: 3.006, credit: 6 },
   coal_crackle: { loop: false, duration: 4.006, credit: 7 },
   chain_clicks: { loop: false, duration: 1.857, credit: 8 },
-  fire_whoosh_a: { loop: false, duration: 1.506, credit: 9 },
-  fire_whoosh_b: { loop: false, duration: 1.206, credit: 10 },
+  fire_whoosh_a: { loop: false, duration: 1.306, credit: 9 },
+  fire_whoosh_b: { loop: false, duration: 1.056, credit: 10 },
   fire_burst: { loop: false, duration: 0.756, credit: 11 },
   flame_ignite: { loop: false, duration: 0.806, credit: 12 },
   flame_jet: { loop: false, duration: 2.207, credit: 13 },
@@ -118,6 +120,8 @@ export const AUDIO_ASSETS = {
   hit_b: { loop: false, duration: 0.485, credit: 42 },
   thud_a: { loop: false, duration: 0.556, credit: 43 },
   thud_b: { loop: false, duration: 0.424, credit: 44 },
+  impact_energy: { loop: false, duration: 0.556, credit: 46 },
+  shield_impact: { loop: false, duration: 0.526, credit: 47 },
   // announcer pack (art/tools/gen_announcer.mjs + process_announcer.py)
   'announcer/maverick_first_blood': { loop: false, duration: 1.011, credit: 45 },
   'announcer/maverick_double_kill': { loop: false, duration: 1.159, credit: 45 },

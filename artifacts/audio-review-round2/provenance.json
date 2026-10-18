@@ -1,0 +1,831 @@
+{
+  "priorFeedback": "art/archive/audio-review/feedback/round1-feedback-2026-10-18.json",
+  "sources": [
+    {
+      "id": "145799e4-35dd-437f-b79d-787b85cef0f4",
+      "title": "Energy impact 1",
+      "indexed_on": "2026-10-01T23:34:03.801389Z",
+      "foreign_landing_url": "https://freesound.org/people/ihitokage/sounds/413219",
+      "url": "https://cdn.freesound.org/previews/413/413219_1675920-hq.mp3",
+      "creator": "ihitokage",
+      "creator_url": "https://freesound.org/people/ihitokage",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 44038,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "anime",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "energy",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "explosion",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "fate",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "impact",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "laser",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "magic",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "spell",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "teleport",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/413219/download/",
+          "bit_rate": 330000,
+          "filesize": 75231,
+          "filetype": "mp3",
+          "sample_rate": 44100
+        }
+      ],
+      "attribution": "\"Energy impact 1\" by ihitokage is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "title",
+        "tags.name"
+      ],
+      "mature": false,
+      "audio_set": {
+        "title": "Energy",
+        "foreign_landing_url": "https://freesound.org/apiv2/packs/23285/",
+        "creator": "ihitokage",
+        "creator_url": "https://freesound.org/people/ihitokage/",
+        "url": null,
+        "filesize": null,
+        "filetype": null
+      },
+      "duration": 1821,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/145799e4-35dd-437f-b79d-787b85cef0f4/",
+      "related_url": "https://api.openverse.org/v1/audio/145799e4-35dd-437f-b79d-787b85cef0f4/related/",
+      "waveform": "https://api.openverse.org/v1/audio/145799e4-35dd-437f-b79d-787b85cef0f4/waveform/",
+      "unstable__sensitivity": []
+    },
+    {
+      "id": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+      "title": "Sci-Fi Impact",
+      "indexed_on": "2024-05-21T15:00:07.873258Z",
+      "foreign_landing_url": "https://freesound.org/people/Kierham/sounds/646831",
+      "url": "https://cdn.freesound.org/previews/646/646831_11617040-hq.mp3",
+      "creator": "Kierham",
+      "creator_url": "https://freesound.org/people/Kierham",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 110406,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "alien",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "boom",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "echo",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "force",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "force-field",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "future",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "fx",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "impact",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "reverb",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "robot",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "sci-fi",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "scifi",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "sfx",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "soundesign",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "space",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "spaceship",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "sudden",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/646831/download/",
+          "bit_rate": 0,
+          "filesize": 1654470,
+          "filetype": "wav",
+          "sample_rate": 44100
+        }
+      ],
+      "attribution": "\"Sci-Fi Impact\" by Kierham is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "description",
+        "tags.name"
+      ],
+      "mature": false,
+      "audio_set": null,
+      "duration": 4689,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/178c4ee7-cca2-464e-a6f4-cfed520a0838/",
+      "related_url": "https://api.openverse.org/v1/audio/178c4ee7-cca2-464e-a6f4-cfed520a0838/related/",
+      "waveform": "https://api.openverse.org/v1/audio/178c4ee7-cca2-464e-a6f4-cfed520a0838/waveform/",
+      "unstable__sensitivity": []
+    },
+    {
+      "id": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+      "title": "JM_FX_Fireball 02.wav",
+      "indexed_on": "2023-03-20T17:21:54.283284Z",
+      "foreign_landing_url": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+      "url": "https://cdn.freesound.org/previews/346/346917_1535323-hq.mp3",
+      "creator": "Julien Matthey",
+      "creator_url": "https://freesound.org/people/Julien%20Matthey",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 42792,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "fireball",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "fx",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/346917/download/",
+          "bit_rate": 0,
+          "filesize": 519786,
+          "filetype": "wav",
+          "sample_rate": 48000
+        }
+      ],
+      "attribution": "\"JM_FX_Fireball 02.wav\" by Julien Matthey is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "description",
+        "tags.name"
+      ],
+      "mature": false,
+      "audio_set": {
+        "title": "FX",
+        "foreign_landing_url": "https://freesound.org/apiv2/packs/15431/",
+        "creator": "Julien_Matthey",
+        "creator_url": "https://freesound.org/people/Julien_Matthey/",
+        "url": null,
+        "filesize": null,
+        "filetype": null
+      },
+      "duration": 1804,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/0f416b9b-57ff-412e-830e-f3f5f43fae9b/",
+      "related_url": "https://api.openverse.org/v1/audio/0f416b9b-57ff-412e-830e-f3f5f43fae9b/related/",
+      "waveform": "https://api.openverse.org/v1/audio/0f416b9b-57ff-412e-830e-f3f5f43fae9b/waveform/",
+      "unstable__sensitivity": []
+    },
+    {
+      "id": "5e06dffa-1d5e-4053-9f69-0b3bd05b6715",
+      "title": "thunder sharp dry crack.wav",
+      "indexed_on": "2024-05-21T15:00:07.873258Z",
+      "foreign_landing_url": "https://freesound.org/people/cognito%20perceptu/sounds/536900",
+      "url": "https://cdn.freesound.org/previews/536/536900_57789-hq.mp3",
+      "creator": "cognito perceptu",
+      "creator_url": "https://freesound.org/people/cognito%20perceptu",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 295808,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "lightning",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunderstorm",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "weather",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/536900/download/",
+          "bit_rate": 0,
+          "filesize": 2292782,
+          "filetype": "wav",
+          "sample_rate": 44100
+        }
+      ],
+      "attribution": "\"thunder sharp dry crack.wav\" by cognito perceptu is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "description",
+        "title"
+      ],
+      "mature": false,
+      "audio_set": {
+        "title": "dry thunder",
+        "foreign_landing_url": "https://freesound.org/apiv2/packs/30267/",
+        "creator": "cognito perceptu",
+        "creator_url": "https://freesound.org/people/cognito%20perceptu/",
+        "url": null,
+        "filesize": null,
+        "filetype": null
+      },
+      "duration": 12996,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/5e06dffa-1d5e-4053-9f69-0b3bd05b6715/",
+      "related_url": "https://api.openverse.org/v1/audio/5e06dffa-1d5e-4053-9f69-0b3bd05b6715/related/",
+      "waveform": "https://api.openverse.org/v1/audio/5e06dffa-1d5e-4053-9f69-0b3bd05b6715/waveform/",
+      "unstable__sensitivity": []
+    },
+    {
+      "id": "679eb912-9136-415e-ba4a-e453152cffff",
+      "title": "Thunderclap",
+      "indexed_on": "2022-06-01T12:00:12.608809Z",
+      "foreign_landing_url": "https://freesound.org/people/Fission9/sounds/534023",
+      "url": "https://cdn.freesound.org/previews/534/534023_9395330-hq.mp3",
+      "creator": "Fission9",
+      "creator_url": "https://freesound.org/people/Fission9",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 314640,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "clap",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "crack",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "field-recording",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "lightning",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "rain",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "storm",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunder",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunderclap",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunderstorm",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "weather",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/534023/download/",
+          "bit_rate": 0,
+          "filesize": 7756508,
+          "filetype": "wav",
+          "sample_rate": 96000
+        }
+      ],
+      "attribution": "\"Thunderclap\" by Fission9 is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "description",
+        "tags.name"
+      ],
+      "mature": false,
+      "audio_set": {
+        "title": "Thunder",
+        "foreign_landing_url": "https://freesound.org/apiv2/packs/28282/",
+        "creator": "Fission9",
+        "creator_url": "https://freesound.org/people/Fission9/",
+        "url": null,
+        "filesize": null,
+        "filetype": null
+      },
+      "duration": 13465,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/679eb912-9136-415e-ba4a-e453152cffff/",
+      "related_url": "https://api.openverse.org/v1/audio/679eb912-9136-415e-ba4a-e453152cffff/related/",
+      "waveform": "https://api.openverse.org/v1/audio/679eb912-9136-415e-ba4a-e453152cffff/waveform/",
+      "unstable__sensitivity": []
+    },
+    {
+      "id": "ae930eab-a48c-44a8-b749-ff10a8b21bf4",
+      "title": "Thunder, Close",
+      "indexed_on": "2024-05-21T15:00:07.873258Z",
+      "foreign_landing_url": "https://freesound.org/people/Fission9/sounds/505113",
+      "url": "https://cdn.freesound.org/previews/505/505113_9395330-hq.mp3",
+      "creator": "Fission9",
+      "creator_url": "https://freesound.org/people/Fission9",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "provider": "freesound",
+      "source": "freesound",
+      "category": null,
+      "genres": null,
+      "filesize": 397344,
+      "filetype": "mp3",
+      "tags": [
+        {
+          "name": "clap",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "crack",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "crackle",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "lightning",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "peal",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "rain",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "rumble",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "storm",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunder",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        },
+        {
+          "name": "thunderclap",
+          "accuracy": null,
+          "unstable__provider": "freesound"
+        }
+      ],
+      "alt_files": [
+        {
+          "url": "https://freesound.org/apiv2/sounds/505113/download/",
+          "bit_rate": 0,
+          "filesize": 13273372,
+          "filetype": "wav",
+          "sample_rate": 96000
+        }
+      ],
+      "attribution": "\"Thunder, Close\" by Fission9 is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "fields_matched": [
+        "description",
+        "title",
+        "tags.name"
+      ],
+      "mature": false,
+      "audio_set": {
+        "title": "Thunder",
+        "foreign_landing_url": "https://freesound.org/apiv2/packs/28282/",
+        "creator": "Fission9",
+        "creator_url": "https://freesound.org/people/Fission9/",
+        "url": null,
+        "filesize": null,
+        "filetype": null
+      },
+      "duration": 17282,
+      "bit_rate": 128000,
+      "sample_rate": null,
+      "thumbnail": null,
+      "detail_url": "https://api.openverse.org/v1/audio/ae930eab-a48c-44a8-b749-ff10a8b21bf4/",
+      "related_url": "https://api.openverse.org/v1/audio/ae930eab-a48c-44a8-b749-ff10a8b21bf4/related/",
+      "waveform": "https://api.openverse.org/v1/audio/ae930eab-a48c-44a8-b749-ff10a8b21bf4/waveform/",
+      "unstable__sensitivity": []
+    }
+  ],
+  "snapshots": {
+    "capturedAt": "2026-10-18T16:52:46.677Z",
+    "mode": "hybrid",
+    "source": "current working tree",
+    "cues": [
+      {
+        "id": "impact",
+        "param": 1,
+        "duration": 1.143125
+      },
+      {
+        "id": "explosion",
+        "param": 1,
+        "duration": 1.776
+      },
+      {
+        "id": "reflect",
+        "param": 0,
+        "duration": 1.1600208333333333
+      },
+      {
+        "id": "fireballCast",
+        "param": 1,
+        "duration": 2.0109375
+      },
+      {
+        "id": "beamZap",
+        "param": 1,
+        "duration": 1.52
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "round2-r01",
+      "code": "R01",
+      "title": "Physical impact · subtle layer",
+      "badge": "Review mix",
+      "creator": "Brawlock + ihitokage",
+      "source": "https://freesound.org/people/ihitokage/sounds/413219",
+      "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+      "license": "CC0 source + current game audio",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S05 under the current physical impact",
+      "listen": "Compare the body with the current physical impact. Is this enough extra weight?",
+      "file": "audio/r01-impact-subtle.wav",
+      "duration": 1.143,
+      "processing": {
+        "baseline": "impact",
+        "sourceEdit": {
+          "start": 0.705,
+          "duration": 0.55,
+          "highpassHz": 70,
+          "lowpassHz": 4800,
+          "fadeOutSeconds": 0.14
+        },
+        "relativeLayerGain": 0.18
+      }
+    },
+    {
+      "id": "round2-r02",
+      "code": "R02",
+      "title": "Physical impact · stronger layer",
+      "badge": "Review mix",
+      "creator": "Brawlock + ihitokage",
+      "source": "https://freesound.org/people/ihitokage/sounds/413219",
+      "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+      "license": "CC0 source + current game audio",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S05 under the current physical impact",
+      "listen": "The same source is more prominent here. Choose whether the extra weight improves the hit or overpowers it.",
+      "file": "audio/r02-impact-stronger.wav",
+      "duration": 1.143,
+      "processing": {
+        "baseline": "impact",
+        "sourceEdit": {
+          "start": 0.705,
+          "duration": 0.55,
+          "highpassHz": 70,
+          "lowpassHz": 4800,
+          "fadeOutSeconds": 0.14
+        },
+        "relativeLayerGain": 0.36
+      }
+    },
+    {
+      "id": "round2-r03",
+      "code": "R03",
+      "title": "Spell explosion · impact layer",
+      "badge": "Review mix",
+      "creator": "Brawlock + ihitokage",
+      "source": "https://freesound.org/people/ihitokage/sounds/413219",
+      "sourceId": "145799e4-35dd-437f-b79d-787b85cef0f4",
+      "license": "CC0 source + current game audio",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S05 under the current explosion, not a cast",
+      "listen": "Does the liked impact character also suit an explosive spell hit?",
+      "file": "audio/r03-explosion-layer.wav",
+      "duration": 1.776,
+      "processing": {
+        "baseline": "explosion",
+        "sourceEdit": {
+          "start": 0.705,
+          "duration": 0.55,
+          "highpassHz": 70,
+          "lowpassHz": 4800,
+          "fadeOutSeconds": 0.14
+        },
+        "relativeLayerGain": 0.28
+      }
+    },
+    {
+      "id": "round2-r04",
+      "code": "R04",
+      "title": "Shield impact · short",
+      "badge": "CC0 source edit",
+      "creator": "Kierham",
+      "source": "https://freesound.org/people/Kierham/sounds/646831",
+      "sourceId": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S11 reduced to a 0.28-second impact",
+      "listen": "The long tail is removed and some low-end bulk is reduced. Judge whether the remaining hit has the right character.",
+      "file": "audio/r04-shield-short.wav",
+      "duration": 0.28,
+      "processing": {
+        "start": 0,
+        "duration": 0.28,
+        "highpassHz": 170,
+        "lowpassHz": 5200,
+        "fadeOutSeconds": 0.1
+      }
+    },
+    {
+      "id": "round2-r05",
+      "code": "R05",
+      "title": "Shield impact · fuller",
+      "badge": "CC0 source edit",
+      "creator": "Kierham",
+      "source": "https://freesound.org/people/Kierham/sounds/646831",
+      "sourceId": "178c4ee7-cca2-464e-a6f4-cfed520a0838",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S11 reduced to a 0.52-second impact",
+      "listen": "A little more body and tail than R04. Which length feels appropriate for a reflection?",
+      "file": "audio/r05-shield-fuller.wav",
+      "duration": 0.52,
+      "processing": {
+        "start": 0,
+        "duration": 0.52,
+        "highpassHz": 140,
+        "lowpassHz": 5200,
+        "fadeOutSeconds": 0.2
+      }
+    },
+    {
+      "id": "round2-r06",
+      "code": "R06",
+      "title": "Fireball · earlier attack",
+      "badge": "CC0 source edit",
+      "creator": "Julien Matthey",
+      "source": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+      "sourceId": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S16 with 0.90 seconds of lead-in removed",
+      "listen": "The main attack now arrives near the beginning. Compare its character and responsiveness with the current Fireball.",
+      "file": "audio/r06-fireball-early.wav",
+      "duration": 0.48,
+      "processing": {
+        "start": 0.9,
+        "duration": 0.48,
+        "highpassHz": 65,
+        "lowpassHz": 6500,
+        "fadeOutSeconds": 0.1
+      }
+    },
+    {
+      "id": "round2-r07",
+      "code": "R07",
+      "title": "Fireball · compact attack",
+      "badge": "CC0 source edit",
+      "creator": "Julien Matthey",
+      "source": "https://freesound.org/people/Julien%20Matthey/sounds/346917",
+      "sourceId": "0f416b9b-57ff-412e-830e-f3f5f43fae9b",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "S16 with 0.94 seconds removed and a shorter tail",
+      "listen": "The tighter option. Does it keep enough fire texture while responding immediately?",
+      "file": "audio/r07-fireball-compact.wav",
+      "duration": 0.32,
+      "processing": {
+        "start": 0.94,
+        "duration": 0.32,
+        "highpassHz": 65,
+        "lowpassHz": 6000,
+        "fadeOutSeconds": 0.1
+      }
+    },
+    {
+      "id": "round2-r08",
+      "code": "R08",
+      "title": "Lightning · close thunder",
+      "badge": "CC0 source edit",
+      "creator": "Fission9",
+      "source": "https://freesound.org/people/Fission9/sounds/505113",
+      "sourceId": "ae930eab-a48c-44a8-b749-ff10a8b21bf4",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "Natural thunder edited for a Lightning attack",
+      "listen": "A short close-thunder excerpt. Does this move Lightning toward the clap you described?",
+      "file": "audio/r08-thunder.wav",
+      "duration": 0.55,
+      "processing": {
+        "start": 0.78,
+        "duration": 0.55,
+        "highpassHz": 95,
+        "lowpassHz": 6500,
+        "fadeOutSeconds": 0.25
+      }
+    },
+    {
+      "id": "round2-r09",
+      "code": "R09",
+      "title": "Lightning · cracking thunderclap",
+      "badge": "CC0 source edit",
+      "creator": "Fission9",
+      "source": "https://freesound.org/people/Fission9/sounds/534023",
+      "sourceId": "679eb912-9136-415e-ba4a-e453152cffff",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "Natural thunder edited for a Lightning attack",
+      "listen": "A tighter natural thunderclap with the long rumble removed. Compare the attack with R08.",
+      "file": "audio/r09-thunder.wav",
+      "duration": 0.5,
+      "processing": {
+        "start": 1.02,
+        "duration": 0.5,
+        "highpassHz": 95,
+        "lowpassHz": 6500,
+        "fadeOutSeconds": 0.24
+      }
+    },
+    {
+      "id": "round2-r10",
+      "code": "R10",
+      "title": "Lightning · dry thunder crack",
+      "badge": "CC0 source edit",
+      "creator": "cognito perceptu",
+      "source": "https://freesound.org/people/cognito%20perceptu/sounds/536900",
+      "sourceId": "5e06dffa-1d5e-4053-9f69-0b3bd05b6715",
+      "license": "cc0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "role": "Natural thunder edited for a Lightning attack",
+      "listen": "An excerpt around the strongest dry crack. Pass if it is still too sharp or heavy for a frequent spell.",
+      "file": "audio/r10-thunder.wav",
+      "duration": 0.42,
+      "processing": {
+        "start": 2.62,
+        "duration": 0.42,
+        "highpassHz": 95,
+        "lowpassHz": 6500,
+        "fadeOutSeconds": 0.2
+      }
+    }
+  ]
+}

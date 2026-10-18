@@ -28,7 +28,7 @@ export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore
  * between matches / in a match, and the ping of their region. One click joins.
  * Refreshes every few seconds while open.
  */
-export function BrowseGames({ onBack }: { onBack: () => void }) {
+export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: () => void }) {
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
   const [joining, setJoining] = useState<string | null>(null)
   // a join that failed lands back here with lobby.error: say so and allow another try
@@ -73,9 +73,12 @@ export function BrowseGames({ onBack }: { onBack: () => void }) {
           <h1 className="display text-6xl leading-none text-[#ffd890]">Browse games</h1>
           <p className="text-[1rem] text-[#e6d3b8]">Open games you can join right now. Hosts choose whether their game is listed.</p>
         </div>
+        <div className="flex flex-wrap gap-3">
+        <Button variant="primary" onClick={onHost} data-testid="browse-host">Host a game</Button>
         <Button sound="back" onClick={onBack}>
           Back <Kbd>Esc</Kbd>
         </Button>
+        </div>
       </header>
       <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5" aria-label="Open games">
         {failed && (
@@ -86,7 +89,7 @@ export function BrowseGames({ onBack }: { onBack: () => void }) {
         {rooms === null ? (
           <p className="py-10 text-center text-ash">Looking for games…</p>
         ) : rooms.length === 0 ? (
-          <p className="py-10 text-center text-[1.05rem] text-ash">No open games right now. Start one with Quick play, or host your own and list it.</p>
+          <p className="py-10 text-center text-[1.05rem] text-ash">No open games right now. Host a game to open a lobby, or try Quick play.</p>
         ) : (
           <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto pr-1" data-testid="browse-list">
             {rooms.map((r) => {

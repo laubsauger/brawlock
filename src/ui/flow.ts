@@ -10,6 +10,7 @@ import { session, type HostResult } from '../game/session'
 import { useGame } from '../game/store'
 import { parseRoomCode } from '../net/code'
 import { tutorial } from './lib/onboarding'
+import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
 
 function closeOverlays() {
   const s = useGame.getState()
@@ -52,13 +53,16 @@ export function useLastHostResult(): HostResult | null {
 }
 
 /** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
-export function hostGame(): void {
+export function hostGame(listed = false): void {
   tutorial.request({
     label: 'Host from your PC',
     run: () => {
       lastAction = 'pc'
       setLastHost(null)
-      void session.openHost().then(setLastHost)
+      void session.openHost().then((result) => {
+        setLastHost(result)
+        if (result.ok && listed) session.setPublic(true)
+      })
     },
   })
 }
@@ -76,13 +80,16 @@ export function quickPlay(region: string): void {
 }
 
 /** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
-export function hostOnServer(region: string): void {
+export function hostOnServer(region: string, listed = false): void {
   tutorial.request({
     label: 'Host on a server',
     run: () => {
       lastAction = 'server'
       setLastHost(null)
-      void session.openHostServer(region).then(setLastHost)
+      void session.openHostServer(region).then((result) => {
+        setLastHost(result)
+        if (result.ok && listed) session.setPublic(true)
+      })
     },
   })
 }
@@ -91,7 +98,12 @@ export function hostOnServer(region: string): void {
 export function joinRoom(text: string, onCancel?: () => void): { problem: string } | null {
   const r = parseRoomCode(text)
   if ('problem' in r) return r
-  tutorial.request({ label: 'Join game', run: () => { void session.join(r.code) }, cancel: onCancel })
+  rememberPendingRoom(r.code)
+  tutorial.request({
+    label: 'Join game',
+    run: () => { void session.join(r.code).finally(() => clearPendingRoom(r.code)) },
+    cancel: () => { clearPendingRoom(r.code); onCancel?.() },
+  })
   return null
 }
 
@@ -122,6 +134,7 @@ export function setReady(ready: boolean): void {
 }
 
 export function leaveToMenu(): void {
+  clearPendingRoom()
   closeOverlays()
   session.leave()
 }

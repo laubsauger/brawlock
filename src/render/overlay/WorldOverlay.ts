@@ -160,7 +160,7 @@ const css = `
 .bl-plate .kbf{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%}
 .bl-plate .mult{position:absolute;left:84px;top:-8px;font-size:10px;font-weight:900;text-shadow:${OUTLINE};white-space:nowrap;padding:0 3px;border-radius:3px;background:rgba(12,7,7,.5)}
 .bl-plate.local .bar,.bl-plate.local .kbrow{width:86px}
-.bl-plate.rival .bar{box-shadow:0 0 0 1px #ee6262,0 0 7px 2px rgba(235,40,45,.48)}
+.bl-plate.rival{outline:2px solid #ff6257;outline-offset:1px;background:rgba(40,12,11,.68);box-shadow:0 0 9px 2px rgba(235,64,45,.45),0 0 12px 5px rgba(12,7,7,.38)}
 .bl-bounty{position:absolute;left:calc(100% + 2px);top:3px;display:none;align-items:center;gap:3px;padding:2px 4px;border-radius:4px;background:#1b120ce6;color:#ffd279;font-size:11px;font-weight:900;line-height:12px;white-space:nowrap;text-shadow:0 1px 1px #000}
 .bl-bounty svg{width:11px;height:11px;flex:none}
 .bl-stampw{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;pointer-events:none}

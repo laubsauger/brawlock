@@ -1,0 +1,91 @@
+{
+  "url": "http://127.0.0.1:5187/artifacts/audio-review-round2/index.html",
+  "candidates": 10,
+  "baselines": 5,
+  "decodedFiles": 15,
+  "playback": "passed",
+  "exclusivePlayback": "passed",
+  "persistence": "passed",
+  "filters": "passed",
+  "export": "passed",
+  "mobileWidth": 390,
+  "horizontalOverflow": false,
+  "browserErrors": [],
+  "audio": [
+    {
+      "label": "Current — Physical impact",
+      "duration": 1.143125,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "Current — Spell explosion",
+      "duration": 1.776,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "R01 — Physical impact · subtle layer",
+      "duration": 1.143125,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "R02 — Physical impact · stronger layer",
+      "duration": 1.143125,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "R03 — Spell explosion · impact layer",
+      "duration": 1.776,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "Current — Shield reflection",
+      "duration": 1.1600208333333333,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "R04 — Shield impact · short",
+      "duration": 0.28,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "R05 — Shield impact · fuller",
+      "duration": 0.52,
+      "peak": 0.5012360215187073
+    },
+    {
+      "label": "Current — Fireball cast",
+      "duration": 2.0109375,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "R06 — Fireball · earlier attack",
+      "duration": 0.48,
+      "peak": 0.50115966796875
+    },
+    {
+      "label": "R07 — Fireball · compact attack",
+      "duration": 0.32,
+      "peak": 0.501220703125
+    },
+    {
+      "label": "Current — Lightning beam zap",
+      "duration": 1.52,
+      "peak": 0.5012055039405823
+    },
+    {
+      "label": "R08 — Lightning · close thunder",
+      "duration": 0.55,
+      "peak": 0.501190185546875
+    },
+    {
+      "label": "R09 — Lightning · cracking thunderclap",
+      "duration": 0.5,
+      "peak": 0.5012360215187073
+    },
+    {
+      "label": "R10 — Lightning · dry thunder crack",
+      "duration": 0.42,
+      "peak": 0.5012055039405823
+    }
+  ]
+}

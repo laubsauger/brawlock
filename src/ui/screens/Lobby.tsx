@@ -432,7 +432,7 @@ export function Lobby() {
         </p>
         {lobby.role === 'host' && lobby.status === 'connecting' && <SlowHostHint />}
         <div className="flex gap-3">
-          {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={hostGame}>Try again</Button>}
+          {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={() => hostGame()}>Try again</Button>}
           {canEdit ? (
             <Button
               variant="primary"
