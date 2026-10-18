@@ -11,7 +11,8 @@ import { applyBuild, newBuildCache, startLevelUp, tickLevelUp } from './progress
 import { stepEnvelope, type EnvelopeState } from './frontEnvelope'
 import { clothParams } from './materials'
 import type { CastArm, DeathKind, WarlockHandle } from './types'
-import { CAST_HANDS, castCategory, type CastCategory, type CastHands } from './castStyles'
+import { CAST_HANDS, castCategory, windupHiddenFrom, type CastCategory, type CastHands } from './castStyles'
+import { frame } from '../../game/frame'
 import { syncFootprint } from './debug'
 
 const TAU = Math.PI * 2
@@ -170,6 +171,8 @@ export class CC0Warlock implements WarlockHandle {
   private castT = 0
   private releaseT = 0
   private castFullBody = false
+  /** this viewer must not see the windup (another player's Scourge): no pose, no cast glow */
+  private hidden = false
   private tumbling = false
   private tumbleT = 0
   private tumbleDirX = 0
@@ -507,7 +510,7 @@ export class CC0Warlock implements WarlockHandle {
 
   private fizzle(): void {
     if (this.castPhase !== 'windup') return
-    this.gpu.castFizzle = 1
+    if (!this.hidden) this.gpu.castFizzle = 1
     this.gpu.castCharge = 0
     this.endCast(0.12)
   }
@@ -652,6 +655,8 @@ export class CC0Warlock implements WarlockHandle {
     if (running && this.castPhase !== 'windup' && !this.dead) this.beginWindup(p.cast!.spell, p.cast!.ticksLeft)
     // the sim dropped the cast without telling us: treat as a cancel
     if (!running && this.castPhase === 'windup') this.fizzle()
+    // re-read every frame: the POV can change while spectating (frame.localPlayer -1 = spectator)
+    this.hidden = this.castPhase === 'windup' && windupHiddenFrom(this.castSpell, p.owner, frame.localPlayer)
 
     // ---- kinematics (game units / s)
     const facing = prev ? lerpAngle(prev.facing, p.facing, alpha) : p.facing
@@ -716,7 +721,7 @@ export class CC0Warlock implements WarlockHandle {
       if (want !== this.locomotion) {
         this.anim.lower.play(want, { fade: want === 'idle' ? 0.22 : 0.14, timeScale: ts })
         this.locomotion = want
-        if (this.castPhase === 'none' && !this.victory) this.anim.upperFollow(want === 'idle' ? 0.22 : 0.14)
+        if ((this.castPhase === 'none' || this.hidden) && !this.victory) this.anim.upperFollow(want === 'idle' ? 0.22 : 0.14)
       } else {
         const a = this.anim.lower.current
         if (a) a.timeScale = ts
@@ -728,7 +733,8 @@ export class CC0Warlock implements WarlockHandle {
       this.castT += dt
       const cast = p.cast
       const left = cast ? Math.max(0, cast.ticksLeft - alpha) : 0
-      g.castCharge = Math.min(1, Math.max(g.castCharge, 1 - left / this.castTotal))
+      // hidden windup: no palm / sleeve / gem glow (VFX draws the faint cue)
+      g.castCharge = this.hidden ? 0 : Math.min(1, Math.max(g.castCharge, 1 - left / this.castTotal))
       const enter = this.anim.upper.current
       if (enter && this.anim.upper.currentName === 'castEnter' && enter.time >= ENTER_LEN - 0.02) {
         this.castClip('castLoop', { fade: 0.2, loop: true })
@@ -847,7 +853,7 @@ export class CC0Warlock implements WarlockHandle {
     // one model.updateMatrixWorld follows.
     {
       const upright = !this.dead && !this.tumbling
-      const castL = this.castPhase !== 'none' ? 1 : 0
+      const castL = this.castPhase !== 'none' && !this.hidden ? 1 : 0
       this.stanceK += ((upright ? 1 : 0) - this.stanceK) * damp(6, dt)
       this.castArmK += (castL - this.castArmK) * damp(12, dt)
       const k = this.stanceK
@@ -870,7 +876,7 @@ export class CC0Warlock implements WarlockHandle {
       const ch = g.castCharge
       const rt = this.releaseT
       const live = !this.dead && !this.tumbling
-      const tOverhead = live && cat === 'aoe' && ph === 'windup' ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
+      const tOverhead = live && cat === 'aoe' && ph === 'windup' && !this.hidden ? Math.pow(Math.max(ch, 0.25), 0.6) : 0
       const tCross = live && cat === 'buff' && (ph === 'windup' || (ph === 'release' && rt < 0.09)) ? 1 : 0
       const tFlare = live && cat === 'buff' && ph === 'release' && rt >= 0.06 ? Math.max(0, 1 - Math.max(0, rt - 0.25) / 0.25) : 0
       const tBeam = live && cat === 'beam' && ph !== 'none' ? 1 : 0
@@ -885,7 +891,7 @@ export class CC0Warlock implements WarlockHandle {
       P.ground += (tGround - P.ground) * kk
       P.sky += (tSky - P.sky) * kk
       // idle ready pose weight: standing still, not casting / tumbling / celebrating
-      const readyT = facingUniform.value > 0.5 && live && this.castPhase === 'none' && !this.victory && this.locomotion === 'idle' ? 1 : 0
+      const readyT = facingUniform.value > 0.5 && live && (this.castPhase === 'none' || this.hidden) && !this.victory && this.locomotion === 'idle' ? 1 : 0
       g.idleHands += (readyT - g.idleHands) * damp(readyT > g.idleHands ? 4 : 10, dt)
       const useL = this.hands !== 'right' ? this.castArmK : 0
       const useR = this.hands !== 'left' ? this.castArmK : 0

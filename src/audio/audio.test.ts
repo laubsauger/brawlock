@@ -142,6 +142,16 @@ describe('audio: event mapping', () => {
     expect(cut.stopKey).toBe(scourge.key)
   })
 
+  it("an opponent's Scourge charge is a faint cue, the caster hears the full windup", () => {
+    // the original played no sound until the blast: the charge must not warn enemies like a siren
+    // pawn 1 belongs to player 0 in LISTENER
+    const as = (localPlayer: number) => ({ ...LISTENER, localPlayer })
+    const mine = planEvents([{ ...SAMPLES.castStart, pawn: 1 }], as(0))[0]
+    const theirs = planEvents([{ ...SAMPLES.castStart, pawn: 1 }], as(1))[0]
+    expect(theirs.gain).toBeLessThan(mine.gain * 0.3)
+    expect(theirs.gain).toBeGreaterThan(0)
+  })
+
   it('the ambience slider moves only the lava bed, not effects or music', () => {
     // players turn the lava bed down without losing spell sounds; unset keeps the old calibration
     const base = busGains({ master: 1, sfx: 1, music: 1, muted: false })

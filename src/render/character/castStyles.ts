@@ -62,3 +62,15 @@ export function castCategory(spell: string): CastCategory {
   for (const [id, cat] of Object.entries(CAST_CATEGORY)) if (spell.startsWith(id)) return cat
   return 'directional'
 }
+
+/**
+ * True when this viewer must not see the windup pose or cast glow of `spell`
+ * cast by `owner`. The original game played no cast animation for Scourge
+ * ("anim disabled"), so opponents could not see it coming; only the local
+ * caster gets the summon pose (VFX shows the telegraph to the caster only).
+ * `localPlayer` -1 = spectator, never the caster. Other spells always show.
+ */
+export function windupHiddenFrom(spell: string, owner: number, localPlayer: number): boolean {
+  if (owner >= 0 && owner === localPlayer) return false
+  return spell.startsWith('scourge')
+}

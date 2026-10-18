@@ -2037,7 +2037,7 @@ export class MatchWorld {
   private drawWindup(v: PawnView, p: PawnState, dt: number): void {
     const spell = p.cast!.spell
     const mod = this.modulesOn ? vfxForSpell(spell) : undefined
-    const style = mod?.windupStyle?.(spell) ?? null
+    const style = mod?.windupStyle?.(spell, p) ?? null
     const hide = style?.hide ?? []
     const pal = spellPalette(spell)
     this.windCol.setHex(style?.color ?? pal.accent)
@@ -2131,7 +2131,7 @@ export class MatchWorld {
       v.setCastRing(k, c, 1)
       this.ringFades.set(v, 1)
     }
-    this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
+    if (!hide.includes('light')) this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
   }
 
   // ---------------------------------------------------------------- ambient
@@ -2214,6 +2214,7 @@ export class MatchWorld {
         arenaR,
         reach: reachFor(renderPrefs.cameraReach, arenaR),
         edgeSpeed: EDGE_SPEED * renderPrefs.edgePanSpeed,
+        edgePan: renderPrefs.edgePan,
       })
       fx = local.x + o.x
       fy = local.y + o.y

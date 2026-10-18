@@ -16,9 +16,11 @@ export interface RenderPrefs {
   cameraReach: 'short' | 'normal' | 'far'
   /** edge-pan speed factor, 0.25..2 (1 = default) */
   edgePanSpeed: number
+  /** false: the screen edge never pans (peek, aim lean and zoom still work) */
+  edgePan: boolean
 }
 
-export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1, cameraReach: 'normal', edgePanSpeed: 1 }
+export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1, cameraReach: 'normal', edgePanSpeed: 1, edgePan: true }
 
 const listeners = new Set<() => void>()
 
@@ -53,6 +55,11 @@ export function setRenderPrefs(p: Partial<RenderPrefs>): void {
     const v = clamp(p.edgePanSpeed, 0.25, 2, 1)
     changed ||= v !== renderPrefs.edgePanSpeed
     renderPrefs.edgePanSpeed = v
+  }
+  if (p.edgePan !== undefined) {
+    const v = p.edgePan !== false
+    changed ||= v !== renderPrefs.edgePan
+    renderPrefs.edgePan = v
   }
   if (changed) for (const l of listeners) l()
 }

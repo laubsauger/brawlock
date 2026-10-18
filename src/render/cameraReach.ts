@@ -50,6 +50,8 @@ export interface ReachInput {
   reach: number
   /** edge-pan speed (game units / s) */
   edgeSpeed: number
+  /** edge pan enabled (settings); absent = on */
+  edgePan?: boolean
 }
 
 export class CameraReach {
@@ -73,7 +75,7 @@ export class CameraReach {
     // edge direction in screen space (x right, y up) == game space (x, y)
     let ex = 0
     let ey = 0
-    if (p.inside && !i.peek) {
+    if (p.inside && !i.peek && i.edgePan !== false) {
       if (p.x > 1 - EDGE_BAND) ex = 1
       else if (p.x < -1 + EDGE_BAND) ex = -1
       if (p.y > 1 - EDGE_BAND) ey = 1

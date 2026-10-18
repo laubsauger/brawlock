@@ -43,6 +43,8 @@ export interface Settings {
   cameraReach: 'short' | 'normal' | 'far'
   /** 0.25..2, edge-pan speed factor (render prefs) */
   edgePanSpeed: number
+  /** point at the screen edge to pan the camera (render prefs) */
+  edgePan: boolean
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -152,6 +154,7 @@ const defaultSettings: Settings = {
   resolutionScale: 1,
   cameraReach: 'normal',
   edgePanSpeed: 1,
+  edgePan: true,
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.6,

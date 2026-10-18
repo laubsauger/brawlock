@@ -6,7 +6,17 @@
  * edge is exact), 100/110/120 damage, the caster pays 100 HP, knockback
  * factor 0.75 (edge) .. 1.0 (centre).
  *
- * Windup (the caster's two-hands-overhead summon):
+ * Who sees the windup (close to the original, where Scourge had no tell
+ * until the blast): only the LOCAL caster sees the telegraph below (ring at
+ * the exact radius, runes, threads, sphere, beam / crown, tremor) plus a faint
+ * dashed inner line at R - pawn radius ("who will actually be hit").
+ * Everyone else (opponents, allies, spectators / replays) only gets a subtle
+ * cue on the caster: a small flickering glow at the raised hands and a faint
+ * body rim in the caster's identity colour. No floor ring, runes, beam or
+ * crown, no floor light (the shared windup's light is hidden for them via
+ * windupStyle 'light'), no tremor. The blast is unchanged and shown to all.
+ *
+ * Windup, local caster (the caster's two-hands-overhead summon):
  *   - a crisp blood-red boundary at exactly R telegraphs the hit area from
  *     the first frame; a band of runes just inside it ignites around the
  *     circle, and from every rune a thread of crimson crawls inward toward
@@ -72,7 +82,7 @@ import { RING_EXPAND } from '../../scene/GroundFx'
 import { asV4 } from '../../scene/world'
 import { colorForPawn } from '../../teamColors'
 import { BODY_H, BODY_R, decalFloor } from '../deathKit'
-import { registerSpellVfx, type VfxCtx } from '../registry'
+import { registerSpellVfx, type VfxCtx, type WindupStyle } from '../registry'
 
 const TAU = Math.PI * 2
 const rnd = Math.random
@@ -229,6 +239,12 @@ class WindupCircles {
     const darkA = pool.mul(pn.mul(0.4).add(0.6)).mul(tierN(lvl, 0.2, 0.45, 0.72)).mul(saturate(prog.mul(2.5))).mul(live)
 
     const flick = mix(float(1), sin(age.mul(70)).mul(0.5).add(0.5), saturate(cancel.mul(4)))
+    // who will actually be hit: pawn centres inside R - 30 (a pawn overlaps the edge
+    // with its radius), a faint dashed line, local caster only (only local circles exist)
+    const innerR = (R_DEFAULT - 30) / R_DEFAULT
+    const ix = rn.sub(innerR).div(0.0028)
+    const dash = step(0.5, fract(a.mul(72)))
+    const innerLine = exp(ix.mul(ix).negate()).mul(dash).mul(ignite).mul(0.32)
     // caster identity: a thin band in the caster's colour just inside the edge
     const cbx = rn.sub(0.958).div(tierN(lvl, 0.0042, 0.0046, 0.0052))
     const casterBand = exp(cbx.mul(cbx).negate()).mul(ignite).mul(tierN(lvl, 0.75, 0.95, 1.3))
@@ -236,7 +252,7 @@ class WindupCircles {
     const gapX = rn.sub(0.958).div(0.012)
     const gap = float(1).sub(exp(gapX.mul(gapX).negate()).mul(0.85).mul(ignite))
     // the edge line stays crisp on every tier (gameplay info); the fill glow scales
-    const glowC = A2.xyz.mul(casterBand).add(gap.mul(tierCol(lvl).mul(boundary.mul(tierN(lvl, 0.85, 0.95, 1)).add(innerGlow.mul(tierN(lvl, 0.25, 0.65, 1))).add(runes).add(threads).add(runes2).add(runes3))
+    const glowC = A2.xyz.mul(casterBand).add(gap.mul(tierCol(lvl).mul(innerLine.add(boundary.mul(tierN(lvl, 0.85, 0.95, 1))).add(innerGlow.mul(tierN(lvl, 0.25, 0.65, 1))).add(runes).add(threads).add(runes2).add(runes3))
       .add(vec3(...HOT).mul(runes.mul(litFlash).add(tip.mul(0.4)).add(sweep.mul(boundary).mul(0.3))).mul(tierN(lvl, 0.25, 0.6, 1)))))
       .mul(live.mul(live)).mul(flick)
     const dm = new THREE.MeshBasicNodeMaterial()
@@ -504,6 +520,8 @@ interface Windup {
   seed: number
   /** caster colour, linear, peak 1 (the pawn ring's colour) */
   col: [number, number, number]
+  /** the caster is the local player: full telegraph; else only the subtle cue */
+  local: boolean
   acc: number
   acc2: number
   acc3: number
@@ -528,7 +546,7 @@ interface RimFlash {
 }
 
 const windups: Windup[] = []
-for (let i = 0; i < 8; i++) windups.push({ pawn: -1, level: 1, t0: 0, total: WINDUP_S, cancelAt: -1, cancelP: 0, active: false, x: 0, y: 0, h: 0, seed: 0, col: [1, 1, 1], acc: 0, acc2: 0, acc3: 0 })
+for (let i = 0; i < 8; i++) windups.push({ pawn: -1, level: 1, t0: 0, total: WINDUP_S, cancelAt: -1, cancelP: 0, active: false, x: 0, y: 0, h: 0, seed: 0, col: [1, 1, 1], local: false, acc: 0, acc2: 0, acc3: 0 })
 const releases: Release[] = []
 for (let i = 0; i < 8; i++) releases.push({ level: 1, x: 0, y: 0, h: 0, R: R_DEFAULT, t0: 0, acc: 0, acc2: 0, on: false })
 const rims: RimFlash[] = []
@@ -538,6 +556,11 @@ let circles: WindupCircles | null = null
 let decals: ReleaseDecals | null = null
 let bb: Billboards | null = null
 let scene: THREE.Object3D | null = null
+/** the world's ctx (for the local-player check in windupStyle) */
+let vctx: VfxCtx | null = null
+/** preallocated windupStyle results (called per winding-up pawn per frame) */
+const STYLE_LOCAL: WindupStyle = { hide: ['rings', 'spiral', 'orb', 'ground'] }
+const STYLE_OTHER: WindupStyle = { hide: ['rings', 'spiral', 'orb', 'ground', 'light'] }
 
 function windupOf(pawn: EntityId, create: boolean, now: number): Windup | null {
   let free: Windup | null = null
@@ -752,6 +775,46 @@ function hitImpact(ctx: VfxCtx, target: EntityId, x: number, y: number, kb: numb
   ctx.ground.spawn(RING_EXPAND, x, y, f, 14, 70 + 50 * k, 0.3, 8, CRIMSON[0] * 0.9, CRIMSON[1], CRIMSON[2])
 }
 
+/**
+ * What everyone but the caster sees during the windup: a small flickering
+ * glow at the raised hands and a faint body rim in the caster's identity
+ * colour, a few motes. Readable up close, no area tell (no floor, no light).
+ */
+function windupCue(ctx: VfxCtx, w: Windup, p: number, hand: THREE.Vector3): void {
+  if (!bb) return
+  const c = w.col
+  const t = ctx.now
+  const flick = 0.7 + 0.3 * Math.sin(t * 31 + w.seed) * Math.sin(t * 17 + w.seed * 2)
+  const k = (0.35 + 0.65 * p) * flick
+  // hands (palm socket; the summon holds both hands overhead, so a second glow
+  // sits a little above the head)
+  bb.add(hand.x, hand.y, hand.z, (14 + 10 * p) * S, c[0] * 1.3 * k, c[1] * 1.3 * k, c[2] * 1.3 * k, 2.4)
+  bb.add(w.x * S, (w.h + BODY_H * 1.08) * S, -w.y * S, (16 + 10 * p) * S, c[0] * 1.0 * k, c[1] * 1.0 * k, c[2] * 1.0 * k, 2.4)
+  // faint body rim (ring sprite) pulsing with the charge
+  const rk = 0.18 + 0.22 * p
+  bb.add(w.x * S, (w.h + BODY_H * 0.55) * S, -w.y * S, 74 * S, c[0] * rk, c[1] * rk, c[2] * rk, -2.2)
+  // a few motes drifting up off the hands
+  const n = emitN(ctx, w, 'acc', 10 * (0.3 + p))
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * TAU
+    ctx.particles.spawn(hand.x / S + Math.cos(a) * 8, -hand.z / S + Math.sin(a) * 8, hand.y / S, Math.cos(a) * 20, Math.sin(a) * 20, 50 + rnd() * 50, 0.35 + rnd() * 0.2, 4, 1, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0, 0.5, 4)
+  }
+}
+
+/** A cancelled windup seen from outside: the hand glow sputters out. */
+function cueFizzle(ctx: VfxCtx, w: Windup): void {
+  const info = ctx.pawn(w.pawn)
+  if (!info) return
+  const o = info.castOrigin
+  const c = w.col
+  const n = ctx.particles.budget(8)
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * TAU
+    const sp = 60 + rnd() * 80
+    ctx.particles.spawn(o.x / S, -o.z / S, o.y / S, Math.cos(a) * sp, Math.sin(a) * sp, (rnd() - 0.3) * 80, 0.25 + rnd() * 0.15, 4, 1, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, -600, 2, -0.05)
+  }
+}
+
 function cancelFx(ctx: VfxCtx, w: Windup): void {
   const ps = ctx.particles
   const R = R_DEFAULT
@@ -875,6 +938,7 @@ function emitN2(ctx: VfxCtx, r: Release, which: 'acc' | 'acc2', rate: number): n
 registerSpellVfx({
   spell: 'scourge',
   init(ctx) {
+    vctx = ctx
     if (circles) return
     circles = new WindupCircles(ctx)
     decals = new ReleaseDecals(ctx)
@@ -890,7 +954,9 @@ registerSpellVfx({
         if (!isScourge(e.spell)) return false
         const w = windupOf(e.pawn, true, now)!
         w.level = levelOf(ctx, e, e.pawn)
-        casterRGB(colorForPawn(ctx.state, ctx.pawn(e.pawn)?.owner ?? -1), w.col)
+        const owner = ctx.pawn(e.pawn)?.owner ?? -1
+        casterRGB(colorForPawn(ctx.state, owner), w.col)
+        w.local = owner >= 0 && owner === ctx.localPlayer
         w.active = true
         w.cancelAt = -1
         w.t0 = now
@@ -904,7 +970,8 @@ registerSpellVfx({
           w.active = false
           w.cancelAt = now
           w.cancelP = Math.min(1, (now - w.t0) / w.total)
-          cancelFx(ctx, w)
+          if (w.local) cancelFx(ctx, w)
+          else cueFizzle(ctx, w)
         }
         return true
       }
@@ -967,7 +1034,9 @@ registerSpellVfx({
   },
   // the shared hand-cast arm rings and spiral clash with the summon pose and
   // the tame L1; this module draws its own gathering orb
-  windupStyle: () => ({ hide: ['rings', 'spiral', 'orb'] }),
+  // + 'ground': the shared cast ring under the caster would warn everyone;
+  // + 'light' for anyone but the local caster: no floor-light tell either
+  windupStyle: (_spell, caster) => (caster && vctx && caster.owner !== vctx.localPlayer ? STYLE_OTHER : STYLE_LOCAL),
   beginFrame() {
     // every rendered frame (also frozen ones): the batches are refilled in frame()
     circles?.begin()
@@ -1002,11 +1071,16 @@ registerSpellVfx({
         w.x = info.x
         w.y = info.y
         w.h = info.h
-        // read live: Shuffle re-teams between rounds
+        // read live: Shuffle re-teams between rounds; the POV can change (spectating)
         casterRGB(colorForPawn(st, info.owner), w.col)
+        w.local = info.owner === ctx.localPlayer
         if (w.active) {
-          circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level, w.col)
-          windupFx(ctx, w, p)
+          if (w.local) {
+            circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, p, 0, w.seed, now - w.t0, w.level, w.col)
+            windupFx(ctx, w, p)
+          } else {
+            windupCue(ctx, w, p, info.castOrigin)
+          }
         }
       }
       if (!w.active && w.cancelAt >= 0) {
@@ -1016,7 +1090,7 @@ registerSpellVfx({
           w.pawn = -1
           continue
         }
-        circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, w.cancelP, c, w.seed, now - w.t0, w.level, w.col)
+        if (w.local) circles.add(w.x, w.y, decalFloor(ctx, w.x, w.y) + 0.4, R_DEFAULT, w.cancelP, c, w.seed, now - w.t0, w.level, w.col)
       }
     }
     for (const r of releases) if (r.on) releaseTick(ctx, r)
@@ -1049,6 +1123,7 @@ registerSpellVfx({
     decals = null
     bb = null
     scene = null
+    vctx = null
     for (const w of windups) {
       w.pawn = -1
       w.active = false

@@ -207,9 +207,12 @@ export interface SpellVfx {
   /**
    * Flavour the shared hand-cast windup for this module's spell(s): colour
    * (default: palette accent), ring count, orb scale, or hide parts of the
-   * base ('rings' | 'spiral' | 'orb' | 'ground') to draw your own.
+   * base ('rings' | 'spiral' | 'orb' | 'ground' | 'arrow' | 'light') to draw
+   * your own. `caster` is the winding-up pawn (absent in some queries, e.g.
+   * the aim arrow check), so a style can depend on who casts, e.g. compare
+   * caster.owner with ctx.localPlayer.
    */
-  windupStyle?(spell: string): WindupStyle | null
+  windupStyle?(spell: string, caster?: PawnState): WindupStyle | null
   dispose?(): void
 }
 
@@ -220,8 +223,11 @@ export interface WindupStyle {
   ringCount?: number
   /** palm orb scale, default 1 */
   orbScale?: number
-  /** parts of the base windup to suppress ('arrow' = the aim telegraph line) */
-  hide?: ('rings' | 'spiral' | 'orb' | 'ground' | 'arrow')[]
+  /**
+   * parts of the base windup to suppress ('arrow' = the aim telegraph line,
+   * 'light' = the floor light in the spell colour under the caster)
+   */
+  hide?: ('rings' | 'spiral' | 'orb' | 'ground' | 'arrow' | 'light')[]
 }
 
 const modules: SpellVfx[] = []

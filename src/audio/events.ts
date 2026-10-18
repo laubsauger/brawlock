@@ -241,6 +241,8 @@ const CENTRE = { pan: 0, gain: 1 }
 /** Scourge is in everyone's starting kit and heard every round: L1 stays modest, the full blast is the L3 escalation. */
 const SCOURGE_GAIN = [0.6, 0.8, 1]
 const scourgeLevel = (level?: number) => Math.max(1, Math.min(3, level ?? 1))
+/** an opponent's Scourge charge: a faint cue, not a warning siren (original: silent until the blast) */
+const SCOURGE_ENEMY_WINDUP = 0.2
 
 const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   cast: (e, c) => {
@@ -253,7 +255,14 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const p = c.pawnPos(e.pawn)
     const sp = p ? c.at(p.x, p.y) : CENTRE
     const key = windupKey(e.pawn)
-    if (e.spell === 'scourge') return [cue('scourgeWindup', sp, SCOURGE_GAIN[scourgeLevel(e.level) - 1], { param: Math.max(0.2, e.ticks / 60), key })]
+    if (e.spell === 'scourge') {
+      // as in the original (no cast sound until the blast), opponents barely hear the charge;
+      // only the caster gets the full windup as feedback
+      const owner = c.listener.state?.pawns.find((q) => q.id === e.pawn)?.owner
+      const theirs = c.listener.localPlayer !== undefined && owner !== undefined && owner !== c.listener.localPlayer
+      const gain = SCOURGE_GAIN[scourgeLevel(e.level) - 1] * (theirs ? SCOURGE_ENEMY_WINDUP : 1)
+      return [cue('scourgeWindup', sp, gain, { param: Math.max(0.2, e.ticks / 60), key })]
+    }
     // short cast points get an inhale, so a cancelled (fake) cast is heard as inhale + snuff
     if (e.ticks >= 6) return [cue('castInhale', sp, 0.7, { param: e.ticks / 60, key })]
     return []

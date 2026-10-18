@@ -405,9 +405,12 @@ export function SettingsModal() {
             onChange={(cameraReach) => setSettings({ cameraReach })}
           />
         </Row>
-        <Row label="Edge pan speed" hint="Point at the screen edge to pan the camera that way">
+        <Row label="Edge pan" hint="Point at the screen edge to pan the camera that way. Camera peek still works when this is off">
+          <Switch label="Edge pan" checked={s.edgePan ?? true} onChange={(edgePan) => setSettings({ edgePan })} />
+        </Row>
+        <Row label="Edge pan speed" hint={(s.edgePan ?? true) ? 'How fast the camera pans at the screen edge' : 'Edge pan is off'}>
           <div className="w-56">
-            <Slider label="Edge pan speed" value={s.edgePanSpeed ?? 1} min={0.25} max={2} step={0.05} format={(v) => `×${v.toFixed(2).replace(/0$/, '')}`} onChange={(edgePanSpeed) => setSettings({ edgePanSpeed })} />
+            <Slider label="Edge pan speed" disabled={!(s.edgePan ?? true)} value={s.edgePanSpeed ?? 1} min={0.25} max={2} step={0.05} format={(v) => `×${v.toFixed(2).replace(/0$/, '')}`} onChange={(edgePanSpeed) => setSettings({ edgePanSpeed })} />
           </div>
         </Row>
         <Row label="Key hints" hint="The small key legend at the bottom left of a match">

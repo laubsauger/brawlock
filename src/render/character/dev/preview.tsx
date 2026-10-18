@@ -6,6 +6,7 @@
  * Params: ?style=procedural  ?staff=gnarled|iron|bone  ?view=game|close  ?n=10  ?mode=circle|line|idle
  *         ?splash (show the key art for comparison)  ?nopost  ?turntable
  *         ?tier=low|high|ultra (emulates the match tiers: bloom, shadows, dpr)  ?ground=tiles  ?wlook=void
+ *         ?pov=N (local player, default 0 = the hero; -1 = spectator: another player's Scourge windup is hidden)
  * window.__wp exposes the controls for scripted screenshots.
  */
 import * as THREE from 'three/webgpu'
@@ -17,6 +18,7 @@ import { S } from '../../coords'
 import { clothParams, createWarlock, preloadWarlock, warlockParams, type DeathKind, type StaffVariant, type WarlockHandle, type WarlockStyle } from '../index'
 import { getWarlockAsset } from '../asset'
 import { getSpellColor } from '../../vfx/palette'
+import { frame } from '../../../game/frame'
 
 const params = new URLSearchParams(location.search)
 const DT = 1 / 60
@@ -168,6 +170,8 @@ async function main() {
   if (params.get('style')) warlockParams.style = params.get('style') as WarlockStyle
   if (params.get('wlook') === 'void') warlockParams.look = 'void'
 
+  // viewer: pawn owner = actor index; the hero is the local player unless ?pov says otherwise
+  frame.localPlayer = params.has('pov') ? Number(params.get('pov')) : 0
   const actors: Actor[] = []
   const spawn = (i: number): Actor => {
     const pawn = newPawn(i)
@@ -418,6 +422,10 @@ async function main() {
     debugClip(on?: boolean) {
       clothParams.debugClip.value = (on ?? clothParams.debugClip.value < 0.5) ? 1 : 0
     },
+    /** local player (pawn owner = actor index), -1 = spectator */
+    pov(n: number) {
+      frame.localPlayer = n
+    },
     /** material look: 'readable' (default) | 'void' (the earlier near-black robe) */
     look(v: 'readable' | 'void') {
       warlockParams.look = v
@@ -428,7 +436,7 @@ async function main() {
      * holding a windup; camera = the match's gameplay camera (60 deg pitch,
      * 1100 units, 70 deg hfov on 4:3) over the group.
      */
-    lineup(state: 'idle' | 'run' | 'cast') {
+    lineup(state: 'idle' | 'run' | 'cast', spell = 'fireball') {
       ctl.count(4)
       const colors = [0xff3b30, 0x2e7bff, 0x14e0c8, 0xa24bff]
       const facings = [-Math.PI / 2, 0, Math.PI / 2, Math.PI]
@@ -449,8 +457,8 @@ async function main() {
         for (const a of actors) {
           const p = a.pawn
           const ticks = 54
-          p.cast = { slot: 0, spell: 'fireball', ticksLeft: ticks, x: p.x + Math.cos(p.facing) * 500, y: p.y + Math.sin(p.facing) * 500, started: true }
-          a.pending.push({ type: 'castStart', pawn: p.id, spell: 'fireball', ticks })
+          p.cast = { slot: 0, spell, ticksLeft: ticks, x: p.x + Math.cos(p.facing) * 500, y: p.y + Math.sin(p.facing) * 500, started: true }
+          a.pending.push({ type: 'castStart', pawn: p.id, spell, ticks })
         }
         ctl.step(0.6)
       } else ctl.step(0.6)

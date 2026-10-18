@@ -79,6 +79,16 @@ describe('camera reach', () => {
     expect(r.ox).toBeLessThan(start * 0.02)
   })
 
+  it('edge pan off: the screen edge never pans, peek still does', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60 * 2; i++) r.step(input({ edgePan: false, pointer: { x: 0.99, y: 0.99, inside: true } }))
+    expect(r.ox).toBe(0)
+    expect(r.oy).toBe(0)
+    const pawn = { x: 0, y: -1800 }
+    for (let i = 0; i < 60 * 2; i++) r.step(input({ edgePan: false, pawn, peek: true, pointer: { x: 0, y: 0.9, inside: true } }))
+    expect(r.oy).toBeGreaterThan(2000)
+  })
+
   it('peek eases toward the cursor up to the reach, and back on release', () => {
     const r = new CameraReach()
     // warlock at the south edge looking north across the whole arena

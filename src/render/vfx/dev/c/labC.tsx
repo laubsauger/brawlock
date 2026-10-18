@@ -6,7 +6,7 @@
  *         &slow=0.3  &zoom=500..1500  &vc=<victim colour hex, e.g. ff6fb5>  &n=1..4 (victims dying together)  &cancel=0.5 (stop the killer's windup after 0.5 s)
  *         &off=<module spell ids> (unregister modules, e.g. off=scourge to see the built-in)
  *         &hidecharge (hide PawnView's built-in Scourge charge decal)  &lvl=1..3 (Scourge level)  &allcast (victims cast Scourge too)
- *         &match8 | &match8=cb (8-bot match, standard / colourblind palette; probe __labC.fightT())
+ *         &pov=<player> (-1 spectator)  &match8 | &match8=cb (8-bot match, standard / colourblind palette; probe __labC.fightT())
  * Console: __labC.since() = sim seconds since the victim's last death (screenshot timing),
  *          __labC.devTime.scale = 0 freezes everything (render clock too).
  */
@@ -14,6 +14,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../../../index.css'
 import { useGame, type Quality } from '../../../../game/store'
+import { frame } from '../../../../game/frame'
 import { MatchView, renderStats } from '../../../index'
 import { cameraZoomParam } from '../../../cameraRig'
 import { devTime } from '../../../stats'
@@ -80,6 +81,8 @@ function Lab() {
     const vc = params.get('vc')
     // &match8[=cb]: 8 bots fighting, standard or colourblind slot palette (palette review)
     const stop = params.has('match8') ? startMatchLab({ n: Number(params.get('n') ?? 8), cb: params.get('match8') === 'cb', seed: Number(params.get('seed') ?? 7) }) : startDeathLab({ causes, every: Number(params.get('every') ?? 5), hit: params.has('hit'), victimColor: vc ? parseInt(vc, 16) : undefined, n: Number(params.get('n') ?? 1), cancelAfter: params.has('cancel') ? Number(params.get('cancel') || 0.5) : undefined, level: Number(params.get('lvl') ?? 0) || undefined, allCast: params.has('allcast') }, setLabel)
+    // &pov=<player>: render from that player's view (-1 = spectator / replay)
+    if (params.has('pov')) frame.localPlayer = Number(params.get('pov'))
     const t = params.has('zoom') ? setTimeout(() => (cameraZoomParam.distance = Number(params.get('zoom'))), 50) : 0
     const id = setInterval(() => {
       const s = renderStats
