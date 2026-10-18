@@ -76,6 +76,24 @@ function syncRenderPrefs(m: RenderModule): void {
   })
 }
 
+/** Camera zoom by wheel notches (+ = out); the replay viewer has no match input to do it. */
+export function zoomCamera(notches: number): void {
+  try {
+    mod?.zoomCamera(notches)
+  } catch (e) {
+    console.error('[ui] zoomCamera failed', e)
+  }
+}
+
+/** Free camera for the replay viewer (null = follow the shown player again). */
+export function setCameraFocus(p: { x: number; y: number } | null): void {
+  try {
+    mod?.setCameraFocus(p)
+  } catch (e) {
+    console.error('[ui] setCameraFocus failed', e)
+  }
+}
+
 export function recenterCamera(): void {
   try {
     mod?.recenterCamera()

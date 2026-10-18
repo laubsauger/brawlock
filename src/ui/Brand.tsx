@@ -15,7 +15,8 @@ export function Wordmark({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
       </h1>
     )
   }
-  const width = { sm: '220px', md: '340px', lg: 'min(470px, 82vw)', xl: 'min(640px, 86vw)' }[size]
+  // lg follows the screen height too, so the main menu fits on short screens (1280x720 with the server options)
+  const width = { sm: '220px', md: '340px', lg: 'min(470px, 82vw, 52vh)', xl: 'min(640px, 86vw)' }[size]
   return (
     <h1 className="m-0 leading-none">
       <img

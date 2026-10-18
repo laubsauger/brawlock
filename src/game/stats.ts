@@ -14,10 +14,10 @@
  * and the hall of fame outlive the history cap. Corrupt or foreign data never throws:
  * it is ignored field by field, and v1 saves are migrated in place.
  */
-import { isLocationSafeAtLayer } from '../sim/arena'
 import type { BotDifficulty, GameMode, MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState, TeamMode } from '../sim/types'
 import { TICK_HZ } from '../sim/types'
 import { KillTally } from './announcer'
+import { isTeleportSave, slideDecay, slideSnapshot } from './teleportSave'
 import { randomId, safeLocalStorage, type KV } from './profile'
 import type { MatchResult } from './store'
 
@@ -317,8 +317,6 @@ export function profileIdOf(slot: PlayerSlot): string {
 export const FLIGHT_START_SPEED = 200
 /** ... and ends once it decays below this one */
 export const FLIGHT_STOP_SPEED = 20
-/** a Teleport counts as a save from a slide this fast toward the lava (u/s) */
-const SAVE_SLIDE_SPEED = 100
 /** spells whose hits are counted for accuracy (they deal damage) */
 const DAMAGING = new Set([
   'fireball', 'scourge', 'boomerang', 'lightning', 'homing', 'twin', 'thrust', 'cluster', 'drain',
@@ -394,8 +392,7 @@ export class MatchTracker {
 
   constructor(info: TrackerInfo) {
     this.info = info
-    const f = n(info.settings?.friction) || 0.96
-    this.decay = f > 0 && f < 1 ? -Math.log(f) / 0.035 : 0
+    this.decay = slideDecay(info.settings?.friction)
   }
 
   private acc(p: PlayerId): Acc {
@@ -486,7 +483,7 @@ export class MatchTracker {
           if (owner === undefined) break
           const a = this.acc(owner)
           a.teleported += Math.hypot(e.toX - e.fromX, e.toY - e.fromY)
-          if (fighting && a.seen && isLocationSafeAtLayer(layer, e.toX, e.toY) && (a.inLava || this.lavaBound(a, layer))) a.teleportSaves++
+          if (fighting && a.seen && isTeleportSave(a, e.toX, e.toY, layer, this.decay)) a.teleportSaves++
           break
         }
         case 'shieldReflect': {
@@ -535,11 +532,7 @@ export class MatchTracker {
         }
       }
       a.seen = true
-      a.x = x
-      a.y = y
-      a.kbx = kbx
-      a.kby = kby
-      a.inLava = p.alive && n(p.lavaTicks) > 0
+      Object.assign(a, slideSnapshot(p))
     }
     if (Array.isArray(state.scores)) {
       for (const sc of state.scores) {
@@ -552,14 +545,6 @@ export class MatchTracker {
         a.lastGold = g
       }
     }
-  }
-
-  /** Was the pawn sliding (knockback) toward a resting point in the lava? */
-  private lavaBound(a: Acc, layer: number): boolean {
-    const speed = Math.hypot(a.kbx, a.kby)
-    if (speed < SAVE_SLIDE_SPEED || this.decay <= 0) return false
-    // geometric decay: total remaining slide = v / decay
-    return !isLocationSafeAtLayer(layer, a.x + a.kbx / this.decay, a.y + a.kby / this.decay)
   }
 
   /** Per-player stats so far (also used by finish). */

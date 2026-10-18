@@ -38,9 +38,11 @@ export interface Listener {
   localPlayer?: PlayerId
   /**
    * latest state (pass the whole SimState): places events that carry only entity ids
-   * (cast, castStart, death) and gives projectile travel loops their flight
+   * (cast, castStart, death), gives projectile travel loops their flight, and lets the
+   * announcer call the round (phase, timer, scores, teams, HP)
    */
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick'>>
+  state?: Pick<SimState, 'pawns'> &
+    Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick' | 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings'>>
 }
 
 export interface AudioApi {

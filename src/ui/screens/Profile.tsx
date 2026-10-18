@@ -6,9 +6,12 @@ import { displayName } from '../data/catalog'
 import { percent, ratingTrend, seconds, tiles } from '../lib/statFormat'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useGame } from '../../game/store'
-import { Button, Kbd } from '../widgets'
+import { Button, Kbd, Segmented } from '../widgets'
+import { online, session, type LeaderboardPage, type Period, type PublicBoardRow, type ServerProfile } from '../../game/session'
 import { hex } from '../lib/view'
 import { ago, duration, readCareer, readEncounterList, readHistory, readLeaderboard, useStats } from '../lib/stats'
+import { exportReplay, importReplay, useReplayIds, watchReplay } from '../lib/replays'
+import { REPLAY_EXT } from '../../game/replay/format'
 import { chooseName, NAME_MAX } from '../lib/name'
 
 type Tab = 'matches' | 'stats' | 'rivals' | 'board'
@@ -39,13 +42,45 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="py-8 text-center text-[1.05rem] text-ash">{children}</p>
 }
 
+/** Import a shared `.brawlock` replay file and watch it. */
+function ImportReplay() {
+  const ref = useRef<HTMLInputElement>(null)
+  return (
+    <div className="mb-2 flex justify-end">
+      <input
+        ref={ref}
+        type="file"
+        accept={REPLAY_EXT}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f) void importReplay(f)
+        }}
+      />
+      <button type="button" className="text-[0.9rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => ref.current?.click()}>
+        Import a replay ({REPLAY_EXT})
+      </button>
+    </div>
+  )
+}
+
 function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: string | null) => void }) {
   const history = useStats(readHistory)
+  const replayIds = useReplayIds()
   const openRef = useRef<HTMLLIElement>(null)
   // a Hall of Fame link opens its match: bring it into view
   useEffect(() => openRef.current?.scrollIntoView({ block: 'nearest' }), [openId])
-  if (history.length === 0) return <Empty>No matches yet. Play against bots or host a game; every match lands here.</Empty>
+  if (history.length === 0)
+    return (
+      <>
+        <ImportReplay />
+        <Empty>No matches yet. Play against bots or host a game; every match lands here.</Empty>
+      </>
+    )
   return (
+    <>
+    <ImportReplay />
     <ul className="flex flex-col gap-1.5">
       {history.map((r) => {
         const me = r.participants.find((p) => p.player === r.self)
@@ -86,6 +121,11 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
                   {me.kills} / {me.deaths}
                 </span>
               )}
+              {replayIds.has(r.id) && (
+                <button type="button" className="text-[0.9rem] text-[#ffcf9a] underline-offset-2 hover:underline" aria-label="Watch the replay of this match" onClick={() => void watchReplay(r.id)}>
+                  ▶ Replay
+                </button>
+              )}
               <span className="w-28 text-right text-[0.9rem] text-ash">{modeLabel(r)}</span>
               <span className="tabular w-12 text-right text-[0.9rem] text-ash">{duration(r.durationSec)}</span>
               <span className="w-24 text-right text-[0.9rem] text-ash">{ago(r.date)}</span>
@@ -94,12 +134,23 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
               <div className="pop-in flex flex-col gap-2 px-3 pb-3">
                 {r.awards && r.awards.length > 0 && <AwardsStrip awards={r.awards} who={who} compact />}
                 {me?.stats ? <PlayerStatsDetail stats={me.stats} /> : <p className="text-[0.9rem] text-ash">Detailed stats are kept for your 30 most recent matches.</p>}
+                {replayIds.has(r.id) && (
+                  <div className="flex gap-3 text-[0.9rem]">
+                    <button type="button" className="text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => void watchReplay(r.id)}>
+                      Watch replay
+                    </button>
+                    <button type="button" className="text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => void exportReplay(r.id)}>
+                      Export ({REPLAY_EXT})
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </li>
         )
       })}
     </ul>
+    </>
   )
 }
 
@@ -343,7 +394,7 @@ function Rivals() {
   )
 }
 
-function Board() {
+function LocalBoard() {
   const rows = useStats(readLeaderboard)
   return (
     <div>
@@ -385,6 +436,176 @@ function Board() {
           </tbody>
         </table>
       )}
+    </div>
+  )
+}
+
+/** "Mira#K3P9Q": the tag small and dim. */
+function NameTag({ name, tag }: { name: string; tag: string }) {
+  return (
+    <span className="font-semibold">
+      {name}
+      <span className="ml-0.5 text-[0.78em] font-medium text-ash/70">#{tag}</span>
+    </span>
+  )
+}
+
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(Math.round(n))}`
+
+function BoardRowView({ r, you, period }: { r: PublicBoardRow; you: boolean; period: Period }) {
+  return (
+    <tr className={`border-t border-[rgba(255,170,100,0.08)] ${you ? 'bg-[rgba(255,180,80,0.1)]' : ''}`} data-you={you || undefined}>
+      <td className="py-2 font-bold text-ash">{r.rank}</td>
+      <td className="py-2">
+        <span className="flex items-center gap-2">
+          <NameTag name={r.name} tag={r.tag} />
+          {you && <span className="chip text-gold">You</span>}
+        </span>
+      </td>
+      <td className="py-2 text-right text-[1.12rem] font-bold text-gold">{r.rating}</td>
+      <td className={`py-2 text-right ${r.gain > 0 ? 'text-heal' : r.gain < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`} title={period === 'week' ? 'Rating gained this week' : 'Above or below the starting rating'}>
+        {signed(r.gain)}
+      </td>
+      <td className="py-2 text-right">{r.matches}</td>
+      <td className="py-2 text-right">{r.wins}</td>
+      <td className="py-2 text-right">
+        {r.kills} / {r.deaths}
+      </td>
+    </tr>
+  )
+}
+
+/** Casual global leaderboard of the game server (server games between people only). */
+function GlobalBoard() {
+  const [period, setPeriod] = useState<Period>('all')
+  const [page, setPage] = useState<LeaderboardPage | null>(null)
+  const [profile, setProfile] = useState<ServerProfile | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    setError(null)
+    setPage(null)
+    session
+      .leaderboard(period)
+      .then((p) => alive && setPage(p))
+      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
+    session
+      .serverProfile()
+      .then((p) => alive && setProfile(p))
+      .catch(() => alive && setProfile(null))
+    return () => {
+      alive = false
+    }
+  }, [period])
+  const you = page?.you ?? null
+  const isYou = (r: PublicBoardRow) => !!you && r.rank === you.rank && r.name === you.name && r.tag === you.tag
+  const youListed = !!you && !!page?.entries.some(isYou)
+  return (
+    <div className="flex flex-col gap-3" data-testid="global-board">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-[0.92rem] text-ash">Global counts games on our servers with at least 2 players for 2+ minutes. Bots never count.</p>
+        <Segmented
+          label="Period"
+          value={period}
+          options={[
+            { value: 'all', label: 'All time' },
+            { value: 'week', label: 'This week' },
+          ]}
+          onChange={setPeriod}
+        />
+      </div>
+      {profile && (
+        <div className="flex flex-wrap items-start gap-x-8 gap-y-3 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-3" data-testid="server-profile">
+          <span className="flex flex-col">
+            <span className="text-[0.8rem] font-semibold text-ash">You on {profile.region.label}</span>
+            <NameTag name={profile.name} tag={profile.tag} />
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[0.8rem] font-semibold text-ash">Rating</span>
+            <span className="tabular text-[1.3rem] font-bold text-gold">{profile.rating}</span>
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[0.8rem] font-semibold text-ash">Rank</span>
+            <span className="tabular text-[1.3rem] font-bold">#{profile.rank}</span>
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[0.8rem] font-semibold text-ash">Matches</span>
+            <span className="tabular text-[1.3rem] font-bold">
+              {profile.wins}–{profile.matches - profile.wins}
+            </span>
+          </span>
+          {profile.recent.length > 0 && (
+            <ul className="flex min-w-[16rem] flex-1 flex-wrap gap-1" aria-label="Your last counted matches">
+              {profile.recent.map((m) => (
+                <li
+                  key={m.at}
+                  className={`tabular rounded px-1.5 py-0.5 text-[0.8rem] font-semibold ${m.won ? 'bg-[rgba(127,227,154,0.14)] text-heal' : 'bg-[rgba(255,106,85,0.14)] text-[#ff9b8a]'}`}
+                  title={`${new Date(m.at).toLocaleString()}: ${m.won ? 'won' : 'lost'}, rounds ${m.roundsWon}/${m.roundsPlayed}, ${m.kills}/${m.deaths} K/D, rating ${m.rating}`}
+                >
+                  {m.won ? 'W' : 'L'} {signed(m.delta)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {error ? (
+        <Empty>{error}</Empty>
+      ) : !page ? (
+        <Empty>Loading the leaderboard…</Empty>
+      ) : page.entries.length === 0 ? (
+        <Empty>{period === 'week' ? 'Nobody has a counted game this week yet.' : 'No counted games yet. Play a game on our servers with a friend.'}</Empty>
+      ) : (
+        <table className="tabular w-full text-left text-[1.02rem]">
+          <thead className="text-sm text-ash">
+            <tr>
+              <th className="w-12 pb-2 font-semibold">#</th>
+              <th className="pb-2 font-semibold">Player</th>
+              <th className="pb-2 text-right font-semibold">Rating</th>
+              <th className="pb-2 text-right font-semibold">{period === 'week' ? 'This week' : 'Gain'}</th>
+              <th className="pb-2 text-right font-semibold">Matches</th>
+              <th className="pb-2 text-right font-semibold">Wins</th>
+              <th className="pb-2 text-right font-semibold">K / D</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.entries.map((r) => (
+              <BoardRowView key={`${r.rank}:${r.name}:${r.tag}`} r={r} you={isYou(r)} period={period} />
+            ))}
+            {you && !youListed && (
+              <>
+                <tr aria-hidden>
+                  <td colSpan={7} className="py-1 text-center text-ash">
+                    ⋯
+                  </td>
+                </tr>
+                <BoardRowView r={you} you period={period} />
+              </>
+            )}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+/** Leaderboard: this device's local ratings, or (server builds) the global casual board. */
+function Board() {
+  const [scope, setScope] = useState<'device' | 'global'>('device')
+  return (
+    <div className="flex flex-col gap-3">
+      {online.configured && (
+        <Segmented
+          label="Leaderboard"
+          value={scope}
+          options={[
+            { value: 'device', label: 'This device' },
+            { value: 'global', label: 'Global' },
+          ]}
+          onChange={setScope}
+        />
+      )}
+      {scope === 'global' && online.configured ? <GlobalBoard /> : <LocalBoard />}
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { Lobby } from './ui/screens/Lobby'
 import { Match } from './ui/screens/Match'
 import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
+import { Replay } from './ui/screens/Replay'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
 import { MatchLayer } from './ui/MatchLayer'
@@ -166,6 +167,7 @@ export default function App() {
         {screen === 'match' && <Match />}
         {screen === 'results' && <Results />}
         {screen === 'credits' && <Credits />}
+        {screen === 'replay' && <Replay />}
       </main>
       {settingsOpen && <SettingsModal />}
       <SplashScreen />

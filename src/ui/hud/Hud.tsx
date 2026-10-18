@@ -19,6 +19,7 @@ import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
+import { ANNOUNCER_TEXT, roundCall } from '../../game/announcer'
 
 interface HitMemory {
   /** spell / item of the last sourced hit */
@@ -54,7 +55,9 @@ function useDirector() {
     const local = frame.localPlayer
     const who = winnersText(state.slots, winners, state.settings.teamMode)
     const won = winners.includes(local)
-    announce.hold(winners.length === 0 ? 'Draw' : won ? 'Victory' : 'Defeat', who ? `${who.text} ${who.plural ? 'win' : 'wins'} the match` : '', won ? 'win' : 'danger')
+    // the announcer's words; a spectator gets no Victory / Defeat (and hears none)
+    const title = winners.length === 0 ? ANNOUNCER_TEXT.draw : local < 0 ? 'Match over' : won ? ANNOUNCER_TEXT.victory : ANNOUNCER_TEXT.defeat
+    announce.hold(title, who ? `${who.text} ${who.plural ? 'win' : 'wins'} the match` : '', won ? 'win' : local < 0 ? 'normal' : 'danger')
     sfx(won ? 'ready' : 'back')
     music('none')
     useGame.getState().toggle('shopOpen', false)
@@ -100,14 +103,14 @@ function useDirector() {
         }
         case 'roundWin': {
           if (e.team === TEAM_DRAW || e.players.length === 0) {
-            announce.banner('Draw', 'Nobody survived the round', 'normal', 2400)
+            announce.banner(ANNOUNCER_TEXT.draw, 'Nobody survived the round', 'normal', 2400)
             break
           }
           const mine = e.players.includes(local)
           const round = displayRound(state)
           const sub =
             e.players.length === 1 ? `${slotName(state, e.players[0])} takes round ${round}` : `${teamName(e.team)} team takes round ${round}`
-          announce.banner(mine ? 'Round won' : 'Round lost', sub, mine ? 'win' : 'danger', 2600)
+          announce.banner(mine ? ANNOUNCER_TEXT.round_won : 'Round lost', sub, mine ? 'win' : 'danger', 2600)
           sfx(mine ? 'ready' : 'back')
           break
         }
@@ -137,7 +140,7 @@ function useDirector() {
         break
       case 'fight':
         store.toggle('shopOpen', false)
-        announce.banner('Fight!', '', 'fight', 1300)
+        announce.banner(ANNOUNCER_TEXT.fight, '', 'fight', 1300)
         sfx('fight')
         music('fight')
         break
@@ -176,7 +179,9 @@ function useDirector() {
     if (state.phase === 'shop' || state.phase === 'warmup') {
       const secs = Math.ceil(state.phaseTicksLeft / TICK_HZ)
       if (secs >= 1 && secs <= 3 && secs !== s.count) {
-        announce.banner(String(secs), '', 'count', 900)
+        // the announcer's call for this round, word for word ("Round Two!", "Match Point!")
+        const call = roundCall(state)
+        announce.banner(String(secs), call ? ANNOUNCER_TEXT[call] : '', 'count', 900)
         sfx('countdown')
       }
       s.count = secs

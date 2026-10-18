@@ -9,6 +9,8 @@ import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
 import { isTypingTarget } from '../lib/keys'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
+import { useReplayIds, watchReplay } from '../lib/replays'
+import { AutoStart } from './Lobby'
 
 interface Row {
   id: number
@@ -75,15 +77,20 @@ export function Results() {
   const role = useGame((s) => s.lobby.role)
   const local = useGame((s) => s.lobby.localPlayer)
   const ready = useGame((s) => s.lobby.ready)
+  // quick play: no rematch vote, the next match starts by itself
+  const quick = useGame((s) => !!s.lobby.quick)
+  const autoStart = useGame((s) => s.lobby.autoStart ?? null)
   const isHost = role !== 'client'
   const rec = useMemo(() => (result ? recordFor(result) : null), [result])
+  // the replay is saved a moment after the match (compressed): the button appears then
+  const replayIds = useReplayIds()
   // one player's detail row open at a time (all closed at first, so the board fits at 1280x720)
   const [expanded, setExpanded] = useState<number | null>(null)
 
   // Enter = rematch, the one-click loop
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.repeat || isTypingTarget(e.target) || useGame.getState().settingsOpen) return
+      if (e.key !== 'Enter' || e.repeat || isTypingTarget(e.target) || useGame.getState().settingsOpen || useGame.getState().lobby.quick) return
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       e.preventDefault()
       if (isHost) rematch()
@@ -249,6 +256,14 @@ export function Results() {
         </table>
       </div>
 
+      {quick ? (
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
+          <span className="text-[1.15rem] font-semibold text-[#f0d9b8]">{autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : 'The next match starts by itself.'}</span>
+          <Button variant="ghost" sound="back" onClick={leaveToMenu}>
+            Leave
+          </Button>
+        </div>
+      ) : (
       <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
         {isHost ? (
           <Button variant="primary" size="lg" sound="ready" onClick={rematch} autoFocus>
@@ -262,11 +277,17 @@ export function Results() {
         <Button size="lg" onClick={backToLobby}>
           Back to lobby
         </Button>
+        {rec && replayIds.has(rec.id) && (
+          <Button size="lg" onClick={() => void watchReplay(rec.id)}>
+            Watch replay
+          </Button>
+        )}
         <Button variant="ghost" sound="back" onClick={leaveToMenu}>
           Leave
         </Button>
       </div>
-      {online && humans.length > 1 && (
+      )}
+      {online && !quick && humans.length > 1 && (
         <p className="mt-3 text-[0.98rem] text-ash" aria-live="polite">
           {isHost ? `${readyCount} of ${humans.length - 1} ${humans.length - 1 === 1 ? 'opponent wants' : 'players want'} a rematch.` : localReady ? 'The host sees that you are ready.' : 'The host starts the rematch.'}
         </p>

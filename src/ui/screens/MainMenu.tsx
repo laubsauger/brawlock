@@ -1,21 +1,49 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd } from '../widgets'
-import { hostGame, hostOnServer, joinRoom, playOffline, useLastHostResult } from '../flow'
+import { hostGame, hostOnServer, joinRoom, lastHostAction, playOffline, quickPlay, useLastHostResult } from '../flow'
+import { BrowseGames } from './BrowseGames'
 import { online } from '../../game/session'
-import { pickRegion, pingGrade, regionProblem, useRegionChoice, useRegions, type RegionState, type RegionStatus } from '../lib/servers'
-import { GRADE_COLOR } from '../lib/netstats'
-import { SignalBars } from '../hud/ConnIndicator'
+import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
+import { RegionPing } from '../RegionPing'
 import { sfx } from '../lib/sound'
 import { chooseName, NAME_MAX } from '../lib/name'
 import { staggerIn } from '../lib/motion'
 import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
 
-function MenuEntry({ title, sub, note, onClick, primary, expanded }: { title: string; sub: string; note?: string; onClick: () => void; primary?: boolean; expanded?: boolean }) {
+function MenuEntry({
+  title,
+  sub,
+  note,
+  onClick,
+  primary,
+  expanded,
+  disabled,
+  hint,
+  testId,
+}: {
+  title: string
+  sub: ReactNode
+  note?: string
+  onClick: () => void
+  primary?: boolean
+  expanded?: boolean
+  disabled?: boolean
+  hint?: string
+  testId?: string
+}) {
   return (
-    <Button variant={primary ? 'primary' : 'default'} className={`menu-item ${primary ? 'py-[1.05rem]' : 'py-[0.6rem]'}`} onClick={onClick} aria-expanded={expanded}>
+    <Button
+      variant={primary ? 'primary' : 'default'}
+      className={`menu-item ${primary ? 'py-[1.05rem]' : 'py-[0.6rem]'}`}
+      onClick={onClick}
+      aria-expanded={expanded}
+      disabled={disabled}
+      title={hint}
+      data-testid={testId}
+    >
       <span className="flex flex-col items-start gap-0.5 leading-tight">
         <span className={`btn-label tracking-[0.06em] ${primary ? 'text-[1.4rem]' : 'text-[1.08rem]'}`}>{title}</span>
         <span className={`font-ui font-medium tracking-normal ${primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
@@ -25,76 +53,72 @@ function MenuEntry({ title, sub, note, onClick, primary, expanded }: { title: st
   )
 }
 
-const STATE_DOT: Record<RegionState, { color: string; label: string }> = {
-  up: { color: '#7fe39a', label: 'Online' },
-  down: { color: '#ff5a4a', label: 'Offline' },
-  mismatch: { color: '#ffb347', label: 'Other game version' },
-  checking: { color: '#9a8775', label: 'Checking' },
-}
-
-/** Health dot plus signal bars and ping coloured by the netcode grade, for one region. */
-export function RegionPing({ s, withName = false }: { s: RegionStatus; withName?: boolean }) {
-  const grade = s.state === 'up' ? pingGrade(s.rttMs) : null
-  const dot = STATE_DOT[s.state]
-  const ms = s.state === 'up' ? (s.rttMs != null ? `${s.rttMs} ms` : '…') : dot.label.toLowerCase()
-  return (
-    <span className="font-ui flex shrink-0 items-center gap-2 tracking-normal whitespace-nowrap normal-case" aria-label={`${s.label}: ${dot.label}${s.rttMs != null && s.state === 'up' ? `, ${s.rttMs} ms` : ''}`}>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot.color, boxShadow: `0 0 6px ${dot.color}` }} aria-hidden />
-      {withName && <span className="text-[#cdb8a4]">{s.label} ·</span>}
-      <span className="tabular font-semibold" style={{ color: grade ? GRADE_COLOR[grade] : dot.color }}>
-        {ms}
-      </span>
-      {s.state === 'up' && <SignalBars grade={grade} scale={0.8} />}
-    </span>
-  )
-}
-
 /** "US West · 168 ms": the label text a region gets in buttons and messages. */
 function regionText(r: RegionStatus): string {
   return r.rttMs != null && r.state === 'up' ? `${r.label} · ${r.rttMs} ms` : r.label
 }
 
 /**
- * Host choice in builds with a game server: hosting from your PC stays the
- * main action (friends connect straight to you); the game server is the
- * second option, with its region, health and ping at a glance (re-pinged
- * every few seconds while the menu is up).
+ * "Quick play" (server builds): jump into an open game on the game server, or
+ * a new one filled with bots. Region, health and ping at a glance; greyed out
+ * with the reason when the server cannot take players.
  */
-function HostChoice() {
+function QuickPlayEntry() {
+  const statuses = useRegions(5000)
+  const choice = useRegionChoice()
+  const region = pickRegion(statuses, choice)
+  const problem = regionProblem(region)
+  return (
+    <MenuEntry
+      title="Quick play"
+      sub={
+        <span className="flex items-center gap-2">
+          <span>Jump into a game ·</span>
+          {region ? <RegionPing s={region} withName /> : '…'}
+        </span>
+      }
+      disabled={!!problem}
+      hint={problem ?? `Join an open game on the game server in ${region?.label}, or start one with bots`}
+      onClick={() => region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
+      testId="quick-play"
+    />
+  )
+}
+
+/** Tertiary links under the menu (server builds): host a room on the game server, browse open games. */
+function ServerLinks({ onBrowse }: { onBrowse: () => void }) {
   const statuses = useRegions(5000)
   const choice = useRegionChoice()
   const setSettings = useGame((s) => s.setSettings)
   const region = pickRegion(statuses, choice)
   const problem = regionProblem(region)
-  const many = statuses.length > 1
   return (
-    <div className="host-choice flex flex-col gap-1.5">
-      <MenuEntry title="Host from your PC" sub="Friends connect straight to you" onClick={hostGame} />
-      <div className="flex items-stretch gap-1.5">
-        <Button
-          className="host-server flex-1 justify-start px-4 py-2"
-          disabled={!!problem}
-          title={problem ?? `Run the room on the game server in ${region?.label}. Everyone connects to it, so each player's ping depends on how far they are from ${region?.label}.`}
-          onClick={() => region && hostOnServer(choice === 'auto' ? 'auto' : region.id)}
-          data-testid="host-server"
-        >
-          <span className="flex flex-col items-start gap-0.5 leading-tight">
-            <span className="btn-label text-[1.08rem] tracking-[0.06em]">Host on game server</span>
-            {region ? <span className="text-[0.86rem]">{<RegionPing s={region} withName />}</span> : <span className="font-ui text-[0.86rem] text-[#a8927c]">…</span>}
-          </span>
-        </Button>
-        {many && (
-          <select className="field w-28 text-[0.9rem]" aria-label="Game server region" value={choice} onChange={(e) => setSettings({ serverRegion: e.target.value })}>
-            <option value="auto">Auto</option>
-            {statuses.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-                {r.state === 'up' && r.rttMs != null ? ` (${r.rttMs} ms)` : r.state === 'up' ? '' : ' (offline)'}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+    <div className="-mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="host-server px-2"
+        disabled={!!problem}
+        title={problem ?? `Run a room on the game server in ${region?.label}. Everyone connects to it, so each player's ping depends on how far they are from ${region?.label}.`}
+        onClick={() => region && hostOnServer(choice === 'auto' ? 'auto' : region.id)}
+        data-testid="host-server"
+      >
+        Host on game server
+      </Button>
+      <Button variant="ghost" size="sm" className="px-2" disabled={!!problem} title={problem ?? 'Open games you can join right now'} onClick={onBrowse} data-testid="browse-games">
+        Browse games
+      </Button>
+      {statuses.length > 1 && (
+        <select className="field ml-auto w-28 py-1 text-[0.85rem]" aria-label="Game server region" value={choice} onChange={(e) => setSettings({ serverRegion: e.target.value })}>
+          <option value="auto">Auto</option>
+          {statuses.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+              {r.state === 'up' && r.rttMs != null ? ` (${r.rttMs} ms)` : r.state === 'up' ? '' : ' (offline)'}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   )
 }
@@ -196,10 +220,11 @@ export function MainMenu() {
   const setScreen = useGame((s) => s.setScreen)
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [browseOpen, setBrowseOpen] = useState(false)
   const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
   // menu entries rise in one after another whenever the menu shows
-  useEffect(() => staggerIn(navRef.current), [profileOpen])
+  useEffect(() => staggerIn(navRef.current), [profileOpen, browseOpen])
   const [draft, setDraft] = useState(name)
   useEffect(() => setDraft(name), [name])
 
@@ -208,24 +233,30 @@ export function MainMenu() {
   // the session lands here with lobby.error after a failed host / join / disconnect
   const error = lobbyStatus === 'error' ? lobbyError : null
   const hostResult = useLastHostResult()
+  const hostAction = lastHostAction()
   const dismissError = () => setLobby({ status: 'idle', error: null })
 
   if (profileOpen) return <Profile onBack={() => setProfileOpen(false)} />
+  if (browseOpen) return <BrowseGames onBack={() => setBrowseOpen(false)} />
 
   return (
-    <div className="screen-in relative flex h-full flex-col justify-center px-[max(24px,7vw)] py-8">
+    // bottom padding keeps the centred column clear of the footer row
+    <div className="screen-in relative flex h-full flex-col justify-center px-[max(24px,7vw)] pt-6 pb-14">
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
       <div className="relative flex w-full max-w-[460px] flex-col">
         <Wordmark />
-        <p className="hud-text-shadow mt-4 mb-7 max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4]">Knock rival warlocks into the lava. Last one standing takes the round.</p>
+        {/* the tagline makes room on short screens (1280x720 with the game-server options) */}
+        <p className="hud-text-shadow mt-[min(1rem,2vh)] mb-[min(1.75rem,3vh)] max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4] [@media(max-height:780px)]:hidden">Knock rival warlocks into the lava. Last one standing takes the round.</p>
 
         {error && (
           <div role="alert" className="pop-in mb-5 flex items-start gap-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-3">
             <div className="flex flex-1 flex-col items-start gap-2">
               {online.configured && hostResult && !hostResult.ok ? (
                 <>
-                  <p className="text-[1rem] leading-snug font-semibold text-[#ffd3c9]">{hostResult.mode === 'p2p' ? "Couldn't host from your PC." : "Couldn't host on the game server."}</p>
+                  <p className="text-[1rem] leading-snug font-semibold text-[#ffd3c9]">
+                    {hostAction === 'quick' ? "Couldn't join quick play." : hostResult.mode === 'p2p' ? "Couldn't host from your PC." : "Couldn't host on the game server."}
+                  </p>
                   <p className="text-[0.88rem] leading-snug text-[#e9b8ac]">{error}</p>
                 </>
               ) : (
@@ -239,7 +270,7 @@ export function MainMenu() {
           </div>
         )}
 
-        <label className="mb-5 flex flex-col gap-1.5">
+        <label className="mb-[min(1.25rem,2.4vh)] flex flex-col gap-1.5">
           <span className="text-[0.95rem] font-semibold text-[#d9c4ae]">Your name</span>
           <input
             className="field max-w-[300px] text-[1.15rem] font-semibold"
@@ -254,9 +285,11 @@ export function MainMenu() {
 
         <nav ref={navRef} className="flex flex-col gap-2.5" aria-label="Main menu">
           <MenuEntry primary title="Play vs bots" sub="Offline practice against the AI" onClick={playOffline} />
-          {online.configured ? <HostChoice /> : <MenuEntry title="Host from your PC" sub="Friends connect straight to you" onClick={hostGame} />}
+          {online.configured && <QuickPlayEntry />}
+          <MenuEntry title="Host from your PC" sub="Friends connect straight to you" onClick={hostGame} />
           <MenuEntry title="Join game" sub="Type the host's room code" expanded={joinOpen} onClick={() => setJoinOpen((o) => !o)} />
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
+          {online.configured && <ServerLinks onBrowse={() => setBrowseOpen(true)} />}
           <div className="mt-1 grid grid-cols-3 gap-2.5">
             <Button variant="ghost" size="sm" className="px-2 whitespace-nowrap" onClick={() => setProfileOpen(true)}>
               Your record

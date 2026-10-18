@@ -74,6 +74,11 @@ function verticalFov(aspect: number): number {
 /** Dev-only: pin the match camera to a game position (look-dev screenshots). */
 export const devCamera = { focus: null as { x: number; y: number } | null }
 
+/** Free camera (replay viewer): hold the camera on a game-unit point; null = follow again. */
+export function setCameraFocus(p: { x: number; y: number } | null): void {
+  devCamera.focus = p ? { x: p.x, y: p.y } : null
+}
+
 /** Audio listener / screen-space helpers, updated every frame (game units). */
 export const cameraListener = { x: 0, y: 0, halfWidth: 1000 }
 

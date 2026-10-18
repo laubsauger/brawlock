@@ -10,9 +10,11 @@
  *                          refuse other release builds)
  *   host → client  welcome {playerId, server?}        slot assigned; server = {build}: a dedicated
  *                          server hosts this room (it has no seat; the first human owns the room)
- *   client → host  ctl     {op, player?, difficulty?, team?, settings?}   room owner's lobby
- *                          controls on a dedicated server (add bots, settings, start, rematch)
- *   host → client  lobby   {slots, settings, ready, pings}   on every lobby change
+ *   client → host  ctl     {op, player?, difficulty?, team?, settings?, public?}   room owner's
+ *                          lobby controls on a dedicated server (add bots, settings, start,
+ *                          rematch, public / private)
+ *   host → client  lobby   {slots, settings, ready, pings, owner?, room?}   on every lobby change;
+ *                          room (dedicated): {public, quick, auto} listing and quick-play state
  *   client → host  ready   {ready}                    "wants a rematch" toggle on the results screen
  *   host → client  start   {match, seed, slots, settings, localPlayer}   per client; -1 = spectator
  *   host → client  end     {match, result}            game over, show results
@@ -74,6 +76,16 @@ export interface InputFrame {
 
 export type { TickEvents }
 
+/** A dedicated-server room's listing and quick-play state (lobby message). */
+export interface RoomState {
+  /** listed in the public room browser (GET /rooms?public=1) */
+  public: boolean
+  /** a quick-play room: the server runs it (no owner), it starts and refills by itself */
+  quick: boolean
+  /** quick play: the automatic start in this many ms from the message ('fill': the one-human countdown; bots top the table up either way); null = none pending */
+  auto: { inMs: number; fill: boolean } | null
+}
+
 export type Msg =
   | { t: 'hello'; name: string; version: number; key: string; profileId: string; color: number | null; device?: string; build?: string }
   | { t: 'welcome'; playerId: PlayerId; server?: { build: string } }
@@ -85,14 +97,18 @@ export type Msg =
       pings: Record<PlayerId, number>
       /** dedicated server: the room owner's seat (-1 none) */
       owner?: PlayerId
+      /** dedicated server: how the room is listed and run */
+      room?: RoomState
     }
   | {
       t: 'ctl'
-      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby'
+      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby' | 'visibility'
       player?: PlayerId
       difficulty?: BotDifficulty
       team?: number
       settings?: Partial<MatchSettings>
+      /** op 'visibility': list the room in the public browser */
+      public?: boolean
     }
   | { t: 'ready'; ready: boolean }
   | { t: 'pings'; pings: Record<PlayerId, number>; ul?: Record<PlayerId, number> }

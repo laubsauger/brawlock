@@ -10,7 +10,7 @@ import { audio } from '../audio'
 import { chooseName } from './lib/name'
 import { online } from '../game/session'
 import { pickRegion, useRegionChoice, useRegions } from './lib/servers'
-import { RegionPing } from './screens/MainMenu'
+import { RegionPing } from './RegionPing'
 
 const FPS_CAPS = [
   { value: '0', label: 'Off' },

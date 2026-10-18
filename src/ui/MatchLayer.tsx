@@ -17,11 +17,12 @@ import { moveCursor, reticleCursor } from './lib/cursors'
  */
 export function MatchLayer() {
   const screen = useGame((s) => s.screen)
-  if (screen !== 'lobby' && screen !== 'match' && screen !== 'results') return null
-  return <Layer live={screen === 'match'} />
+  if (screen !== 'lobby' && screen !== 'match' && screen !== 'results' && screen !== 'replay') return null
+  // a replay shows the scene (no input: the viewer drives it)
+  return <Layer live={screen === 'match'} shown={screen === 'match' || screen === 'replay'} />
 }
 
-function Layer({ live }: { live: boolean }) {
+function Layer({ live, shown }: { live: boolean; shown: boolean }) {
   const viewport = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,7 +65,7 @@ function Layer({ live }: { live: boolean }) {
       aria-hidden={!live || undefined}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <MatchViewSlot prewarm={!live} />
+      <MatchViewSlot prewarm={!shown} />
     </div>
   )
 }

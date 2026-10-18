@@ -65,7 +65,7 @@ say "port $PORT on $DEPLOY_HOST: free, or already $APP"
 remote "if ss -ltn 'sport = :$PORT' | grep -q LISTEN && ! pm2 describe $APP >/dev/null 2>&1; then echo 'port $PORT is taken by something else' >&2; exit 1; fi"
 
 say "files → $APP_DIR"
-remote "mkdir -p $APP_DIR"
+remote "mkdir -p $APP_DIR/data"
 if [ "$DRY" = 1 ]; then
   echo "+ rsync -az --checksum dist-server/{server.mjs,version.json,ecosystem.config.cjs} $DEPLOY_HOST:$APP_DIR/"
 else

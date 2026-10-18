@@ -93,6 +93,8 @@ export function KillCallout() {
       killTimer = window.setTimeout(() => setKill(null), MYKILL_MS)
     }
     const off = announcements.subscribe((a: Announcement) => {
+      // round flow (Round N, Fight!, Round Won!, Victory!) lives in the center banners
+      if (a.kind === 'flow') return
       setLine({ text: a.text, player: a.player, key: ++n })
       window.clearTimeout(lineTimer)
       lineTimer = window.setTimeout(() => setLine(null), MYKILL_MS)
@@ -129,10 +131,13 @@ export function KillCallout() {
       {other && (
         <div key={`o${line?.key}`} className="kill-callout pop-in" role="status" aria-live="polite">
           <span className="kill-callout-streak">{other.text}</span>
-          <b style={{ color: slotColor(state, other.player) }}>
-            {slotGlyph(state, other.player) && <span className="mr-0.5">{slotGlyph(state, other.player)}</span>}
-            {slotName(state, other.player)}
-          </b>
+          {/* lines about nobody in particular ("The Arena Shrinks!") carry player -1 */}
+          {other.player >= 0 && (
+            <b style={{ color: slotColor(state, other.player) }}>
+              {slotGlyph(state, other.player) && <span className="mr-0.5">{slotGlyph(state, other.player)}</span>}
+              {slotName(state, other.player)}
+            </b>
+          )}
         </div>
       )}
     </>

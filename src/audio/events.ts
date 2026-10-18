@@ -11,7 +11,7 @@ export interface ListenerLike {
   y: number
   halfWidth: number
   localPlayer?: PlayerId
-  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick'>>
+  state?: Pick<SimState, 'pawns'> & Partial<Pick<SimState, 'projectiles' | 'arena' | 'tick' | 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings'>>
 }
 
 /** One automation point of a moving sound, seconds after its start. */
@@ -156,7 +156,7 @@ export function flightPath(x: number, y: number, vx: number, vy: number, seconds
 /** Voice key of a pawn's cast windup (Scourge charge, cast-point inhale). */
 export const windupKey = (pawn: EntityId) => `windup:${pawn}`
 
-type ModSound = {
+export type ModSound = {
   on?: [SfxId, number?]
   off?: [SfxId, number?]
   /** loop for as long as the modifier lasts (param = max seconds), cut when it ends */
@@ -164,7 +164,7 @@ type ModSound = {
 }
 
 /** Modifier sounds by exact sim id. Listed with no sound = heard through another event. */
-const MODIFIER_IDS: Record<string, ModSound> = {
+export const MODIFIER_IDS: Record<string, ModSound> = {
   pact: { on: ['darkPulse'] },
   pactSlow: { on: ['slowDown'] },
   homingHaste: { on: ['hasteUp'] },

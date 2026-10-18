@@ -20,7 +20,9 @@ import { startClock } from '../net/clock'
 import { codeFromSearch } from '../net/code'
 import { joinUrlFor, peerNet } from '../net/peer'
 import { serverUrlFrom, wsNet } from '../net/ws'
-import { Online, ServerError, hybridNet, parseRegions, type RegionChoice, type RegionStatus, type ServerFailure, type ServerRegion } from '../net/online'
+import { Online, ServerError, hybridNet, parseRegions, type LeaderboardPage, type RegionChoice, type RegionStatus, type ServerFailure, type ServerProfile, type ServerRegion } from '../net/online'
+import type { Period } from '../net/leaderboard'
+import type { BotDifficulty } from '../sim/types'
 import { getDeviceId } from './device'
 import { createSession, type MatchRecorder, type NetMode, type SessionApi } from '../net/session'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
@@ -28,10 +30,14 @@ import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
 import { getProfile } from './profile'
 import { MatchTracker, recordMatch } from './stats'
+import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
 
 export type { SessionApi, NetMode } from '../net/session'
-export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion } from '../net/online'
+export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
+export type { Period, PublicBoardRow } from '../net/leaderboard'
+export type { RoomSummary } from '../net/dedicated'
+export { ServerError } from '../net/online'
 export type { NetStatsView, PeerNetStats, NetGrade, NetGradeEvent, NetGradeReason } from '../net/netstats'
 export { PLAYER_COLORS, MAX_PLAYERS } from '../net/session'
 export { parseRoomCode, codeFromSearch, roomLink, CODE_LENGTH } from '../net/code'
@@ -97,20 +103,29 @@ function netMode(): NetMode {
   return m === 'classic' || m === 'snapshot' ? m : 'predict'
 }
 
-/** Feeds game/stats.ts: one tracker per match, recorded at game over. */
+/** Feeds game/stats.ts (one tracker per match) and game/replay (the local replay), both recorded at game over. */
 function createRecorder(): MatchRecorder {
   let tracker: MatchTracker | null = null
+  const replay = createReplayHook(__NET_ID__)
   return {
     start: (info) => {
       tracker = new MatchTracker(info)
+      replay.start(info)
     },
-    observe: (state, events) => tracker?.observe(state, events),
+    step: (before, inputs, patches) => replay.step(before, inputs, patches),
+    observe: (state, events) => {
+      tracker?.observe(state, events)
+      replay.observe(state, events)
+    },
     finish: (result) => {
-      if (tracker) recordMatch(tracker.finish(result), getProfile().id)
+      const rec = tracker ? tracker.finish(result) : null
+      if (rec) recordMatch(rec, getProfile().id)
+      replay.finish(rec?.id ?? null, result.winners)
       tracker = null
     },
     abort: () => {
       tracker = null
+      replay.abort()
     },
   }
 }
@@ -181,6 +196,16 @@ export interface HostingApi {
   openHostServer(region?: RegionChoice): Promise<HostResult>
   /** the current room's region when it runs on a game server, with its live ping */
   region(): RegionStatus | null
+  /**
+   * Quick play (M4.3): an open quick-play room on a game server (region as for
+   * openHostServer), or a new one there. The server starts it once 2 humans are in, or
+   * fills the seats with bots (`bots`, default Hard) after ~10 s. Same HostResult as hosting.
+   */
+  quickPlay(opts?: { region?: RegionChoice; bots?: BotDifficulty }): Promise<HostResult>
+  /** A region's casual leaderboard (server games only), with this device's line. Throws ServerError. */
+  leaderboard(period: Period, region?: RegionChoice): Promise<LeaderboardPage>
+  /** This device's public profile on a region's server; null before its first counted match. Throws ServerError. */
+  serverProfile(region?: RegionChoice): Promise<ServerProfile | null>
 }
 
 const CANCELLED = 'Hosting was cancelled.'
@@ -203,7 +228,15 @@ function opened(t: 'server' | 'p2p'): boolean {
   return l.status === 'open' && l.role !== 'offline' && impl.transport() === t
 }
 
-export type GameSession = Omit<SessionApi, 'openHost'> & HostingApi
+export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState'> & HostingApi
+
+/** The region a server request goes to: the given choice or the region setting; auto = lowest ping. */
+async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
+  if (!online.configured) throw new ServerError('unavailable', 'This build has no game server.')
+  const region = await online.choose(choice ?? useGame.getState().settings.serverRegion ?? 'auto')
+  if (!region) throw new ServerError('unavailable', 'No game server is reachable right now.')
+  return region
+}
 
 export const session: GameSession = {
   openOffline: impl.openOffline,
@@ -235,6 +268,29 @@ export const session: GameSession = {
   region() {
     return impl.transport() === 'server' && routed ? online.region(routed.id) : null
   },
+  async quickPlay(opts = {}) {
+    let region: RegionStatus
+    let code: string
+    try {
+      region = await serverRegion(opts.region)
+      code = (await online.quickPlay(region.id, opts.bots)).code
+    } catch (e) {
+      const reason = e instanceof ServerError ? e.reason : 'error'
+      return hostFailed('server', reason, e instanceof Error ? e.message : String(e), null, P2P_OPTION)
+    }
+    await impl.join(code)
+    if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+    const l = useGame.getState().lobby
+    if (l.status !== 'error') return hostFailed('server', 'cancelled', 'Quick play was cancelled.', online.region(region.id), P2P_OPTION)
+    return hostFailed('server', 'error', l.error ?? 'Could not join the quick-play room.', online.region(region.id), P2P_OPTION)
+  },
+  async leaderboard(period, choice) {
+    return online.leaderboard((await serverRegion(choice)).id, period, getDeviceId())
+  },
+  async serverProfile(choice) {
+    return online.profile((await serverRegion(choice)).id, getDeviceId())
+  },
+  setPublic: impl.setPublic,
   join: impl.join,
   addBot: impl.addBot,
   removeSlot: impl.removeSlot,

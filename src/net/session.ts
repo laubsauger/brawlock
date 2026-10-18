@@ -71,6 +71,7 @@ import {
   stateJsonWithoutEvents,
   type InputFrame,
   type Msg,
+  type RoomState,
   type TickEvents,
 } from './protocol'
 import type { HostEndpoint, NetFactory, Transport, UnreliableMode } from './transport'
@@ -109,12 +110,22 @@ export interface FrameSink {
 
 /** Local stats hook (game/stats.ts). Every peer records the matches it plays or watches. */
 export interface MatchRecorder {
-  start(info: { localPlayer: PlayerId; slots: PlayerSlot[]; settings: MatchSettings }): void
+  /** `devices`: dedicated server only, the device id of each human seat that sent one */
+  start(info: { localPlayer: PlayerId; slots: PlayerSlot[]; settings: MatchSettings; devices?: Record<PlayerId, string>; seed?: number }): void
+  /**
+   * Optional (local replays, game/replay): a confirmed step is about to run from `before`
+   * (not yet patched) with these inputs; `patches` = the `connected` changes applied first.
+   * Called by the P2P host / offline loop and the input-stream client, never for predicted
+   * or re-simulated steps; snapshot-only clients never call it.
+   */
+  step?(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[]): void
   /** one played tick: its state and the events of every tick since the previous call */
   observe(state: SimState, events: readonly SimEvent[]): void
   finish(result: MatchResult): void
   /** match ended without a result (aborted, rematch mid-match, leave) */
   abort(): void
+  /** a human seat's pawn is now played by a bot (its player left) or by its human again */
+  control?(player: PlayerId, by: 'human' | 'bot'): void
 }
 
 export interface LocalProfile {
@@ -185,6 +196,14 @@ export interface SessionApi {
   onNetGrade(cb: (e: NetGradeEvent) => void): () => void
   /** How the current room runs: through a dedicated server or peer-to-peer; null offline / idle. */
   transport(): 'server' | 'p2p' | null
+  /**
+   * Server room: list it in the public room browser (true) or keep it to its code (false,
+   * the default). The room owner only; ignored elsewhere.
+   */
+  setPublic(value: boolean): void
+  /** Dedicated server host only: the room's listing and quick-play state (sent with the lobby); cap: humans at most (null: MAX_PLAYERS). */
+  setRoom(patch: Partial<RoomState> & { cap?: number | null }): void
+  roomState(): RoomState
 }
 
 export interface SessionDebug {
@@ -277,6 +296,15 @@ const CHECK_MS = 500
 /** the host is always the lobby's first slot */
 const HOST_PLAYER_ID = 0
 const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
+
+/** Lobby view fields of a server room's state (missing on older servers: a private owner room). */
+function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'autoStart'> {
+  return {
+    public: r?.public === true,
+    quick: r?.quick === true,
+    autoStart: r?.auto && Number.isFinite(r.auto.inMs) ? { at: now + Math.max(0, r.auto.inMs), fill: r.auto.fill === true } : null,
+  }
+}
 
 /** Release builds carry a commit id; dev builds ('dev-…') match anything. */
 function isRelease(build: string | undefined): build is string {
@@ -472,6 +500,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   // client: the room runs on a dedicated server; its owner seat; the code joined
   let serverRoom = false
   let owner: PlayerId = -1
+  /** dedicated host: listing / quick-play state; `autoAt` is the session clock of the auto start */
+  let roomInfo: { public: boolean; quick: boolean; autoAt: number | null; autoFill: boolean; cap: number | null } = { public: false, quick: false, autoAt: null, autoFill: false, cap: null }
   let joinedCode: string | null = null
   let unsubScreen: (() => void) | null = null
   let matchCounter = 0
@@ -539,12 +569,22 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function publishLobby(): void {
     ui.setLobby({ slots: slots.map((s) => ({ ...s })), settings: { ...settings }, localPlayer, ready: { ...ready }, pings: { ...pings } })
-    if (role === 'host') broadcast(dedicated ? { t: 'lobby', slots, settings, ready, pings, owner: ownerId() } : { t: 'lobby', slots, settings, ready, pings })
+    if (role === 'host') broadcast(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings })
   }
 
-  /** Dedicated server: the first connected human seat owns the room (lobby controls). */
+  /** Dedicated server: the lobby message with the owner and the room state. */
+  function lobbyMsg(): Msg {
+    return { t: 'lobby', slots, settings, ready, pings, owner: ownerId(), room: roomStateNow() }
+  }
+
+  function roomStateNow(): RoomState {
+    const r = roomInfo
+    return { public: r.public, quick: r.quick, auto: r.autoAt === null ? null : { inMs: Math.max(0, Math.round(r.autoAt - deps.now())), fill: r.autoFill } }
+  }
+
+  /** Dedicated server: the first connected human seat owns the room (lobby controls); quick-play rooms have no owner. */
   function ownerId(): PlayerId {
-    if (!dedicated) return -1
+    if (!dedicated || roomInfo.quick) return -1
     const gone = match?.disconnected
     return slots.find((s) => s.kind === 'human' && !gone?.has(s.id))?.id ?? -1
   }
@@ -628,6 +668,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     dedicated = false
     serverRoom = false
     owner = -1
+    roomInfo = { public: false, quick: false, autoAt: null, autoFill: false, cap: null }
     joinedCode = null
     stopClientMatch()
     link?.close()
@@ -797,17 +838,20 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         p.playerId = back
         slotKeys.set(back, p.key)
         m2.disconnected.delete(back)
-        if (m2.takeover.delete(back)) m2.bots.delete(back)
+        if (m2.takeover.delete(back)) {
+          m2.bots.delete(back)
+          rec?.control?.(back, 'human')
+        }
         m2.connectedPatch.set(back, true)
         p.t.sendReliable(encode(welcomeFor(back)))
-        p.t.sendReliable(encode(dedicated ? { t: 'lobby', slots, settings, ready, pings, owner: ownerId() } : { t: 'lobby', slots, settings, ready, pings }))
+        p.t.sendReliable(encode(dedicated ? lobbyMsg() : { t: 'lobby', slots, settings, ready, pings }))
         sendStart(p, m2)
         showNotice(`${p.name} reconnected`, true)
         return
       }
     }
 
-    if (slots.length >= MAX_PLAYERS) {
+    if (slots.length >= MAX_PLAYERS || (roomInfo.cap !== null && slots.filter((s) => s.kind === 'human').length >= roomInfo.cap)) {
       rejectPeer(p, 'The lobby is full.')
       return
     }
@@ -856,6 +900,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         break
       case 'lobby':
         api.backToLobby()
+        break
+      case 'visibility':
+        api.setRoom({ public: m.public === true })
         break
     }
   }
@@ -951,6 +998,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           m.bots.set(id, bot)
           m.takeover.add(id)
           text += ', a bot took over'
+          rec?.control?.(id, 'bot')
         }
       }
       showNotice(text, true)
@@ -1050,6 +1098,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
       m.connectedPatch.clear()
     }
+    rec?.step?.(cur, inputs, patches)
     deps.step(next, inputs)
     m.state = next
     if (inputs.length) for (const i of inputs) m.stepped.push(i)
@@ -1289,6 +1338,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           ready: { ...ready },
           pings: { ...pings },
           role: serverRoom && owner === localPlayer && localPlayer >= 0 ? 'host' : 'client',
+          ...(serverRoom ? roomView(m.room, deps.now()) : {}),
         })
         break
       case 'pings':
@@ -1412,7 +1462,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     cmatch = cm
     ready = {}
     ui.setLobby({ ready: {} })
-    rec?.start({ localPlayer: m.localPlayer, slots: m.slots, settings: m.settings })
+    rec?.start({ localPlayer: m.localPlayer, slots: m.slots, settings: m.settings, seed: m.seed })
     deps.input.drain()
     out.reset()
     out.setLocalPlayer(m.localPlayer)
@@ -1628,6 +1678,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (!step) break
       const s = st.state
       if (confirms) confirms = !step.patches && stepWasPredicted(pred, step, cm.localPlayer)
+      rec?.step?.(s, step.inputs, step.patches)
       if (step.patches) {
         for (const [id, on] of step.patches) {
           const sc = s.scores.find((x) => x.id === id)
@@ -2048,7 +2099,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       match = m
       ready = {}
       publishLobby()
-      rec?.start({ localPlayer, slots: mSlots, settings: mSettings })
+      rec?.start({ localPlayer, slots: mSlots, settings: mSettings, seed, ...(dedicated ? { devices: Object.fromEntries(mSlots.flatMap((x) => (slotDevices.has(x.id) ? [[x.id, slotDevices.get(x.id)!]] : []))) } : {}) })
       for (const p of peers) if (p.playerId !== null) sendStart(p, m)
       if (m.netMode !== 'classic') updateHostDelay(m, true)
       deps.input.drain()
@@ -2145,6 +2196,28 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (role === 'client') return link ? (serverRoom ? 'server' : 'p2p') : null
       if (role === 'host') return dedicated ? 'server' : 'p2p'
       return null
+    },
+
+    setPublic(value: boolean) {
+      if (ownerCtl({ t: 'ctl', op: 'visibility', public: value })) return
+      if (role === 'host' && dedicated) api.setRoom({ public: value })
+    },
+
+    setRoom(patch) {
+      if (role !== 'host' || !dedicated) return
+      if (patch.public !== undefined) roomInfo.public = patch.public
+      if (patch.quick !== undefined) roomInfo.quick = patch.quick
+      if (patch.cap !== undefined) roomInfo.cap = patch.cap
+      if (patch.auto !== undefined) {
+        roomInfo.autoAt = patch.auto === null ? null : deps.now() + patch.auto.inMs
+        roomInfo.autoFill = patch.auto?.fill ?? false
+      }
+      ui.setLobby(roomView(roomStateNow(), deps.now()))
+      publishLobby()
+    },
+
+    roomState() {
+      return roomStateNow()
     },
 
     onNetGrade(cb) {

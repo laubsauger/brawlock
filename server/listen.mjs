@@ -3,6 +3,8 @@
 // Plain JS because @types/node is not a project dependency.
 import http from 'node:http'
 import { createHash } from 'node:crypto'
+import { join } from 'node:path'
+import { openLeaderboard } from './leaderboard-store.mjs'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
 import { startClock } from '../src/net/clock.ts'
@@ -77,10 +79,13 @@ function wrapSocket(socket, log) {
 /**
  * Start a server. opts: port, host, build, config (ServerConfig overrides), trustProxy
  * (take the client IP from X-Forwarded-For: behind the local nginx), timeScale (tests),
- * log. Returns { port, core, room(code), createRoom(opts), close() }.
+ * log, dataDir (leaderboard.sqlite goes there; '' = no leaderboard), clock (ms since
+ * epoch for stored results; tests). Returns { port, core, room(code), createRoom(opts), close() }.
  */
 export async function startServer(opts = {}) {
-  const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog } = opts
+  const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock } = opts
+  // the leaderboard lives in DATA_DIR (deploy: /opt/apps/brawlock-server/data); none without one
+  const leaderboard = dataDir ? openLeaderboard(join(dataDir, 'leaderboard.sqlite')) : undefined
   const core = createServerCore(
     { ...DEFAULT_SERVER_CONFIG, ...config, build },
     {
@@ -93,7 +98,10 @@ export async function startServer(opts = {}) {
       now: () => performance.now() * timeScale,
       random: Math.random,
       build,
+      timeScale,
       log,
+      leaderboard,
+      clock,
     },
   )
   const ipOf = (req) => {
@@ -134,7 +142,7 @@ export async function startServer(opts = {}) {
     server.listen(port, host, resolve)
   })
   const sweeper = setInterval(() => core.sweep(), 5000)
-  log('info', 'server.start', { port: server.address().port, host, build, region: config.region ?? '' })
+  log('info', 'server.start', { port: server.address().port, host, build, region: config.region ?? '', leaderboard: dataDir ? join(dataDir, 'leaderboard.sqlite') : null })
   return {
     port: server.address().port,
     core,

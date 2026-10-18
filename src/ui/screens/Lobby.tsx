@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { BOT_DIFFICULTIES, useGame, type LobbyView } from '../../game/store'
 import { MAX_PLAYERS, session } from '../../game/session'
 import type { BotDifficulty, PlayerSlot, TeamMode } from '../../sim/types'
-import { Button, Crown, PingBars } from '../widgets'
+import { Button, Crown, PingBars, Switch } from '../widgets'
 import { hostGame, hostOnServer, leaveToMenu, setReady, startMatch } from '../flow'
 import { online } from '../../game/session'
-import { pickRegion, regionProblem, useRegionChoice, useRegions } from '../lib/servers'
+import { pickRegion, regionProblem, regionStatus, useRegionChoice, useRegions } from '../lib/servers'
 import { useNet } from '../lib/netmonitor'
-import { usePolled } from '../lib/ticker'
+import { usePolled, useTick } from '../lib/ticker'
 import { headToHead, useEncounters } from '../lib/stats'
 import { playerColor, playerGlyph, teamName } from '../lib/view'
 import { PLAYER_COLORS } from '../../net/session'
@@ -66,6 +66,21 @@ function teamText(mode: TeamMode | undefined, team: number): string {
   if (mode === 'ffa') return 'Free for all'
   if (mode === 'shuffle') return 'Shuffled each round'
   return `${teamName(team)} team`
+}
+
+/**
+ * Quick play countdown, written from the shared rAF (no React renders per
+ * second): "Filling with bots in 8 s" with one player, "Starting in 4 s" with more.
+ */
+export function AutoStart({ at, fill, between = false }: { at: number; fill: boolean; between?: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const last = useRef('')
+  useTick((now) => {
+    const secs = Math.max(0, Math.ceil((at - now) / 1000))
+    const t = between ? `Next match in ${secs} s` : fill ? `Filling with bots in ${secs} s` : `Starting in ${secs} s`
+    if (t !== last.current && ref.current) ref.current.textContent = last.current = t
+  })
+  return <span ref={ref} className="tabular" title={between ? undefined : 'Bots fill the table up to 4 players'} data-testid="auto-start" />
 }
 
 /** a room hosted from your PC that has not opened after this long offers the game server instead */
@@ -282,12 +297,14 @@ export function Lobby() {
   const transport = usePolled(() => (lobby.role !== 'offline' && lobby.status === 'open' ? session.transport() : null), String, 2)
   // server room: its region and your live ping to it (session.region(), polled with the transport)
   const room = usePolled(() => (transport === 'server' ? session.region() : null), (r) => (r ? `${r.label}:${r.rttMs}` : ''), 2)
-  const serverName = room?.label ?? 'the game server'
+  // joined by code or from Browse games: the room's region is the one region when there is only one
+  const regions = regionStatus()
+  const serverName = room?.label ?? (regions.length === 1 ? regions[0].label : 'the game server')
   const liveMs = useNet((s) => {
     const ms = s.snap.peers.flatMap((p) => (p.rttMs == null ? [] : [Math.round(p.rttMs)]))
     return ms.length ? Math.max(...ms) : null
   }, String)
-  const serverMs = room?.rttMs ?? liveMs
+  const serverMs = room?.rttMs ?? liveMs ?? (regions.length === 1 ? regions[0].rttMs : null)
   // the hidden match scene warms up while the lobby is open (App's MatchLayer); Start waits for it, 6 s at most
   const warm = useMatchRenderReady(6000)
   const canEdit = lobby.role !== 'client'
@@ -301,7 +318,7 @@ export function Lobby() {
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-end gap-4">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Lobby</h1>
-          <span className="chip mb-1.5">{ROLE_LABEL[lobby.role]}</span>
+          <span className="chip mb-1.5">{lobby.quick ? 'Quick play' : ROLE_LABEL[lobby.role]}</span>
           {transport && (
             <span
               className="chip mb-1.5 text-ash"
@@ -339,7 +356,7 @@ export function Lobby() {
                 key={s.id}
                 slot={s}
                 isLocal={s.id === lobby.localPlayer}
-                isHost={online && s.id === HOST_ID}
+                isHost={online && !lobby.quick && s.id === HOST_ID}
                 canEdit={canEdit}
                 teamMode={lobby.settings?.teamMode}
                 online={online}
@@ -378,6 +395,15 @@ export function Lobby() {
         <section className="panel flex min-h-0 flex-col p-6" aria-label="Match options">
           <div className="min-h-0 flex-1 overflow-y-auto pr-2">
             {(lobby.role === 'host' || (lobby.role === 'client' && lobby.roomCode)) && <InviteCard code={lobby.roomCode} url={lobby.joinUrl} host={lobby.role === 'host'} />}
+            {transport === 'server' && (lobby.quick || lobby.role === 'host') && (
+              <div className="mb-6 flex items-center justify-between gap-4 rounded-lg bg-[rgba(0,0,0,0.25)] px-4 py-3">
+                <span className="flex flex-col">
+                  <span className="font-semibold">Listed publicly</span>
+                  <span className="text-[0.88rem] text-ash">{lobby.quick ? 'Quick play games are always listed in Browse games' : 'Anyone can find and join from Browse games'}</span>
+                </span>
+                <Switch label="Listed publicly" checked={lobby.quick ? true : !!lobby.public} disabled={!!lobby.quick} onChange={(v) => session.setPublic(v)} />
+              </div>
+            )}
             <MatchOptions settings={lobby.settings} editable={canEdit} />
           </div>
         </section>
@@ -390,7 +416,7 @@ export function Lobby() {
           aria-live="polite"
         >
           {status.tone === 'wait' && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-ember" aria-hidden />}
-          {status.text}
+          {lobby.quick && lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} /> : lobby.quick ? 'Waiting for players to join…' : status.text}
         </p>
         {lobby.role === 'host' && lobby.status === 'connecting' && <SlowHostHint />}
         <div className="flex gap-3">
@@ -416,7 +442,8 @@ export function Lobby() {
               )}
             </Button>
           ) : (
-            lobby.status === 'open' && (
+            lobby.status === 'open' &&
+            !lobby.quick && (
               <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
                 {localReady ? 'Not ready' : 'Ready'}
               </Button>

@@ -1478,6 +1478,57 @@ export const RECIPES = {
 
 export type SfxId = keyof typeof RECIPES
 
+/** What a recipe's parameter `p` means (each recipe's doc comment), for tools like the sound board. */
+export interface RecipeParam {
+  label: string
+  min: number
+  max: number
+  step: number
+  /** the usual in-game value */
+  value: number
+  /** p is the sound's length in seconds (travel and hold loops) */
+  seconds?: boolean
+}
+
+const flight: RecipeParam = { label: 'flight s', min: 0.15, max: 6, step: 0.05, value: 1.5, seconds: true }
+
+/** Every recipe that reads its parameter has an entry (guarded in the sound board test). */
+export const RECIPE_PARAMS: Partial<Record<SfxId, RecipeParam>> = {
+  fireballCast: { label: 'size', min: 0.4, max: 1.5, step: 0.05, value: 1 },
+  fireballTravel: { ...flight, max: 3 },
+  explosion: { label: 'size', min: 0.5, max: 1.8, step: 0.05, value: 1 },
+  hit: { label: 'knockback', min: 0.2, max: 1.6, step: 0.05, value: 0.6 },
+  scourgeWindup: { label: 'windup s', min: 0.2, max: 2, step: 0.05, value: 0.9, seconds: true },
+  scourgeBlast: { label: 'level', min: 1, max: 3, step: 1, value: 1 },
+  roundWin: { label: 'won 1 / draw 0', min: 0, max: 1, step: 1, value: 1 },
+  castInhale: { label: 'cast point s', min: 0.08, max: 0.6, step: 0.02, value: 0.2, seconds: true },
+  reflect: { label: 'stolen', min: 0, max: 1, step: 1, value: 0 },
+  swapWarp: { label: 'alteration', min: 0, max: 1, step: 1, value: 0 },
+  streakTick: { label: 'streak', min: 0, max: 12, step: 1, value: 1 },
+  fade: { label: 'vanish 1 / appear 0', min: 0, max: 1, step: 1, value: 1 },
+  clusterTravel: flight,
+  bladeSpin: flight,
+  homingTravel: flight,
+  twinTravel: flight,
+  swapTravel: flight,
+  drainTravel: flight,
+  orbTravel: flight,
+  rechargeTravel: flight,
+  bouncerTravel: flight,
+  meteorFall: { label: 'fall s', min: 0.3, max: 3, step: 0.05, value: 1.15, seconds: true },
+  splitterTravel: flight,
+  snowRoll: flight,
+  gravityHum: flight,
+  gripTravel: flight,
+  warpHum: { ...flight, label: 'hold s', value: 3 },
+  magnetTravel: flight,
+  linkTravel: flight,
+  linkLoop: { label: 'hold s', min: 1, max: 12, step: 0.5, value: 8, seconds: true },
+  buyUpgrade: { label: 'level', min: 1, max: 8, step: 1, value: 2 },
+  buyMastery: { label: 'level', min: 1, max: 6, step: 1, value: 1 },
+  uiCountdown: { label: 'beat (in game: automatic)', min: 0, max: 2, step: 1, value: 0 },
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers for music (one-shot notes scheduled by the sequencer)
 // ---------------------------------------------------------------------------

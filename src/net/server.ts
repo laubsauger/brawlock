@@ -7,14 +7,22 @@
  *   GET  /health        {ok, build, protocol, region, rooms, maxRooms, players, connections, uptimeS}
  *                       (clients time it for the region ping, so it stays cheap)
  *   POST /rooms         create a room → 201 {code, build, protocol}; 429 rate limited, 503 full
- *   GET  /rooms/:code   {code, exists: true, state, humans, peers, matchTick} or 404 {exists: false}
+ *   GET  /rooms/:code   {code, exists: true, state, humans, peers, matchTick} or {exists: false}
+ *                       (200 either way: every P2P join asks, a 404 would log a console error)
+ *   GET  /rooms?public=1  {region, rooms: RoomSummary[]}: the public room browser (cached ~1 s)
+ *   POST /quickplay?bots=hard  → {code, created, region}: an open quick-play room, or a new one
+ *   GET  /leaderboard?period=all|week&region=&device=  {period, region, entries, you}
+ *   GET  /players/:device  {found: true, ...} a device's public profile (rating, rank, totals,
+ *                       recent matches), or {found: false} before its first counted match
  * WebSocket: /ws?room=CODE joins that room (session protocol, ws.ts). The first connected
  * human owns the room (lobby controls via `ctl`). A room nobody is connected to closes
  * after emptyRoomMs. IPs are only logged as salted hashes.
  */
 import { hashString } from '../sim/snapshot'
 import { newRoomCode, parseRoomCode } from './code'
-import { createRoom, type Room, type RoomDeps } from './dedicated'
+import { createRoom, type QuickPlayPolicy, type Room, type RoomDeps, type RoomSummary } from './dedicated'
+import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type FinishedMatch, type LeaderboardStore, type Period } from './leaderboard'
+import { MAX_PLAYERS } from './session'
 import { PROTOCOL_VERSION, encode } from './protocol'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
 import { SocketTransport, type TextSocket } from './ws'
@@ -38,6 +46,14 @@ export interface ServerConfig {
   bytesPerSec: number
   /** CORS / WebSocket Origin allowlist; null = any origin */
   allowedOrigins: string[] | null
+  /** per IP: GET /rooms?public=1, POST /quickplay, leaderboard and profile reads */
+  listsPerMin: number
+  quickplaysPerMin: number
+  boardReadsPerMin: number
+  /** quick-play rooms: timers, table size, default bots, and match settings over the defaults */
+  quickplay: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
+  /** a server match shorter than this does not count for the leaderboard */
+  leaderboardMinSeconds: number
 }
 
 export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
@@ -51,7 +67,21 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   msgsPerSec: 240,
   bytesPerSec: 128 * 1024,
   allowedOrigins: null,
+  listsPerMin: 60,
+  quickplaysPerMin: 20,
+  boardReadsPerMin: 60,
+  quickplay: { fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 8, fill: 4, bots: 'hard' },
+  leaderboardMinSeconds: LB_MIN_SECONDS,
 }
+
+/** how long the public room list and a leaderboard page are served from cache (server clock) */
+const LIST_CACHE_MS = 1000
+const BOARD_CACHE_MS = 5000
+/** a quick-play seat handed out is held this long for its player to connect */
+const RESERVE_MS = 15_000
+const WEEK_MS = 7 * 24 * 3600 * 1000
+const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
+const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/
 
 export type LogLevel = 'info' | 'warn' | 'error'
 export type LogFn = (level: LogLevel, event: string, fields?: Record<string, unknown>) => void
@@ -81,12 +111,17 @@ export interface RoomSetup {
   settings?: Partial<MatchSettings>
   autoStartMs?: number
   rematchMs?: number
+  /** a quick-play room with this bot difficulty (public, no owner) */
+  quick?: BotDifficulty
+  public?: boolean
 }
 
 interface Entry {
   room: Room
   created: number
   emptySince: number
+  /** quick-play seats handed out, by expiry (server clock) */
+  reserved: number[]
 }
 
 export interface ServerCore {
@@ -103,7 +138,17 @@ export interface ServerCore {
   stats(): { rooms: number; players: number; connections: number }
 }
 
-export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogFn; now: () => number }): ServerCore {
+export function createServerCore(
+  cfg: ServerConfig,
+  deps: RoomDeps & {
+    log: LogFn
+    now: () => number
+    /** finished server matches are rated and stored here (none: no leaderboard) */
+    leaderboard?: LeaderboardStore
+    /** ms since epoch, for stored results (default Date.now) */
+    clock?: () => number
+  },
+): ServerCore {
   const rooms = new Map<string, Entry>()
   const creating = new Set<string>()
   const started = deps.now()
@@ -112,6 +157,13 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
   const createLimit = new KeyedLimiter(cfg.roomCreatesPerMin, cfg.roomCreatesPerMin / 60)
   const connectLimit = new KeyedLimiter(cfg.connectsPerMin, cfg.connectsPerMin / 60)
   const lookupLimit = new KeyedLimiter(cfg.lookupsPerMin, cfg.lookupsPerMin / 60)
+  const listLimit = new KeyedLimiter(cfg.listsPerMin, cfg.listsPerMin / 60)
+  const quickLimit = new KeyedLimiter(cfg.quickplaysPerMin, cfg.quickplaysPerMin / 60)
+  const boardLimit = new KeyedLimiter(cfg.boardReadsPerMin, cfg.boardReadsPerMin / 60)
+  const clock = deps.clock ?? (() => Date.now())
+  const store = deps.leaderboard ?? null
+  let listCache: { at: number; body: unknown } | null = null
+  const boardCache = new Map<string, { at: number; entries: unknown }>()
   const conns = new Map<string, number>()
   let connections = 0
   const log = deps.log
@@ -144,16 +196,82 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
         code,
         bots: setup.bots ?? [],
         auto: setup.auto ?? false,
-        settings: setup.settings,
+        settings: setup.quick ? { botsReplaceLeavers: true, ...cfg.quickplay.settings, ...setup.settings } : setup.settings,
         autoStartMs: setup.autoStartMs,
         rematchMs: setup.rematchMs,
+        ...(setup.quick ? { quick: { fillMs: cfg.quickplay.fillMs, startMs: cfg.quickplay.startMs, nextMs: cfg.quickplay.nextMs, seats: cfg.quickplay.seats, fill: cfg.quickplay.fill, bots: setup.quick } } : {}),
+        public: setup.public,
+        onMatch: (m) => record(code, m),
         log: (msg) => log('info', 'room.policy', { room: code, msg }),
       },
       deps,
     )
-    rooms.set(code, { room, created: deps.now(), emptySince: deps.now() })
-    log('info', 'room.created', { room: code, rooms: rooms.size })
+    rooms.set(code, { room, created: deps.now(), emptySince: deps.now(), reserved: [] })
+    log('info', 'room.created', { room: code, rooms: rooms.size, ...(setup.quick ? { quick: true } : {}) })
     return room
+  }
+
+  /** A finished server match: rated and stored when it counts (leaderboard.ts). */
+  function record(room: string, m: FinishedMatch): void {
+    if (!store) return
+    try {
+      const devices = m.seats.map((x) => x.device)
+      const settled = settleMatch(m, store.players(devices), clock(), cfg.region, cfg.leaderboardMinSeconds)
+      if ('skipped' in settled) {
+        log('info', 'leaderboard.skip', { room, reason: settled.skipped, humans: m.seats.length, ticks: m.ticks })
+        return
+      }
+      store.commit({ at: clock(), region: cfg.region, room, ticks: m.ticks, rounds: m.rounds, humans: m.seats.length, bots: m.bots }, settled.results, settled.players)
+      boardCache.clear()
+      log('info', 'leaderboard.match', { room, players: settled.players.length, rounds: m.rounds })
+    } catch (e) {
+      log('error', 'leaderboard.error', { room, error: String(e) })
+    }
+  }
+
+  function reservedNow(e: Entry): number {
+    const now = deps.now()
+    e.reserved = e.reserved.filter((t) => t > now)
+    return e.reserved.length
+  }
+
+  /** An open quick-play room: public, between matches, a free human seat (bots give theirs up). Fullest first, then oldest. */
+  function openQuickRoom(): Entry | null {
+    let best: Entry | null = null
+    let bestN = -1
+    for (const e of rooms.values()) {
+      const r = e.room
+      if (!r.isQuick() || !r.isPublic()) continue
+      const phase = r.screen()
+      if (phase !== 'lobby' && phase !== 'results') continue
+      const held = reservedNow(e)
+      const n = r.humans() + held
+      if (n >= Math.min(cfg.quickplay.seats, MAX_PLAYERS)) continue
+      if (n > bestN || (n === bestN && best && e.created < best.created)) {
+        best = e
+        bestN = n
+      }
+    }
+    return best
+  }
+
+  function publicList(): unknown {
+    const now = deps.now()
+    if (listCache && now - listCache.at < LIST_CACHE_MS) return listCache.body
+    const order = (r: RoomSummary) => (r.phase === 'lobby' ? 0 : r.phase === 'results' ? 1 : 2)
+    const list = [...rooms.values()]
+      .filter((e) => e.room.isPublic() && e.room.screen() !== 'menu')
+      .map((e) => e.room.summary())
+      .sort((a, b) => order(a) - order(b) || b.humans - a.humans || a.code.localeCompare(b.code))
+    listCache = { at: now, body: { region: cfg.region, rooms: list } }
+    return listCache.body
+  }
+
+  function boardQuery(url: URL): BoardQuery | null {
+    const period = (url.searchParams.get('period') ?? 'all') as Period
+    if (period !== 'all' && period !== 'week') return null
+    const region = url.searchParams.get('region') || null
+    return { period, region, since: clock() - WEEK_MS }
   }
 
   function freeCode(): string {
@@ -192,6 +310,80 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
         log('info', 'room.create', { room: code, ip: tag(req.ip) })
         return json(201, { code, build: cfg.build, protocol: PROTOCOL_VERSION }, req.origin)
       }
+      if (parts[0] === 'rooms' && parts.length === 1 && req.method === 'GET') {
+        if (url.searchParams.get('public') !== '1') return json(400, { error: 'only the public room list is available: /rooms?public=1' }, req.origin)
+        if (!listLimit.take(req.ip, deps.now())) {
+          log('warn', 'room.list.limited', { ip: tag(req.ip) })
+          return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
+        }
+        return json(200, publicList(), req.origin)
+      }
+      if (parts[0] === 'quickplay' && parts.length === 1 && req.method === 'POST') {
+        if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
+        if (!quickLimit.take(req.ip, deps.now())) {
+          log('warn', 'quickplay.limited', { ip: tag(req.ip) })
+          return json(429, { error: 'Too many quick-play requests, try again in a minute.' }, req.origin)
+        }
+        const open = openQuickRoom()
+        if (open) {
+          open.reserved.push(deps.now() + RESERVE_MS)
+          log('info', 'quickplay.join', { room: open.room.code, ip: tag(req.ip) })
+          return json(200, { code: open.room.code, created: false, region: cfg.region }, req.origin)
+        }
+        if (rooms.size + creating.size >= cfg.maxRooms) {
+          log('warn', 'room.create.full', { rooms: rooms.size })
+          return json(503, { error: 'The server is full right now.' }, req.origin)
+        }
+        const want = url.searchParams.get('bots') as BotDifficulty | null
+        const bots = want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : 'hard'
+        const code = freeCode()
+        creating.add(code)
+        try {
+          await newRoom(code, { quick: bots })
+        } finally {
+          creating.delete(code)
+        }
+        rooms.get(code)!.reserved.push(deps.now() + RESERVE_MS)
+        log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
+        return json(201, { code, created: true, region: cfg.region }, req.origin)
+      }
+      if ((parts[0] === 'leaderboard' && parts.length === 1) || (parts[0] === 'players' && parts.length === 2)) {
+        if (req.method !== 'GET') return json(405, { error: 'method not allowed' }, req.origin)
+        if (!store) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
+        if (!boardLimit.take(req.ip, deps.now())) {
+          log('warn', 'leaderboard.limited', { ip: tag(req.ip) })
+          return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
+        }
+        if (parts[0] === 'players') {
+          const device = decodeURIComponent(parts[1])
+          if (!DEVICE_ID.test(device)) return json(400, { error: 'bad device id' }, req.origin)
+          const all: BoardQuery = { period: 'all', region: null, since: 0 }
+          const r = store.rank(all, device)
+          if (!r) return json(200, { found: false }, req.origin)
+          const p = store.players([device]).get(device)!
+          return json(
+            200,
+            {
+              found: true,
+              ...publicRow(r.rank, r.row),
+              firstAt: p.firstAt,
+              recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })),
+            },
+            req.origin,
+          )
+        }
+        const q = boardQuery(url)
+        if (!q) return json(400, { error: 'period must be all or week' }, req.origin)
+        const key = `${q.period}|${q.region ?? ''}`
+        let cached = boardCache.get(key)
+        if (!cached || deps.now() - cached.at >= BOARD_CACHE_MS) {
+          cached = { at: deps.now(), entries: store.top(q, LB_TOP).map((row, i) => publicRow(i + 1, row)) }
+          boardCache.set(key, cached)
+        }
+        const device = url.searchParams.get('device')
+        const mine = device && DEVICE_ID.test(device) ? store.rank(q, device) : null
+        return json(200, { period: q.period, region: q.region ?? cfg.region, entries: cached.entries, you: mine ? publicRow(mine.rank, mine.row) : null }, req.origin)
+      }
       if (parts[0] === 'rooms' && parts.length === 2 && req.method === 'GET') {
         if (!lookupLimit.take(req.ip, deps.now())) {
           log('warn', 'room.lookup.limited', { ip: tag(req.ip) })
@@ -199,7 +391,7 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
         }
         const parsed = parseRoomCode(parts[1])
         const e = 'code' in parsed ? rooms.get(parsed.code) : undefined
-        if (!e) return json(404, { exists: false }, req.origin)
+        if (!e) return json(200, { exists: false }, req.origin)
         const lobby = e.room.debug()
         return json(200, { code: e.room.code, exists: true, state: e.room.screen(), humans: e.room.humans(), peers: e.room.peers(), matchTick: lobby.tick }, req.origin)
       }
@@ -279,6 +471,7 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
           })
         },
       }
+      if (reservedNow(e) > 0) e.reserved.shift()
       log('info', 'ws.join', { room: admission.code, ip: tag(ip) })
       e.room.accept(new SocketTransport(limited))
     },
@@ -311,11 +504,15 @@ export function createServerCore(cfg: ServerConfig, deps: RoomDeps & { log: LogF
       createLimit.sweep(now)
       connectLimit.sweep(now)
       lookupLimit.sweep(now)
+      listLimit.sweep(now)
+      quickLimit.sweep(now)
+      boardLimit.sweep(now)
     },
 
     close() {
       for (const e of rooms.values()) e.room.close()
       rooms.clear()
+      store?.close()
     },
 
     stats() {

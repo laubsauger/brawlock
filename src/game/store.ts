@@ -8,7 +8,7 @@ import type { BotDifficulty, MatchSettings, PlayerId, PlayerScore, PlayerSlot } 
  * src/game/frame.ts from its own rAF and writes DOM directly.
  */
 
-export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits'
+export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits' | 'replay'
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra'
 
@@ -112,6 +112,12 @@ export interface LobbyView {
   pings: Record<number, number>
   /** players who asked for a rematch on the results screen; reset when a match starts */
   ready: Record<number, boolean>
+  /** server room: listed in the public room browser (the owner toggles it; private by default) */
+  public?: boolean
+  /** server quick-play room: the server runs it (nobody has host controls) and starts it by itself */
+  quick?: boolean
+  /** quick play: the pending automatic start, `at` on the session clock (performance.now); fill: the one-human countdown (bots top the table up to 4 either way) */
+  autoStart?: { at: number; fill: boolean } | null
 }
 
 export interface MatchResult {

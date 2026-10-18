@@ -1,6 +1,5 @@
-import type { MatchSettings } from '../src/sim/types'
 import type { Room } from '../src/net/dedicated'
-import type { LogFn, ServerConfig, ServerCore } from '../src/net/server'
+import type { LogFn, RoomSetup, ServerConfig, ServerCore } from '../src/net/server'
 
 export interface ServerOptions {
   port?: number
@@ -13,6 +12,10 @@ export interface ServerOptions {
   /** tests only: session clocks run this many times faster than wall time (clients must match) */
   timeScale?: number
   log?: LogFn
+  /** directory of leaderboard.sqlite; '' / missing = no leaderboard */
+  dataDir?: string
+  /** ms since epoch for stored results (tests) */
+  clock?: () => number
 }
 
 export interface DedicatedServer {
@@ -20,7 +23,7 @@ export interface DedicatedServer {
   readonly core: ServerCore
   /** the room with this code, created if missing */
   room(code: string): Promise<Room>
-  createRoom(opts?: { code?: string; auto?: boolean; bots?: string[]; settings?: Partial<MatchSettings> }): Promise<Room>
+  createRoom(opts?: RoomSetup): Promise<Room>
   close(): Promise<void>
 }
 

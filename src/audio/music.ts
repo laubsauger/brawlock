@@ -181,6 +181,9 @@ const TRACKS: Record<MusicTrack, TrackDef> = {
   },
 }
 
+/** Every music track (the sound board lists them). */
+export const MUSIC_TRACKS = Object.keys(TRACKS) as MusicTrack[]
+
 function pick<T>(a: readonly T[]): T {
   return a[Math.floor(Math.random() * a.length)]
 }

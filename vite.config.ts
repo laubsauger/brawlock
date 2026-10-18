@@ -24,15 +24,39 @@ function versionFile(): Plugin {
   }
 }
 
+// The sound board (src/audio/dev/soundboard.html) ships unlisted as /sounds.html.
+const SOUNDS_ENTRY = 'src/audio/dev/soundboard.html'
+function soundsPage(): Plugin {
+  return {
+    name: 'brawlock-sounds-page',
+    // after vite's html plugin has emitted the page
+    enforce: 'post',
+    configureServer(server) {
+      // dev: the production path redirects to the page (its relative script path stays valid)
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split('?')[0] !== '/sounds.html') return next()
+        res.writeHead(302, { Location: `/${SOUNDS_ENTRY}${req.url.slice('/sounds.html'.length)}` })
+        res.end()
+      })
+    },
+    generateBundle(_opts, bundle) {
+      for (const out of Object.values(bundle)) if (out.fileName === SOUNDS_ENTRY) out.fileName = 'sounds.html'
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   base: process.env.GITHUB_ACTIONS && repo ? `/${repo}/` : '/',
-  plugins: [react(), tailwindcss(), versionFile()],
+  plugins: [react(), tailwindcss(), versionFile(), soundsPage()],
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __NET_ID__: JSON.stringify(NET_ID) },
   resolve: {
     // bare 'three' (addons, r3f) and 'three/webgpu' (scene) would pull two
     // copies of three. Alias bare 'three' to the webgpu build so one instance
     // serves all. Skipped in tests: node has no WebGPU globals.
     alias: mode === 'test' ? [] : [{ find: /^three$/, replacement: 'three/webgpu' }],
+  },
+  build: {
+    rollupOptions: { input: { main: 'index.html', sounds: SOUNDS_ENTRY } },
   },
   server: {
     port: process.env.PORT ? Number(process.env.PORT) : 5173,

@@ -30,6 +30,9 @@ const DEFS: Record<AmbienceKind, AmbDef> = {
   menu: { level: 0.55, rumbleHz: 100, hiss: 0.12, crackle: 0.25, bubbles: 2.5, edge: false },
 }
 
+/** Every ambience bed (the sound board lists them). */
+export const AMBIENCE_KINDS = Object.keys(DEFS) as AmbienceKind[]
+
 export class AmbienceLayer {
   readonly kind: AmbienceKind
   readonly out: GainNode

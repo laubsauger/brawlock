@@ -1,8 +1,9 @@
 /**
- * Client side of the dedicated game servers (M4.1, docs/M4.md §11): one server per
- * region, each probed over HTTP(S) `/health` for round-trip time, health and version;
- * room creation and lookup; and the hybrid NetFactory that joins a code on whichever
- * region holds that room, and peer-to-peer otherwise.
+ * Client side of the dedicated game servers (M4.1 / M4.3, docs/M4.md §11-12): one server
+ * per region, each probed over HTTP(S) `/health` for round-trip time, health and version;
+ * room creation and lookup, the public room browser, quick play, the leaderboard; and the
+ * hybrid NetFactory that joins a code on whichever region holds that room, and
+ * peer-to-peer otherwise.
  *
  * Regions come from the build (VITE_GAME_SERVERS, a JSON list, or VITE_GAME_SERVER as
  * a one-region shorthand) or `?server=` (testing): see parseRegions. Adding a region is
@@ -18,6 +19,9 @@
  */
 import { PROTOCOL_VERSION } from './protocol'
 import type { HostEndpoint, NetFactory, Transport } from './transport'
+import type { RoomSummary } from './dedicated'
+import type { Period, PublicBoardRow } from './leaderboard'
+import type { BotDifficulty } from '../sim/types'
 
 /** one request; the first probe of a region takes COLD_SAMPLES of them back to back */
 const REQUEST_TIMEOUT_MS = 2500
@@ -66,6 +70,29 @@ export interface RegionStatus extends ServerRegion {
 export type RegionChoice = 'auto' | (string & {})
 
 export type ServerFailure = 'unavailable' | 'mismatch' | 'full' | 'limited' | 'error'
+
+/** A room of the public browser, with the region it runs in (live ping). */
+export interface PublicRoom extends RoomSummary {
+  region: RegionStatus
+}
+
+/** One leaderboard page of a region's server. */
+export interface LeaderboardPage {
+  region: RegionStatus
+  period: Period
+  /** best first, at most 100 */
+  entries: PublicBoardRow[]
+  /** this device's line, null when it has no counted server match in the period */
+  you: PublicBoardRow | null
+}
+
+/** A device's public profile on a region's server. */
+export interface ServerProfile extends PublicBoardRow {
+  region: RegionStatus
+  firstAt: number
+  /** latest counted matches, newest first */
+  recent: { at: number; region: string; won: boolean; roundsPlayed: number; roundsWon: number; kills: number; deaths: number; delta: number; rating: number }[]
+}
 
 /** A failed server call, with a reason the UI can act on and a message players can read. */
 export class ServerError extends Error {
@@ -208,11 +235,7 @@ export class Online {
 
   /** Create a room on a region; resolves its code. Throws ServerError. */
   async createRoom(regionId: string): Promise<string> {
-    const r = this.regions.find((x) => x.id === regionId)
-    if (!r) throw new ServerError('unavailable', 'That game server is not configured in this build.')
-    const s = await this.fresh(r.id, ROUTE_TTL_UP_MS)
-    if (s.state === 'mismatch') throw new ServerError('mismatch', `The ${r.label} server runs a different version of the game. Reload the page; if that does not help, the server is being updated.`)
-    if (s.state !== 'up') throw new ServerError('unavailable', `The ${r.label} server is not reachable right now.`)
+    const r = await this.usable(regionId)
     let res
     try {
       res = await this.fetch(`${httpBase(r.url)}/rooms`, { method: 'POST', signal: timeout(REQUEST_TIMEOUT_MS) })
@@ -222,8 +245,88 @@ export class Online {
     }
     const body = (await res.json().catch(() => null)) as { code?: unknown; error?: unknown } | null
     if (res.ok && typeof body?.code === 'string') return body.code
-    const message = typeof body?.error === 'string' ? body.error : `The ${r.label} server could not open a room.`
-    throw new ServerError(res.status === 503 ? 'full' : res.status === 429 ? 'limited' : 'error', message)
+    throw failure(res.status, body, `The ${r.label} server could not open a room.`)
+  }
+
+  /**
+   * Public rooms of every region that is up, in parallel: open lobbies first, then rooms
+   * between matches, then running matches; lower ping first within each. Never rejects
+   * (a region that does not answer is left out).
+   */
+  async browse(): Promise<PublicRoom[]> {
+    const lists = await Promise.all(
+      this.regions.map(async (r) => {
+        const s = await this.fresh(r.id, ROUTE_TTL_UP_MS)
+        if (s.state !== 'up') return []
+        try {
+          const res = await this.fetch(`${httpBase(r.url)}/rooms?public=1`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
+          const body = res.ok ? ((await res.json()) as { rooms?: unknown }) : null
+          return Array.isArray(body?.rooms) ? (body.rooms as RoomSummary[]).filter((x) => typeof x?.code === 'string').map((x) => ({ ...x, region: this.copy(this.st.get(r.id)!) })) : []
+        } catch {
+          return []
+        }
+      }),
+    )
+    const phase = (x: PublicRoom) => (x.phase === 'lobby' ? 0 : x.phase === 'results' ? 1 : 2)
+    return lists.flat().sort((a, b) => phase(a) - phase(b) || (a.region.rttMs ?? Infinity) - (b.region.rttMs ?? Infinity) || b.humans - a.humans)
+  }
+
+  /** Quick play on a region: the code of an open quick-play room there (or a new one). Throws ServerError. */
+  async quickPlay(regionId: string, bots?: BotDifficulty): Promise<{ code: string; created: boolean }> {
+    const r = await this.usable(regionId)
+    let res
+    try {
+      res = await this.fetch(`${httpBase(r.url)}/quickplay${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', signal: timeout(REQUEST_TIMEOUT_MS) })
+    } catch {
+      this.markDown(r.id)
+      throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)
+    }
+    const body = (await res.json().catch(() => null)) as { code?: unknown; created?: unknown; error?: unknown } | null
+    if (res.ok && typeof body?.code === 'string') return { code: body.code, created: body.created === true }
+    throw failure(res.status, body, `The ${r.label} server could not find a game.`)
+  }
+
+  /** A region's leaderboard; `device` (this device's id) adds its own line. Throws ServerError. */
+  async leaderboard(regionId: string, period: Period, device?: string): Promise<LeaderboardPage> {
+    const r = await this.usable(regionId)
+    const q = new URLSearchParams({ period, region: r.id })
+    if (device) q.set('device', device)
+    const body = (await this.read(r, `/leaderboard?${q}`)) as { entries?: unknown; you?: unknown } | null
+    if (!body) throw new ServerError('error', `The ${r.label} server keeps no leaderboard.`)
+    return { region: this.copy(this.st.get(r.id)!), period, entries: Array.isArray(body.entries) ? (body.entries as PublicBoardRow[]) : [], you: (body.you as PublicBoardRow | null) ?? null }
+  }
+
+  /** This device's profile on a region's server; null before its first counted match there. Throws ServerError. */
+  async profile(regionId: string, device: string): Promise<ServerProfile | null> {
+    const r = await this.usable(regionId)
+    const body = (await this.read(r, `/players/${encodeURIComponent(device)}`)) as (Omit<ServerProfile, 'region'> & { found?: boolean }) | null
+    if (!body || body.found !== true) return null
+    const { found: _, ...profile } = body
+    return { ...profile, region: this.copy(this.st.get(r.id)!) }
+  }
+
+  /** A configured region that is up (probed for routing), else ServerError. */
+  private async usable(regionId: string): Promise<ServerRegion> {
+    const r = this.regions.find((x) => x.id === regionId)
+    if (!r) throw new ServerError('unavailable', 'That game server is not configured in this build.')
+    const s = await this.fresh(r.id, ROUTE_TTL_UP_MS)
+    if (s.state === 'mismatch') throw new ServerError('mismatch', `The ${r.label} server runs a different version of the game. Reload the page; if that does not help, the server is being updated.`)
+    if (s.state !== 'up') throw new ServerError('unavailable', `The ${r.label} server is not reachable right now.`)
+    return r
+  }
+
+  /** GET a JSON body; null on 404. Throws ServerError. */
+  private async read(r: ServerRegion, path: string): Promise<unknown> {
+    let res
+    try {
+      res = await this.fetch(`${httpBase(r.url)}${path}`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
+    } catch {
+      throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)
+    }
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null
+    if (res.status === 404) return null
+    if (!res.ok || !body) throw failure(res.status, body, `The ${r.label} server did not answer.`)
+    return body
   }
 
   /** Which region holds this room code? Asks every region that is up, in parallel. */
@@ -318,6 +421,11 @@ export class Online {
   private emit(): void {
     for (const cb of this.subs) cb()
   }
+}
+
+function failure(status: number, body: { error?: unknown } | null, fallback: string): ServerError {
+  const message = typeof body?.error === 'string' ? body.error : fallback
+  return new ServerError(status === 503 ? 'full' : status === 429 ? 'limited' : 'error', message)
 }
 
 /** Lowest ping among regions that are up. */

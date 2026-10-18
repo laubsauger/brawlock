@@ -40,6 +40,32 @@ export class SampleBank {
     return { id, buffer: this.buffers.get(id)! }
   }
 
+  private readonly inflight = new Map<AssetId, Promise<void>>()
+
+  /**
+   * Fetch and decode just these assets (the sound board loads on demand). Loaded and
+   * in-flight ones are not fetched again; failures leave that sound synth-only.
+   */
+  loadIds(ctx: BaseAudioContext, baseUrl: string, ids: readonly AssetId[], format: SampleFormat = pickFormat()): Promise<void> {
+    const one = (id: AssetId): Promise<void> => {
+      if (this.buffers.has(id)) return Promise.resolve()
+      let p = this.inflight.get(id)
+      if (!p) {
+        p = (async () => {
+          try {
+            const res = await fetch(`${baseUrl}audio/${id}.${format}`)
+            if (res.ok) this.buffers.set(id, await ctx.decodeAudioData(await res.arrayBuffer()))
+          } catch {
+            // missing or undecodable: that sound stays synth-only
+          }
+        })()
+        this.inflight.set(id, p)
+      }
+      return p
+    }
+    return Promise.all(ids.map(one)).then(() => this.onLoaded?.())
+  }
+
   /** Fetch and decode every asset, a few at a time. Safe to call repeatedly. */
   load(ctx: BaseAudioContext, baseUrl: string, format: SampleFormat = pickFormat()): Promise<void> {
     if (this.loading) return this.loading

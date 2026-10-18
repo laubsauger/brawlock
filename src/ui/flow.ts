@@ -22,6 +22,13 @@ export function playOffline(): void {
   session.openOffline()
 }
 
+/** What the last attempt was, for the failure line ("Couldn't join quick play.") */
+export type HostAction = 'pc' | 'server' | 'quick'
+let lastAction: HostAction | null = null
+export function lastHostAction(): HostAction | null {
+  return lastAction
+}
+
 /** The last host attempt's outcome, so a failure can offer the other mode in one click. */
 let lastHost: HostResult | null = null
 const hostSubs = new Set<() => void>()
@@ -45,12 +52,21 @@ export function useLastHostResult(): HostResult | null {
 
 /** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
 export function hostGame(): void {
+  lastAction = 'pc'
   setLastHost(null)
   void session.openHost().then(setLastHost)
 }
 
+/** Quick play: an open game on the server (or a new one, filled with bots). */
+export function quickPlay(region: string): void {
+  lastAction = 'quick'
+  setLastHost(null)
+  void session.quickPlay({ region }).then(setLastHost)
+}
+
 /** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
 export function hostOnServer(region: string): void {
+  lastAction = 'server'
   setLastHost(null)
   void session.openHostServer(region).then(setLastHost)
 }

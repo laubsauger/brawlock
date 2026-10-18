@@ -1,7 +1,10 @@
 // Announcer pack via ElevenLabs text-to-speech (approach from martian-kombat/tools/gen-audio.mjs).
 //
 //   node art/tools/gen_announcer.mjs --voices                       list stock voices (name, id, labels)
-//   node art/tools/gen_announcer.mjs --voice <id> --name <slug> [--takes 2]
+//   node art/tools/gen_announcer.mjs --voice <id> --name <slug> [--pack 2] [--takes 1] [--key-takes 2]
+//
+// --pack picks one pack's lines (default: every line); --only <id> one line (a probe request);
+// --key-takes gives the pack's key lines (marked `key` below) more takes than the rest.
 //
 // The API key comes from $ELEVENLABS_API_KEY, else from the .env file at $ELEVENLABS_ENV_FILE
 // (default: ../martian-kombat/.env). It is only ever sent as the request header: never printed,
@@ -17,18 +20,35 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = join(ROOT, 'art/archive/audio/announcer')
 const MODEL = 'eleven_multilingual_v2'
 
+// [id, text, pack, key]
 export const LINES = [
-  ['first_blood', 'First Blood!'],
-  ['double_kill', 'Double Kill!'],
-  ['triple_kill', 'Triple Kill!'],
-  ['multi_kill', 'Multi Kill!'],
-  ['mega_kill', 'Mega Kill!'],
-  ['ultra_kill', 'Ultra Kill!'],
-  ['monster_kill', 'Monster Kill!'],
-  ['killing_spree', 'Killing Spree!'],
-  ['rampage', 'Rampage!'],
-  ['unstoppable', 'Unstoppable!'],
-  ['godlike', 'Godlike!'],
+  ['first_blood', 'First Blood!', 1],
+  ['double_kill', 'Double Kill!', 1],
+  ['triple_kill', 'Triple Kill!', 1],
+  ['multi_kill', 'Multi Kill!', 1],
+  ['mega_kill', 'Mega Kill!', 1],
+  ['ultra_kill', 'Ultra Kill!', 1],
+  ['monster_kill', 'Monster Kill!', 1],
+  ['killing_spree', 'Killing Spree!', 1],
+  ['rampage', 'Rampage!', 1],
+  ['unstoppable', 'Unstoppable!', 1],
+  ['godlike', 'Godlike!', 1],
+  // pack 2: round flow, round and match end, the arena, occasional calls
+  ...['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'].map((n) => [`round_${n.toLowerCase()}`, `Round ${n}!`, 2]),
+  ['fight', 'Fight!', 2, true],
+  ['final_round', 'Final Round!', 2, true],
+  ['match_point', 'Match Point!', 2],
+  ['round_won', 'Round Won!', 2],
+  ['draw', 'Draw!', 2],
+  ['victory', 'Victory!', 2, true],
+  ['defeat', 'Defeat!', 2, true],
+  ['arena_shrinks', 'The Arena Shrinks!', 2],
+  ['shutdown', 'Shutdown!', 2, true],
+  ['revenge', 'Revenge!', 2],
+  ['denied', 'Denied!', 2],
+  ['close_call', 'Close Call!', 2],
+  ['last_standing', 'Last Warlock Standing!', 2],
+  ['ace', 'Ace!', 2],
 ]
 
 function apiKey() {
@@ -73,14 +93,19 @@ async function main() {
   const voice = arg('--voice')
   const slug = arg('--name')
   const takes = Number(arg('--takes', '1'))
+  const keyTakes = Number(arg('--key-takes', String(takes)))
+  const pack = arg('--pack')
+  const only = arg('--only')
   const style = Number(arg('--style', '0.7'))
   const stability = Number(arg('--stability', '0.4'))
   if (!voice || !slug) throw new Error('need --voice <id> --name <slug>')
   const dir = join(OUT, slug)
   mkdirSync(dir, { recursive: true })
   let made = 0
-  for (const [id, text] of LINES) {
-    for (let t = 1; t <= takes; t++) {
+  for (const [id, text, linePack, key] of LINES) {
+    if (pack && String(linePack) !== pack) continue
+    if (only && id !== only) continue
+    for (let t = 1; t <= (key ? keyTakes : takes); t++) {
       const file = join(dir, `${id}_take${t}.mp3`)
       if (existsSync(file)) continue
       const audio = await tts(key, voice, text, style, stability)

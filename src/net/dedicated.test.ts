@@ -10,6 +10,7 @@ import { createBot } from '../bots'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import type { SimState } from '../sim/types'
 import { startServer, type DedicatedServer } from '../../server/listen.mjs'
+import { DEFAULT_SERVER_CONFIG } from './server'
 import { startClock } from './clock'
 import { Online, ServerError, hybridNet, parseRegions, type ServerRegion } from './online'
 import { PROTOCOL_VERSION, decode, encode } from './protocol'
@@ -17,6 +18,7 @@ import { KeyedLimiter, TokenBucket } from './ratelimit'
 import { createSession } from './session'
 import type { NetFactory } from './transport'
 import { wsNet } from './ws'
+import { removeDir, tempDir } from '../../server/test-dir.mjs'
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
@@ -47,6 +49,7 @@ interface ClientOpts {
   play?: boolean
   /** extra regions next to `base` (multi-region builds) */
   regions?: ServerRegion[]
+  name?: string
 }
 
 /** A headless browser client: the real session, the hybrid net, a bot at the keyboard. */
@@ -75,7 +78,7 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
       paused: () => false,
       onScreen: () => () => {},
     },
-    profile: () => ({ id: `profile-${opts.key ?? 'headless'}`, name: 'Headless', color: null }),
+    profile: () => ({ id: `profile-${opts.key ?? 'headless'}`, name: opts.name ?? 'Headless', color: null }),
     recorder: {
       start: (info) => {
         bot = opts.play !== false && info.localPlayer >= 0 ? createBot(info.localPlayer, 'hard', 99) : null
@@ -114,8 +117,8 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
   return { session, online, lobby: () => lobby, screen: () => screen, results, notices, shown: () => shown, routed: () => routed }
 }
 
-async function start(config: Record<string, unknown> = {}, build = 'dev-server') {
-  const srv = await startServer({ port: 0, build, config, timeScale: TIME_SCALE, log: quiet })
+async function start(config: Record<string, unknown> = {}, build = 'dev-server', extra: { dataDir?: string; log?: (level: string, event: string, fields?: Record<string, unknown>) => void } = {}) {
+  const srv = await startServer({ port: 0, build, config, timeScale: TIME_SCALE, log: extra.log ?? quiet, dataDir: extra.dataDir })
   servers.push(srv)
   return { srv, base: `ws://127.0.0.1:${srv.port}`, http: `http://127.0.0.1:${srv.port}` }
 }
@@ -160,7 +163,7 @@ describe('dedicated server (M4.1)', () => {
 
     owner.session.leave()
     await until(() => srv.core.stats().rooms === 0, 15000, 'the empty room to close')
-    expect((await fetch(`${http}/rooms/${code}`)).status).toBe(404)
+    expect(await (await fetch(`${http}/rooms/${code}`)).json()).toEqual({ exists: false })
   }, 90000)
 
   /** Why: a second player joins by code (room links work for server rooms) and plays; owner stays the first. */
@@ -266,14 +269,18 @@ describe('dedicated server (M4.1)', () => {
 
   /** Why: one abusive client must not take the server down: rooms per IP, message floods and huge payloads are cut off. */
   it('rate limits: room creation per IP, message floods, oversized messages', async () => {
-    const { srv, base, http } = await start({ roomCreatesPerMin: 3, lookupsPerMin: 5, msgsPerSec: 50 })
+    const { srv, base, http } = await start({ roomCreatesPerMin: 3, lookupsPerMin: 5, quickplaysPerMin: 2, msgsPerSec: 50 })
+    // quick play and leaderboard reads per IP
+    const quicks: number[] = []
+    for (let i = 0; i < 3; i++) quicks.push((await fetch(`${http}/quickplay`, { method: 'POST' })).status)
+    expect(quicks).toEqual([201, 200, 429])
     const codes: number[] = []
     for (let i = 0; i < 4; i++) codes.push((await fetch(`${http}/rooms`, { method: 'POST' })).status)
     expect(codes).toEqual([201, 201, 201, 429])
     // guessing codes: lookups per IP are limited too
     const looks: number[] = []
     for (let i = 0; i < 6; i++) looks.push((await fetch(`${http}/rooms/ABCD${'EFGHJK'[i]}`)).status)
-    expect(looks).toEqual([404, 404, 404, 404, 404, 429])
+    expect(looks).toEqual([200, 200, 200, 200, 200, 429])
 
     const code = (await srv.createRoom()).code
     const closedAfter = async (send: (ws: WebSocket) => void) => {
@@ -310,6 +317,205 @@ describe('dedicated server (M4.1)', () => {
     // and the hybrid net does not even try the server for it (no such room there)
     expect(await c.online.hasRoom('QQQQQ')).toBe(false)
   }, 15000)
+})
+
+describe('public rooms and quick play (M4.3)', () => {
+  const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 }
+  const quick = (q: Record<string, unknown>) => ({ quickplay: { fillMs: 2000, startMs: 1000, nextMs: 2000, seats: 8, fill: 4, bots: 'easy', ...q } })
+
+  /** Why: a lone quick player must not wait for a second human forever: bots fill the table to 4 and the match starts by itself. */
+  it('quick play: one player waits, bots fill to 4, the match starts; a running match takes no one', async () => {
+    const { base } = await start(quick({}))
+    const a = headlessClient(base, { key: 'qa', device: 'device-qa-1', play: false })
+    const r = await a.online.quickPlay('test')
+    expect(r.created).toBe(true)
+    await a.session.join(r.code)
+    expect(a.lobby()).toMatchObject({ quick: true, public: true, role: 'client', status: 'open' })
+    expect(a.lobby().autoStart).toMatchObject({ fill: true })
+    await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
+    expect(a.lobby().slots.map((x) => x.kind).sort()).toEqual(['bot', 'bot', 'bot', 'human'])
+    expect(a.lobby().slots.filter((x) => x.kind === 'bot').every((x) => x.difficulty === 'easy')).toBe(true)
+    // nobody owns a quick room: lobby edits go nowhere
+    a.session.addBot('brutal')
+    // a second quick player does not wait on a running match: a new room
+    const b = headlessClient(base, { key: 'qb', device: 'device-qb-1', play: false })
+    const r2 = await b.online.quickPlay('test', 'medium')
+    expect(r2).toMatchObject({ created: true })
+    expect(r2.code).not.toBe(r.code)
+    await new Promise((res) => setTimeout(res, 200))
+    expect(a.lobby().slots).toHaveLength(4)
+    a.session.leave()
+  }, 30000)
+
+  /** Why: two people pressing Quick play at about the same time play each other (topped up to 4), not two bot tables. */
+  it('quick play: two players meet in one room, start after the short countdown, topped up with bots to 4', async () => {
+    const { base, srv } = await start(quick({ startMs: 1500 }))
+    const a = headlessClient(base, { key: 'qa', device: 'device-qa-2', play: false })
+    const b = headlessClient(base, { key: 'qb', device: 'device-qb-2', play: false })
+    // b asks before a has even connected: a's seat is held
+    const ra = await a.online.quickPlay('test')
+    const rb = await b.online.quickPlay('test')
+    expect(rb).toEqual({ code: ra.code, created: false })
+    await a.session.join(ra.code)
+    await b.session.join(rb.code)
+    await until(() => a.lobby().slots.length === 2, 3000, 'both seated')
+    expect(a.lobby().autoStart).toMatchObject({ fill: false })
+    await until(() => a.screen() === 'match' && b.screen() === 'match', 8000, 'the two-human start')
+    expect(a.lobby().slots.map((x) => x.kind).sort()).toEqual(['bot', 'bot', 'human', 'human'])
+    expect(srv.core.stats().rooms).toBe(1)
+    a.session.leave()
+    b.session.leave()
+  }, 30000)
+
+  /** Why: a quick room keeps going; people who arrive between matches replace bots first, then take free seats. */
+  it('quick play: between matches newcomers replace bots first, then take free seats', async () => {
+    const { base } = await start(quick({ fill: 3, fillMs: 1000, nextMs: 12000, settings: FAST }))
+    const a = headlessClient(base, { key: 'qa', device: 'device-qa-3', play: true })
+    const r = await a.online.quickPlay('test')
+    await a.session.join(r.code)
+    await until(() => a.screen() === 'match', 8000, 'the first match')
+    expect(a.lobby().slots).toHaveLength(3)
+    await until(() => a.screen() === 'results', 50000, 'the first match to finish')
+    const kinds = () => {
+      const k = a.lobby().slots.map((x) => x.kind)
+      return { humans: k.filter((x) => x === 'human').length, bots: k.filter((x) => x === 'bot').length }
+    }
+    const late = ['c', 'd', 'e'].map((k) => headlessClient(base, { key: `q${k}`, device: `device-q${k}-3`, play: true }))
+    const want = [
+      { humans: 2, bots: 1 },
+      { humans: 3, bots: 0 },
+      { humans: 4, bots: 0 },
+    ]
+    for (let i = 0; i < late.length; i++) {
+      const rc = await late[i].online.quickPlay('test')
+      expect(rc).toEqual({ code: r.code, created: false })
+      await late[i].session.join(rc.code)
+      await until(() => kinds().humans === want[i].humans, 3000, `newcomer ${i + 1} seated`)
+      expect(kinds()).toEqual(want[i])
+    }
+    await until(() => [a, ...late].every((c) => c.screen() === 'match'), 15000, 'the next match with the newcomers')
+    expect(kinds()).toEqual({ humans: 4, bots: 0 })
+    for (const c of [a, ...late]) c.session.leave()
+  }, 80000)
+
+  /** Why: a quick-play room holds 8 humans at most; quick play sends the next one to a new room, a link is refused. */
+  it('quick play: the room is capped (8 by default); the next player gets a new room', async () => {
+    const { base } = await start(quick({ seats: 3, startMs: 60000 }))
+    const cs = ['a', 'b', 'c', 'd'].map((k) => headlessClient(base, { key: `cap${k}`, device: `device-cap${k}`, play: false }))
+    const codes = []
+    for (const c of cs) codes.push(await c.online.quickPlay('test'))
+    expect(codes.map((x) => x.created)).toEqual([true, false, false, true])
+    expect(new Set(codes.slice(0, 3).map((x) => x.code)).size).toBe(1)
+    for (const [i, c] of cs.slice(0, 3).entries()) await c.session.join(codes[i].code)
+    const extra = headlessClient(base, { key: 'cape', device: 'device-cape', play: false })
+    await extra.session.join(codes[0].code)
+    expect(extra.lobby()).toMatchObject({ status: 'error' })
+    expect(extra.lobby().error).toMatch(/full/i)
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 8, fill: 4 })
+    for (const c of cs) c.session.leave()
+  }, 30000)
+
+  /** Why: the browser lists public rooms only; a private coded room never shows; abusive polling is cut off. */
+  it('public list: only public rooms, the owner toggles it, cached and rate limited; browse() tags the region', async () => {
+    const { base, http } = await start({ listsPerMin: 8 })
+    const list = async () => (await (await fetch(`${http}/rooms?public=1`)).json()) as { region: string; rooms: { code: string; host: string | null; quick: boolean; humans: number; phase: string }[] }
+    const owner = headlessClient(base, { key: 'own', name: 'Ann', play: false })
+    const code = await owner.online.createRoom('test')
+    await owner.session.join(code)
+    const q = await owner.online.quickPlay('test')
+    let l = await list()
+    expect(l.rooms.map((x) => x.code)).toEqual([q.code])
+    expect(l.rooms[0]).toMatchObject({ quick: true, host: null, phase: 'lobby' })
+    owner.session.setPublic(true)
+    await until(() => owner.lobby().public === true, 3000, 'the room to turn public')
+    await new Promise((res) => setTimeout(res, 1100 / TIME_SCALE + 50))
+    l = await list()
+    expect(l.rooms.find((x) => x.code === code)).toMatchObject({ host: 'Ann', humans: 1, quick: false, phase: 'lobby' })
+    const browsed = await owner.online.browse()
+    expect(browsed.map((x) => [x.code, x.region.id]).sort()).toEqual([[code, 'test'], [q.code, 'test']].sort())
+    owner.session.setPublic(false)
+    await until(() => owner.lobby().public === false, 3000, 'the room to turn private')
+    await new Promise((res) => setTimeout(res, 1100 / TIME_SCALE + 50))
+    expect((await list()).rooms.map((x) => x.code)).toEqual([q.code])
+    // 4 lists so far (one through browse); 8 per minute, so the 9th is refused
+    const codes: number[] = []
+    for (let i = 0; i < 5; i++) codes.push((await fetch(`${http}/rooms?public=1`)).status)
+    expect(codes).toEqual([200, 200, 200, 200, 429])
+    expect((await fetch(`${http}/rooms`)).status).toBe(400)
+    owner.session.leave()
+  }, 30000)
+})
+
+describe('leaderboard over the server (M4.3)', () => {
+  const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 }
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const d of dirs.splice(0)) removeDir(d)
+  })
+
+  async function playMatch(base: string, humans: { key: string; device: string; name: string }[], bots: number) {
+    const cs = humans.map((h) => headlessClient(base, { ...h, play: true }))
+    const code = await cs[0].online.createRoom('test')
+    for (const c of cs) await c.session.join(code)
+    await until(() => cs[0].lobby().slots.length === humans.length, 3000, 'everyone seated')
+    for (let i = 0; i < bots; i++) cs[0].session.addBot('easy')
+    cs[0].session.updateSettings(FAST)
+    await until(() => cs[0].lobby().slots.length === humans.length + bots && cs[0].lobby().settings?.winScore === 1, 3000, 'lobby set up')
+    cs[0].session.startMatch()
+    await until(() => cs.every((c) => c.screen() === 'results'), 60000, 'the match to finish')
+    for (const c of cs) c.session.leave()
+  }
+
+  /**
+   * Why: the board is only worth something if it counts real server matches between
+   * people: a solo match against bots is ignored, the device id never leaks, and the
+   * data survives the restart every deploy does.
+   */
+  it('counts eligible server matches only, never shows device ids, survives a restart', async () => {
+    const dir = tempDir('brawlock-lb-e2e-')
+    dirs.push(dir)
+    const events: string[] = []
+    const log = (_level: string, event: string, f?: Record<string, unknown>) => events.push(f?.reason ? `${event}:${String(f.reason)}` : event)
+    let { base, http, srv } = await start({ leaderboardMinSeconds: 1, region: 'test' }, 'dev-server', { dataDir: dir, log })
+    const ann = { key: 'ann', device: 'device-ann-0001', name: 'Ann' }
+    const bob = { key: 'bob', device: 'device-bob-0001', name: 'Bob' }
+    // alone with bots: not counted
+    await playMatch(base, [ann], 2)
+    await until(() => events.some((e) => e.startsWith('leaderboard.skip')), 3000, 'the skip')
+    expect(events).toContain('leaderboard.skip:fewer than 2 humans')
+    expect(((await (await fetch(`${http}/leaderboard`)).json()) as { entries: unknown[] }).entries).toEqual([])
+    // two humans and a bot: counted
+    await playMatch(base, [ann, bob], 1)
+    await until(() => events.includes('leaderboard.match'), 3000, 'the recorded match')
+    const read = async (h: string) => {
+      const res = await fetch(`${h}/leaderboard?period=all&device=${ann.device}`)
+      const text = await res.text()
+      return { text, body: JSON.parse(text) as { region: string; entries: { name: string; tag: string; matches: number; rating: number; roundsPlayed: number }[]; you: { rank: number; name: string } | null } }
+    }
+    const first = await read(http)
+    expect(first.body.entries.map((e) => e.name).sort()).toEqual(['Ann', 'Bob'])
+    expect(first.body.entries.every((e) => e.matches === 1 && e.roundsPlayed >= 1 && /^[0-9a-z]{5}$/.test(e.tag))).toBe(true)
+    expect(first.body.entries.map((e) => e.rating).reduce((x, y) => x + y)).toBeCloseTo(2000, -1)
+    expect(first.body.you).toMatchObject({ name: 'Ann' })
+    expect(first.text).not.toContain('device-')
+    const c0 = headlessClient(base)
+    const prof = (await (await fetch(`${http}/players/${bob.device}`)).json()) as { name: string; matches: number; recent: unknown[] }
+    expect(prof).toMatchObject({ found: true, name: 'Bob', matches: 1 })
+    expect(prof.recent).toHaveLength(1)
+    expect(await (await fetch(`${http}/players/device-nobody-01`)).json()).toEqual({ found: false })
+    expect(await c0.online.profile('test', 'device-nobody-01')).toBeNull()
+    expect(await c0.online.profile('test', bob.device)).toMatchObject({ name: 'Bob', region: { id: 'test' } })
+    expect((await fetch(`${http}/leaderboard?period=year`)).status).toBe(400)
+    // the client API reads the same board
+    const c = headlessClient(base)
+    expect((await c.online.leaderboard('test', 'week', ann.device)).entries).toHaveLength(2)
+    // pm2 reload: a new process on the same data directory
+    await srv.close()
+    servers = servers.filter((x) => x !== srv)
+    ;({ base, http, srv } = await start({ region: 'test' }, 'dev-server', { dataDir: dir }))
+    const after = await read(http)
+    expect(after.body.entries).toEqual(first.body.entries)
+  }, 150000)
 })
 
 describe('online regions (client side of the servers)', () => {

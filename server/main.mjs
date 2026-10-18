@@ -4,10 +4,15 @@
 //   --port / PORT (5350)            --host / HOST (127.0.0.1: behind nginx)
 //   --max-rooms / MAX_ROOMS (200)   --origins / ALLOWED_ORIGINS (comma list; empty = any)
 //   --region / REGION ('')          this server's region id (VITE_GAME_SERVERS), shown by /health
+//   --data / DATA_DIR ('')          leaderboard.sqlite goes here ('' = no leaderboard)
+//   --quick-seats / QUICKPLAY_SEATS (8)   humans per quick-play room, at most
+//   --quick-fill / QUICKPLAY_BOT_FILL (4) bots top a quick-play table up to this many players
+//   --quick-bots / QUICKPLAY_BOTS (hard)  default bot difficulty of quick play
 //   --trust-proxy / TRUST_PROXY=1   (client IP from X-Forwarded-For, nginx on this host)
 //   --demo CODE --bots hard,medium  a room that starts itself with these bots (local play)
 //   --page URL                      the client page for the printed join link
 import { startServer, jsonLog } from './listen.mjs'
+import { DEFAULT_SERVER_CONFIG } from '../src/net/server.ts'
 import { parseRoomCode } from '../src/net/code.ts'
 
 const args = process.argv.slice(2)
@@ -19,13 +24,21 @@ const arg = (name, env, fallback) => {
 const port = Number(arg('port', 'PORT', '5350'))
 const host = arg('host', 'HOST', '127.0.0.1')
 const origins = arg('origins', 'ALLOWED_ORIGINS', '')
+const quickSeats = Math.max(2, Math.min(10, Number(arg('quick-seats', 'QUICKPLAY_SEATS', String(DEFAULT_SERVER_CONFIG.quickplay.seats))) || DEFAULT_SERVER_CONFIG.quickplay.seats))
 const config = {
   maxRooms: Number(arg('max-rooms', 'MAX_ROOMS', '200')),
   region: String(arg('region', 'REGION', '')),
+  quickplay: {
+    ...DEFAULT_SERVER_CONFIG.quickplay,
+    seats: quickSeats,
+    fill: Math.max(0, Math.min(quickSeats, Number(arg('quick-fill', 'QUICKPLAY_BOT_FILL', String(DEFAULT_SERVER_CONFIG.quickplay.fill))) || 0)),
+    bots: String(arg('quick-bots', 'QUICKPLAY_BOTS', DEFAULT_SERVER_CONFIG.quickplay.bots)),
+  },
   allowedOrigins: origins ? origins.split(',').map((s) => s.trim()).filter(Boolean) : null,
 }
 const trustProxy = ['1', 'true'].includes(String(arg('trust-proxy', 'TRUST_PROXY', '0')))
-const server = await startServer({ port, host, config, trustProxy })
+const dataDir = String(arg('data', 'DATA_DIR', ''))
+const server = await startServer({ port, host, config, trustProxy, dataDir })
 
 const demo = arg('demo', 'DEMO_ROOM', '')
 if (demo) {

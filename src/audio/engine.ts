@@ -221,6 +221,8 @@ export interface Graph {
   announcer: GainNode
   /** effects duck under an announcer line (between sfx and the master) */
   duck: GainNode
+  /** the last node before the destination (level meters tap it) */
+  output: AudioNode
 }
 
 /** Bus gains for the user's volume settings (pure; shared with offline level checks). */
@@ -297,7 +299,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   musicSend.gain.value = MUSIC_REVERB_SEND
   music.connect(musicSend)
   musicSend.connect(reverb)
-  return { ctx, synth, master, sfx, ui, music, amb, announcer, duck }
+  return { ctx, synth, master, sfx, ui, music, amb, announcer, duck, output: clip }
 }
 
 export class AudioEngine {
@@ -325,9 +327,21 @@ export class AudioEngine {
   private ambFading: AmbienceLayer[] = []
   private timer: ReturnType<typeof setInterval> | null = null
   private shrinks = 0
+  /** every voice still sounding, for stopAll */
+  private readonly live = new Set<GainNode>()
+  /**
+   * false: unlock and hybrid mode do not fetch every recording; the owner loads what it
+   * needs through `samples.loadIds` (the sound board)
+   */
+  autoLoadSamples = true
 
   get ready(): boolean {
     return this.g !== null && this.g.ctx.state === 'running'
+  }
+
+  /** The live bus graph (null before unlock): the sound board meters and plays files on it. */
+  get graph(): Graph | null {
+    return this.g
   }
 
   unlock(): void {
@@ -357,7 +371,7 @@ export class AudioEngine {
   }
 
   private loadSamples(): void {
-    if (this.g) void this.samples.load(this.g.ctx, baseUrl())
+    if (this.g && this.autoLoadSamples) void this.samples.load(this.g.ctx, baseUrl())
   }
 
   get mode(): AudioMode {
@@ -440,7 +454,7 @@ export class AudioEngine {
     if (tick !== undefined) {
       const now = tick / TICK_HZ
       this.simClock = { sim: now, ctx: this.g?.ctx.currentTime ?? 0 }
-      const a = matchAnnouncer.update(events, now, listener.localPlayer ?? null)
+      const a = matchAnnouncer.update(events, now, listener.localPlayer ?? null, listener.state)
       if (a) this.announce(a)
     }
     for (const e of events) {
@@ -463,7 +477,8 @@ export class AudioEngine {
     announcements.emit(a)
     const g = this.g
     if (!g || g.ctx.state !== 'running' || this.vol.muted) return
-    const buffer = this.samples.get(announcerAsset(this.voice, a.line))
+    const id = announcerFile(this.voice, a.line)
+    const buffer = id && this.samples.get(id)
     if (!buffer) return
     const now = g.ctx.currentTime
     const src = g.ctx.createBufferSource()
@@ -482,7 +497,11 @@ export class AudioEngine {
   /** Announcer voice (Settings > Audio). */
   setAnnouncerVoice(voice: AnnouncerVoice): void {
     this.voice = voice
-    matchAnnouncer.lineLength = (line) => this.samples.get(announcerAsset(voice, line))?.duration ?? AUDIO_ASSETS[announcerAsset(voice, line)].duration
+    // a line without any voice file yet (banner only) still takes its turn in the queue
+    matchAnnouncer.lineLength = (line) => {
+      const id = announcerFile(voice, line)
+      return (id && (this.samples.get(id)?.duration ?? AUDIO_ASSETS[id].duration)) || 1.1
+    }
   }
 
   /** Sim time now, from the last tick we saw plus the audio clock since. */
@@ -592,6 +611,7 @@ export class AudioEngine {
     }
     const hybridOn = layers.length > 0
     const out = g.ctx.createGain()
+    this.live.add(out)
     out.gain.value = c.gain * spec.level * (hybridOn ? (hyb!.trim ?? 1) : 1)
     let tail: AudioNode = out
     let panner: StereoPannerNode | null = null
@@ -643,6 +663,7 @@ export class AudioEngine {
     }
     setTimeout(
       () => {
+        this.live.delete(out)
         out.disconnect()
         if (tail !== out) tail.disconnect()
       },
@@ -672,6 +693,27 @@ export class AudioEngine {
   music(track: MusicTrack | 'none'): void {
     this.desiredTrack = track
     this.applyMusic()
+  }
+
+  /** One lava bed on its own, or none (the sound board; in game the bed follows the music). */
+  ambience(kind: AmbienceKind | null): void {
+    this.applyAmbience(kind)
+    if (!this.timer && this.g) this.timer = setInterval(() => this.pump(), 50)
+  }
+
+  /** Fade out every sounding voice, the music and the ambience (the sound board's stop all). */
+  stopAll(): void {
+    const g = this.g
+    this.music('none')
+    this.ambience(null)
+    if (!g) return
+    const now = g.ctx.currentTime
+    for (const out of this.live) {
+      out.gain.cancelScheduledValues(now)
+      out.gain.setValueAtTime(out.gain.value, now)
+      out.gain.setTargetAtTime(0, now, 0.015)
+    }
+    this.keyed.clear()
   }
 
   private applyMusic(): void {
@@ -820,5 +862,17 @@ export function playLayer(
 /** Asset id of an announcer line in a voice. */
 export function announcerAsset(voice: AnnouncerVoice, line: AnnouncerLine): AssetId {
   return `announcer/${voice}_${line}` as AssetId
+}
+
+/**
+ * The file a line plays in a voice: its own, else Maverick's (pack 2 was recorded in Maverick
+ * only), else none (the banner still shows the line).
+ */
+export function announcerFile(voice: AnnouncerVoice, line: AnnouncerLine): AssetId | null {
+  for (const v of [voice, 'maverick'] as const) {
+    const id = announcerAsset(v, line)
+    if (id in AUDIO_ASSETS) return id
+  }
+  return null
 }
 

@@ -558,6 +558,14 @@ describe('audio: announcer', () => {
     expect(heard).toEqual(['First Blood!'])
   })
 
+  it('a line with no voice file yet still reaches the HUD (round flow before pack 2 is recorded)', () => {
+    const heard: string[] = []
+    const off = announcements.subscribe((a) => heard.push(a.text))
+    audio.playEvents([{ type: 'phase', phase: 'fight', round: 1 }], { x: 0, y: 0, halfWidth: 1000, localPlayer: 0, state: { pawns: [], tick: 900 } })
+    off()
+    expect(heard).toEqual(['Fight!'])
+  })
+
   it('with audio running, a line plays on the announcer bus and ducks the effects', async () => {
     vi.useFakeTimers()
     ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
