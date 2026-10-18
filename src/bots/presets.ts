@@ -41,6 +41,7 @@
  * | momentumAware    |   -   | no    | no     | yes   | yes    | yes   | -        |
  * | teleportDodge    |   -   | 0     | 0      | 1     | 1      | 1     | -        |
  * | teleportOffense  |   -   | 0     | 0      | 0.1   | 0.1    | 0.5   | -        |
+ * | shieldReflect    |   -   | 0.1   | 0.35   | 1     | 1      | 1     | -        |
  * | scourgeMinValue  |   -   | -     | -      | 0.5   | 0.5    | 0.45  | -        |
  * | scourgeMinHp     |   -   | 0     | 0      | 220   | 220    | 200   | -        |
  * | edgePressure     |   -   | no    | no     | no    | yes    | yes   | -        |
@@ -75,6 +76,12 @@
  * buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades) as gold allows
  * each shop phase. Uber only: frictionLead leads knocked targets with their decaying slide;
  * shotGate skips shots a target can easily walk out of.
+ *
+ * shieldReflect: chance per think to raise its own Shield (when it owns one) against a bolt on a
+ * collision course that would reach the bubble while it is up (the Teleport-save scale). Every
+ * preset holds fire at a target whose Shield or Alteration bubble will still be up when the
+ * shot gets there (it would come back, or be wasted), and dodges its own shot coming back even
+ * right after casting it.
  *
  * useCover: a bolt whose flight hits a pillar before reaching us is no threat, so the bot
  * stays in a pillar's cover instead of stepping out of it, and dodges toward cover. Every
@@ -146,6 +153,8 @@ export interface BotParams {
   teleportDodge: number
   /** chance per think to blink to an enemy's centre side when it is near the edge */
   teleportOffense: number
+  /** chance per think to raise its own Shield against a bolt about to hit */
+  shieldReflect: number
   /** value-based Scourge (0 = the original per-think chance) */
   scourgeMinValue: number
   /** no Scourge below this HP unless it kills */
@@ -190,6 +199,7 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   momentumAware: false,
   teleportDodge: 0,
   teleportOffense: 0,
+  shieldReflect: 0.1,
   scourgeMinValue: 0,
   scourgeMinHp: 0,
   edgePressure: false,
@@ -223,6 +233,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     walkOffLava: true,
     threatChance: 0.8,
     teleportSave: 0.35,
+    shieldReflect: 0.35,
   },
   hard: {
     ...ORIGINAL,
@@ -251,6 +262,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     momentumAware: true,
     teleportDodge: 1,
     teleportOffense: 0.1,
+    shieldReflect: 1,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
   },
@@ -281,6 +293,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     momentumAware: true,
     teleportDodge: 1,
     teleportOffense: 0.1,
+    shieldReflect: 1,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
     edgePressure: true,
@@ -313,6 +326,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     momentumAware: true,
     teleportDodge: 1,
     teleportOffense: 0.5,
+    shieldReflect: 1,
     scourgeMinValue: 0.45,
     scourgeMinHp: 200,
     edgePressure: true,

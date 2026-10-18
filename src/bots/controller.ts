@@ -35,7 +35,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { attr, isEnemy, spellDef } from '../sim'
+import { attr, cooldownSeconds, isEnemy, spellDef } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -86,6 +86,18 @@ const TP_RADII = [0.3, 0.5, 0.7, 0.9]
 const TP_DIRS = 16
 /** A human needs about this long to notice a cast and start walking. */
 const HUMAN_NOTICE = 0.25
+/** modifiers whose bubble turns our shots back or away (sim: spells/shield.ts, alteration.ts) */
+const BUBBLES = new Set(['shield', 'alteration'])
+/** projectiles a Shield does not reflect (sim: spells/shield.ts); Meteor has no collision at all */
+const UNREFLECTED = new Set(['swap', 'gravity', 'warpzone', 'meteor'])
+/** flight speed assumed for shots whose speed the bot does not track (curving, accelerating) */
+const DEFAULT_SHOT_SPEED = 900
+/** a bubble that drops this close to our shot's arrival counts as gone */
+const BUBBLE_MARGIN = 0.05
+/** reflected but kept by the caster: they come back harmless (Boomerang returns anyway) */
+const NOT_STOLEN = new Set(['boomerang', 'link'])
+/** a typical bolt's radius (Fireball 25) plus a little slack, for the sidestep it takes */
+const SHOT_RADIUS = 35
 
 export type BotAction =
   | 'idle'
@@ -105,6 +117,7 @@ export type BotAction =
   | 'save'
   | 'blink'
   | 'reposition'
+  | 'shield'
 
 const secToTicks = (s: number) => Math.round(s * TICK_HZ)
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -156,6 +169,8 @@ export class BotController implements Bot {
   private nextBuyTick = -1
   private pendingBuy: { spell: SpellId; tick: number; gold: number } | null = null
   private readonly failedBuys = new Set<SpellId>()
+  /** per enemy: tick its Shield was last raised (seen), to know when it can be up again */
+  private readonly shieldCast = new Map<PlayerId, number>()
 
   constructor(player: PlayerId, difficulty: BotDifficulty, seed: number, params: BotParams = BOT_PRESETS[difficulty]) {
     this.player = player
@@ -209,6 +224,7 @@ export class BotController implements Bot {
     this.nextBuyTick = -1
     this.pendingBuy = null
     this.failedBuys.clear()
+    this.shieldCast.clear()
   }
 
   private decide(state: SimState): InputCommand[] {
@@ -242,6 +258,7 @@ export class BotController implements Bot {
     const layer = state.arena.layer
     const safety = this.safetyLayer(state)
     const enemies = state.pawns.filter((o) => o.alive && areEnemies(state, this.player, o.owner))
+    this.watchShields(enemies, tick)
     let closest: PawnState | null = null
     let closestDist = Infinity
     for (const e of enemies) {
@@ -252,7 +269,9 @@ export class BotController implements Bot {
       }
     }
     const onLava = !isSafe(layer, me.x, me.y)
-    const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
+    // enemy bolts, our own shots a Shield has stolen (their owner flips), and our shots about to
+    // hit a raised Shield: those come back, so we read them as already coming
+    const threats = [...state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner)), ...this.comingBack(state, enemies)]
     const tp = me.slots.indexOf('teleport')
     const tpReady = tp >= 0 && castable(me, tp) && !(me.cast && me.cast.spell === 'teleport')
 
@@ -265,7 +284,16 @@ export class BotController implements Bot {
       }
     }
 
-    // 1c. Teleport dodge (new): a bolt walking cannot clear in time, whose hit would be dangerous.
+    // 1c. Shield (new, when owned): reflect a bolt that is about to hit; before a Teleport dodge,
+    // since it sends the bolt back and keeps Teleport for the lava.
+    const sh = me.slots.indexOf('shield')
+    if (sh >= 0 && p.shieldReflect > 0 && castable(me, sh) && !me.modifiers.some((m) => m.id === 'shield')) {
+      if (this.incomingShot(me, sh, threats) && this.rng.chance(p.shieldReflect)) {
+        return this.act('shield', [{ kind: 'cast', slot: sh, x: me.x, y: me.y }])
+      }
+    }
+
+    // 1d. Teleport dodge (new): a bolt walking cannot clear in time, whose hit would be dangerous.
     if (tpReady && p.teleportDodge > 0 && this.unavoidableHit(state, me, threats, layer) && this.rng.chance(p.teleportDodge)) {
       const land = this.planTeleport(state, me, tp, threats, 'dodge')
       if (land) return this.act('blink', [{ kind: 'cast', slot: tp, x: land.x, y: land.y }])
@@ -307,8 +335,14 @@ export class BotController implements Bot {
       this.pickWander(state, me, target, safety)
     }
 
-    // 5. Cast lock: never cancel our own windup with a new order.
-    if (tick < this.spellEndTick) return this.act('idle', [])
+    // 5. Cast lock: never cancel our own windup with a new order. Our own shot coming back
+    // (stolen by a Shield) is the exception once it has left the hand: dodge it at once.
+    if (tick < this.spellEndTick) {
+      const back = !me.cast && p.dodge ? threats.filter((pr) => pr.data.origOwner === this.player) : []
+      const self = back.length ? this.predictSelf(me, tick) : null
+      if (!self || this.dangerHere(state, back, self.x, self.y) < p.dodgeThreshold) return this.act('idle', [])
+      return this.act('dodge', [this.dodgeMove(state, self, threats, this.dangerHere(state, threats, self.x, self.y))])
+    }
     if (me.cast && me.cast.spell !== 'scourge') return this.act('idle', [])
 
     // Danger where we will be when this decision lands (a player plans from where they are going).
@@ -380,14 +414,18 @@ export class BotController implements Bot {
       if (spot) return this.act('reposition', [{ kind: 'cast', slot: tp, x: spot.x, y: spot.y }])
     }
 
-    // 9. Shoot a random projectile spell at the target (falls through if not castable).
+    // 9. Shoot a random projectile spell at the target (falls through if not castable). Never
+    // into a Shield or Alteration bubble that is still up when the shot arrives: the shot
+    // comes back or is wasted. Then another enemy, or a bubble-proof spell, or wait it out.
     if (target && this.rng.chance(p.castChance)) {
       const options = this.slotsWithRole(me, 'projectile')
       if (options.length > 0) {
         const slot = this.rng.pick(options)
-        if (castable(me, slot) && !me.cast) {
-          const aim = this.aimAt(me, target, me.slots[slot]!, state)
-          if (aim && (p.shotGate <= 0 || this.shotChance(state, me, target, me.slots[slot]!, aim) >= p.shotGate)) {
+        const spell = me.slots[slot]!
+        const at = this.bubbleBlocks(me, target, spell) ? this.openTarget(me, enemies, spell) : target
+        if (at && castable(me, slot) && !me.cast) {
+          const aim = this.aimAt(me, at, spell, state)
+          if (aim && (p.shotGate <= 0 || this.shotChance(state, me, at, spell, aim) >= p.shotGate)) {
             this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
             return this.act('shoot', [{ kind: 'cast', slot, x: aim.x, y: aim.y }])
           }
@@ -590,6 +628,134 @@ export class BotController implements Bot {
       if (left <= 1) return true
       const out = lavaOutcome(state, me, after, left, me.moveSpeed, layer)
       if (out.lethal || out.damage >= left * 0.4) return true
+    }
+    return false
+  }
+
+  /**
+   * Our own shots that will meet a raised Shield before it drops, mirrored as if already on
+   * their way back (a player sees the bubble go up in front of their Fireball and moves).
+   */
+  private comingBack(state: SimState, enemies: PawnState[]): ProjectileState[] {
+    const out: ProjectileState[] = []
+    for (const pr of state.projectiles) {
+      if (pr.owner !== this.player) continue
+      const kind = pr.kind ?? pr.spell
+      if (UNREFLECTED.has(kind) || NOT_STOLEN.has(kind)) continue
+      const v = Math.hypot(pr.vx, pr.vy)
+      if (v < 1) continue
+      for (const e of enemies) {
+        const m = e.modifiers.find((x) => x.id === 'shield')
+        if (!m) continue
+        const rx = e.x - pr.x
+        const ry = e.y - pr.y
+        const along = (rx * pr.vx + ry * pr.vy) / v
+        const line = Math.abs(rx * pr.vy - ry * pr.vx) / v
+        const r = m.data.radius ?? 0
+        if (along <= 0 || line >= r) continue
+        const meet = (along - Math.sqrt(r * r - line * line)) / v
+        if (m.ticksLeft >= 0 && meet * TICK_HZ > m.ticksLeft) continue
+        // marked as ours before the steal, like a shot the Shield has already taken
+        out.push({ ...pr, owner: e.owner, vx: -pr.vx, vy: -pr.vy, data: { ...pr.data, origOwner: this.player } })
+        break
+      }
+    }
+    return out
+  }
+
+  /** Remember when each enemy raised its Shield (from the bubble and its time left). */
+  private watchShields(enemies: PawnState[], tick: number): void {
+    const def = spellDef('shield')
+    for (const e of enemies) {
+      const m = e.modifiers.find((x) => x.id === 'shield')
+      if (!m || !def) continue
+      const lv = e.levels[e.slots.indexOf('shield')] || 1
+      const up = Math.round(attr(def, 'duration', lv) * TICK_HZ)
+      this.shieldCast.set(e.owner, tick - Math.max(0, up - m.ticksLeft))
+    }
+  }
+
+  /**
+   * Is a shot of `spell` at `target` blocked by a bubble? Either a Shield or Alteration bubble
+   * that will still be up when it gets there (reaction delay, windup, flight to the bubble's
+   * edge), or a Shield the target owns and may raise (not seen used within its cooldown) from
+   * so close that the stolen shot would be back before we could step aside. Visible state
+   * only: bubbles, the loadout a player can inspect, and when we last saw the Shield used.
+   */
+  private bubbleBlocks(me: PawnState, target: PawnState, spell: SpellId): boolean {
+    const info = BOT_SPELLS[spell]
+    if (!info || info.bubbleProof) return false
+    const sh = target.slots.indexOf('shield')
+    const def = sh >= 0 ? spellDef('shield') : undefined
+    if (def && !info.hitscan && !NOT_STOLEN.has(spell)) {
+      const lv = target.levels[sh] || 1
+      const seen = this.shieldCast.get(target.owner)
+      // ready again by the time our shot gets there
+      const arrive = (this.params.reactionDelay + info.castPoint + dist(me, target) / (info.speed ?? DEFAULT_SHOT_SPEED)) * TICK_HZ
+      const ready = seen === undefined || this.lastTick - seen + arrive >= cooldownSeconds(def, lv) * TICK_HZ
+      // the stolen shot flies back from the bubble's edge; stepping out of its path takes our
+      // reaction plus a walk of its width plus ours. The gap when it leaves the hand: now,
+      // minus how fast we are closing in over the reaction and the windup.
+      const d = Math.max(1, dist(me, target))
+      const closing = ((target.x - me.x) * (me.vx - target.vx) + (target.y - me.y) * (me.vy - target.vy)) / d
+      const gap = d - Math.max(0, closing) * (this.params.reactionDelay + info.castPoint)
+      const back = (gap - attr(def, 'radius', lv) - PAWN_BODY) / (info.speed ?? DEFAULT_SHOT_SPEED)
+      const sidestep = this.params.reactionDelay + (SHOT_RADIUS + PAWN_BODY + 10) / Math.max(1, me.moveSpeed)
+      if (ready && back < sidestep + 0.1) return true
+    }
+    let left = -Infinity
+    let radius = 0
+    for (const m of target.modifiers) {
+      if (!BUBBLES.has(m.id)) continue
+      const t = m.ticksLeft < 0 ? Infinity : m.ticksLeft / TICK_HZ
+      if (t > left) {
+        left = t
+        radius = m.data.radius ?? 0
+      }
+    }
+    if (left === -Infinity) return false
+    const flight = info.hitscan ? 0 : Math.max(0, dist(me, target) - radius) / (info.speed ?? DEFAULT_SHOT_SPEED)
+    return left > this.params.reactionDelay + info.castPoint + flight - BUBBLE_MARGIN
+  }
+
+  /** The closest enemy in range of `spell` whose bubble would not stop it, if any. */
+  private openTarget(me: PawnState, enemies: PawnState[], spell: SpellId): PawnState | null {
+    const range = BOT_SPELLS[spell]?.range ?? Infinity
+    let best: PawnState | null = null
+    for (const e of enemies) {
+      if (dist(me, e) > range || this.bubbleBlocks(me, e, spell)) continue
+      if (!best || dist(me, e) < dist(me, best)) best = e
+    }
+    return best
+  }
+
+  /**
+   * A bolt our Shield (slot `slot`) would turn back: reflectable, on a collision course, not
+   * hitting us before the Shield is up (reaction delay; Shield is instant), and reaching the
+   * bubble's edge before it drops.
+   */
+  private incomingShot(me: PawnState, slot: number, threats: ProjectileState[]): boolean {
+    const def = spellDef('shield')
+    if (!def) return false
+    const level = me.levels[slot] || 1
+    const radius = attr(def, 'radius', level)
+    const up = attr(def, 'duration', level)
+    const delay = this.params.reactionDelay + 1 / TICK_HZ
+    for (const pr of threats) {
+      if (UNREFLECTED.has(pr.kind ?? pr.spell)) continue
+      const v2 = pr.vx * pr.vx + pr.vy * pr.vy
+      if (v2 < 1) continue
+      const v = Math.sqrt(v2)
+      const rx = me.x - pr.x
+      const ry = me.y - pr.y
+      const along = (rx * pr.vx + ry * pr.vy) / v
+      if (along <= 0) continue
+      const line = Math.abs(rx * pr.vy - ry * pr.vx) / v
+      const hitR = pr.radius + PAWN_BODY
+      if (line >= hitR + 20) continue
+      const toBody = (along - hitR) / v
+      const toEdge = (along - radius) / v
+      if (toBody > delay && toEdge < delay + up - 0.1) return true
     }
     return false
   }

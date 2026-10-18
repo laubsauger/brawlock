@@ -19,6 +19,7 @@ import { createSession } from './session'
 import type { NetFactory } from './transport'
 import { wsNet } from './ws'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
+import { createMemoryNet } from './memory'
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
@@ -50,6 +51,8 @@ interface ClientOpts {
   /** extra regions next to `base` (multi-region builds) */
   regions?: ServerRegion[]
   name?: string
+  /** peer-to-peer net (default: none) */
+  p2p?: NetFactory
 }
 
 /** A headless browser client: the real session, the hybrid net, a bot at the keyboard. */
@@ -104,7 +107,7 @@ function headlessClient(base: string | null, opts: ClientOpts = {}) {
     step,
     createBot,
     defaultSettings: DEFAULT_SETTINGS,
-    net: hybridNet(noP2P, online, (url) => wsNet(url), (r) => (routed = r)),
+    net: hybridNet(opts.p2p ?? noP2P, online, (url) => wsNet(url), (r) => (routed = r)),
     startClock: (onPulse) => startClock((t) => onPulse(t * TIME_SCALE)),
     now: () => performance.now() * TIME_SCALE,
     random: Math.random,
@@ -444,6 +447,73 @@ describe('public rooms and quick play (M4.3)', () => {
     expect((await fetch(`${http}/rooms`)).status).toBe(400)
     owner.session.leave()
   }, 30000)
+})
+
+describe('lobby state from room to room (P0: the host lost its Rematch button)', () => {
+  const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2.5, kbMultiplier: 1.6 }
+
+  /** The results screen's control as Results.tsx decides it: the host / owner starts the rematch, others vote, quick play runs itself. */
+  const control = (l: LobbyView) => (l.quick ? 'auto' : l.role !== 'client' ? 'rematch' : 'ready')
+
+  async function finishWithRematch(host: ReturnType<typeof headlessClient>, guest: ReturnType<typeof headlessClient>) {
+    host.session.updateSettings(FAST)
+    await until(() => guest.lobby().settings?.winScore === 1, 3000, 'settings at the guest')
+    host.session.startMatch()
+    await until(() => host.screen() === 'match' && guest.screen() === 'match', 8000, 'the match')
+    await until(() => host.screen() === 'results' && guest.screen() === 'results', 50000, 'results')
+    expect(control(host.lobby())).toBe('rematch')
+    expect(control(guest.lobby())).toBe('ready')
+    guest.session.setReady(true)
+    await until(() => host.lobby().ready[guest.lobby().localPlayer] === true, 3000, "the guest's vote at the host")
+    host.session.rematch()
+    await until(() => host.screen() === 'match' && guest.screen() === 'match', 8000, 'the rematch')
+  }
+
+  /**
+   * Why: quick-play and listing state belong to one room. Left over in the next lobby,
+   * it hid the host's Rematch button ("the next match starts by itself") while the
+   * guests could still vote, so nobody could start the rematch (live playtest, 250026d).
+   */
+  it('quick play, then host peer-to-peer, then a server room: no stale room state, the host / owner always has Rematch', async () => {
+    const { base } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 600_000 } })
+    const p2p = createMemoryNet()
+    const ann = headlessClient(base, { key: 'ann', device: 'device-ann-p0', name: 'Ann', play: true, p2p })
+    const bob = headlessClient(base, { key: 'bob', device: 'device-bob-p0', name: 'Bob', play: true, p2p })
+
+    // 1. both in a quick-play room
+    const q = await ann.online.quickPlay('test')
+    await ann.session.join(q.code)
+    await bob.session.join(q.code)
+    await until(() => ann.lobby().quick === true && bob.lobby().quick === true && !!ann.lobby().autoStart, 3000, 'the quick lobby')
+    expect(control(ann.lobby())).toBe('auto')
+    ann.session.leave()
+    bob.session.leave()
+    expect(ann.lobby()).toMatchObject({ role: 'offline', quick: false, public: false, autoStart: null })
+
+    // 2. Ann hosts peer-to-peer: a plain room on both sides
+    await ann.session.openHost()
+    expect(ann.lobby()).toMatchObject({ role: 'host', status: 'open', quick: false, public: false, autoStart: null })
+    await bob.session.join(ann.lobby().roomCode!)
+    await until(() => ann.lobby().slots.length === 2, 3000, 'Bob seated')
+    expect(bob.lobby()).toMatchObject({ role: 'client', quick: false, public: false, autoStart: null })
+    await finishWithRematch(ann, bob)
+    ann.session.leave()
+    bob.session.leave()
+
+    // 3. Bob owns a server room (after his quick-play and P2P rooms): owner = host role
+    const code = await bob.online.createRoom('test')
+    await bob.session.join(code)
+    await until(() => bob.lobby().role === 'host', 3000, 'Bob owns the room')
+    await ann.session.join(code)
+    await until(() => bob.lobby().slots.length === 2, 3000, 'Ann seated')
+    expect(bob.lobby()).toMatchObject({ quick: false, public: false, autoStart: null })
+    expect(ann.lobby()).toMatchObject({ role: 'client', quick: false })
+    await finishWithRematch(bob, ann)
+    // still the owner's controls after the rematch
+    expect(bob.lobby().role).toBe('host')
+    ann.session.leave()
+    bob.session.leave()
+  }, 120000)
 })
 
 describe('leaderboard over the server (M4.3)', () => {

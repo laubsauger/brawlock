@@ -297,6 +297,9 @@ const CHECK_MS = 500
 const HOST_PLAYER_ID = 0
 const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
 
+/** Lobby view of a plain room: not listed, not quick play. Every new lobby starts from it. */
+const NO_ROOM: Pick<LobbyView, 'public' | 'quick' | 'autoStart'> = { public: false, quick: false, autoStart: null }
+
 /** Lobby view fields of a server room's state (missing on older servers: a private owner room). */
 function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'autoStart'> {
   return {
@@ -698,7 +701,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   /** Fatal: back to the menu with a friendly message. */
   function fail(message: string): void {
     teardown()
-    ui.setLobby({ role: 'offline', joinUrl: null, roomCode: null, status: 'error', error: message, notice: null })
+    ui.setLobby({ role: 'offline', joinUrl: null, roomCode: null, status: 'error', error: message, notice: null, ...NO_ROOM })
     ui.setScreen('menu')
   }
 
@@ -713,7 +716,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const me = deps.profile()
     if (seat) addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
     ui.setResult(null)
-    ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null })
+    // a new lobby never inherits the last room's quick-play / listing state (it would hide the host's Rematch)
+    ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null, ...NO_ROOM })
     publishLobby()
     ui.setScreen('lobby')
   }
@@ -1338,7 +1342,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           ready: { ...ready },
           pings: { ...pings },
           role: serverRoom && owner === localPlayer && localPlayer >= 0 ? 'host' : 'client',
-          ...(serverRoom ? roomView(m.room, deps.now()) : {}),
+          // a P2P host sends no room state: a plain room
+          ...roomView(serverRoom ? m.room : undefined, deps.now()),
         })
         break
       case 'pings':
@@ -1954,6 +1959,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         slots: [],
         settings: null,
         localPlayer: -1,
+        ready: {},
+        pings: {},
+        ...NO_ROOM,
       })
       ui.setScreen('lobby')
       let t: Transport
@@ -2184,6 +2192,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         slots: [],
         settings: null,
         localPlayer: 0,
+        ready: {},
+        pings: {},
+        ...NO_ROOM,
       })
       ui.setScreen('menu')
     },

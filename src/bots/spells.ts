@@ -25,6 +25,11 @@ export interface BotSpellInfo {
   landDelay?: number
   /** instant beam: pointless beyond its range, so always range-checked */
   hitscan?: boolean
+  /**
+   * unaffected by a Shield or Alteration bubble on the target. Every other shot is reflected
+   * (and usually stolen) by Shield, swapped away by Alteration, or stopped (Lightning).
+   */
+  bubbleProof?: boolean
 }
 
 export const BOT_SPELLS: Record<SpellId, BotSpellInfo> = {
@@ -45,15 +50,15 @@ export const BOT_SPELLS: Record<SpellId, BotSpellInfo> = {
   bouncer: { role: 'projectile', speed: 900, range: 900, castPoint: 0.2 },
   recharge: { role: 'projectile', speed: 900, range: 900, castPoint: 0.2 },
   // column 4 (Windwalk never bought or used by the original AI)
-  meteor: { role: 'projectile', range: 1000, castPoint: 0.2, landDelay: 1.15 },
+  meteor: { role: 'projectile', range: 1000, castPoint: 0.2, landDelay: 1.15, bubbleProof: true }, // no CC at all
   splitter: { role: 'projectile', speed: 700, range: 900, castPoint: 0 },
   snowball: { role: 'projectile', speed: 400, range: 575, castPoint: 0.2 },
   // column 6
-  gravity: { role: 'projectile', speed: 450, range: 900, castPoint: 0.2 },
+  gravity: { role: 'projectile', speed: 450, range: 900, castPoint: 0.2, bubbleProof: true },
   grip: { role: 'projectile', speed: 1000, range: 1100, castPoint: 0.2 },
-  warpzone: { role: 'projectile', range: 700, castPoint: 0.2 },
+  warpzone: { role: 'projectile', range: 700, castPoint: 0.2, bubbleProof: true },
   magnetize: { role: 'projectile', speed: 800, range: 960, castPoint: 0.2 },
-  rockpillar: { role: 'projectile', range: 650, castPoint: 0.2 },
+  rockpillar: { role: 'projectile', range: 650, castPoint: 0.2, bubbleProof: true }, // raised at the point, not a flying shot
   link: { role: 'projectile', speed: 950, range: 860, castPoint: 0.2 },
 }
 
