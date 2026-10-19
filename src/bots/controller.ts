@@ -60,6 +60,12 @@ import {
 
 /** Original constants (systems.md §8). */
 const WANDER_ARRIVE_DIST = 100
+/** units/s below which an enemy counts as standing still */
+const STILL_SPEED = 25
+/** seconds standing still until an enemy is a full sitting duck */
+const SITTING_DUCK_SECONDS = 3
+/** FFA target bonus for a sitting duck at full targetSense, not damped by distance */
+const SITTING_DUCK_WEIGHT = 0.9
 const WANDER_NEAR_TARGET_CHANCE = 1 / 11
 const WANDER_NEAR_TARGET_RADIUS = 200
 const WANDER_CENTRE_FACTOR = 0.3
@@ -198,6 +204,8 @@ export class BotController implements Bot {
   private readonly failedBuys = new Set<SpellId>()
   /** per enemy: tick its Shield was last raised (seen), to know when it can be up again */
   private readonly shieldCast = new Map<PlayerId, number>()
+  /** tick each enemy last moved (FFA: a warlock standing still is an easy kill worth walking to) */
+  private readonly lastMoved = new Map<PlayerId, number>()
   /**
    * Seeded per-bot personality for FFA (its own stream: the decision rng is untouched):
    * grudge (go after whoever hit us), opportunism (third-party pushes), risk (crowds, low
@@ -274,6 +282,7 @@ export class BotController implements Bot {
     this.pendingBuy = null
     this.failedBuys.clear()
     this.shieldCast.clear()
+    this.lastMoved.clear()
     this.recentHit = null
   }
 
@@ -283,11 +292,11 @@ export class BotController implements Bot {
     const me = state.pawns.find((pw) => pw.owner === this.player) ?? null
     const gold = state.scores.find((s) => s.id === this.player)?.gold ?? 0
 
-    // 1. Buy: between rounds or while dead, one spell per 40 s.
+    // 1. Buy: follow the build between rounds or while dead.
     this.checkPendingBuy(tick, me, gold)
     const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && (state.phase !== 'fight' || !me?.alive)
     if (canShop && this.build) {
-      // Brutal, Uber: the next step of its build, several per shop phase
+      // The next step of its seeded build, several per shop phase.
       const step = planStep(this.build, me, gold, this.failedBuys)
       if (step) {
         this.nextBuyTick = tick + secToTicks(0.3)
@@ -309,6 +318,7 @@ export class BotController implements Bot {
     const safety = this.safetyLayer(state)
     const enemies = state.pawns.filter((o) => seenEnemy(state, this.player, o))
     this.watchShields(enemies, tick)
+    for (const e of enemies) if (hypot(e.vx, e.vy) > STILL_SPEED || !this.lastMoved.has(e.owner)) this.lastMoved.set(e.owner, tick)
     let closest: PawnState | null = null
     let closestDist = Infinity
     for (const e of enemies) {
@@ -774,7 +784,11 @@ export class BotController implements Bot {
     const outward = hypot(e.x, e.y) > 1 ? ((e.vx - e.walkVx) * e.x + (e.vy - e.walkVy) * e.y) / hypot(e.x, e.y) : 0
     const push = outward > 0 ? Math.min(1, kb / 600) * (0.4 + 0.6 * edge) * this.persona.opportunism : 0
     const killWeight = p.edgePressure ? 1 : 0.3
-    const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near
+    // a warlock that has stood still for a while (AFK, shopping in its head, camping the edge)
+    // is an easy kill worth crossing the map for: before this, distance alone decided and an
+    // idle player at its spawn was nearly never targeted
+    const still = Math.min(1, (state.tick - (this.lastMoved.get(e.owner) ?? state.tick)) / (SITTING_DUCK_SECONDS * TICK_HZ))
+    const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near + still * SITTING_DUCK_WEIGHT
     return near + sense * (extra - contested)
   }
 
@@ -1111,8 +1125,11 @@ export class BotController implements Bot {
     let bestScore = -Infinity
     const consider = (point: Vec2) => {
       if (inPillar(state, point.x, point.y) || (p.safeWander && !isSafeWithMargin(safety, point.x, point.y, p.edgeMargin))) return
-      let pressure = 0
-      for (const enemy of enemies) pressure += 1 / (1 + (dist(point, enemy) / CROWD_FALLOFF) ** 2)
+      // crowding from everyone but the target, saturating: several bots closing on the same
+      // target must not push each other out of shooting range for good
+      let crowd = 0
+      for (const enemy of enemies) if (enemy !== target) crowd += 1 / (1 + (dist(point, enemy) / CROWD_FALLOFF) ** 2)
+      const pressure = (crowd / (1 + crowd)) * 2
       const range = target ? dist(point, target) : 0
       const firing = target ? 1 / (1 + ((range - shootingRange) / 400) ** 2) : 0
       const travel = dist(me, point) / 1500

@@ -266,6 +266,28 @@ describe('bots: Windwalk hides an enemy', () => {
   }
 })
 
+describe('bots: a warlock standing still is a target (FFA)', () => {
+  // Why (2026-10-19 playtest): Medium and Hard ignored a player who stood still: free-for-all
+  // targeting was mostly distance, so an idle warlock away from the fight was almost never
+  // picked. Standing still for a few seconds makes an enemy worth crossing the map for.
+  it('hard: prefers a near moving enemy at first, then the one that has stood still', () => {
+    const mover = makePawn(1, 650, 0, { vy: 220 })
+    const still = makePawn(2, -1250, 0)
+    const state = makeState([makePawn(BOT, 0, 0), mover, still])
+    const bot = createBot(BOT, 'hard', 5) as BotController
+    const picks: (number | null)[] = []
+    for (let t = 0; t < 60 * 5; t++) {
+      state.tick = t
+      mover.y = 220 * Math.sin(t / 30) * 2
+      mover.vy = 220 * Math.cos(t / 30) * 2 / 30 * 60
+      bot.think(state)
+      picks.push(bot.targetPlayer)
+    }
+    expect(picks.slice(30, 60)).toContain(1)
+    expect(picks.slice(-30).every((p) => p === 2)).toBe(true)
+  })
+})
+
 describe('bots: lava escape', () => {
   function onLavaWithTeleport(cooldown = 0): SimState {
     const me = makePawn(BOT, 1000, 0)
@@ -806,20 +828,25 @@ describe('bots: Scourge timing', () => {
   })
 })
 
-describe('bots: shop builds (Brutal, Uber)', () => {
-  const lobby = (seed: number, n = 8) =>
-    Array.from({ length: n }, (_, id) => new BotController(id, 'uber', seed * 31 + id))
+describe('bots: seeded shop builds', () => {
+  const tiers = ['easy', 'medium', 'hard', 'brutal', 'uber'] as const
+  const lobby = (difficulty: BotDifficulty, seed: number, n = 8) =>
+    Array.from({ length: n }, (_, id) => new BotController(id, difficulty, seed * 31 + id))
 
   // the reported problem: a lobby of Ubers all bought the same build (Teleport, Lightning, Link)
-  it('a lobby of eight Ubers shows several builds, not one build eight times', () => {
+  it.each(tiers)('a lobby of eight %s bots draws several builds from the pool', (difficulty) => {
     for (let seed = 1; seed <= 6; seed++) {
-      const builds = new Set(lobby(seed).map((b) => b.build!.id))
+      const builds = new Set(lobby(difficulty, seed).map((b) => b.build?.id))
+      expect(builds.has(undefined), `${difficulty} has no build`).toBe(false)
       expect(builds.size, `seed ${seed}`).toBeGreaterThanOrEqual(4)
     }
   })
 
-  it('the build is part of the seed: the same bot draws the same build', () => {
-    expect(lobby(3).map((b) => b.build)).toEqual(lobby(3).map((b) => b.build))
+  it.each(tiers)('%s build choices are reproducible from the match seed and player', (difficulty) => {
+    const builds = (seed: number) => lobby(difficulty, seed).map((b) => b.build)
+    expect(builds(3)).toEqual(builds(3))
+    expect(builds(3)).not.toEqual(builds(4))
+    expect(builds(3).every((build) => build !== null)).toBe(true)
   })
 
   // a step for a column the build itself already filled with another spell would never buy
@@ -847,11 +874,11 @@ describe('bots: shop builds (Brutal, Uber)', () => {
   })
 
   // every build has a save from the first round: an escape spell and a column spell to fight with
-  it('with the starting gold, every build buys an escape spell and a damage spell', () => {
+  it.each(tiers)('%s buys an escape spell and a damage spell in the first shop with every build', (difficulty) => {
     for (const id of BUILD_IDS) {
-      const slots: PlayerSlot[] = [0, 1].map((p) => ({ id: p, name: `b${p}`, color: 0xff0000, team: p, kind: 'bot', difficulty: 'uber' }))
+      const slots: PlayerSlot[] = [0, 1].map((p) => ({ id: p, name: `b${p}`, color: 0xff0000, team: p, kind: 'bot', difficulty }))
       const state = createMatch({ ...DEFAULT_SETTINGS }, slots, 1)
-      const bot = new BotController(0, 'uber', 1, { ...BOT_PRESETS.uber, buildPlan: id })
+      const bot = new BotController(0, difficulty, 1, { ...BOT_PRESETS[difficulty], buildPlan: id })
       while (state.phase === 'shop') step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
       const me = state.pawns.find((p) => p.owner === 0)!
       expect(ESCAPE_SPELLS, id).toContain(me.slots[1])
