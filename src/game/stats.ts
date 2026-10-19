@@ -157,6 +157,8 @@ export interface MatchRecord {
   firstBlood?: PlayerId | null
   /** fun titles picked at the end of the match (matchAwards) */
   awards?: Award[]
+  /** account reward lookup for this match (Embers), when the server issued one */
+  progression?: { matchId: string; status: 'pending' | 'awarded' | 'ineligible' | 'unavailable' }
 }
 
 /** Career totals of the movement / combat counters (summed PlayerMatchStats). */
@@ -647,6 +649,7 @@ export class MatchTracker {
       damage: split(this.dmgPairs),
       firstBlood: this.firstBlood,
       ...(result.rating ? { rating: { ...result.rating } } : {}),
+      ...(result.progression ? { progression: { ...result.progression } } : {}),
     }
     rec.awards = matchAwards(rec)
     return rec

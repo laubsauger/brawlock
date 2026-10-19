@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { getHallOfFame, getMatchHistory, recordedProfileStats, type Career, type CareerTotals, type Encounter, type HallOfFameKey, type MatchRecord, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
 import { getProfile } from '../../game/profile'
@@ -16,6 +16,8 @@ import { REPLAY_EXT, type ReplayMeta } from '../../game/replay/format'
 import { replays } from '../../game/replay/store'
 import { chooseName, NAME_MAX } from '../lib/name'
 import { historyEloLabel } from '../lib/elo'
+import { accountsEnabled } from '../../game/account'
+import { Collection, MatchEmbers } from './Collection'
 
 type Tab = 'matches' | 'stats' | 'rivals' | 'board' | 'replays'
 
@@ -94,8 +96,63 @@ function Replays() {
   </div>
 }
 
+/**
+ * The whole table of one past match: every player's score, knockouts, deaths, damage and gold,
+ * best first; a row opens that player's detailed stats when they were stored.
+ */
+function MatchScoreboard({ r }: { r: MatchRecord }) {
+  const [open, setOpen] = useState<number | null>(null)
+  const rows = [...r.participants].sort((a, b) => b.score - a.score || b.kills - a.kills || b.damage - a.damage)
+  return (
+    <table className="w-full text-[0.9rem]" aria-label="Final standings">
+      <thead>
+        <tr className="text-left text-[0.72rem] uppercase tracking-wider text-ash">
+          <th className="py-1 pl-6 font-semibold">Player</th>
+          <th className="py-1 text-right font-semibold">Score</th>
+          <th className="py-1 text-right font-semibold" title="Knockouts / deaths">K / D</th>
+          <th className="py-1 text-right font-semibold">Damage</th>
+          <th className="py-1 pr-1 text-right font-semibold" title="Gold earned this match">Gold</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((p) => {
+          const expanded = open === p.player
+          return (
+            <Fragment key={p.player}>
+              <tr className="border-t border-white/5">
+                <td className="py-1">
+                  <span className="flex items-center gap-1.5">
+                    {p.stats ? (
+                      <button type="button" className="row-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} ${p.name}'s match stats`} onClick={() => setOpen(expanded ? null : p.player)}>
+                        <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden><path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
+                      </button>
+                    ) : <span className="w-5" aria-hidden />}
+                    <span className="h-2.5 w-2.5 rotate-45 rounded-[1px]" style={{ background: hex(p.color) }} aria-hidden />
+                    <span className={`font-semibold ${p.player === r.self ? 'text-gold' : 'text-bone'}`}>{p.name}</span>
+                    {p.player === r.self && <span className="text-[0.75rem] text-ash">(you)</span>}
+                    {p.kind === 'bot' && <span className="text-[0.75rem] text-ash">bot</span>}
+                    {p.won && <span className="text-[0.75rem] text-heal">won</span>}
+                  </span>
+                </td>
+                <td className="tabular py-1 text-right">{p.score}</td>
+                <td className="tabular py-1 text-right">{p.kills} / {p.deaths}</td>
+                <td className="tabular py-1 text-right">{Math.round(p.damage).toLocaleString()}</td>
+                <td className="tabular py-1 pr-1 text-right">{p.stats ? p.stats.goldEarned : '–'}</td>
+              </tr>
+              {expanded && p.stats && (
+                <tr><td colSpan={5} className="pb-2 pl-6"><PlayerStatsDetail stats={p.stats} /></td></tr>
+              )}
+            </Fragment>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: string | null) => void }) {
   const history = useStats(readHistory)
+  const [collectionOpen, setCollectionOpen] = useState(false)
   const replayIds = useReplayIds()
   const openRef = useRef<HTMLLIElement>(null)
   // a Hall of Fame link opens its match: bring it into view. Block body: Chrome 153+ returns a
@@ -120,7 +177,7 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
         const others = [...r.participants].sort((a, b) => b.score - a.score)
         const open = openId === r.id
         const elo = historyEloLabel(r)
-        const detail = !!elo.title || (r.awards?.length ?? 0) > 0 || !!me?.stats
+        const detail = r.participants.length > 0
         const who = (id: number) => {
           const p = r.participants.find((x) => x.player === id)
           return { name: p?.name ?? '?', color: p ? hex(p.color) : '#ccc' }
@@ -166,8 +223,10 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
             </div>
             {open && (
               <div className="pop-in flex flex-col gap-2 px-3 pb-3">
-                <p className="text-[0.85rem] leading-snug text-ash">{elo.title}</p>
+                {elo.title && <p className="text-[0.85rem] leading-snug text-ash">{elo.title}</p>}
+                <MatchScoreboard r={r} />
                 {r.awards && r.awards.length > 0 && <AwardsStrip awards={r.awards} who={who} compact />}
+                {accountsEnabled && r.progression && <MatchEmbers progression={r.progression} onCollection={() => setCollectionOpen(true)} />}
                 {me?.stats ? <PlayerStatsDetail stats={me.stats} /> : <p className="text-[0.9rem] text-ash">No detailed stats are stored for this match.</p>}
                 {replayIds.has(r.id) && (
                   <div className="flex gap-3 text-[0.9rem]">
@@ -185,6 +244,7 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
         )
       })}
     </ul>
+    {collectionOpen && <Collection onClose={() => setCollectionOpen(false)} />}
     </>
   )
 }
