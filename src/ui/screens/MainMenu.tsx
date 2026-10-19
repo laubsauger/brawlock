@@ -130,7 +130,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       primary
       title="Casual"
       sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.casual ?? 'Checking open games…'}</span>}
-      note="Matchmaking · no Elo · 10 players · Brutal bots"
+      note="Matchmaking · no Elo · 10 players · first to 3 · Hard bots"
       disabled={!playSupported || !!problem}
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join an open game in ${region?.label}, or create a public game with bots filling empty seats`}
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}

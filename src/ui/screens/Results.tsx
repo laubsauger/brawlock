@@ -78,7 +78,7 @@ export function Results() {
   const role = useGame((s) => s.lobby.role)
   const local = useGame((s) => s.lobby.localPlayer)
   const ready = useGame((s) => s.lobby.ready)
-  // quick play: no host. Casual waits for Ready on this screen; ranked returns to its lobby by itself.
+  // quick play: no host. Casual and ranked both wait here for every player's Ready.
   const quick = useGame((s) => !!s.lobby.quick)
   const ranked = useGame((s) => !!s.lobby.ranked)
   const maintenance = useGame((s) => s.lobby.maintenance ?? null)
