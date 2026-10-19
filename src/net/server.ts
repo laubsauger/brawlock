@@ -89,9 +89,10 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   quickplaysPerMin: 20,
   boardReadsPerMin: 60,
   // Queue economy: a broader opening kit, then enough shared income for a purchase each round.
-  // Casual games are short: first to 3 round wins (ranked plays its fixed rounds).
+  // Casual games are short: first to 3 round wins (ranked plays its fixed rounds), against
+  // Medium bots (Brutal made casual tables too punishing; ranked keeps Brutal).
   quickplay: {
-    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'brutal',
+    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'medium',
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   ranked: {
