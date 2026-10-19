@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +10,18 @@ import { acquireFleetLock, assertStopSafety, command, parseOptions, runStages, v
 const config = JSON.parse(readFileSync(new URL('./release.config.json', import.meta.url), 'utf8'))
 const temp = () => mkdtempSync(join(tmpdir(), 'brawlock-release-test-'))
 const quiet = () => {}
+
+test('fleet verification CLI runs through a symlink instead of silently returning success', () => {
+  const dir = temp()
+  try {
+    const alias = join(dir, 'fleet-alias.mjs')
+    symlinkSync(realpathSync(new URL('../scripts/release/verify-fleet.mjs', import.meta.url)), alias)
+    const result = spawnSync(process.execPath, [alias, 'invalid'], { encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    assert.equal(JSON.parse(result.stderr).ok, false)
+    assert.match(JSON.parse(result.stderr).error, /Usage:/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 
 test('explicit apply; strict options/config and workflow fleet binding', () => {
   assert.equal(parseOptions(['--revision', 'abcdef0']).apply, false)

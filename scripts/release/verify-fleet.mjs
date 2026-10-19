@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Read-only by default. Admission creates one temporary casual lobby on an empty region.
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const usage = 'Usage: node scripts/release/verify-fleet.mjs EXPECTED_NET EXPECTED_PROTOCOL REGION=HTTPS_ORIGIN... [--admission] [--origin HTTPS_ORIGIN] [--allow-local-http]'
@@ -201,7 +201,7 @@ export async function main(args = process.argv.slice(2)) {
   console.log(JSON.stringify({ ok: true, expected: { net: opts.net, protocol: opts.protocol }, regions }))
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Fleet verification failed' }))
   process.exitCode = 1
 })

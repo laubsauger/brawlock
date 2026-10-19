@@ -2,7 +2,7 @@
 // Routine releases only. No provisioning, source publication, history reset or rollback.
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join, resolve, relative } from 'node:path'
@@ -221,7 +221,9 @@ export async function main(args = process.argv.slice(2)) {
   const unlock = await acquireFleetLock(config.appOrigin)
   try {
   process.umask(0o077)
-  const dir = opts.resume ? resolve(opts.resume) : mkdtempSync(join(tmpdir(), 'brawlock-release-'))
+  const requestedDir = opts.resume ? resolve(opts.resume) : mkdtempSync(join(tmpdir(), 'brawlock-release-'))
+  if (lstatSync(requestedDir).isSymbolicLink()) fail('Release journal directory must not be a symlink')
+  const dir = realpathSync(requestedDir)
   const stateFile = join(dir, 'journal.json')
   const toolHash = sha256(readFileSync(fileURLToPath(import.meta.url)) + readFileSync(join(toolDir, 'release-remote.cjs')).toString())
   const state = opts.resume ? readJson(stateFile) : { v: 1, revision, toolHash, configHash: sha256(JSON.stringify(config)), releaseId: `${new Date().toISOString().replace(/[-:.]/g, '')}-${revision.slice(0, 12)}`, admission: opts.admission, steps: {} }

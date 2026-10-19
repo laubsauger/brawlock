@@ -1,10 +1,10 @@
 # Release status and next sprint
 
-Release **`f97de56b685b`** is deployed, 2026-10-19. The commit is pushed, [Pages publication succeeded](https://github.com/laubsauger/brawlock/actions/runs/39193099814), and both regional game bundles match network ID `29ca39c129e2`, protocol 8. US West and Europe are open; the shared account authority runs schema 3.
+Release **`38a2f766fb5b`** is deployed, 2026-10-19. The commit is pushed, [Pages publication succeeded](https://github.com/laubsauger/brawlock/actions/runs/39255949401), and both regional game bundles match network ID `6680ad54ec7e`, protocol 8. US West and Europe are open; the shared account authority runs schema 6. See [the combined rollout receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md).
 
 [The main game](https://brawlock.osc.link/) now serves the root-path client and matching version. Its public provider configuration advertises Google; anonymous `/api/account` correctly returns 401. Heavy media remains on GitHub Pages. The explicitly authorized old-rating/history and regional-outbox season reset is complete, preserving the new account records and credentials. There is no separate legacy ladder or device-rating import.
 
-The user confirmed a real public Google login worked. Follow-up account onboarding, Ranked readiness and menu-inclusive population changes are being verified locally. **Still human-unverified:** production passkey enrollment/reuse and signed-in gameplay across both regions.
+The user confirmed a real public Google login worked. Follow-up account onboarding, Ranked readiness, menu-inclusive population, private analytics, universal game ownership, guided practice and match-progress browsing are live. **Still human-unverified:** production passkey enrollment/reuse and signed-in gameplay across both regions.
 
 ## Shipped accounts and ranked identity
 
@@ -32,9 +32,9 @@ Bot transcendental math now uses deterministic `sim/math.ts`, guarded against en
 
 Persistent authenticated regional drain blocks new rooms, reservations, listings and rematches while existing players finish their whole current match and reconnect to their own seats. This includes casual/custom matches and ranked final brawls; there is no forced shutdown timer or silent region migration. Readiness accounts for match settlement, rating/Embers outboxes and pending account releases. See [MAINTENANCE.md](MAINTENANCE.md).
 
-Verification includes **1,383 tests across 129 files**, a final focused **58 tests across 9 files**, Node/Chrome parity, grade/cosmetic rendering proofs, an actual production desktop casual bot fight and live guest admission through both regions. These checks passed; the human account flows listed above remain unverified.
+The current frozen release passed **1,480 tests across 145 files**, 20 release/analytics checks, all builds and live guest admission/cleanup in both regions. The final guided-practice and maintenance desktop checks passed. Earlier Node/Chrome parity, grade/cosmetic rendering and production bot-fight proofs remain recorded with their original release; the human account flows listed above remain unverified.
 
-The follow-up includes [one-command release automation](../deploy/TOOLS.md#one-command-routine-release): plan by default, explicit apply, frozen source, coordinated drains, stopped backups, exact-revision publication, verification and resumable checkpoints. Nine interruption/lock/configuration regressions pass, including under frozen Git metadata; a read-only plan passed. It has **not yet run a live fleet rollout**. The deployment above used the individual checked-in helpers.
+The [one-command release automation](../deploy/TOOLS.md#one-command-routine-release) completed this live fleet rollout: frozen source, coordinated drains, stopped backups, additive migration, exact-revision publication and guest proof. Its canonical-path resume recovered a macOS verifier-path issue without replacing backups or relabeling source. The operator follow-up makes paths canonical by default; ten release regressions and eleven analytics checks pass. This tool is the routine release entry point.
 
 ## Next sprint: partial combat activity
 
