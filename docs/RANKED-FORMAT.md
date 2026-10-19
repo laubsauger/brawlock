@@ -12,7 +12,7 @@ Play five scheduled scoring rounds. A sole leader wins early if every opponent's
 
 If round five ends with tied leaders, only those leaders enter one final brawl. Everyone keeps their connection, identity and loadout; other players spectate and can inspect or bet. Finalists get a15-second preparation shop and a smaller arena based on their count. Nonfinalists cannot buy during that final.
 
-The final decides the champion without adding another scoring point to the five-round total; it still grants the configured round-win gold. Terminal winners are explicit state, so results, replay seeking and missed event batches resolve the same champion. Results show the champion first even when a losing finalist has the same scoring total. Final human participation/round Elo includes only finalists and preserves elimination order; other players retain their five-round record.
+The final decides the champion without adding another scoring point to the five-round total; it still grants the configured round-win gold. Terminal winners are explicit state, so results, replay seeking and missed event batches resolve the same champion. Results show the champion first even when a losing finalist has the same scoring total. Elo is per match by the result (champion first, then round wins; survival order only splits equal standings); the final's round order counts only for its finalists, and other players retain their five-round record.
 
 There is at most one final. If it ends with no eligible survivor, the tied finalists share the championship; bets are refunded as a drawn round. This is an explicit exceptional outcome, not a chain of extra rounds or a random tiebreak.
 

@@ -5,11 +5,14 @@
  *
  * - Identity: the device id each human sent in `hello` (game/device.ts). It is never
  *   shown: the board shows the name and a short tag derived from it.
- * - Rating: Elo per round on the BOT_ELO scale (src/bots/presets.ts: Medium = 1000,
- *   400 points per 10:1 odds). Every round ranks its human players (round winners first,
- *   then later deaths above earlier ones) and each pair of them is one game. A player's
- *   change is averaged over their pairs (the same rule as game/stats.ts eloUpdate), so K
- *   means "per round" at any player count.
+ * - Rating: Elo per match on the BOT_ELO scale (src/bots/presets.ts: Medium = 1000,
+ *   400 points per 10:1 odds). The match's humans are ranked by its result: match winners
+ *   first, then more round wins; equal standings are split by the rounds themselves (the
+ *   share of rounds one placed above the other: round winners, then later deaths above
+ *   earlier ones). Each pair of humans is one game; a player's change is averaged over their
+ *   pairs, so K means "per match" at any player count. (Until 2026-10-19 every round was
+ *   rated separately by survival order: a match winner who was knocked out by bots before
+ *   the other human in the rounds bots won could lose rating to a player with no round win.)
  * - Bots never count: no rating from rounds against them, no kills of them, no deaths to
  *   them. A seat a bot took over (its player left) stops counting from then on.
  * - Eligible matches only: at least 2 distinct devices in human seats (a second tab of
@@ -27,8 +30,8 @@ import type { MatchRecorder } from './session'
 
 /** a new device's rating: the Medium bot's (BOT_ELO anchor) */
 export const LB_RATING_START = 1000
-/** per round, averaged over the round's pairs */
-export const LB_K = 20
+/** per match, averaged over each player's pairs */
+export const LB_K = 40
 export const LB_MIN_HUMANS = 2
 export const LB_MIN_SECONDS = 120
 export const LB_TOP = 100
@@ -101,38 +104,44 @@ export function eloExpected(a: number, b: number): number {
  */
 export function rateMatch(m: FinishedMatch, ratings: ReadonlyMap<string, number>, k = LB_K): Map<string, number> {
   const seat = seatsByPlayer(m)
-  const r = new Map<string, number>()
-  for (const s of seat.values()) r.set(s.device, ratings.get(s.device) ?? LB_RATING_START)
-  const start = new Map(r)
+  const players = [...seat.keys()].filter((p) => seat.get(p)!.roundsPlayed > 0)
+  const rating = (p: PlayerId) => ratings.get(seat.get(p)!.device) ?? LB_RATING_START
+  // team of each player in the last round they were ranked in (teammates are not rated)
+  const team = new Map<PlayerId, number>()
+  for (const round of m.ranked) for (const [p, t] of Object.entries(round.team)) team.set(Number(p), t)
   const teams = m.teamMode !== 'ffa'
-  for (const round of m.ranked) {
-    const place = new Map<PlayerId, number>()
-    round.groups.forEach((g, i) => g.forEach((p) => seat.has(p) && place.set(p, i)))
-    const players = [...place.keys()]
-    if (players.length < 2) continue
-    const delta = new Map<PlayerId, number>()
-    const pairs = new Map<PlayerId, number>()
-    for (let i = 0; i < players.length; i++) {
-      for (let j = i + 1; j < players.length; j++) {
-        const a = players[i]
-        const b = players[j]
-        if (teams && round.team[a] === round.team[b]) continue
-        const pa = place.get(a)!
-        const pb = place.get(b)!
-        const s = pa < pb ? 1 : pa > pb ? 0 : 0.5
-        const d = k * (s - eloExpected(r.get(seat.get(a)!.device)!, r.get(seat.get(b)!.device)!))
-        delta.set(a, (delta.get(a) ?? 0) + d)
-        delta.set(b, (delta.get(b) ?? 0) - d)
-        pairs.set(a, (pairs.get(a) ?? 0) + 1)
-        pairs.set(b, (pairs.get(b) ?? 0) + 1)
-      }
+  /** a's score against b: the match result, then round wins, then the share of rounds a placed above b */
+  const score = (a: PlayerId, b: PlayerId): number => {
+    const sa = seat.get(a)!
+    const sb = seat.get(b)!
+    if (sa.won !== sb.won) return sa.won ? 1 : 0
+    if (sa.roundsWon !== sb.roundsWon) return sa.roundsWon > sb.roundsWon ? 1 : 0
+    let above = 0
+    let rounds = 0
+    for (const round of m.ranked) {
+      const pa = round.groups.findIndex((g) => g.includes(a))
+      const pb = round.groups.findIndex((g) => g.includes(b))
+      if (pa < 0 || pb < 0) continue
+      rounds++
+      above += pa < pb ? 1 : pa > pb ? 0 : 0.5
     }
-    for (const [p, d] of delta) {
-      const dev = seat.get(p)!.device
-      r.set(dev, r.get(dev)! + d / pairs.get(p)!)
+    return rounds > 0 ? above / rounds : 0.5
+  }
+  const delta = new Map<PlayerId, number>()
+  const pairs = new Map<PlayerId, number>()
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const a = players[i]
+      const b = players[j]
+      if (teams && team.has(a) && team.get(a) === team.get(b)) continue
+      const d = k * (score(a, b) - eloExpected(rating(a), rating(b)))
+      delta.set(a, (delta.get(a) ?? 0) + d)
+      delta.set(b, (delta.get(b) ?? 0) - d)
+      pairs.set(a, (pairs.get(a) ?? 0) + 1)
+      pairs.set(b, (pairs.get(b) ?? 0) + 1)
     }
   }
-  return new Map([...r].map(([d, v]) => [d, v - start.get(d)!]))
+  return new Map(players.map((p) => [seat.get(p)!.device, pairs.get(p) ? delta.get(p)! / pairs.get(p)! : 0]))
 }
 
 /** Public tag of a device: 5 base-36 characters, stable, says nothing about the id. */

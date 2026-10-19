@@ -68,8 +68,12 @@ describe('leaderboard: what counts', () => {
     ])
     const withoutFinal = rateMatch({ ...match, ranked: match.ranked.slice(0, 5) }, new Map())
     const withFinal = rateMatch(match, new Map())
-    expect(withFinal.get(devices[1])!).toBeGreaterThan(withoutFinal.get(devices[1])!)
-    expect(withFinal.get(devices[0])!).toBeLessThan(withoutFinal.get(devices[0])!)
+    // the match result orders them: the final's winner, then by round wins
+    const d = (id: number) => withFinal.get(devices[id])!
+    expect(d(1)).toBeGreaterThan(d(0))
+    expect(d(0)).toBeGreaterThan(d(2))
+    expect(d(2)).toBeGreaterThan(d(3))
+    // benched seats are not rated in the extra final
     for (const id of [2, 3]) expect(withFinal.get(devices[id])).toBe(withoutFinal.get(devices[id]))
     const settled = settleMatch(match, new Map(), 1000, 'eu')
     if ('skipped' in settled) throw new Error(settled.skipped)
@@ -214,19 +218,44 @@ describe('leaderboard: rating', () => {
       { settings },
     )
 
-  /** Why: the 1v1 case is classic zero-sum Elo per round on the BOT_ELO scale (start 1000). */
-  it('1v1: the round winner takes K/2 from an equal opponent, zero-sum', () => {
+  /** Why: the 1v1 case is classic zero-sum Elo per match on the BOT_ELO scale (start 1000). */
+  it('1v1: the match winner takes K/2 from an equal opponent, zero-sum', () => {
     const m = pair([{ deaths: [[1, 0]], winners: [0] }])
     const d = rateMatch(m, new Map())
     expect(d.get('dev-aaaaaaaa')).toBeCloseTo(LB_K / 2, 6)
     expect(d.get('dev-bbbbbbbb')).toBeCloseTo(-LB_K / 2, 6)
-    // rounds chain: the second round starts from the first one's ratings
+    // one game per match: more rounds won in the same match do not stack
     const two = rateMatch(pair([{ deaths: [[1, 0]], winners: [0] }, { deaths: [[1, 0]], winners: [0] }]), new Map())
-    expect(two.get('dev-aaaaaaaa')!).toBeGreaterThan(LB_K / 2)
-    expect(two.get('dev-aaaaaaaa')!).toBeLessThan(LB_K)
+    expect(two.get('dev-aaaaaaaa')!).toBeCloseTo(LB_K / 2, 6)
     expect(two.get('dev-aaaaaaaa')! + two.get('dev-bbbbbbbb')!).toBeCloseTo(0, 6)
     // a favourite gains less for the same win
     expect(rateMatch(m, new Map([['dev-aaaaaaaa', 1400]])).get('dev-aaaaaaaa')!).toBeLessThan(LB_K / 4)
+  })
+
+  /**
+   * Why (2026-10-19 report): the match winner lost rating to a player with no round win.
+   * Rounds were rated one by one by survival, and in the rounds bots won the winner had been
+   * knocked out before the other human. The match result must decide.
+   */
+  it('the match winner gains even when the loser outlived them in the rounds bots won', () => {
+    const tracked = (finalWinner: PlayerId) => {
+      const slots = [slot(0, 'human'), slot(1, 'human'), slot(2, 'bot')]
+      let finished: FinishedMatch | null = null
+      const tracker = new ServerMatchTracker((m) => { finished = m })
+      tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' } })
+      const state = createMatch(DEFAULT_SETTINGS, slots, 1)
+      // 0 wins two rounds; in three rounds the bot wins and 0 dies before 1
+      const rounds: [PlayerId[], PlayerId][] = [[[1, 2], 0], [[1, 2], 0], [[0, 1], 2], [[0, 1], 2], [[0, 1], 2]]
+      for (const [dead, winner] of rounds) {
+        for (const p of state.pawns) p.alive = p.owner === winner
+        tracker.observe(state, [...dead.map((id) => death(id, winner)), roundWin([winner])])
+      }
+      tracker.finish({ winners: [finalWinner], slots, scores: [], rounds: 5, ticks: 60 * 900 })
+      return finished as unknown as FinishedMatch
+    }
+    const d = rateMatch(tracked(0), new Map())
+    expect(d.get('dev-aaaaaaaa')!).toBeGreaterThan(0)
+    expect(d.get('dev-bbbbbbbb')!).toBeLessThan(0)
   })
 
   /** Why: in a free-for-all the winner gains most and the first to die loses most. */
