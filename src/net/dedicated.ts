@@ -16,6 +16,10 @@
  * Ranked quick rooms prefill bots, require minHumans, and return to a fresh lobby
  * countdown between matches. A lone ranked player never starts against only bots.
  * Always: a match nobody is connected to goes back to the lobby.
+ * Rooms that run themselves (quick play, ranked queues, `auto`) never carry an abandoned tab
+ * into the next match: when a match ends, a human who did nothing during all of it (no input,
+ * no chat, at least `idleRounds` complete rounds) goes back to the menu with a notice. Nobody
+ * is removed during a match, however long the break; one input or chat line keeps the seat.
  * `onMatch` gets every finished match (the leaderboard, leaderboard.ts).
  * The same prediction, stamped inputs, snapshots and link monitor as P2P apply; the
  * server just never plays, so there is no host advantage to compensate.
@@ -24,10 +28,11 @@ import type { LobbyView, MatchResult, Screen } from '../game/store'
 import type { Bot } from '../bots'
 import type { BotDifficulty, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { StartClock } from './clock'
-import { MAX_PLAYERS, createSession, type SessionDebug } from './session'
+import { MAX_PLAYERS, createSession, type MatchRecorder, type SessionDebug } from './session'
 import { ServerMatchTracker, type FinishedMatch } from './leaderboard'
 import type { NetStatsView } from './netstats'
 import type { HostEndpoint, Transport } from './transport'
+import { roomProgress, type RoomProgress } from './roomProgress'
 
 export interface RoomOptions {
   /** 5-letter room code (code.ts) */
@@ -48,8 +53,13 @@ export interface RoomOptions {
   public?: boolean
   /** every finished match, with the device ids of its human seats */
   onMatch?: (m: FinishedMatch, result: MatchResult) => void | Promise<void>
+  onMatchStart?: MatchRecorder['start']
+  onMatchAbort?: () => void
+  onMatchJoin?: (device: string) => void
   /** Explicit server rating policy; absent when the caller supplies no policy. */
   elo?: { enabled: boolean; minSeconds: number }
+  /** self-running rooms: at least this many complete rounds of a whole idle match before a human goes back to the menu (0: never; default IDLE_ROUNDS) */
+  idleRounds?: number
   /** a connected device's display label, including lobby changes before the next match */
   onName?: (device: string, name: string) => void
   requireRankedAccount?: boolean
@@ -83,6 +93,7 @@ export interface RoomSummary {
   /** available seats, including unclaimed bots playable next round; absent on player-hosted listings */
   joinable?: number
   phase: Screen
+  progress?: RoomProgress | null
   quick: boolean
   ranked?: boolean
   teamMode: MatchSettings['teamMode']
@@ -136,6 +147,9 @@ export interface Room {
 const AUTO_START_MS = 3000
 const REMATCH_MS = 6000
 const EMPTY_CHECK_MS = 1000
+/** a whole match without touching anything, and never fewer rounds than this */
+const IDLE_ROUNDS = 3
+const IDLE_REASON = 'You were away for a whole game, so you left the room. Join again any time.'
 
 export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Room> {
   const log = opts.log ?? (() => {})
@@ -152,6 +166,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     ready: {},
   }
   let screen: Screen = 'menu'
+  let progress: RoomProgress | null = null
   const results: MatchResult[] = []
   let accept: ((t: Transport) => void) | null = null
   const backlog: Transport[] = []
@@ -172,6 +187,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }
 
   const humans = () => lobby.slots.filter((s) => s.kind === 'human').length
+  const tracker = opts.onMatch ? new ServerMatchTracker(opts.onMatch, opts.onName) : undefined
 
   const session = createSession({
     ui: {
@@ -196,7 +212,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       onScreen: () => () => {},
     },
     profile: () => ({ id: 'dedicated-server', name: 'Server', color: null }),
-    frame: { reset() {}, setLocalPlayer() {}, pushState() {}, pushEvents() {}, setNet() {} },
+    frame: { reset() { progress = null }, setLocalPlayer() {}, pushState(state) { progress = roomProgress(state) }, pushEvents() {}, setNet() {} },
     input: { drain: () => [] },
     audio: { playEvents() {} },
     createMatch: deps.createMatch,
@@ -215,7 +231,15 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     netMode: () => 'predict',
     build: deps.build,
     requireRankedAccount: opts.requireRankedAccount,
-    ...(opts.onMatch ? { recorder: new ServerMatchTracker((m, result) => opts.onMatch!(m, result), opts.onName) } : {}),
+    ...(tracker ? { recorder: {
+      start: (info) => { tracker.start(info); opts.onMatchStart?.(info) },
+      observe: (state, events) => tracker.observe(state, events),
+      finish: (result) => tracker.finish(result),
+      abort: () => { tracker.abort(); opts.onMatchAbort?.() },
+      control: (player, by) => tracker.control(player, by),
+      join: (slot, device) => { tracker.join(slot, device); if (device) opts.onMatchJoin?.(device) },
+      displayName: (slot, device) => tracker.displayName(slot, device),
+    } satisfies MatchRecorder } : {}),
   })
   const quick = opts.quick ?? null
 
@@ -331,14 +355,22 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     if (add) for (let i = bots.length; i < want; i++) session.addBot(quick.bots)
   }
 
-  // a match nobody watches anymore goes back to the lobby
+  const idleRounds = quick || opts.auto ? (opts.idleRounds ?? IDLE_ROUNDS) : 0
+
+  // a match nobody watches anymore goes back to the lobby; between matches, idle humans go back to the menu
   const empty = setInterval(() => {
     if (closed) return
     const d = session.debug()
     if (screen === 'match' && d.peers === 0) {
       log(`room ${opts.code}: empty, back to the lobby`)
       session.backToLobby()
+      return
     }
+    if (idleRounds <= 0 || screen === 'match') return
+    const idle = session.idleHumans(idleRounds)
+    if (idle.length === 0) return
+    log(`room ${opts.code}: ${idle.length} idle human(s) back to the menu`)
+    for (const id of idle) session.dropIdle(id, IDLE_REASON)
   }, EMPTY_CHECK_MS)
 
   await session.openHost({ dedicated: true })
@@ -371,6 +403,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         max: quick ? Math.min(quick.seats, MAX_PLAYERS) : MAX_PLAYERS,
         joinable: joinableSeats(),
         phase: screen,
+        progress: screen === 'match' || screen === 'results' ? progress : null,
         quick: !!quick,
         ...(opts.ranked !== undefined ? { ranked: opts.ranked } : {}),
         teamMode: st.teamMode,

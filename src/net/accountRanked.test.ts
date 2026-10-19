@@ -58,6 +58,18 @@ async function fixture({ both = false, autoStart = false } = {}) {
   const realFetch = globalThis.fetch
   const urls: string[] = []
   const proofs: string[] = []
+  const proofOwners = new Map<string, { headers: Headers; user: string; device: string; controller: string }>()
+  const permissions = new Map<string, { token: string; id: string }>()
+  const cookies = new Map<string, string>()
+  async function playRequest(headers: Headers, body: { action: string; device: string; controller: string; target?: { mode: string; region: string | null; code: string | null }; token?: string; id?: string }) {
+    const from = new Headers(headers); from.set('origin', authOrigin); from.set('content-type', 'application/json'); from.set('x-brawlock-client-ip', 'test-play-browser')
+    const cookie = cookies.get(body.device)
+    if (cookie) from.set('cookie', [from.get('cookie'), cookie].filter(Boolean).join('; '))
+    const response = await accounts.handler(new Request(`${authOrigin}/api/play`, { method: 'POST', headers: from, body: JSON.stringify(body) }))
+    const issued = response.headers.get('set-cookie')
+    if (issued) cookies.set(body.device, issued.split(';')[0])
+    return { status: response.status, body: await response.json() as { ok: boolean; token?: string; id?: string; conflict?: { id: string } } }
+  }
   const logs: unknown[] = []
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -78,11 +90,12 @@ async function fixture({ both = false, autoStart = false } = {}) {
     const headers = await login()
     const claimed = await accounts.handler(new Request(`${authOrigin}/api/account`, { method: 'POST', headers, body: JSON.stringify({ name, color }) }))
     expect(claimed.status).toBe(200)
-    async function ticket(from = headers) {
-      const response = await accounts.handler(new Request(`${authOrigin}/api/account/admission`, { method: 'POST', headers: from, body: '{}' }))
+    async function ticket(from = headers, control: { device?: string; controller?: string; takeover?: boolean } = {}) {
+      const response = await accounts.handler(new Request(`${authOrigin}/api/account/admission`, { method: 'POST', headers: from, body: JSON.stringify({ device: `browser-${user.id}`, controller: `tab-${user.id}`, ...control }) }))
       expect(response.status).toBe(200)
       const result = await response.json() as { token: string }
       proofs.push(result.token)
+      proofOwners.set(result.token, { headers: from, user: user.id, device: control.device ?? `browser-${user.id}`, controller: control.controller ?? `tab-${user.id}` })
       return result.token
     }
     return { id: user.id, ratingKey: `a_${user.id}`, name, color, headers, login, ticket }
@@ -109,23 +122,48 @@ async function fixture({ both = false, autoStart = false } = {}) {
   const us = await region('us')
   const eu = both ? await region('eu', us.http) : null
   function client(server: { ws: string }, authorize: () => Promise<string | null>, overrides: { profileId?: string; name?: string; device?: string; key?: string; origin?: string } = {}) {
+    let permission: { token: string; id: string } | null = null
+    let ownsPermission = false
+    let permissionKey = '', owner: { headers: Headers; user: string; device: string; controller: string } | null = null
+    let releasing: Promise<unknown> = Promise.resolve()
+    const releasePermission = () => {
+      if (!permission || !owner || !ownsPermission) return releasing
+      const old = permission; permission = null; permissions.delete(permissionKey)
+      releasing = playRequest(owner.headers, { action: 'release', device: owner.device, controller: owner.controller, token: old.token })
+      return releasing
+    }
+    const authorizePlay = async () => {
+      const token = await authorize()
+      owner = token ? proofOwners.get(token) ?? null : { headers: new Headers(), user: 'guest', device: overrides.device ?? 'guest-browser-id', controller: overrides.key ?? 'guest-controller-id' }
+      if (!owner) throw new Error('Unknown fixture proof')
+      permissionKey = `${owner.user}:${owner.device}:${owner.controller}`
+      permission = permissions.get(permissionKey) ?? null
+      if (!permission) {
+        const result = await playRequest(owner.headers, { action: 'acquire', device: owner.device, controller: owner.controller, target: { mode: 'server', region: null, code: null } })
+        if (!result.body.ok || !result.body.token || !result.body.id) throw new Error('Your game is active in another tab or device.')
+        permission = { token: result.body.token, id: result.body.id }; permissions.set(permissionKey, permission); proofs.push(permission.token)
+        ownsPermission = true
+      }
+      return token
+    }
     let lobby = { role: 'offline', joinUrl: null, roomCode: null, status: 'idle', error: null, slots: [], settings: null, localPlayer: 0, pings: {}, ready: {} } as LobbyView
     let screen: Screen = 'menu'
     let state: SimState | null = null
     const Ctor = socketClass(overrides.origin ?? playOrigin, urls) as unknown as NonNullable<Parameters<typeof wsNet>[1]>
     const session = createSession({
-      ui: { lobby: () => lobby, setLobby: (patch) => { lobby = { ...lobby, ...patch } }, screen: () => screen,
+      ui: { lobby: () => lobby, setLobby: (patch) => { lobby = { ...lobby, ...patch }; if (patch.status === 'error') void releasePermission() }, screen: () => screen,
         setScreen: (value) => { screen = value }, setResult() {}, paused: () => false, onScreen: () => () => {} },
       profile: () => ({ id: overrides.profileId ?? 'forged-public-profile', name: overrides.name ?? 'ForgedClientName', color: 0xff00ff }),
       frame: { reset() {}, setLocalPlayer() {}, pushState: (value) => { state = value }, pushEvents() {}, setNet() {} },
       input: { drain: () => [] }, audio: { playEvents() {} }, createMatch, step, createBot, defaultSettings: DEFAULT_SETTINGS,
-      net: wsNet(server.ws, Ctor, authorize),
+      net: wsNet(server.ws, Ctor, authorizePlay, undefined, () => { if (!permission) throw new Error('Missing fixture game permission'); return permission.token }),
       startClock: (pulse) => startClock((time) => pulse(time * scale)), now: () => performance.now() * scale,
       random: Math.random, joinUrl: (code) => code, clientKey: () => overrides.key ?? 'forged-client-key',
       device: () => overrides.device ?? 'forged-private-device', build: 'dev-account-tcp',
     })
-    cleanup.push(() => session.leave())
-    return { session, lobby: () => lobby, screen: () => screen, state: () => state }
+    const controlledSession = { ...session, leave() { session.leave(); return releasePermission() } }
+    cleanup.push(async () => { await controlledSession.leave() })
+    return { session: controlledSession, lobby: () => lobby, screen: () => screen, state: () => state, play: () => permission }
   }
   function privateProof(token: string) {
     return accounts.handler(new Request(`${authOrigin}/internal/accounts`, { method: 'POST',
@@ -139,10 +177,60 @@ async function fixture({ both = false, autoStart = false } = {}) {
     expect(JSON.stringify(logs)).not.toContain(regionsToken)
     expect(JSON.stringify(logs)).not.toContain(secret)
   }
-  return { accounts, db, player, client, us, eu, urls, safeLogs, privateProof }
+  return { accounts, db, player, client, us, eu, urls, safeLogs, privateProof, playRequest }
 }
 
 describe('account-ranked production TCP boundary', () => {
+  it('never offers an unstarted ranked lobby as a game to rejoin and removes it when its only player leaves', async () => {
+    const f = await fixture(), ann = await f.player('queue-leave@example.com', 'CinderFox')
+    const queued = await f.us.queue(await ann.ticket())
+    const current = async () => (await f.accounts.handler(new Request(`${authOrigin}/api/account`, { headers: ann.headers }))).json()
+    expect((await current()).game).toBeNull()
+    const first = f.client(f.us, ann.ticket)
+    await first.session.join(queued.body.code!)
+    expect(first.screen()).toBe('lobby')
+    expect(f.db.prepare('SELECT room FROM ranked_occupancy WHERE user_id=?').get(ann.id)).toMatchObject({ room: queued.body.code })
+    expect((await current()).game).toBeNull()
+    await first.session.leave()
+    await until(() => f.us.srv.core.room(queued.body.code!) === null, 'waiting ranked lobby removal')
+    await until(() => !f.db.prepare('SELECT room FROM ranked_occupancy WHERE user_id=?').get(ann.id), 'waiting ranked reservation release')
+    expect((await current()).game).toBeNull()
+    const fresh = await f.us.queue(await ann.ticket())
+    expect(fresh.status).toBe(201)
+    expect(fresh.body.code).not.toBe(queued.body.code)
+    f.safeLogs()
+  }, 10_000)
+  it('enforces one account across custom/casual rooms and regions even if a second connection reuses its live permission', async () => {
+    const f = await fixture({ both: true }), ann = await f.player('global-custom@example.com', 'CinderFox')
+    const firstRoom = await f.us.srv.createRoom({ public: true }), secondRoom = await f.eu!.srv.createRoom({ public: true })
+    const first = f.client(f.us, ann.ticket)
+    await first.session.join(firstRoom.code)
+    expect(first.lobby().status).toBe('open')
+    const copiedPermission = f.client(f.eu!, ann.ticket)
+    await copiedPermission.session.join(secondRoom.code)
+    expect(copiedPermission.lobby().status).toBe('error')
+    expect(first.lobby().status).toBe('open')
+    expect(f.us.srv.core.room(firstRoom.code)!.humans()).toBe(1)
+    expect(f.eu!.srv.core.room(secondRoom.code)!.humans()).toBe(0)
+    f.safeLogs()
+  }, 10_000)
+
+  it('blocks a guest browser from entering a second custom game or switching account to play it simultaneously', async () => {
+    const f = await fixture({ both: true })
+    const one = await f.us.srv.createRoom({ public: true }), two = await f.eu!.srv.createRoom({ public: true })
+    const first = f.client(f.us, async () => null, { device: 'shared-guest-browser', key: 'guest-tab-one', profileId: 'guest-profile-one' })
+    await first.session.join(one.code)
+    expect(first.lobby().status).toBe('open')
+    const second = f.client(f.eu!, async () => null, { device: 'shared-guest-browser', key: 'guest-tab-two', profileId: 'guest-profile-two' })
+    await second.session.join(two.code)
+    expect(second.lobby().status).toBe('error')
+    const ann = await f.player('guest-switch@example.com', 'CinderFox')
+    const switched = f.client(f.eu!, () => ann.ticket(ann.headers, { device: 'shared-guest-browser', controller: 'account-tab-one' }))
+    await switched.session.join(two.code)
+    expect(switched.lobby().status).toBe('error')
+    expect(f.eu!.srv.core.room(two.code)!.humans()).toBe(0)
+    f.safeLogs()
+  }, 10_000)
   it('consumes the HTTP queue proof once, requires a fresh WS proof, and overrides hostile hello identity and cosmetics', async () => {
     const f = await fixture()
     const ann = await f.player('ann-tcp@example.com', 'CinderFox', 0x2e7bff)
@@ -225,22 +313,66 @@ describe('account-ranked production TCP boundary', () => {
   it('keeps one account in one ranked game globally and rejects a second live device joining its seat', async () => {
     const f = await fixture({ both: true })
     const ann = await f.player('global-tcp@example.com', 'CinderFox')
+    const secondProof = await ann.ticket(ann.headers, { device: 'second-device-identity', controller: 'second-device-tab' })
+    const duplicateProof = await ann.ticket(ann.headers, { device: 'second-device-identity', controller: 'second-device-tab' })
     const first = await f.us.queue(await ann.ticket())
     expect(first.status).toBe(201)
     const original = f.client(f.us, ann.ticket, { key: 'device-one-key', device: 'device-one-identity' })
     await original.session.join(first.body.code!)
     expect(original.lobby().status).toBe('open')
-    const secondDevice = await ann.login()
-    const ticket = () => ann.ticket(secondDevice)
-    const elsewhere = await f.eu!.queue(await ticket())
+    const elsewhere = await f.eu!.queue(secondProof)
     expect(elsewhere.status).toBe(409)
     expect(elsewhere.body.game).toEqual({ region: 'us', room: first.body.code })
     expect(f.eu!.srv.core.stats().rooms).toBe(0)
-    const duplicate = f.client(f.us, ticket, { key: 'device-two-key', device: 'device-two-identity', profileId: 'another-browser-profile' })
+    const duplicate = f.client(f.us, async () => duplicateProof, { key: 'device-two-key', device: 'device-two-identity', profileId: 'another-browser-profile' })
     await duplicate.session.join(first.body.code!)
     expect(duplicate.lobby().status).toBe('error')
-    expect(duplicate.lobby().error).toMatch(/already connected.*another tab/i)
+    expect(duplicate.lobby().error).toMatch(/active in another tab or device/i)
     expect(f.us.srv.core.room(first.body.code!)?.humans()).toBe(1)
+    f.safeLogs()
+  }, 10_000)
+
+  it('transfers a live ranked seat explicitly and disconnects its old controller without adding another player', async () => {
+    const f = await fixture({ autoStart: true })
+    const ann = await f.player('transfer-a@example.com', 'CinderFox')
+    const bob = await f.player('transfer-b@example.com', 'AshMage')
+    const queued = await f.us.queue(await ann.ticket())
+    const first = f.client(f.us, ann.ticket)
+    const rival = f.client(f.us, bob.ticket)
+    await first.session.join(queued.body.code!); await rival.session.join(queued.body.code!)
+    await until(() => first.screen() === 'match', 'ranked match start')
+    const seat = first.lobby().localPlayer
+    const originalPermission = first.play()!
+    await f.playRequest(ann.headers, { action: 'takeover', device: 'transfer-device-two', controller: 'transfer-tab-two', id: originalPermission.id })
+    await until(() => first.lobby().status === 'error', 'global controller revocation', 8000)
+    await until(() => (f.db.prepare('SELECT disconnected FROM ranked_occupancy WHERE user_id=?').get(ann.id) as { disconnected: number })?.disconnected === 1, 'global disconnect acknowledgement')
+    const second = f.client(f.us, () => ann.ticket(ann.headers, { device: 'transfer-device-two', controller: 'transfer-tab-two', takeover: true }))
+    await second.session.join(queued.body.code!)
+    expect(second.lobby().status, second.lobby().error ?? '').toBe('open')
+    expect(second.lobby().localPlayer).toBe(seat)
+    expect(second.screen()).toBe('match')
+    await until(() => first.lobby().status === 'error', 'old controller eviction')
+    expect(first.lobby().error).toMatch(/moved to another tab or device/i)
+    expect(f.us.srv.core.room(queued.body.code!)!.humans()).toBe(2)
+    expect(f.us.srv.core.room(queued.body.code!)!.peers()).toBe(2)
+    expect(second.lobby().slots.filter((slot) => slot.profileId === ann.ratingKey)).toHaveLength(1)
+    f.safeLogs()
+  }, 10_000)
+
+  it('rejects stale concurrent tickets for different accounts on the same browser across regions', async () => {
+    const f = await fixture({ both: true })
+    const ann = await f.player('same-device-a@example.com', 'CinderFox')
+    const bob = await f.player('same-device-b@example.com', 'AshMage')
+    const control = { device: 'one-shared-browser', controller: 'first-account-tab' }
+    const stale = await bob.ticket(bob.headers, { ...control, controller: 'second-account-tab' })
+    const queued = await f.us.queue(await ann.ticket(ann.headers, control))
+    const first = f.client(f.us, () => ann.ticket(ann.headers, control))
+    await first.session.join(queued.body.code!)
+    const duplicate = await f.eu!.queue(stale)
+    expect(duplicate.status).toBe(409)
+    expect(duplicate.body).toMatchObject({ rankedConflict: { kind: 'device', game: { region: 'us', room: queued.body.code } } })
+    expect(f.eu!.srv.core.stats().rooms).toBe(0)
+    expect(f.us.srv.core.room(queued.body.code!)!.humans()).toBe(1)
     f.safeLogs()
   }, 10_000)
 
@@ -254,13 +386,17 @@ describe('account-ranked production TCP boundary', () => {
     await first.session.join(queued.body.code!)
     await other.session.join(queued.body.code!)
     await until(() => first.screen() === 'match' && other.screen() === 'match', 'ranked match start')
+    await until(() => (f.db.prepare('SELECT started FROM ranked_occupancy WHERE user_id=?').get(ann.id) as { started: number })?.started === 1, 'ranked match recovery activation')
+    const activeAccount = await f.accounts.handler(new Request(`${authOrigin}/api/account`, { headers: ann.headers }))
+    expect(await activeAccount.json()).toMatchObject({ game: { region: 'us', room: queued.body.code } })
     const seat = first.lobby().localPlayer
     first.session.leave()
     await until(() => f.us.srv.core.room(queued.body.code!)?.peers() === 1, 'original device disconnect')
+    await until(() => (f.db.prepare('SELECT disconnected FROM ranked_occupancy WHERE user_id=?').get(ann.id) as { disconnected: number })?.disconnected === 1, 'global disconnect acknowledgement')
     f.db.prepare('INSERT INTO progression_owned VALUES (?, ?, ?)').run(ann.id, 'robe-cinder', Date.now())
     f.db.prepare('INSERT INTO progression_equipped VALUES (?, ?, ?)').run(ann.id, 'robe', 'robe-cinder')
     const secondDevice = await ann.login()
-    const rejoined = f.client(f.us, () => ann.ticket(secondDevice), { key: 'reconnected-device-key', profileId: 'new-browser-profile', device: 'new-browser-device' })
+    const rejoined = f.client(f.us, () => ann.ticket(secondDevice, { device: 'second-device-identity', controller: 'second-device-tab' }), { key: 'reconnected-device-key', profileId: 'new-browser-profile', device: 'new-browser-device' })
     await rejoined.session.join(queued.body.code!)
     expect(rejoined.lobby().status, rejoined.lobby().error ?? '').toBe('open')
     expect(rejoined.lobby().localPlayer).toBe(seat)

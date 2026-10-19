@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Read-only by default. Admission creates one temporary casual lobby on an empty region.
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const usage = 'Usage: node scripts/release/verify-fleet.mjs EXPECTED_NET EXPECTED_PROTOCOL REGION=HTTPS_ORIGIN... [--admission] [--origin HTTPS_ORIGIN] [--allow-local-http]'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -80,7 +82,30 @@ async function health(entry, opts) {
     rooms: value.rooms, players: value.players, connections: value.connections, draining: value.maintenance?.draining === true }
 }
 
-async function admit(entry, code, opts) {
+export async function withGuestPlay(entry, opts, run) {
+  const identity = { device: randomUUID(), controller: randomUUID() }
+  let cookie = ''
+  const request = async (body) => {
+    let response
+    try {
+      response = await fetch(`${opts.origin}/api/play`, { method: 'POST',
+        headers: { origin: opts.origin, 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+        body: JSON.stringify({ ...identity, ...body }), redirect: 'error', signal: AbortSignal.timeout(8000) })
+      if (!response.ok) { await response.body?.cancel(); fail('rejected') }
+      if (!cookie) cookie = response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ')
+      return await response.json()
+    } catch { fail(`${entry.region}: guest game permission request failed`) }
+  }
+  const permission = await request({ action: 'acquire', target: { mode: 'casual', region: entry.region, code: null } })
+  if (permission.ok !== true || !/^[A-Za-z0-9_-]{43}$/.test(permission.token ?? '') || !cookie) fail(`${entry.region}: invalid guest game permission`)
+  try { return await run(permission.token) }
+  finally {
+    const released = await request({ action: 'release', token: permission.token })
+    if (released.ok !== true) fail(`${entry.region}: guest game permission was not released`)
+  }
+}
+
+async function admit(entry, code, opts, playToken) {
   const url = new URL('/ws', entry.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   url.searchParams.set('room', code)
@@ -99,7 +124,7 @@ async function admit(entry, code, opts) {
         error ? reject(error) : resolve()
       }
       const send = (value) => socket.send(JSON.stringify(value))
-      socket.addEventListener('open', () => send({ t: 'account', token: null }), { once: true })
+      socket.addEventListener('open', () => send({ t: 'account', token: null, playToken }), { once: true })
       socket.addEventListener('error', () => finish(new Error('WebSocket connection failed')), { once: true })
       socket.addEventListener('close', () => { if (!leaving) finish(new Error('WebSocket closed before admission')) }, { once: true })
       socket.addEventListener('message', (event) => {
@@ -150,29 +175,33 @@ async function until(predicate, ms, message) {
 async function admission(entry, opts) {
   const current = await health(entry, opts)
   if (current.rooms || current.players || current.connections || current.draining) fail(`${entry.region}: --admission requires an empty, open region (zero rooms, players and connections)`)
-  const created = await json(entry, '/quickplay', opts, 'POST')
-  if (created.created !== true || created.region !== entry.region || !/^[A-Z]{5}$/.test(created.code ?? '')) fail(`${entry.region}: expected a newly created casual room`)
-  let error
-  try { await admit(entry, created.code, opts) } catch (cause) { error = cause }
-  try {
-    await until(async () => (await json(entry, `/rooms/${created.code}`, opts)).exists === false, 20000, `${entry.region}: temporary room was not removed`)
-    await until(async () => {
-      const value = await json(entry, '/rooms?public=1', opts)
-      if (!Array.isArray(value.rooms)) fail(`${entry.region}: invalid public room listing`)
-      return !value.rooms.some((room) => room.code === created.code)
-    }, 4000, `${entry.region}: temporary room remains in public listing`)
-  } catch (cleanupError) { fail(`${entry.region}: admission cleanup failed${error ? ' after admission failure' : ''}; ${cleanupError.message}`) }
-  if (error) fail(`${entry.region}: ${error.message}`)
-  return { guestAdmission: true, casualLobby: true, leftBeforeCombat: true, roomRemoved: true, listingRemoved: true }
+  return withGuestPlay(entry, opts, async (playToken) => {
+    const created = await json(entry, '/quickplay', opts, 'POST')
+    if (created.created !== true || created.region !== entry.region || !/^[A-Z]{5}$/.test(created.code ?? '')) fail(`${entry.region}: expected a newly created casual room`)
+    let error
+    try { await admit(entry, created.code, opts, playToken) } catch (cause) { error = cause }
+    try {
+      await until(async () => (await json(entry, `/rooms/${created.code}`, opts)).exists === false, 20000, `${entry.region}: temporary room was not removed`)
+      await until(async () => {
+        const value = await json(entry, '/rooms?public=1', opts)
+        if (!Array.isArray(value.rooms)) fail(`${entry.region}: invalid public room listing`)
+        return !value.rooms.some((room) => room.code === created.code)
+      }, 4000, `${entry.region}: temporary room remains in public listing`)
+    } catch (cleanupError) { fail(`${entry.region}: admission cleanup failed${error ? ' after admission failure' : ''}; ${cleanupError.message}`) }
+    if (error) fail(`${entry.region}: ${error.message}`)
+    return { guestAdmission: true, casualLobby: true, leftBeforeCombat: true, roomRemoved: true, listingRemoved: true }
+  })
 }
 
-try {
-  const opts = options(process.argv.slice(2))
+export async function main(args = process.argv.slice(2)) {
+  const opts = options(args)
   const regions = []
   for (const entry of opts.regions) regions.push(await health(entry, opts))
   if (opts.admission) for (let i = 0; i < regions.length; i++) regions[i].admission = await admission(opts.regions[i], opts)
   console.log(JSON.stringify({ ok: true, expected: { net: opts.net, protocol: opts.protocol }, regions }))
-} catch (error) {
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Fleet verification failed' }))
   process.exitCode = 1
-}
+})

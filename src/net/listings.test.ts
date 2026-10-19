@@ -17,6 +17,21 @@ function directory(limits: Partial<ConstructorParameters<typeof ListingDirectory
 }
 
 describe('listing directory (server)', () => {
+  it('publishes validated match progress and clears it on returning to the lobby', () => {
+    const { dir } = directory()
+    const progress = { round: 3, elapsedSeconds: 245, phase: 'shop', final: false }
+    const created = dir.create('ip', { ...INFO, phase: 'match', progress: { ...progress, privateData: 'must not leak' } })
+    if (!created.ok) throw new Error(created.error)
+    expect(dir.list()[0].progress).toEqual(progress)
+    expect(JSON.stringify(dir.list())).not.toContain('privateData')
+    for (const invalid of [false, {}, { ...progress, round: -1 }, { ...progress, round: 1.5 }, { ...progress, elapsedSeconds: -1 }, { ...progress, elapsedSeconds: Infinity }, { ...progress, phase: 'unknown' }, { ...progress, final: 'yes' }]) {
+      expect(dir.beat(created.id, { token: created.token, progress: invalid })).toMatchObject({ ok: false, status: 400, error: 'bad progress' })
+    }
+    expect(dir.list()[0].progress).toEqual(progress)
+    expect(dir.beat(created.id, { token: created.token, phase: 'lobby', progress: null })).toEqual({ ok: true })
+    expect(dir.list()[0].progress).toBeNull()
+  })
+
   it('publishes full bot-filled P2P rooms in lobby, match and results with their real reservable seats', () => {
     const input = {
       listed: { code: INFO.code, region: 'us-west' }, code: INFO.code, role: 'host', status: 'open', public: true,

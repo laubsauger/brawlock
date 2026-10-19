@@ -23,6 +23,8 @@ import { forcedMute, forcedSynth, music } from './ui/lib/sound'
 import { Tutorial } from './ui/Tutorial'
 import { RoomChatLayout } from './ui/hud/Chat'
 import { useOnlinePresence } from './ui/lib/presence'
+import { RankedControlPrompt } from './ui/screens/RankedControlPrompt'
+import { PlayControlPrompt } from './ui/screens/PlayControlPrompt'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -167,7 +169,7 @@ export default function App() {
       <MatchLayer />
       <RoomChatLayout screen={screen}>
         {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
-        <main key={screen} className={`room-screen-content ${screen === 'match' ? 'pointer-events-none' : ''}`}>
+        <main key={screen} className={`room-screen-content ${screen === 'match' ? 'pointer-events-none' : 'pointer-events-auto'}`}>
           {screen === 'menu' && <MainMenu />}
           {screen === 'lobby' && <Lobby />}
           {screen === 'match' && <Match />}
@@ -177,6 +179,8 @@ export default function App() {
         </main>
         {settingsOpen && <SettingsModal />}
         <Tutorial />
+        <RankedControlPrompt />
+        <PlayControlPrompt />
         <SplashScreen />
         <Toasts />
         <PerfHud />

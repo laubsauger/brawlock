@@ -99,6 +99,7 @@ bpm2() {
 |---|---|
 | Logs | `bpm2 logs brawlock-server --lines 100` |
 | Status | `bpm2 describe brawlock-server`, `curl -s http://127.0.0.1:3077/health` |
+| Private analytics snapshot | From the checkout: `npm run analytics -- --days 30` (requires analytics-enabled account/regional services; SSH credentials stay on the hosts). See [collection semantics and report operation](../docs/ACCOUNTS.md#persistent-operational-analytics). |
 | Stop | `bpm2 stop brawlock-server && bpm2 save` |
 | Reload protected regional config | `bpm2 reload /etc/brawlock/ecosystem.config.cjs --only brawlock-server --update-env && bpm2 save` |
 | Remove this app | `bpm2 delete brawlock-server && bpm2 save`; remove only its nginx site link, then `nginx -t && systemctl reload nginx` |

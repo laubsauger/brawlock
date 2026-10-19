@@ -6,9 +6,12 @@ import { BotController } from './controller'
 import { interceptTime, leadPoint } from './aim'
 import { isSafe } from './arena'
 import { dangerAt } from './danger'
-import { escapeRange } from './spells'
+import { BOT_SPELLS, ESCAPE_SPELLS, escapeRange } from './spells'
+import { BUILD_IDS, drawBuild } from './plan'
+import { Rng } from './prng'
 import { firstBlocking, routeAround } from './pillars'
-import { RELEASED_SPELLS } from '../sim'
+import { DEFAULT_SETTINGS, RELEASED_SPELLS, SPELLS, createMatch, step } from '../sim'
+import type { PlayerSlot } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
 const BOT = 0
@@ -777,27 +780,56 @@ describe('bots: Scourge timing', () => {
   })
 })
 
-describe('bots: Uber build plan', () => {
-  it('buys Teleport first, then Lightning, then Fireball upgrades, in order and as gold allows', () => {
-    const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 900, 0)], { phase: 'shop' })
-    state.scores[0].gold = 30
-    const bot = createBot(BOT, 'uber', 4)
-    const buys: string[] = []
-    for (let t = 0; t < 60 * 5; t++) {
-      state.tick = t
-      for (const c of bot.think(state)) {
-        if (c.kind === 'buySpell' || c.kind === 'buyItem') {
-          const id = c.kind === 'buySpell' ? c.spell : c.item
-          buys.push(id)
-          // grant it like the sim would, so the plan moves on
-          const me = state.pawns[0]
-          if (id === 'teleport') { me.slots[1] = 'teleport'; me.levels[1] = 1; state.scores[0].gold -= 12 }
-          if (id === 'lightning') { me.slots[0] = 'lightning'; me.levels[0] = 1; state.scores[0].gold -= 11 }
-          if (id === 'fireball') { me.levels[FIREBALL_SLOT] += 1; state.scores[0].gold -= 7 }
+describe('bots: shop builds (Brutal, Uber)', () => {
+  const lobby = (seed: number, n = 8) =>
+    Array.from({ length: n }, (_, id) => new BotController(id, 'uber', seed * 31 + id))
+
+  // the reported problem: a lobby of Ubers all bought the same build (Teleport, Lightning, Link)
+  it('a lobby of eight Ubers shows several builds, not one build eight times', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const builds = new Set(lobby(seed).map((b) => b.build!.id))
+      expect(builds.size, `seed ${seed}`).toBeGreaterThanOrEqual(4)
+    }
+  })
+
+  it('the build is part of the seed: the same bot draws the same build', () => {
+    expect(lobby(3).map((b) => b.build)).toEqual(lobby(3).map((b) => b.build))
+  })
+
+  // a step for a column the build itself already filled with another spell would never buy
+  it('every step can be bought: released, one spell per column, at most six items', () => {
+    for (const id of BUILD_IDS) {
+      for (let seed = 0; seed < 40; seed++) {
+        const build = drawBuild(new Rng(seed), id)
+        const columns = new Map<number, string>()
+        const items = new Set<string>()
+        for (const step of build.steps) {
+          expect(RELEASED_SPELLS.has(step.id), `${id}: ${step.id}`).toBe(true)
+          const def = SPELLS[step.id]
+          if (step.kind === 'spell') {
+            expect(def?.kind, `${id}: ${step.id}`).toBe('spell')
+            const col = def!.column
+            expect(columns.get(col) ?? step.id, `${id}: column ${col}`).toBe(step.id)
+            columns.set(col, step.id)
+          } else {
+            items.add(step.id)
+          }
         }
+        expect(items.size, id).toBeLessThanOrEqual(6)
       }
     }
-    expect(buys).toEqual(['teleport', 'lightning', 'fireball'])
+  })
+
+  // every build has a save from the first round: an escape spell and a column spell to fight with
+  it('with the starting gold, every build buys an escape spell and a damage spell', () => {
+    for (const id of BUILD_IDS) {
+      const slots: PlayerSlot[] = [0, 1].map((p) => ({ id: p, name: `b${p}`, color: 0xff0000, team: p, kind: 'bot', difficulty: 'uber' }))
+      const state = createMatch({ ...DEFAULT_SETTINGS }, slots, 1)
+      const bot = new BotController(0, 'uber', 1, { ...BOT_PRESETS.uber, buildPlan: id })
+      while (state.phase === 'shop') step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
+      const me = state.pawns.find((p) => p.owner === 0)!
+      expect(ESCAPE_SPELLS, id).toContain(me.slots[1])
+      expect(me.slots.slice(0, 6).filter((s) => s !== null && BOT_SPELLS[s].role === 'projectile').length, id).toBeGreaterThanOrEqual(1)
+    }
   })
 })
-

@@ -46,6 +46,14 @@ Every credited kill already triggers a centered confirmation exclusively for the
 
 The shared death sound has a tighter second low-body answer at 65 ms, using its existing synthesis layers and node budget. Death visuals add a small matching pressure echo while preserving cause-specific effects, quiet disconnects, and player effect settings.
 
+## Death voices and announcer audition
+
+The user still finds the death impact too synthetic and wants short vocal deaths with variation. The [death and announcer listening page](../artifacts/death-voice-review/index.html) compares three death cries (D01), three shorter grunts (D02), and three complete killer-heard mixes with the voice leading and the impacts reduced (D03). Each sequence plays three separate examples; it does not propose three simultaneous screams on one death. Current shared death and combined death-plus-killer-confirmation snapshots are included. These are audition edits; no death variants have been selected or installed in the game.
+
+The existing shared death impact and private killer confirmation both contribute to what a killer hears. Final integration should balance both against the approved voice rather than simply add another loud layer. Keep the personal reward exclusive to the credited killer and preserve quiet disconnects. Once variants are selected, avoid immediate repeats and play one vocal per death.
+
+Maverick remains the default announcer. The saved `arena` option selects Daniel and is now labelled **Daniel (Arena)** in settings; selecting Maverick never substitutes Daniel. The listening page compares the current Maverick samples, the current Daniel samples (V01), and the same selected raw Maverick takes with drier processing (V02). No announcer recording or default has been changed by this audition. Its feedback uses a separate browser storage key and review ID. Sources, trims, blend weights, raw-take choices and processing are retained in the page's `provenance.json`; rebuild with `python3 art/tools/build_death_voice_review.py`.
+
 ## Splash Enter audition
 
 The user requested a much more substantial, epic entrance sound for **Press Enter**. The previous `uiReady` recipe was a click followed by three bright FM-bell notes. The [Enter listening pass](../artifacts/audio-enter-review/README.md) offered five edited options: low metal, low ritual gong, two cinematic impacts, and a metal/gong combination. Each has an isolated preview and a preview over the current menu theme, plus a snapshot of the old sound for comparison. Keep the attack on the click and the tail short enough to hand over to the music.

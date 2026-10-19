@@ -9,6 +9,7 @@
 import type { ListingInfo } from './listings'
 import { ServerError, type Online } from './online'
 import type { MatchSettings, PlayerSlot } from '../sim/types'
+import type { RoomProgress } from './roomProgress'
 
 const MIN_BEAT_MS = 2000
 const RETRY_MS = 15_000
@@ -49,6 +50,7 @@ export function p2pListingTarget(input: {
   host: string
   max: number
   joinable: number
+  progress?: RoomProgress | null
 }): Target | null {
   const { listed } = input
   if (!listed || !input.public || input.role !== 'host' || input.status !== 'open' || input.code !== listed.code || input.transport !== 'p2p') return null
@@ -58,6 +60,7 @@ export function p2pListingTarget(input: {
     info: {
       code: listed.code, host: input.host, humans, bots: input.slots.length - humans, max: input.max, joinable: input.joinable,
       phase: input.screen === 'match' ? 'match' : input.screen === 'results' ? 'results' : 'lobby',
+      progress: input.screen === 'match' || input.screen === 'results' ? input.progress ?? null : null,
       teamMode: input.settings.teamMode, gameMode: input.settings.gameMode, winScore: input.settings.winScore,
     },
   }

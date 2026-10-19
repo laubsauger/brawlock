@@ -14,7 +14,8 @@
     "server:build": "node scripts/build-server.mjs",
     "accounts": "vite-node server/accounts-main.mjs",
     "accounts:migrate": "vite-node server/accounts-main.mjs --migrate",
-    "accounts:build": "node scripts/build-accounts.mjs"
+    "accounts:build": "node scripts/build-accounts.mjs",
+    "analytics": "node scripts/analytics.mjs"
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.11",

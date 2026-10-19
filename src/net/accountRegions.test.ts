@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ACCOUNT_REGIONS_SCHEMA, accountRegions } from '../../server/account-regions.mjs'
+import { ACCOUNT_REGIONS_SCHEMA, ACCOUNT_CONTROL_SCHEMA, ACCOUNT_STARTED_SCHEMA, accountRegions } from '../../server/account-regions.mjs'
 import { openTestDatabase, removeDir, tempDir } from '../../server/test-dir.mjs'
 
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const close of cleanups.reverse()) close(); cleanups.length = 0; vi.restoreAllMocks() })
 const users = ['account-first', 'account-second', 'account-third']
+const control = (user: string) => ({ device: String(users.indexOf(user) + 1).repeat(64), controller: 'a'.repeat(64), takeover: false })
+function withControls(core: ReturnType<typeof accountRegions>) {
+  return { ...core, claim: (region: string, instance: string, user: string, room: string, connection = control(user)) => core.claim(region, instance, user, room, connection) }
+}
 
 function fixture() {
   const dir = tempDir('brawlock-account-regions-')
@@ -13,21 +17,73 @@ function fixture() {
   const db = openTestDatabase(file)
   cleanups.push(() => db.close())
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; CREATE TABLE user(id TEXT PRIMARY KEY);')
-  db.exec(ACCOUNT_REGIONS_SCHEMA)
+  db.exec(ACCOUNT_REGIONS_SCHEMA + ACCOUNT_CONTROL_SCHEMA + ACCOUNT_STARTED_SCHEMA)
   for (const user of users) db.prepare('INSERT INTO user(id) VALUES (?)').run(user)
-  const regions = accountRegions(db)
+  const regions = withControls(accountRegions(db))
   regions.register('eu', 'instance-eu-1')
   regions.register('us', 'instance-us-1')
   const connect = () => {
     const second = openTestDatabase(file)
     cleanups.push(() => second.close())
     second.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
-    return accountRegions(second)
+    return withControls(accountRegions(second))
   }
   return { db, regions, connect }
 }
 
 describe('global ranked account occupancy', () => {
+  it('keeps queue reservations exclusive but offers recovery only for participants in a started match', () => {
+    const { regions } = fixture()
+    regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE')
+    regions.claim('eu', 'instance-eu-1', users[1], 'ABCDE')
+    expect(regions.game(users[0])).toEqual({ region: 'eu', room: 'ABCDE' })
+    expect(regions.activeGame(users[0])).toBeNull()
+    regions.started('us', 'instance-us-1', 'ABCDE', [users[0]])
+    expect(regions.activeGame(users[0])).toBeNull()
+    regions.started('eu', 'instance-eu-1', 'ABCDE', [users[0]])
+    expect(regions.activeGame(users[0])).toEqual({ region: 'eu', room: 'ABCDE' })
+    expect(regions.activeGame(users[1])).toBeNull()
+    regions.started('eu', 'instance-eu-1', 'ABCDE', [users[0]])
+    regions.release('eu', 'instance-eu-1', 'ABCDE', users[0])
+    regions.started('eu', 'instance-eu-1', 'ABCDE', [users[0]])
+    expect(regions.activeGame(users[0])).toBeNull()
+    expect(() => regions.started('eu', 'stale-instance', 'ABCDE', [users[1]])).toThrow(/not current/)
+    expect(() => regions.started('eu', 'instance-eu-1', 'ABCDE', [users[1], users[1]])).toThrow(/Invalid/)
+  })
+  it('blocks two accounts on one browser across regions, including simultaneous pre-authorized claims', () => {
+    const { regions, connect } = fixture(), other = connect()
+    const browser = control(users[0])
+    expect(regions.access(users[0], browser)).toEqual({ ok: true })
+    expect(other.access(users[1], browser)).toEqual({ ok: true })
+    expect(regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', browser)).toEqual({ ok: true })
+    expect(other.claim('us', 'instance-us-1', users[1], 'FGHIJ', browser)).toEqual({ ok: false, conflict: 'device', game: { region: 'eu', room: 'ABCDE' } })
+    expect(other.claim('eu', 'instance-eu-1', users[1], 'ABCDE', { ...browser, takeover: true })).toMatchObject({ ok: false, conflict: 'device' })
+    expect(regions.game(users[1])).toBeNull()
+  })
+
+  it('requires an explicit transfer to another tab/device and retains every device until the game releases', () => {
+    const { regions } = fixture(), original = control(users[0])
+    regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', original)
+    const second = { device: 'f'.repeat(64), controller: 'b'.repeat(64), takeover: false }
+    expect(regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', second)).toMatchObject({ ok: false, conflict: 'controller' })
+    expect(regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', { ...second, takeover: true })).toEqual({ ok: true })
+    expect(regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', original)).toMatchObject({ ok: false, conflict: 'controller' })
+    expect(regions.claim('us', 'instance-us-1', users[1], 'FGHIJ', original)).toMatchObject({ ok: false, conflict: 'device' })
+    expect(regions.claim('us', 'instance-us-1', users[0], 'FGHIJ', { ...second, takeover: true })).toEqual({ ok: false, game: { region: 'eu', room: 'ABCDE' } })
+    regions.release('eu', 'instance-eu-1', 'ABCDE', users[0])
+    expect(regions.claim('us', 'instance-us-1', users[1], 'FGHIJ', original)).toEqual({ ok: true })
+  })
+
+  it('allows a normal reconnect only after the current controller disconnects and fences old disconnect callbacks', () => {
+    const { regions } = fixture(), original = control(users[0])
+    const second = { ...original, controller: 'b'.repeat(64) }
+    regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', original)
+    regions.disconnect('eu', 'instance-eu-1', users[0], 'ABCDE', original.controller)
+    expect(regions.claim('eu', 'instance-eu-1', users[0], 'ABCDE', second)).toEqual({ ok: true })
+    regions.disconnect('eu', 'instance-eu-1', users[0], 'ABCDE', original.controller)
+    expect(regions.access(users[0], original)).toMatchObject({ ok: false, conflict: 'controller' })
+    expect(regions.claim('us', 'instance-us-1', users[1], 'FGHIJ', original)).toMatchObject({ ok: false, conflict: 'device' })
+  })
   it('allows one reservation globally across authority connections and treats a same-room retry as idempotent', async () => {
     const { regions, connect } = fixture()
     const other = connect()

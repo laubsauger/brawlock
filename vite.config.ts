@@ -89,6 +89,7 @@ export default defineConfig(({ mode }) => {
         '/api/account': { target: 'http://127.0.0.1:5352' },
         '/api/progression': { target: 'http://127.0.0.1:5352' },
         '/api/presence': { target: 'http://127.0.0.1:5352' },
+        '/api/play': { target: 'http://127.0.0.1:5352' },
       } : undefined,
       port: process.env.PORT ? Number(process.env.PORT) : 5173,
       strictPort: false,

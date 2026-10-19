@@ -13,8 +13,8 @@ const STATE_DOT: Record<RegionState, { color: string; label: string }> = {
 export function RegionPing({ s, withName = false }: { s: RegionStatus; withName?: boolean }) {
   const draining = s.maintenance?.draining === true
   const grade = s.state === 'up' && !draining ? pingGrade(s.rttMs) : null
-  const dot = draining && s.state === 'up' ? { color: '#ffb347', label: 'Updating · reconnects available' } : STATE_DOT[s.state]
-  const ms = draining && s.state === 'up' ? 'Updating' : s.state === 'up' ? (s.rttMs != null ? `${s.rttMs} ms` : '…') : dot.label.toLowerCase()
+  const dot = draining ? { color: '#ffb347', label: 'Maintenance · new games paused' } : STATE_DOT[s.state]
+  const ms = draining ? 'Maintenance' : s.state === 'up' ? (s.rttMs != null ? `${s.rttMs} ms` : '…') : dot.label.toLowerCase()
   return (
     <span className="font-ui flex shrink-0 items-center gap-2 tracking-normal whitespace-nowrap normal-case" aria-label={`${s.label}: ${dot.label}${s.rttMs != null && s.state === 'up' ? `, ${s.rttMs} ms` : ''}`}>
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot.color, boxShadow: `0 0 6px ${dot.color}` }} aria-hidden />

@@ -12,6 +12,7 @@
 import { parseRoomCode } from './code'
 import { sanitizeName } from './protocol'
 import type { GameMode, TeamMode } from '../sim/types'
+import type { RoomProgress } from './roomProgress'
 
 export const LISTING_TTL_MS = 30_000
 export const LISTING_HEARTBEAT_MS = 10_000
@@ -28,6 +29,8 @@ export interface ListingInfo {
   /** Seats humans may claim, including replaceable bots. Full rooms stay discoverable for reconnects. */
   joinable?: number
   phase: ListingPhase
+  /** Null clears the previous match when returning to the lobby. */
+  progress?: RoomProgress | null
   teamMode: TeamMode
   gameMode: GameMode
   winScore: number
@@ -96,6 +99,17 @@ export function parseListing(v: unknown, maxSeats: number, partial = false): Par
     const seats = int(o.joinable, 0, maxSeats)
     if (seats === null) return 'bad joinable'
     out.joinable = seats
+  }
+  if (o.progress !== undefined) {
+    if (o.progress === null) out.progress = null
+    else {
+      if (typeof o.progress !== 'object') return 'bad progress'
+      const p = o.progress as Record<string, unknown>
+      const round = int(p.round, 1, Number.MAX_SAFE_INTEGER)
+      const elapsedSeconds = int(p.elapsedSeconds, 0, Number.MAX_SAFE_INTEGER)
+      if (round === null || elapsedSeconds === null || typeof p.final !== 'boolean' || !['warmup', 'shop', 'fight', 'roundEnd', 'gameOver'].includes(p.phase as string)) return 'bad progress'
+      out.progress = { round, elapsedSeconds, phase: p.phase as RoomProgress['phase'], final: p.final }
+    }
   }
   if (need('teamMode')) {
     if (!TEAM_MODES.includes(o.teamMode as TeamMode)) return 'bad teamMode'
@@ -186,6 +200,7 @@ export class ListingDirectory {
       max: l.max,
       ...(l.joinable !== undefined ? { joinable: l.joinable } : {}),
       phase: l.phase,
+      ...(l.progress !== undefined ? { progress: l.phase === 'lobby' ? null : l.progress } : {}),
       teamMode: l.teamMode,
       gameMode: l.gameMode,
       winScore: l.winScore,

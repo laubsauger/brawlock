@@ -440,10 +440,29 @@
     text-align: left;
     padding: 1rem 1.4rem;
   }
-  .menu-screen { padding: 4rem max(32px, 7vw) 1.5rem; }
+  .menu-screen { padding: 5rem max(32px, 7vw) 1.5rem; }
   .menu-main { max-width: 500px; padding-block: 1.5rem; }
   .menu-main .brand-mark { max-width: 100%; }
-  .menu-identity { top: 1.5rem; right: max(24px, 4vw); max-width: min(440px, 44vw); }
+  .menu-identity { position: absolute; top: 1.5rem; right: max(24px, 4vw); max-width: calc(100% - 48px); }
+  .menu-identity > button { min-height: 44px; }
+  .menu-account-email { max-width: 160px; }
+  .menu-item-ranked {
+    --rim-a: #e5a8a0;
+    --rim-b: #783a3b;
+    --rim-c: #cc6b58;
+    --core: 218, 66, 52;
+    --label: linear-gradient(180deg, #fff0e6 0%, #ffd0c2 55%, #e99481 100%);
+  }
+  .menu-item-ranked[data-ready] { --heat: 0.24; }
+  .menu-item-ranked:hover:not(:disabled) { --heat: 0.52; }
+  .menu-stats {
+    --rim-a: #84c3b4;
+    --rim-b: #335750;
+    --rim-c: #548e7e;
+    --core: 87, 181, 157;
+    --label: linear-gradient(180deg, #e0fff2, #99d8c4);
+    color: #c3eddf;
+  }
   .menu-navigation { margin-top: 1.5rem; gap: 1.25rem; }
   .menu-queues { display: flex; flex-direction: column; gap: 0.85rem; }
   .menu-item-primary { min-height: 96px; }
@@ -451,9 +470,9 @@
   .menu-pair .menu-item { height: 100%; padding: 0.85rem 1rem; }
   .menu-access { padding-top: 0.15rem; }
   .menu-footer { margin-top: 1.5rem; }
-  @media (max-height: 850px) {
+  @media (max-height: 950px) {
     .menu-screen .menu-tagline { display: none; }
-    .menu-screen { padding-top: 4rem; padding-bottom: 1rem; }
+    .menu-screen { padding-top: 5rem; padding-bottom: 1rem; }
     .menu-main { max-width: 470px; padding-block: 0.5rem; }
     .menu-screen .brand-mark { width: 350px !important; }
     .menu-navigation { margin-top: 1rem; gap: 1rem; }
@@ -462,9 +481,13 @@
     .menu-pair .menu-item { padding: 0.7rem 0.9rem; }
     .menu-footer { margin-top: 1rem; }
   }
+  @media (max-width: 1023px) {
+    .menu-screen { padding-top: 1.5rem; }
+    .menu-identity { position: relative; top: auto; right: auto; max-width: 100%; flex-shrink: 0; align-self: flex-end; margin-bottom: 1rem; }
+  }
   @media (max-width: 640px) {
-    .menu-screen { padding: 7.5rem 24px 1rem; }
-    .menu-identity { max-width: calc(100vw - 48px); }
+    .menu-screen { padding: 1.5rem 24px 1rem; }
+    .menu-account-email { max-width: 125px; }
     .menu-main { padding-block: 1rem; }
     .menu-screen .brand-mark { width: min(350px, 78vw) !important; }
     .menu-footer { align-items: flex-start; }

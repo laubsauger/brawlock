@@ -40,6 +40,13 @@ import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
 import { useAccount } from './accountState'
 import { accountRatingKey } from '../net/accounts'
+import { startPractice, stopPractice } from './practice'
+import { clientKey } from './clientKey'
+import { showRankedConflict } from './rankedControl'
+import type { AccountGame } from '../net/accounts'
+import { playControl, connectPlayControl } from './playControl'
+import type { PlayTarget } from '../net/playControl'
+import { roomProgress, type RoomProgress } from '../net/roomProgress'
 
 export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
@@ -51,30 +58,6 @@ export { ServerError } from '../net/online'
 export type { NetStatsView, PeerNetStats, NetGrade, NetGradeEvent, NetGradeReason } from '../net/netstats'
 export { PLAYER_COLORS, MAX_PLAYERS } from '../net/session'
 export { parseRoomCode, codeFromSearch, roomLink, CODE_LENGTH } from '../net/code'
-
-const CLIENT_KEY = 'brawlock.clientKey'
-let tabKey: string | null = null
-
-function randomKey(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
-}
-
-/** Per tab (survives reloads): lets a reloaded client reclaim its pawn mid-match. */
-function clientKey(): string {
-  if (tabKey) return tabKey
-  try {
-    let k = sessionStorage.getItem(CLIENT_KEY)
-    if (!k) {
-      k = randomKey()
-      sessionStorage.setItem(CLIENT_KEY, k)
-    }
-    return tabKey = k
-  } catch {
-    return tabKey = randomKey()
-  }
-}
 
 /** Room code from a `?room=CODE` invite link, or null. */
 export function roomCodeFromUrl(): string | null {
@@ -106,7 +89,8 @@ if (online.configured) void online.probe()
 let routed: ServerRegion | null = null
 /** Consumed by exactly one dial. Explicit browser/rejoin routes never change backend. */
 let nextJoinRoute: RoomRoute | null = null
-const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url, undefined, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => getAdmissionToken(false) : undefined), (region) => { routed = region })
+let rankedTakeover = false
+const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url, undefined, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => getAdmissionToken(false, rankedTakeover) : undefined, showRankedConflict, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => playControl.token() : undefined), (region) => { routed = region })
 
 /** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
@@ -146,6 +130,7 @@ function createRecorder(): MatchRecorder {
 }
 
 let sessionScreen: 'lobby' | 'match' | 'results' = 'lobby'
+let listingProgress: RoomProgress | null = null
 const impl = createSession({
   ui: {
     lobby: () => useGame.getState().lobby,
@@ -163,11 +148,21 @@ const impl = createSession({
       }),
   },
   frame: {
-    reset: resetFrame,
+    reset: () => { listingProgress = null; resetFrame() },
     setLocalPlayer: (id) => {
       frame.localPlayer = id
     },
-    pushState,
+    pushState: (state, at) => {
+      pushState(state, at)
+      if (!listed) return
+      const next = roomProgress(state)
+      const prev = listingProgress
+      // Public P2P progress refreshes about every ten seconds, or immediately on a phase/round change.
+      if (!prev || prev.phase !== next.phase || prev.round !== next.round || prev.final !== next.final || Math.floor(prev.elapsedSeconds / 10) !== Math.floor(next.elapsedSeconds / 10)) {
+        listingProgress = next
+        syncListing()
+      }
+    },
     pushEvents,
     setNet: (rttMs, lossPct) => {
       frame.net.rttMs = rttMs
@@ -190,7 +185,8 @@ const impl = createSession({
       return route ? network.joinAt(code, route, onStatus) : network.join(code, onStatus)
     },
   },
-  startClock,
+  startClock: (pulse) => startClock((now) => { if (playControl.valid()) pulse(now) }),
+  mayRun: () => playControl.valid(),
   now: () => performance.now(),
   random: Math.random,
   joinUrl: joinUrlFor,
@@ -275,7 +271,11 @@ function opened(t: 'server' | 'p2p'): boolean {
   return l.status === 'open' && l.role !== 'offline' && impl.transport() === t
 }
 
-export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join'> & HostingApi & {
+export type GameSession = Omit<SessionApi, 'openOffline' | 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join' | 'idleHumans' | 'dropIdle'> & HostingApi & {
+  openOffline(): Promise<void>
+  useRankedHere(game: AccountGame): Promise<void>
+  /** A guided offline lesson without match records, rewards or matchmaking. */
+  openPractice(): Promise<void>
   join(code: string, route?: RoomRoute): Promise<void>
   /** Show this tab's accepted room again without matchmaking or reconnecting. */
   resume(): boolean
@@ -297,12 +297,13 @@ function resume(): boolean {
 }
 
 /** Own the whole action, including region selection and its POST, before the first await. */
-function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) => Promise<HostResult>, rejoining = false): Promise<HostResult> {
+function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) => Promise<HostResult>, rejoining = false, retry?: () => Promise<unknown>): Promise<HostResult> {
   if (opening) {
     useGame.getState().setScreen('lobby')
     return opening.kind === kind && opening.promise ? opening.promise : Promise.resolve(cancelled(mode))
   }
   if (resume()) return Promise.resolve(cancelled(mode))
+  stopPractice()
   if (useGame.getState().lobby.role === 'offline' && useGame.getState().lobby.status === 'open') impl.leave()
   const attempt: Opening = { kind, promise: null }
   opening = attempt
@@ -313,7 +314,22 @@ function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) =>
     autoStart: null, waitingForRound: false, error: null, notice: kind === 'ranked' ? 'Finding a ranked lobby…' : kind === 'quick' ? 'Finding a game…' : 'Opening a room…' })
   state.setScreen('lobby')
   const current = () => opening === attempt
-  attempt.promise = run(current).finally(() => { if (current()) opening = null })
+  const target: PlayTarget = { mode: kind === 'quick' ? 'casual' : kind === 'ranked' ? 'ranked' : kind === 'local' || kind === 'practice' ? kind : kind === 'p2p' ? 'host' : kind.startsWith('join:') ? 'join' : 'server', region: null, code: null }
+  attempt.promise = (async () => {
+    try {
+      const acquired = await playControl.acquire(target, retry ?? (() => openOnce(kind, mode, run, rejoining)))
+      if (!current()) { if (acquired) await playControl.release(); return cancelled(mode) }
+      if (!acquired) { state.setScreen('menu'); state.setLobby({ status: 'idle' }); return cancelled(mode) }
+      const result = await run(current)
+      if (current() && !result.ok) await playControl.release()
+      return result
+    } catch (error) {
+      if (!current()) return cancelled(mode)
+      const message = error instanceof Error ? error.message : 'Could not open your game.'
+      state.setScreen('menu'); state.setLobby({ status: 'error', error: message })
+      return hostFailed(mode, 'error', message, null, { mode: 'p2p', available: false, region: null })
+    }
+  })().finally(() => { if (current()) opening = null })
   return attempt.promise
 }
 
@@ -357,14 +373,29 @@ async function serverRegion(choice?: RegionChoice): Promise<RegionStatus> {
 }
 
 export const session: GameSession = {
+  async useRankedHere(game) {
+    if (blockUnsupportedPlay()) return
+    session.leave()
+    rankedTakeover = true
+    try { await joinRoom(game.room, { kind: 'server', region: game.region }, true) }
+    finally { rankedTakeover = false }
+  },
   sendChat: impl.sendChat,
-  openOffline() {
+  async openPractice() {
+    if (blockUnsupportedPlay() || resume()) return
+    await openOnce('practice', 'p2p', async () => {
+      nextJoinRoute = null; impl.leave()
+      startPractice(getProfile(), () => playControl.valid())
+      return { ok: true, mode: 'p2p', region: null }
+    }, false, () => session.openPractice())
+  },
+  async openOffline() {
     if (blockUnsupportedPlay()) return
     if (resume()) return
-    opening = null
-    nextJoinRoute = null
-    rejoin.dismiss()
-    impl.openOffline()
+    await openOnce('local', 'p2p', async () => {
+      nextJoinRoute = null; impl.openOffline()
+      return { ok: true, mode: 'p2p', region: null }
+    }, false, () => session.openOffline())
   },
   async openHost() {
     if (blockUnsupportedPlay()) return unsupportedHost('p2p')
@@ -443,6 +474,7 @@ export const session: GameSession = {
         code = (await online.rankedPlay(region.id, proof ?? undefined)).code
       } catch (e) {
         if (!current()) return cancelled('server')
+        if (e instanceof ServerError && e.rankedConflict) showRankedConflict(e.rankedConflict)
         return hostFailed('server', e instanceof ServerError ? e.reason : 'error', e instanceof Error ? e.message : String(e), null, { mode: 'p2p', available: false, region: null })
       }
       if (!current()) return cancelled('server')
@@ -520,15 +552,30 @@ export const session: GameSession = {
   backToLobby: impl.backToLobby,
   setReady: impl.setReady,
   leave() {
+    stopPractice()
     opening = null
     nextJoinRoute = null
     rejoin.dismiss()
     impl.leave()
+    void playControl.release().catch(() => {})
   },
   netStats: impl.netStats,
   onNetGrade: impl.onNetGrade,
   transport: impl.transport,
 }
+
+connectPlayControl({
+  lost(message) {
+    stopPractice(); opening = null; nextJoinRoute = null; impl.leave()
+    useGame.getState().setLobby({ status: 'error', error: message })
+  },
+  async resume(target) {
+    if (!target.code || !target.region) throw new Error('This game cannot be resumed from another tab.')
+    rankedTakeover = true
+    try { await joinRoom(target.code, { kind: 'server', region: target.region }, true) }
+    finally { rankedTakeover = false }
+  },
+})
 
 // ---- player-hosted rooms in Browse games (listings.ts) ------------------------------------
 
@@ -543,7 +590,7 @@ function listingTarget(): ReturnType<typeof p2pListingTarget> {
   const set = l.settings ?? DEFAULT_SETTINGS
   return p2pListingTarget({ listed, role: l.role, status: l.status, code: l.roomCode, public: !!l.public,
     transport: impl.transport(), slots: l.slots, settings: set, screen: st.screen, host: getProfile().name,
-    max: MAX_PLAYERS, joinable: impl.joinableSeats() })
+    max: MAX_PLAYERS, joinable: impl.joinableSeats(), progress: listingProgress })
 }
 
 function syncListing(): void {
@@ -568,6 +615,12 @@ useGame.subscribe((s, prev) => {
     updateProfileNames(changed.map((slot) => ({ profileId: slot.profileId!, name: slot.name })))
   }
   if (s.lobby !== prev.lobby || s.screen !== prev.screen) syncListing()
+  if (s.lobby.status === 'open' && s.lobby.roomCode && (s.lobby !== prev.lobby || s.screen !== prev.screen)) {
+    const transport = impl.transport()
+    const target: PlayTarget = { mode: transport === 'p2p' ? s.lobby.role === 'host' ? 'host' : 'p2p' : s.lobby.ranked ? 'ranked' : s.lobby.quick ? 'casual' : 'server', region: transport === 'server' ? routed?.id ?? null : null, code: s.lobby.roomCode }
+    void playControl.update(target).catch(() => { session.leave(); useGame.getState().setLobby({ status: 'error', error: 'Could not keep your game session active.' }) })
+  }
+  if (s.lobby.status === 'error' && prev.lobby.status === 'open') void playControl.release().catch(() => {})
 })
 // closing the tab: unlist now (the server's TTL drops it anyway if this does not get out)
 if (typeof window !== 'undefined') window.addEventListener('pagehide', () => lister.want(null))

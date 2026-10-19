@@ -74,8 +74,9 @@
  *
  * edgePressure (Brutal, Uber) picks the target with the best kill chance (near the edge, high
  * knockback points) and keeps to its arena-centre side, so hits push out. 'plan' (Brutal, Uber)
- * buys to a plan (Teleport first, then Lightning, Fireball and Scourge upgrades) as gold allows
- * each shop phase. Uber only: frictionLead leads knocked targets with their decaying slide;
+ * draws one of several builds per bot (plan.ts: an escape spell first, a damage spell, Fireball
+ * and Scourge upgrades, then what the build is about) and buys to it as gold allows each shop
+ * phase. Uber only: frictionLead leads knocked targets with their decaying slide;
  * shotGate skips shots a target can easily walk out of.
  *
  * targetSense (FFA, 2+ enemies): local opportunities beyond distance: finishing chances,
@@ -98,6 +99,7 @@
  * Dummy issues no commands at all: a practice target that stands where it spawned.
  */
 import type { BotDifficulty } from '../sim/types'
+import type { BuildId } from './plan'
 
 export interface BotParams {
   /** false = never issue any command (Dummy) */
@@ -175,8 +177,11 @@ export interface BotParams {
   frictionLead: boolean
   /** minimum estimated hit chance to take a shot (0 = always) */
   shotGate: number
-  /** shop: 'random' = original one random spell per 40 s, 'plan' = Uber build */
-  buildPlan: 'random' | 'plan'
+  /**
+   * shop: 'random' = original one random spell per 40 s, 'plan' = a build drawn per bot
+   * (plan.ts), a build id = always that build (tuning)
+   */
+  buildPlan: 'random' | 'plan' | BuildId
 }
 
 const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
@@ -358,9 +363,9 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * For a future human rating on the same scale. Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
-  easy: 350,
+  easy: 400,
   medium: 1000,
-  hard: 1750,
-  brutal: 1925,
-  uber: 2100,
+  hard: 1600,
+  brutal: 1825,
+  uber: 2000,
 }

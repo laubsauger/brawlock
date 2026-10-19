@@ -251,7 +251,7 @@ function slotRange(spell: string, level: number): number {
   return attr(def, 'radius', level)
 }
 
-function castModeFor(slot: number, spell: string | null): CastMode {
+export function castModeFor(slot: number, spell: string | null): CastMode {
   if (spell && spellDef(spell)?.target === 'none') return 'quick'
   const s = useGame.getState().settings
   return s.castModeSlots?.[slot] ?? s.castMode ?? 'quick'

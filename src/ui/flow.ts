@@ -13,6 +13,7 @@ import { parseRoomCode } from '../net/code'
 import { tutorial } from './lib/onboarding'
 import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
 import { isPlaySupported, PLAY_REQUIREMENT } from './lib/playAccess'
+import type { AccountGame } from '../net/accounts'
 
 /** Reject before onboarding or reserving a matchmaking seat. Browsing stays available. */
 function allowPlay(): boolean {
@@ -30,9 +31,33 @@ function closeOverlays() {
   s.toggle('paused', false)
 }
 
+export function continueRankedHere(game: AccountGame): Promise<void> {
+  if (!allowPlay()) return Promise.resolve()
+  closeOverlays()
+  return session.useRankedHere(game)
+}
+
 export function playOffline(): void {
   if (!allowPlay()) return
   tutorial.request({ label: 'Play vs bots', run: () => session.openOffline() })
+}
+
+/** Choosing the lesson cancels the intercepted play action; it never queues first. */
+export function guidedPractice(): void {
+  if (!allowPlay()) return
+  tutorial.dismiss()
+  closeOverlays()
+  session.openPractice()
+}
+
+export function playBotPractice(): void {
+  if (!allowPlay()) return
+  if (session.isActive()) { session.resume(); return }
+  closeOverlays()
+  void session.openOffline().then(() => {
+    if (useGame.getState().lobby.status !== 'open' || useGame.getState().lobby.role !== 'offline') return
+    session.addBot('easy'); session.addBot('easy'); session.startMatch()
+  })
 }
 
 /** What the last attempt was, for the failure line ("Couldn't join casual matchmaking.") */

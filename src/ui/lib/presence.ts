@@ -9,6 +9,8 @@ import { parsePresence, PRESENCE_INTERVAL_MS, PRESENCE_REGIONS, PRESENCE_TTL_MS,
 import { pickRegion, regionStatus } from './servers'
 
 const usePresence = create<{ snapshot: PresenceSnapshot | null; at: number }>(() => ({ snapshot: null, at: 0 }))
+declare const __BUILD_ID__: string
+declare const __NET_ID__: string
 
 /** One small heartbeat for the whole app, including menus, local games and replays. */
 export function useOnlinePresence(): void {
@@ -28,7 +30,7 @@ export function useOnlinePresence(): void {
       busy = true
       try {
         const response = await fetch('/api/presence', { method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
-          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device: getDeviceId(), region }) })
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device: getDeviceId(), region, build: __BUILD_ID__, net: __NET_ID__, screen }) })
         if (!response.ok) throw new Error('Online population is unavailable.')
         const snapshot = parsePresence(await response.json())
         if (!stopped) usePresence.setState({ snapshot, at: Date.now() })

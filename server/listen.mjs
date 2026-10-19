@@ -10,7 +10,9 @@ import { remoteRatingAuthority } from './rating-client.mjs'
 import { iceCredentialEndpoint, turnCredentialIssuer } from './turn-credentials.mjs'
 import { createServerPerf } from './perf.mjs'
 import { regionalAccounts } from './account-client.mjs'
+import { RankedConflictError } from '../src/net/accounts.ts'
 import { openMaintenance } from './maintenance.mjs'
+import { openAnalytics } from './analytics.mjs'
 import { validMaintenance } from '../src/net/maintenance.ts'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
@@ -165,6 +167,8 @@ export async function startServer(opts = {}) {
   const maintenanceToken = opts.maintenanceToken ?? (maintenanceFile ? readFileSync(maintenanceFile, 'utf8').trim() : '')
   if (maintenanceToken && maintenanceToken.length < 32) throw new Error('Maintenance token must contain at least 32 characters')
   const maintenance = dataDir ? openMaintenance(join(dataDir, 'maintenance.sqlite')) : undefined
+  const analytics = dataDir ? openAnalytics(join(dataDir, 'analytics.sqlite'), { now: clock,
+    serverCommit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__ }) : undefined
   let pendingAuthority = 0
   const core = createServerCore(
     { ...DEFAULT_SERVER_CONFIG, ...config, build },
@@ -184,6 +188,7 @@ export async function startServer(opts = {}) {
       clock,
       accounts,
       maintenance,
+      analytics,
       pendingAuthority: () => pendingAuthority,
     },
   )
@@ -198,6 +203,20 @@ export async function startServer(opts = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       if (!ready) { res.writeHead(503, { 'retry-after': '2' }); res.end('Server is starting.'); req.resume(); return }
+      if ((req.url ?? '').split('?')[0] === '/internal/analytics') {
+        const received = Buffer.from(String(req.headers.authorization ?? ''))
+        const expected = Buffer.from(`Bearer ${maintenanceToken}`)
+        let status, body
+        if (!maintenanceToken || req.headers.origin !== undefined || received.length !== expected.length || !timingSafeEqual(received, expected)) { status = 403; body = { error: 'forbidden' } }
+        else if (req.method !== 'GET') { status = 405; body = { error: 'method not allowed' } }
+        else if (!analytics) { status = 503; body = { error: 'Analytics requires DATA_DIR.' } }
+        else {
+          const days = Number(new URL(req.url, 'http://localhost').searchParams.get('days') ?? 30)
+          if (!Number.isInteger(days) || days < 1 || days > 365) { status = 400; body = { error: 'days must be an integer from 1 to 365' } }
+          else { status = 200; body = { source: config.region ?? '', ...analytics.report(days), live: core.stats() } }
+        }
+        res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); req.resume(); return
+      }
       if ((req.url ?? '').split('?')[0] === '/internal/maintenance') {
         const reply = (status, body) => {
           res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
@@ -336,17 +355,49 @@ export async function startServer(opts = {}) {
       busy = true
       try {
         const hello = JSON.parse(text)
-        if (!hello || hello.t !== 'account' || Object.keys(hello).some((key) => key !== 't' && key !== 'token')) throw new Error('Reload the game to complete account verification.')
+        if (!hello || hello.t !== 'account' || Object.keys(hello).some((key) => !['t', 'token', 'playToken'].includes(key)) || typeof hello.playToken !== 'string') throw new Error('Reload the game to complete account verification.')
         const account = hello.token === null ? null : await accounts.verify(hello.token)
         await core.authorize(admission.code, account)
         if (done) return
+        const started = performance.now()
+        const permission = await accounts.attachPlay(hello.playToken, admission.code, account?.id ?? null)
+        let deadline = started + permission.expiresAt - permission.serverTime - 1000
+        let checking = false, closed = false, nextCheck = 0
+        const moved = () => {
+          if (closed) return
+          textSocket.send(JSON.stringify({ t: 'kick', reason: 'Your game was moved to another tab or device.' }))
+          textSocket.close()
+        }
+        const check = setInterval(async () => {
+          if (closed) return
+          if (performance.now() >= deadline) { moved(); return }
+          if (checking || performance.now() < nextCheck) return
+          checking = true
+          const at = performance.now()
+          nextCheck = at + 5000
+          try {
+            const next = await accounts.checkPlay(hello.playToken, permission.connection)
+            if (!next.ok) moved()
+            else deadline = at + next.expiresAt - next.serverTime - 1000
+          } catch { if (performance.now() >= deadline) moved() }
+          finally { checking = false }
+        }, 1000)
+        const permissionClosed = () => { if (closed) return; closed = true; done = true; clearInterval(check); clearTimeout(timer); accounts.detachPlay(permission.connection) }
+        textSocket.onClose(permissionClosed)
+        if (done) { clearInterval(check); accounts.detachPlay(permission.connection); return }
+        const controlled = {
+          ...textSocket,
+          onText(callback) { textSocket.onText((message) => { if (performance.now() >= deadline) moved(); else if (!closed) callback(message) }) },
+          onClose(callback) { textSocket.onClose(() => { permissionClosed(); callback() }) },
+        }
         clearTimeout(timer)
         textSocket.send(JSON.stringify({ t: 'account-ready' }))
-        core.attach(admission, textSocket, ip, account)
+        core.attach(admission, controlled, ip, account)
       } catch (error) {
         if (done) return
         done = true; clearTimeout(timer)
-        textSocket.send(JSON.stringify({ t: 'error', message: error instanceof Error ? error.message : 'Could not verify your account.' }))
+        textSocket.send(JSON.stringify({ t: 'error', message: error instanceof Error ? error.message : 'Could not verify your account.',
+          ...(error instanceof RankedConflictError ? { rankedConflict: error.rankedConflict } : {}) }))
         setTimeout(() => textSocket.close(), 150)
       }
     })
@@ -357,11 +408,13 @@ export async function startServer(opts = {}) {
       server.listen(port, host, resolve)
     })
     // Registration fences previous room claims only after this process owns the port.
+    analytics?.recover()
     if (accounts) await accounts.register()
     ready = true
   } catch (error) {
     perf.close()
     core.close()
+    analytics?.close()
     server.close()
     throw error
   }
@@ -378,6 +431,7 @@ export async function startServer(opts = {}) {
       clearInterval(sweeper)
       perf.close()
       core.close()
+      analytics?.close()
       for (const s of sockets) s.destroy()
       await new Promise((resolve) => server.close(resolve))
     },

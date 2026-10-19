@@ -36,6 +36,7 @@ import { SocketTransport, type TextSocket } from './ws'
 import type { BotDifficulty, MatchSettings } from '../sim/types'
 import type { MatchRating } from './rating'
 import type { RankedAccountAuthority, VerifiedAccount } from './accounts'
+import { RankedConflictError } from './accounts'
 import { MAINTENANCE_NOTICE, validMaintenance, type MaintenanceState, type MaintenanceStatus, type MaintenanceStore } from './maintenance'
 
 export interface ServerConfig {
@@ -190,6 +191,7 @@ export function createServerCore(
     /** ms since epoch, for stored results (default Date.now) */
     clock?: () => number
     accounts?: RankedAccountAuthority
+    analytics?: import('../../server/analytics.mjs').AnalyticsStore
     maintenance?: MaintenanceStore
     pendingAuthority?(): number
   },
@@ -246,6 +248,10 @@ export function createServerCore(
     const policy = setup.ranked ? cfg.ranked : cfg.quickplay
     const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : DEFAULT_SERVER_CONFIG.quickplay
     const officialRewards = !!setup.quick && setup.quick === policy.bots && setup.settings === undefined
+    let analyticsMatch: string | null = null
+    const writeAnalytics = (write: () => void) => {
+      try { write() } catch { log('error', 'analytics.write.failed', { room: code }) }
+    }
     const room = await createRoom(
       {
         code,
@@ -259,7 +265,30 @@ export function createServerCore(
         requireRankedAccount: !!deps.accounts,
         public: setup.public,
         elo: { enabled: !!authority && setup.ranked === true, minSeconds: cfg.leaderboardMinSeconds },
+        onMatchStart: (info) => {
+          if (setup.ranked && deps.accounts) deps.accounts.started(code, info.slots.filter((slot) => slot.kind === 'human').map((slot) => {
+            const identity = slot.profileId
+            if (!identity || !/^a_[A-Za-z0-9_-]{8,60}$/.test(identity)) throw new Error('Ranked participant has no verified account identity')
+            return identity.slice(2)
+          }))
+          if (deps.analytics) {
+            analyticsMatch = crypto.randomUUID()
+            writeAnalytics(() => deps.analytics!.start({ id: analyticsMatch!, region: cfg.region, build: cfg.build, room: code,
+              queue: setup.ranked ? 'ranked' : setup.quick ? 'casual' : 'custom', settings: info.settings,
+              devices: info.slots.filter((slot) => slot.kind === 'human').flatMap((slot) => info.devices?.[slot.id] ? [info.devices[slot.id]] : []),
+              bots: info.slots.filter((slot) => slot.kind === 'bot').length }))
+          }
+        },
+        ...(deps.analytics ? {
+          onMatchJoin: (device) => { if (analyticsMatch) writeAnalytics(() => deps.analytics!.join(analyticsMatch!, device)) },
+          onMatchAbort: () => {
+            if (analyticsMatch) writeAnalytics(() => deps.analytics!.abandon(analyticsMatch!))
+            analyticsMatch = null
+          },
+        } satisfies Pick<import('./dedicated').RoomOptions, 'onMatchJoin' | 'onMatchAbort'> : {}),
         onMatch: async (m, result) => {
+          if (analyticsMatch) writeAnalytics(() => deps.analytics!.finish(analyticsMatch!, m))
+          analyticsMatch = null
           pendingResults++
           try {
             // Snapshot participation before any authority await: a player leaving
@@ -490,8 +519,8 @@ export function createServerCore(
         const open = openQuickRoom(ranked)
         if (open) {
           if (ranked && deps.accounts && req.account) {
-            const claimed = await deps.accounts.claim(req.account.id, open.room.code)
-            if (!claimed.ok) return json(409, { error: 'You already have an active ranked game.', game: claimed.game }, req.origin)
+            const claimed = await deps.accounts.claim(req.account.id, open.room.code, req.account.connection)
+            if (!claimed.ok) return json(409, { error: 'You already have an active ranked game.', game: claimed.game, ...(claimed.conflict ? { rankedConflict: { kind: claimed.conflict, game: claimed.game } } : {}) }, req.origin)
             if (maintenance.draining) {
               deps.accounts.release(open.room.code, req.account.id)
               return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
@@ -531,10 +560,10 @@ export function createServerCore(
         rooms.get(code)!.reserved.push(deps.now() + RESERVE_MS)
         if (ranked && deps.accounts && req.account) {
           const entry = rooms.get(code)!
-          const claimed = await deps.accounts.claim(req.account.id, code)
+          const claimed = await deps.accounts.claim(req.account.id, code, req.account.connection)
           if (!claimed.ok) {
             if (rooms.get(code) === entry) closeRoom(code, entry)
-            return json(409, { error: 'You already have an active ranked game.', game: claimed.game }, req.origin)
+            return json(409, { error: 'You already have an active ranked game.', game: claimed.game, ...(claimed.conflict ? { rankedConflict: { kind: claimed.conflict, game: claimed.game } } : {}) }, req.origin)
           }
           if (maintenance.draining) {
             deps.accounts.release(code, req.account.id)
@@ -614,8 +643,11 @@ export function createServerCore(
         if ((e.accounts.get(account.id) ?? 0) === 0) { deps.accounts.release(code, account.id); e.accounts.delete(account.id); e.accountReservations.delete(account.id) }
         throw new Error('This ranked game has already started. Join the queue for another game.')
       }
-      const claimed = await deps.accounts.claim(account.id, code)
-      if (!claimed.ok) throw new Error(`You already have a ranked game in ${claimed.game.region}. Rejoin it from the main menu.`)
+      const claimed = await deps.accounts.claim(account.id, code, account.connection)
+      if (!claimed.ok) {
+        if (claimed.conflict) throw new RankedConflictError(claimed.conflict, claimed.game)
+        throw new Error(`You already have a ranked game in ${claimed.game.region}. Rejoin it from the main menu.`)
+      }
       if (maintenance.draining && !e.room.hasProfile(account.ratingKey)) {
         deps.accounts.release(code, account.id)
         throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
@@ -660,6 +692,7 @@ export function createServerCore(
         if (account) {
           const remaining = Math.max(0, (e.accounts.get(account.id) ?? 1) - 1)
           e.accounts.set(account.id, remaining)
+          if (remaining === 0 && e.room.screen() === 'match' && e.room.hasProfile(account.ratingKey)) deps.accounts?.disconnected(admission.code, account.id, account.connection.controller)
           if (remaining === 0 && (e.room.screen() !== 'match' || !e.room.hasProfile(account.ratingKey))) { deps.accounts?.release(admission.code, account.id); e.accounts.delete(account.id); e.accountReservations.delete(account.id) }
         }
         const n = (conns.get(ip) ?? 1) - 1

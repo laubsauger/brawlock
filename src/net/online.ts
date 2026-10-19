@@ -131,6 +131,7 @@ export class ServerError extends Error {
   constructor(
     readonly reason: ServerFailure,
     message: string,
+    readonly rankedConflict?: unknown,
   ) {
     super(message)
   }
@@ -586,9 +587,9 @@ export class Online {
   }
 }
 
-function failure(status: number, body: { error?: unknown } | null, fallback: string): ServerError {
+function failure(status: number, body: { error?: unknown; rankedConflict?: unknown } | null, fallback: string): ServerError {
   const message = typeof body?.error === 'string' ? body.error : fallback
-  return new ServerError(status === 503 ? 'full' : status === 429 ? 'limited' : 'error', message)
+  return new ServerError(status === 503 ? 'full' : status === 429 ? 'limited' : 'error', message, body?.rankedConflict)
 }
 
 /** Lowest ping among regions that are up. */

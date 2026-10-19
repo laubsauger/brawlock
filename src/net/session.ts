@@ -176,6 +176,8 @@ export interface SessionDeps {
   build?: string
   /** Official ranked rooms require trusted transport identity before seating anyone. */
   requireRankedAccount?: boolean
+  /** Browser clients gate every pulse/input wake on their active-game permission. Dedicated servers own their clocks. */
+  mayRun?: () => boolean
 }
 
 export interface SessionApi {
@@ -226,6 +228,14 @@ export interface SessionApi {
   roomState(): RoomState
   /** Seats a new human can play immediately (running matches require a replaceable bot). */
   joinableSeats(): number
+  /**
+   * Host: connected humans who sent no input and no chat during the whole current (or just
+   * finished) match, and none for at least `rounds` complete rounds in a row (a round counts
+   * from the end of the previous fight to the end of its own; the count spans matches).
+   */
+  idleHumans(rounds: number): PlayerId[]
+  /** Host: send an idle human back to the menu with `reason` (their link closes; their pawn is a leaver's). */
+  dropIdle(player: PlayerId, reason: string): void
 }
 
 export interface SessionDebug {
@@ -526,6 +536,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   const slotKeys = new Map<PlayerId, string>()
   /** persistent device id per seat: a returning device reclaims a disconnected seat */
   const slotDevices = new Map<PlayerId, string>()
+  /** idle detection: humans who acted this match and since the last fight ended, and complete rounds idle in a row */
+  const actedThisMatch = new Set<PlayerId>()
+  const actedThisRound = new Set<PlayerId>()
+  const idleRounds = new Map<PlayerId, number>()
   /** host without a seat (dedicated server): the first connected human owns the room */
   let dedicated = false
   // client: the room runs on a dedicated server; its owner seat; the code joined
@@ -896,6 +910,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   }
 
   function onClientMessage(p: RemotePeer, data: string): void {
+    if (!peers.includes(p)) return // A replaced controller has no remaining authority over its old seat.
     const m = decode(data)
     if (!m) return
     if (m.t === 'hello') onHello(p, m)
@@ -906,6 +921,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
     else if (m.t === 'input') onInput(p, m)
     else if (m.t === 'say' && p.playerId !== null && peers.includes(p)) {
+      acted(p.playerId)
       const result = acceptChat(p.playerId, m.text)
       if (result === 'limited') p.t.sendReliable(encode({ t: 'notice', text: 'Chat is moving too fast. Wait a moment before sending again.' }))
     }
@@ -977,7 +993,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       return
     }
     p.name = account?.name ?? sanitizeName(p.t.account === null ? `Guest ${m.name}` : m.name)
-    p.key = typeof m.key === 'string' ? m.key.slice(0, 64) : ''
+    p.key = account?.connection.controller ?? (typeof m.key === 'string' ? m.key.slice(0, 64) : '')
     const device = account?.ratingKey ?? sanitizeProfileId(m.device)
     if (p.t.account === null && (profileId.startsWith('a_') || device?.startsWith('a_'))) {
       rejectPeer(p, 'Sign in to use an account player identity.')
@@ -1000,7 +1016,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       const sameKey = !!p.key && slotKeys.get(back) === p.key
       const sameDevice = !!device && slotDevices.get(back) === device
       const refresh = !!previous && sameKey
-      if (!refresh && !match?.disconnected.has(back)) {
+      const transfer = roomInfo.ranked && account?.connection.takeover === true
+      if (!refresh && !transfer && !match?.disconnected.has(back)) {
         rejectPeer(p, 'Your player profile is already connected to this game in another tab. Leave that game before joining here.')
         return
       }
@@ -1012,9 +1029,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       // cannot disconnect or hand the newly reclaimed pawn to a bot.
       if (previous) {
         peers = peers.filter((x) => x !== previous)
+        if (transfer) previous.t.sendReliable(encode({ t: 'kick', reason: 'Your ranked game was moved to another tab or device.' }))
         previous.t.close()
       }
       p.playerId = back
+      idleRounds.delete(back)
       slotKeys.set(back, p.key)
       if (device) slotDevices.set(back, device)
       if (match) {
@@ -1069,6 +1088,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (device) slotDevices.set(slot.id, device)
     rec?.displayName?.(slot, device ?? undefined)
     p.playerId = slot.id
+    idleRounds.delete(slot.id)
     p.t.sendReliable(encode(welcomeFor(slot.id)))
     p.t.sendReliable(encode({ t: 'chatlog', lines: chat }))
     publishLobby()
@@ -1222,12 +1242,31 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     p.reportAt = now
   }
 
-  function peerGone(p: RemotePeer, why: 'left' | 'disconnected'): void {
+  /** Input or chat from a seat: it is not idle. */
+  function acted(id: PlayerId): void {
+    actedThisMatch.add(id)
+    actedThisRound.add(id)
+    idleRounds.delete(id)
+  }
+
+  /** A fight ended: every connected human seat that did nothing since the last one was idle for it. */
+  function countIdleRound(m: HostMatch): void {
+    for (const id of m.humans) {
+      if (m.disconnected.has(id) || m.waiting.has(id)) continue
+      if (actedThisRound.has(id)) idleRounds.delete(id)
+      else idleRounds.set(id, (idleRounds.get(id) ?? 0) + 1)
+    }
+    actedThisRound.clear()
+  }
+
+  function peerGone(p: RemotePeer, why: 'left' | 'disconnected' | 'idle'): void {
     if (!peers.includes(p)) return
     if (p.helloTimer) clearTimeout(p.helloTimer)
     peers = peers.filter((x) => x !== p)
     const id = p.playerId
     if (id === null) return
+    idleRounds.delete(id)
+    actedThisRound.delete(id)
     const m = match
     if (m?.waiting.has(id)) {
       // Cancel the reservation; the original bot never stopped playing.
@@ -1237,12 +1276,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       slotKeys.delete(id)
       slotDevices.delete(id)
       publishLobby()
-      showNotice(`${p.name} ${why === 'left' ? 'left' : 'disconnected'} while waiting`, true)
+      showNotice(`${p.name} ${why === 'disconnected' ? 'disconnected' : 'left'} while waiting`, true)
     } else if (m && m.humans.has(id)) {
       // B21-style: keep the pawn (and the slot) so the player can come back
       m.disconnected.add(id)
       m.connectedPatch.set(id, false)
-      let text = `${p.name} ${why === 'left' ? 'left' : 'disconnected'}`
+      let text = `${p.name} ${why === 'left' ? 'left' : why === 'idle' ? 'was idle and left' : 'disconnected'}`
       if (m.settings.botsReplaceLeavers) {
         const bot = tryCreateBot(id, 'medium', m.seed)
         if (bot) {
@@ -1260,7 +1299,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       slotKeys.delete(id)
       slotDevices.delete(id)
       publishLobby()
-      showNotice(`${p.name} left`, true)
+      showNotice(`${p.name} ${why === 'idle' ? 'was idle and left' : 'left'}`, true)
     }
   }
 
@@ -1269,6 +1308,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   // -------------------------------------------------------------------------
 
   function hostPulse(m: HostMatch, now: number): void {
+    if (deps.mayRun && !deps.mayRun()) return
     if (match !== m) return
     if (role === 'offline' && ui.paused()) {
       m.last = now
@@ -1321,6 +1361,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       while (p.sched.length && p.sched[0].at <= tick) for (const c of p.sched.shift()!.cmds) cmds.push(c)
       if (cmds.length) {
         inputs.push({ player: p.playerId, tick, cmds })
+        acted(p.playerId)
         p.queued = []
         // the stream tells the client which of its frames this step includes
         ;(acks ??= new Map()).set(p.playerId, ackOf(p))
@@ -1387,6 +1428,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.history.push(step)
 
     rec?.observe(next, next.events)
+    if (cur.phase === 'fight' && next.phase !== 'fight') countIdleRound(m)
     // Attribute the completed tick to its old controller before handing over.
     if (m.waiting.size && ((next.phase === 'shop' && cur.phase !== 'shop') || next.round > cur.round)) activateWaiting(m)
     if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
@@ -1830,6 +1872,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   }
 
   function clientPulse(cm: ClientMatch, now: number): void {
+    if (deps.mayRun && !deps.mayRun()) return
     if (cmatch !== cm) return
     if (cm.pred) {
       predictPulse(cm, cm.pred, now)
@@ -1911,6 +1954,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   /** Own commands: applied in the next predicted step, stamped with that tick, sent at once. */
   function predictInput(cm: ClientMatch, now: number, resend: boolean): void {
+    if (deps.mayRun && !deps.mayRun()) return
     const cmds = quantizeCmds(deps.input.drain())
     const t = link
     const pred = cm.pred
@@ -2458,6 +2502,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         if (bot) m.bots.set(s.id, bot)
       }
       match = m
+      actedThisMatch.clear()
       finishingMatch = null
       ready = {}
       publishLobby()
@@ -2604,6 +2649,24 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     roomState() {
       return roomStateNow()
+    },
+
+    idleHumans(rounds) {
+      const out: PlayerId[] = []
+      for (const p of peers) {
+        const id = p.playerId
+        if (id !== null && !actedThisMatch.has(id) && (idleRounds.get(id) ?? 0) >= rounds) out.push(id)
+      }
+      return out
+    },
+
+    dropIdle(player, reason) {
+      const p = peers.find((x) => x.playerId === player)
+      if (!p) return
+      p.t.sendReliable(encode({ t: 'kick', reason }))
+      // gone before the close callback, which then finds nothing to do
+      peerGone(p, 'idle')
+      p.t.close()
     },
 
     joinableSeats() {

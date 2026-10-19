@@ -13,6 +13,18 @@ beforeEach(async () => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.doUnmock('better-auth/client') })
 
 describe('account identity and regional admission', () => {
+  it('publishes a ranked conflict without silently taking control, and sends takeover only on explicit request', async () => {
+    const conflict = { kind: 'controller', game: { region: 'eu', room: 'ABCDE' } }
+    const control = await import('./rankedControl')
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ error: 'Your game is open elsewhere.', rankedConflict: conflict }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ token: 'A'.repeat(32) }))
+    vi.stubGlobal('fetch', fetch)
+    await expect(account.getAdmissionToken(true)).rejects.toThrow('Your game is open elsewhere.')
+    expect(control.useRankedControl.getState().conflict).toEqual(conflict)
+    expect(JSON.parse(fetch.mock.calls[0][1].body).takeover).toBe(false)
+    expect(await account.getAdmissionToken(true, true)).toBe('A'.repeat(32))
+    expect(JSON.parse(fetch.mock.calls[1][1].body).takeover).toBe(true)
+  })
   it('shares concurrent identity reads and clears identity on an expired cookie', async () => {
     let resolve!: (response: Response) => void
     const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done }))
@@ -125,7 +137,7 @@ describe('account identity and regional admission', () => {
     expect(fetch.mock.calls.every(([url]) => url === '/api/account')).toBe(true)
   })
 
-  it('mints a separate opaque ticket per action without persisting it or sending client identity', async () => {
+  it('mints a separate opaque ticket per action and binds browser/tab identity without persisting tickets', async () => {
     const first = 'A'.repeat(32)
     const second = 'B'.repeat(32)
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ token: first })).mockResolvedValueOnce(Response.json({ token: second }))
@@ -136,9 +148,11 @@ describe('account identity and regional admission', () => {
     expect(await account.getAdmissionToken(true)).toBe(second)
     for (const [url, init] of fetch.mock.calls) {
       expect(url).toBe('/api/account/admission')
-      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin', cache: 'no-store', body: '{}' })
+      expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin', cache: 'no-store', body: expect.any(String) })
+      expect(JSON.parse(init.body)).toEqual({ device: expect.stringMatching(/^[A-Za-z0-9_-]{8,64}$/), controller: expect.stringMatching(/^[A-Za-z0-9_-]{8,64}$/), takeover: false })
     }
-    expect(storage.setItem).not.toHaveBeenCalled()
+    expect(JSON.stringify(storage.setItem.mock.calls)).not.toContain(first)
+    expect(JSON.stringify(storage.setItem.mock.calls)).not.toContain(second)
     expect(JSON.stringify(state.useAccount.getState())).not.toContain(first)
   })
 

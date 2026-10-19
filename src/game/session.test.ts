@@ -17,6 +17,7 @@ const f = vi.hoisted(() => ({
     setDisplayName: vi.fn(), setPlayerColor: vi.fn(), startLobbyVote: vi.fn(), castLobbyVote: vi.fn(),
   },
 }))
+vi.mock('./playControl', () => ({ connectPlayControl: vi.fn(), playControl: { acquire: vi.fn(async () => true), release: vi.fn(async () => {}), valid: () => true, update: vi.fn(async () => {}), token: () => 'p'.repeat(43) } }))
 vi.mock('../audio', () => ({ audio: { playEvents: vi.fn() } }))
 vi.mock('./input', () => ({ input: { drain: () => [] } }))
 vi.mock('./profile', async (original) => ({ ...await original<typeof import('./profile')>(), getProfile: () => f.profile, setPreferredColor: f.preferred,
@@ -68,6 +69,9 @@ vi.mock('../net/online', async (original) => {
 import { useGame } from './store'
 import { online, rejoin, session } from './session'
 import { DEFAULT_SETTINGS } from '../sim/config'
+import { createMatch } from '../sim'
+import { TICK_HZ } from '../sim/types'
+import { playControl } from './playControl'
 
 const ownSlot = (color = 0x2fd6c8) => ({ id: 0, kind: 'human' as const, name: 'Mira', profileId: f.profile.id, team: 0, color })
 const deferred = <T>() => {
@@ -114,6 +118,15 @@ afterEach(async () => {
 })
 
 describe('browser session listing and reconnect wiring', () => {
+  it('checks global ownership before any local, practice, hosting, queue or join action', async () => {
+    vi.spyOn(playControl, 'acquire').mockResolvedValue(false)
+    const create = vi.spyOn(online, 'createRoom'), quick = vi.spyOn(online, 'quickPlay'), ranked = vi.spyOn(online, 'rankedPlay')
+    await session.openOffline(); await session.openPractice(); await session.openHost(); await session.openHostServer('test')
+    await session.quickPlay({ region: 'test' }); await session.rankedPlay({ region: 'test' }); await session.join('ABCDE', { kind: 'p2p' })
+    expect(vi.mocked(playControl.acquire).mock.calls.map(([target]) => target.mode)).toEqual(['local', 'practice', 'host', 'server', 'casual', 'ranked', 'join'])
+    for (const call of [f.impl.openOffline, f.impl.openHost, f.impl.join, create, quick, ranked]) expect(call).not.toHaveBeenCalled()
+    expect(useGame.getState().screen).toBe('menu')
+  })
   it('uses one queue request and dial for repeated clicks while matchmaking is opening', async () => {
     const pending = deferred<{ code: string; created: boolean }>()
     const post = vi.spyOn(online, 'quickPlay').mockReturnValue(pending.promise)
@@ -295,6 +308,32 @@ describe('browser session listing and reconnect wiring', () => {
     expect(JSON.parse(beat.body!)).toMatchObject({ code: 'ABCDE', bots: 9, phase: 'match', joinable: 9 })
     expect(session.transport()).toBe('p2p')
     expect(f.serverJoin).not.toHaveBeenCalled()
+  })
+
+  it('refreshes P2P match progress at a modest rate and on round changes, then clears it in the lobby', async () => {
+    await session.openHost()
+    session.setPublic(true)
+    await vi.advanceTimersByTimeAsync(0)
+    useGame.getState().setScreen('match')
+    const state = createMatch(DEFAULT_SETTINGS, useGame.getState().lobby.slots, 1)
+    state.round = 2; state.phase = 'fight'; state.tick = 62 * TICK_HZ
+    f.deps!.frame.pushState(state, performance.now())
+    await vi.advanceTimersByTimeAsync(2100)
+    const beats = () => f.requests.filter((r) => r.url.endsWith('/listings/listing-id') && r.method === 'PUT')
+    expect(JSON.parse(beats().at(-1)!.body!).progress).toEqual({ round: 2, elapsedSeconds: 62, phase: 'fight', final: false })
+    const count = beats().length
+    for (let tick = 0; tick < 60; tick++) f.deps!.frame.pushState({ ...state, tick: state.tick + tick }, performance.now())
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(beats()).toHaveLength(count)
+    f.deps!.frame.pushState({ ...state, phase: 'shop', tick: 65 * TICK_HZ }, performance.now())
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(JSON.parse(beats().at(-1)!.body!).progress).toEqual({ round: 3, elapsedSeconds: 65, phase: 'shop', final: false })
+    f.deps!.frame.pushState({ ...state, phase: 'shop', tick: 70 * TICK_HZ }, performance.now())
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(JSON.parse(beats().at(-1)!.body!).progress.elapsedSeconds).toBe(70)
+    useGame.getState().setScreen('lobby')
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(JSON.parse(beats().at(-1)!.body!)).toMatchObject({ phase: 'lobby', progress: null })
   })
 
   it('offers rediscovery after an unexpected P2P disconnect and explicitly rejoins that backend', async () => {

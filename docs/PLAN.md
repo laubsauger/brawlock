@@ -333,17 +333,17 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 - Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
 - Calibration: `npm run bots:elo` (scripts/bots/elo.ts) plays a seeded 1v1 round-robin of full first-to-5 matches on the real sim (about 40 s for 200 matches per pair, plus optional 4-player FFA pods). The unit is the **round**, the unit a player feels; a match turns a 75% round edge into about 90% of matches. Elo is the Bradley–Terry maximum-likelihood fit over all rounds (Medium = 1000); 95% intervals come from a bootstrap over whole matches, because rounds of one match share gold and items.
 - FFA (2+ enemies): bots pick the best opportunity, not the weakest player on the map (distance, kill chance discounted by travel, an easy hit, who threatens them, a grudge, third-party pushes, minus targets others are already on and their crossfire), hold a target for a while, stand where it is least crowded and back off at low HP; a seeded personality varies this per bot (`targetSense` and the notes in `src/bots/presets.ts`). `npx vite-node scripts/bots/ffa.ts` measures 8-bot FFA spread; 8 Brutal bots went from 2.6 bots per target and a 4+ mob in 52% of samples to 1.5 and 3%.
-- Ladder targets: Easy is the original AI for new players and never gets harder; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber are about 75% round win rate apart (150-250 Elo per step), with Uber the unchanged top. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60-88% round win rate. `BOT_ELO` (`src/bots/presets.ts`) exports them rounded to 25 (Easy 350, Medium 1000, Hard 1750, Brutal 1925, Uber 2100) for a future human rating.
+- Ladder targets: Easy is the original AI for new players and never gets harder; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber are about 75% round win rate apart (150-250 Elo per step), with Uber the unchanged top. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60-88% round win rate. `BOT_ELO` (`src/bots/presets.ts`) exports them rounded to 25 (Easy 400, Medium 1000, Hard 1600, Brutal 1825, Uber 2000) for a future human rating.
 
-  | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | Before: round Elo |
+  | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | 2026-10-17: round Elo |
   |---|---|---|---|---|---|
-  | Easy | 356 | 278-409 | - | - | 529 |
-  | Medium | 1000 | anchor | 98% over Easy | 100% | 1000 |
-  | Hard | 1739 | 1682-1819 | 99% over Medium | 100% | 1536 |
-  | Brutal | 1935 | 1874-2016 | 75% over Hard | 91% | 1955 |
-  | Uber | 2112 | 2052-2194 | 73% over Brutal | 95% | 2264 |
+  | Easy | 410 | 352-463 | - | - | 356 |
+  | Medium | 1000 | anchor | 97% over Easy | 100% | 1000 |
+  | Hard | 1611 | 1565-1679 | 97% over Medium | 100% | 1739 |
+  | Brutal | 1827 | 1780-1898 | 76% over Hard | 96% | 1935 |
+  | Uber | 1996 | 1944-2064 | 71% over Brutal | 88% | 2112 |
 
-  Measured 2026-10-17, 200 matches per pair (seeds 1-200). "Before" is the previous ladder on its own scale (its Medium was weaker): every adjacent step was a match sweep (100-0, Uber over Brutal 98-2) with 85-96% of rounds. In 4-player FFA pods the steps shrink (Uber over Brutal 71%, Brutal over Hard 55% of pairwise placements): Brutal's edge is its build plan and edge pressure, which pay off most in a duel.
+  Measured 2026-10-19, 200 matches per pair (seeds 1-200), after Brutal and Uber moved from one shared build to six drawn per bot (`src/bots/plan.ts`; the builds rate within about ±40 Elo of each other). The ladder was the same just before that change (Hard 1624, Brutal 1826, Uber 1988): the drift from 2026-10-17 came from earlier bot changes. In 4-player FFA pods the steps shrink (12 pods per combination: Uber over Brutal 67%, Brutal over Hard 70% of pairwise placements): Brutal's edge is its build plans and edge pressure, which pay off most in a duel.
 - M0 ships a port of the original AI (danger field dodge, lead aim, random casts) as Easy/Medium. M3 builds the full system.
 
 ## 8. Assets and licensing

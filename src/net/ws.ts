@@ -115,7 +115,7 @@ export function serverUrlFrom(search: string): string | null {
  * NetFactory for a dedicated server: join(code) opens `<serverUrl>/<code>`. Hosting
  * is the server's job, so host() rejects with a friendly message.
  */
-export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as unknown as { WebSocket: WebSocketCtor }).WebSocket, authorize?: () => Promise<string | null>): NetFactory {
+export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as unknown as { WebSocket: WebSocketCtor }).WebSocket, authorize?: () => Promise<string | null>, onConflict?: (value: unknown) => void, playToken?: () => string): NetFactory {
   return {
     host(): Promise<HostEndpoint> {
       return Promise.reject(new Error('Connected to a dedicated server: rooms are hosted there. Open the page without ?server= to host yourself.'))
@@ -154,11 +154,12 @@ export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as un
               try {
                 const reply = typeof event.data === 'string' ? JSON.parse(event.data) : null
                 clearTimeout(timer)
+                if (reply?.rankedConflict) onConflict?.(reply.rankedConflict)
                 if (reply?.t !== 'account-ready') throw new Error(typeof reply?.message === 'string' ? reply.message : 'The server could not verify your account.')
                 resolve(new SocketTransport(webSocketText(ws)))
               } catch (error) { ws.close(); reject(error) }
             }
-            ws.send(JSON.stringify({ t: 'account', token }))
+            ws.send(JSON.stringify({ t: 'account', token, ...(playToken ? { playToken: playToken() } : {}) }))
           } catch (error) { clearTimeout(timer); ws.close(); reject(error) }
         }
       })

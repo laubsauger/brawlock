@@ -27,10 +27,12 @@ import { Lister, p2pListingTarget } from './lister'
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
+const analyticsDirs: string[] = []
 const quiet = () => {}
 afterEach(async () => {
   await Promise.all(servers.map((s) => s.close()))
   servers = []
+  for (const dir of analyticsDirs.splice(0)) removeDir(dir)
 })
 
 const until = async (pred: () => boolean, ms: number, what: string) => {
@@ -223,7 +225,11 @@ describe('dedicated server (M4.1)', () => {
    * server's authority, starts a rematch, and leaves; the empty room closes.
    */
   it('create a room, own it, play a match and a rematch, leave; the empty room closes', async () => {
-    const { srv, base, http } = await start({ emptyRoomMs: 400, region: 'test' })
+    const dataDir = tempDir('brawlock-match-analytics-')
+    analyticsDirs.push(dataDir)
+    const token = 'test-analytics-operator-token-0123456789'
+    const { srv, base, http } = await start({ emptyRoomMs: 400, region: 'test' }, 'dev-server', { dataDir, maintenanceToken: token })
+    const analytics = async () => (await fetch(`${http}/internal/analytics?days=1`, { headers: { authorization: `Bearer ${token}` } })).json()
     const health = (await (await fetch(`${http}/health`)).json()) as { ok: boolean; protocol: number; rooms: number }
     expect(health).toMatchObject({ ok: true, protocol: PROTOCOL_VERSION, region: 'test', rooms: 0 })
 
@@ -244,6 +250,7 @@ describe('dedicated server (M4.1)', () => {
     await until(() => owner.screen() === 'match', 5000, 'the match to start')
     await until(() => owner.screen() === 'results', 50000, 'the match to finish')
     expect(owner.results).toHaveLength(1)
+    expect((await analytics()).matches).toEqual([expect.objectContaining({ queue: 'custom', started: 1, completed: 1, abandoned: 0 })])
     // the server announces itself: the connection monitor labels the link as the server
     const view = owner.session.netStats()!
     expect(view.server).toBe(true)
@@ -253,10 +260,12 @@ describe('dedicated server (M4.1)', () => {
     await until(() => owner.screen() === 'match', 8000, 'the rematch to start')
     const info = (await (await fetch(`${http}/rooms/${code}`)).json()) as { exists: boolean; state: string; humans: number }
     expect(info).toMatchObject({ exists: true, state: 'match', humans: 1 })
+    expect((await analytics()).matches).toEqual([expect.objectContaining({ started: 2, completed: 1, running: 1 })])
 
     owner.session.leave()
     await until(() => srv.core.stats().rooms === 0, 15000, 'the empty room to close')
     expect(await (await fetch(`${http}/rooms/${code}`)).json()).toEqual({ exists: false })
+    expect((await analytics()).matches).toEqual([expect.objectContaining({ started: 2, completed: 1, running: 0, abandoned: 1 })])
   }, 90000)
 
   /** Why: a second player joins by code (room links work for server rooms) and plays; owner stays the first. */
@@ -436,12 +445,16 @@ describe('public rooms and quick play (M4.3)', () => {
       expect(a.screen()).toBe('lobby')
       expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       expect(srv.core.room(opened.code)!.summary().elo).toEqual({ enabled: false, minSeconds: 120 })
+      expect(srv.core.room(opened.code)!.summary().progress).toBeNull()
       await until(() => a.screen() === 'match' && a.lobby().slots.length === 10, 8000, 'a full-house quick start')
       expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(9)
       expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
       await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
       expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(50)
+      const listed = (await a.online.browse()).find((room) => room.code === opened.code)!
+      expect(listed).toMatchObject({ phase: 'match', progress: { round: 1, phase: 'shop', final: false } })
+      expect(listed.progress!.elapsedSeconds).toBeGreaterThanOrEqual(0)
       expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
       await b.session.join(opened.code)
       await until(() => a.lobby().slots.filter((s) => s.kind === 'human').length === 2, 3000, 'a human replacing a full-house bot')
@@ -640,6 +653,41 @@ describe('public rooms and quick play (M4.3)', () => {
     expect(kinds()).toEqual({ humans: 4, bots: 0 })
     for (const c of [a, ...late]) c.session.leave()
   }, 80000)
+
+  /**
+   * Why: an abandoned tab must not keep a quick room cycling matches against bots for hours.
+   * A player who touched nothing for a whole game (3+ rounds) goes back to the menu when it
+   * ends, with a reason, and the room has nobody left to start another match for.
+   */
+  it('quick play: a player idle for a whole game goes back to the menu when it ends', async () => {
+    const { base, srv } = await start(quick({ fill: 3, fillMs: 500, nextMs: 4000, settings: { ...FAST, winScore: 3 } }))
+    const a = headlessClient(base, { key: 'qi', device: 'device-qi-1', play: false })
+    const r = await a.online.quickPlay('test')
+    await a.session.join(r.code)
+    await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
+    const room = srv.core.room(r.code)!
+    await until(() => a.screen() === 'menu', 90000, 'the idle player to be sent back')
+    expect(a.lobby()).toMatchObject({ status: 'error', error: expect.stringContaining('away for a whole game') })
+    expect(a.results).toHaveLength(1)
+    expect(a.results[0].rounds).toBeGreaterThanOrEqual(3)
+    await until(() => room.humans() === 0, 3000, 'the seat to be freed')
+    expect(room.screen()).not.toBe('match')
+  }, 100000)
+
+  /** Why: a break is not abandonment: one chat line (or any input) during the game keeps the seat for the next one. */
+  it('quick play: a player who chats once during an otherwise idle game keeps the seat', async () => {
+    const { base } = await start(quick({ fill: 3, fillMs: 500, nextMs: 4000, settings: { ...FAST, winScore: 3 } }))
+    const a = headlessClient(base, { key: 'qj', device: 'device-qj-1', play: false })
+    const r = await a.online.quickPlay('test')
+    await a.session.join(r.code)
+    await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
+    expect(a.session.sendChat('brb')).toBe('sent')
+    await until(() => a.screen() === 'results', 90000, 'the game to end')
+    await until(() => a.screen() === 'match' || a.screen() === 'menu', 15000, 'the next game')
+    expect(a.screen()).toBe('match')
+    expect(a.lobby().error).toBeNull()
+    a.session.leave()
+  }, 120000)
 
   /** Why: a quick-play room enforces its configured human cap; the next player gets a new room, and a full-room link is refused. */
   it('quick play respects its configured room cap; the next player gets a new room', async () => {

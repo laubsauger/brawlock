@@ -4,6 +4,7 @@ import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
+import { usePractice } from '../../game/practiceState'
 import { cameraRig, devCamera, frameOffset, moveMarkers, spectateTarget } from '../cameraRig'
 import { CameraReach, EDGE_SPEED, reachFor } from '../cameraReach'
 import { PawnLocator } from '../overlay/PawnLocator'
@@ -172,6 +173,8 @@ export class MatchWorld {
   private chevrons = new FacingChevrons(16)
   /** local player's persistent move destination (after the click burst) */
   private dest!: MoveDestination
+  private practiceDest: MoveDestination | null = null
+  private practiceGold = new THREE.Color(0xffc45c)
   private projectiles: Projectiles
   private overlay: WorldOverlay | null
   private views = new Map<number, PawnView>()
@@ -1888,6 +1891,15 @@ export class MatchWorld {
   /** Move markers and targeting preview for the local player. */
   private updateLocalHelpers(curr: SimState): void {
     if (this.opts.mode !== 'match') return
+    const goal = usePractice.getState().view?.target
+    if (goal) {
+      if (!this.practiceDest) {
+        this.practiceDest = new MoveDestination(this.ctx.uTime)
+        this.practiceDest.mesh.scale.setScalar(2.5)
+        this.root.add(this.practiceDest.mesh)
+      }
+      this.practiceDest.set(goal.x, goal.y, TILE_TOP_H, 1.8, this.practiceGold, true)
+    } else if (this.practiceDest) this.practiceDest.mesh.visible = false
     const buf = this.opts.source.buf
     const t = this.ctx.uTime.value
     // move orders straight from the input layer (zero latency)
@@ -2378,6 +2390,7 @@ export class MatchWorld {
     this.castMarks.batch.dispose()
     this.chevrons.dispose()
     this.dest.dispose()
+    this.practiceDest?.dispose()
     this.locator?.dispose()
     this.contact.dispose()
     this.projectiles.dispose()

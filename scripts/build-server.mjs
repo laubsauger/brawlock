@@ -22,7 +22,7 @@ await build({
   format: 'esm',
   target: 'node22',
   outfile: 'dist-server/server.mjs',
-  define: { __NET_ID__: JSON.stringify(release), 'import.meta.env.DEV': 'false' },
+  define: { __NET_ID__: JSON.stringify(release), __RELEASE_COMMIT__: JSON.stringify(commit === 'unknown' ? null : commit), 'import.meta.env.DEV': 'false' },
   logLevel: 'warning',
 })
 writeFileSync('dist-server/version.json', JSON.stringify({ net: release, commit, built: new Date().toISOString() }) + '\n')

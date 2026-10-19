@@ -21,6 +21,14 @@ describe('game-server region choice', () => {
     expect(regionProblem(pickRegion(s, 'us-west'))).toMatch(/not reachable/)
   })
 
+  it('skips maintenance for Auto but preserves an explicit choice with its explanation', () => {
+    const draining = { ...r('eu', 'up', 20), maintenance: { draining: true, message: 'New games are paused for maintenance.' } }
+    const s = [draining, r('us-west', 'up', 168)]
+    expect(pickRegion(s, 'auto')?.id).toBe('us-west')
+    expect(regionProblem(pickRegion(s, 'eu'))).toBe(draining.maintenance.message)
+    expect(regionProblem(pickRegion([draining], 'auto'))).toBe(draining.maintenance.message)
+  })
+
   it('says why a server cannot host: down, another version, still checking', () => {
     expect(regionProblem(r('us-west', 'down', null))).toMatch(/not reachable/)
     expect(regionProblem(r('us-west', 'mismatch', 50))).toMatch(/different game version/)

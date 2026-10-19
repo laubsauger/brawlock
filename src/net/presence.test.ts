@@ -3,6 +3,15 @@ import { createPresence } from '../../server/presence.mjs'
 import { parsePresence, PRESENCE_TTL_MS } from '../shared/presence'
 
 describe('online visitor leases', () => {
+  it('keeps release/context segments private, deduplicates account devices and validates metadata', () => {
+    const presence = createPresence()
+    const body = { device: 'browser_1', region: 'eu', build: 'commit-ab12', net: 'net-ab12', screen: 'menu' }
+    expect(presence.beat(body, 'verified_account', 'address').status).toBe(200)
+    expect(presence.beat({ ...body, device: 'browser_2', region: 'us-west', screen: 'match' }, 'verified_account', 'address').status).toBe(200)
+    expect(presence.segments()).toEqual([{ region: 'us-west', build: 'commit-ab12', net: 'net-ab12', screen: 'match', kind: 'account', people: 1 }])
+    expect(presence.snapshot()).toEqual({ regions: { eu: 0, 'us-west': 1 }, total: 1 })
+    for (const bad of [{ build: '<script>' }, { net: 123 }, { screen: 'made-up' }, { other: true }]) expect(presence.beat({ ...body, ...bad }, null, 'address').status).toBe(400)
+  })
   it('rejects malformed public counts instead of substituting game connections', () => {
     expect(parsePresence({ regions: { eu: 1, 'us-west': 2 }, total: 3 }).total).toBe(3)
     for (const value of [null, { regions: {}, total: 0 }, { regions: { eu: 1, 'us-west': 0 }, total: 0 }, { regions: { eu: -1, 'us-west': 2 }, total: 1 }]) {

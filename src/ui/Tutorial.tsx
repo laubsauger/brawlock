@@ -4,9 +4,9 @@ import { bindLabel, slotKeyLabel, useBinds } from './lib/keys'
 import { posterUrl, saveData, showClip, stopClip } from './lib/abilityMedia'
 import { reducedMotion } from './lib/motion'
 import { tutorial } from './lib/onboarding'
-import { playOffline } from './flow'
+import { guidedPractice } from './flow'
 import { Button, Kbd, Modal } from './widgets'
-import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
+import { PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
 
 const LESSONS = [
   { clip: 'fireball', title: 'Push them into the lava', text: 'Hits push rivals back. More accumulated knockback means a harder push. Be the last warlock standing.', short: 'Push' },
@@ -68,22 +68,18 @@ function Guide({ label }: { label: string | null }) {
     dialog.addEventListener('keydown', onKey)
     return () => dialog.removeEventListener('keydown', onKey)
   }, [])
-  const practice = () => {
-    if (!isPlaySupported()) return
-    tutorial.continue()
-    playOffline()
-  }
   return (
     <Modal title="How to play" onClose={tutorial.dismiss} width="max-w-2xl" footer={
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <Button size="sm" variant="ghost" disabled={!!label && !playSupported} title={label && !playSupported ? PLAY_REQUIREMENT : undefined} onClick={tutorial.continue}>{label ? 'Skip & continue' : 'Back to menu'}</Button>
         <div className="flex items-center gap-2">
           {index > 0 && <Button size="sm" onClick={() => setIndex((n) => n - 1)}>Previous</Button>}
-          {last ? <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={label ? tutorial.continue : practice}>{label ?? 'Practice vs bots'}</Button>
-            : <Button variant="primary" onClick={() => setIndex((n) => n + 1)}>Next <span aria-hidden>→</span></Button>}
+          {!last && <Button onClick={() => setIndex((n) => n + 1)}>Next <span aria-hidden>→</span></Button>}
+          <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={guidedPractice}>Start guided practice</Button>
         </div>
       </div>
     }>
+      <p className="mb-4 text-[1.05rem] leading-relaxed text-[#e6d3b8]">New to the arena? Try a short, hands-on lesson: move, hit a dummy, buy Teleport and push a rival into lava. Take your time and leave whenever you want.</p>
       <nav ref={content} className="mb-4 grid grid-cols-4 gap-2" aria-label="Tutorial lessons">
         {LESSONS.map((item, i) => <button key={item.short} type="button" aria-current={i === index ? 'step' : undefined} onClick={() => setIndex(i)} className={`rounded border px-2 py-2 text-sm font-semibold transition-colors ${i === index ? 'border-gold/60 bg-gold/10 text-gold' : 'border-white/10 text-ash hover:border-white/25 hover:text-bone'}`}>
           <span className="mr-1.5 opacity-65">{i + 1}</span>{item.short}

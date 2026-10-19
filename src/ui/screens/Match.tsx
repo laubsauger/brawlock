@@ -4,6 +4,8 @@ import { Hud, WaitingVeil } from '../hud/Hud'
 import { Shop } from '../hud/Shop'
 import { CharacterSheet, EscMenu, Scoreboard } from '../hud/Overlays'
 import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
+import { usePractice } from '../../game/practiceState'
+import { PracticeHud } from '../hud/PracticeHud'
 
 /**
  * Match screen: the HUD and panels float above the match scene. The scene
@@ -18,6 +20,8 @@ export function Match() {
   const characterOpen = useGame((s) => s.characterOpen)
   const scoreboardOpen = useGame((s) => s.scoreboardOpen)
   const paused = useGame((s) => s.paused)
+  const practiceStep = usePractice((s) => s.view?.step)
+  const practice = !!practiceStep
 
   // leaving the match screen never leaves overlays behind for the next one
   useEffect(
@@ -34,8 +38,8 @@ export function Match() {
 
   return (
     <div className="fade-in pointer-events-none relative h-full overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
-      <Hud />
-      {shopOpen && <Shop />}
+      {practice ? <PracticeHud /> : <Hud />}
+      {shopOpen && (!practice || practiceStep === 'shop') && <Shop guidedSpell={practice ? 'teleport' : undefined} />}
       {characterOpen && !shopOpen && <CharacterSheet />}
       {scoreboardOpen && <Scoreboard />}
       {paused && <EscMenu />}

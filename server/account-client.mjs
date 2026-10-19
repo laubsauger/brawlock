@@ -33,7 +33,7 @@ export function regionalAccounts({ url, token, region, log, rewardFile, requestM
     }
     const raw = Buffer.concat(chunks).toString('utf8')
     const body = JSON.parse(raw)
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Sign in again before joining ranked.' : 'Account verification is temporarily unavailable.')
+    if (!response.ok) throw new Error(op === 'playAttach' ? 'Only one game can be connected at a time. Return to the menu and choose Use here.' : response.status === 401 || response.status === 403 ? 'Sign in again before joining ranked.' : 'Account verification is temporarily unavailable.')
     return body
   }
   function requireRegistered() {
@@ -42,10 +42,10 @@ export function regionalAccounts({ url, token, region, log, rewardFile, requestM
   async function flush() {
     if (flushing) return flushing
     flushing = (async () => {
-      for (const [key, fields] of pending) {
+      for (const [key, { op, fields }] of pending) {
         if (closed) break
-        try { await rpc('release', fields); pending.delete(key) }
-        catch { log('warn', 'accounts.release.pending'); break }
+        try { await rpc(op, fields); pending.delete(key) }
+        catch { log('warn', `accounts.${op}.pending`); break }
       }
     })().finally(() => { flushing = null })
     return flushing
@@ -54,6 +54,24 @@ export function regionalAccounts({ url, token, region, log, rewardFile, requestM
   timer.unref()
   const rewards = rewardFile ? progressionOutbox({ file: rewardFile, send: (receipt) => rpc('reward', { receipt }), log }) : null
   return {
+    async attachPlay(playToken, room, accountId) {
+      requireRegistered(); await flush()
+      if (pending.size) throw new Error('Your previous game connection is still closing. Try again in a moment.')
+      const reply = await rpc('playAttach', { playToken, room, accountId })
+      if (typeof reply.connection !== 'string' || typeof reply.id !== 'string' || !Number.isFinite(reply.expiresAt) || !Number.isFinite(reply.serverTime)) throw new Error('Invalid game permission from the authority')
+      return reply
+    },
+    async checkPlay(playToken, connectionId) {
+      requireRegistered()
+      const reply = await rpc('playCheck', { playToken, connectionId })
+      if (reply.ok !== false && (reply.ok !== true || !Number.isFinite(reply.expiresAt) || !Number.isFinite(reply.serverTime))) throw new Error('Invalid game permission from the authority')
+      return reply
+    },
+    detachPlay(connectionId) {
+      if (!registered || closed) return
+      pending.set(`playDetach:${connectionId}`, { op: 'playDetach', fields: { connectionId } })
+      void flush()
+    },
     async names(accountIds) {
       requireRegistered()
       const body = await rpc('names', { accountIds })
@@ -80,7 +98,9 @@ export function regionalAccounts({ url, token, region, log, rewardFile, requestM
       if (!a || typeof a.id !== 'string' || a.ratingKey !== accountRatingKey(a.id)
         || typeof a.name !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{2,15}$/.test(a.name)
         || !(a.color === null || Number.isInteger(a.color) && a.color >= 0 && a.color <= 0xffffff)
-        || !validCosmeticEquipment(a.cosmetics)) throw new Error('Account authority returned an invalid identity')
+        || !validCosmeticEquipment(a.cosmetics)
+        || !a.connection || !/^[a-f0-9]{64}$/.test(a.connection.device) || !/^[a-f0-9]{64}$/.test(a.connection.controller)
+        || typeof a.connection.takeover !== 'boolean') throw new Error('Account authority returned an invalid identity')
       return a
     },
     async game(accountId) {
@@ -89,19 +109,29 @@ export function regionalAccounts({ url, token, region, log, rewardFile, requestM
       if (pending.size) throw new Error('Your previous ranked game is still being released. Try again in a moment.')
       return (await rpc('game', { accountId })).game
     },
-    async claim(accountId, room) {
+    async claim(accountId, room, connection) {
       requireRegistered()
       // Apply pending room releases before considering another ranked admission.
       await flush()
       if (pending.size) throw new Error('Your previous ranked game is still being released. Try again in a moment.')
-      const body = await rpc('claim', { accountId, room })
+      const body = await rpc('claim', { accountId, room, connection })
       if (body.ok === true || body.ok === false && body.game && typeof body.game.region === 'string' && /^[A-Z]{5}$/.test(body.game.room)) return body
       throw new Error('Account authority returned an invalid ranked reservation')
+    },
+    started(room, accountIds) {
+      requireRegistered()
+      pending.set(`started:${room}`, { op: 'started', fields: { room, accountIds } })
+      void flush()
     },
     release(room, accountId) {
       if (!registered || closed) return
       const fields = { room, ...(accountId ? { accountId } : {}) }
-      pending.set(`${room}:${accountId ?? '*'}`, fields)
+      pending.set(`release:${room}:${accountId ?? '*'}`, { op: 'release', fields })
+      void flush()
+    },
+    disconnected(room, accountId, controller) {
+      if (!registered || closed) return
+      pending.set(`disconnect:${room}:${accountId}:${controller}`, { op: 'disconnect', fields: { room, accountId, connection: { controller } } })
       void flush()
     },
     pending() { return { rewards: rewards?.pending() ?? 0, releases: pending.size } },

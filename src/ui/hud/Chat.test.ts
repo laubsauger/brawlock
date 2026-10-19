@@ -58,6 +58,7 @@ describe('room chat presentation', () => {
     }
     useGame.setState({ screen: 'match' })
     const match = renderToStaticMarkup(createElement(RoomChatLayout, { screen: 'match', children: null }))
+    expect(match).toContain('room-chat-layout pointer-events-none')
     expect(match).not.toContain('data-chat-docked')
     expect(match).toContain('aria-label="Open room chat"')
     expect(match).not.toContain('aria-label="Message everyone in this room"')

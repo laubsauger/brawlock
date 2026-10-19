@@ -61,7 +61,7 @@ function connect(core: ServerCore, code: string, key: string, account?: Verified
   return { messages, send, close: socket.close, closed: () => closed }
 }
 
-const identity = (id: string): VerifiedAccount => ({ id, ratingKey: `a_${id}`, name: id, color: null, cosmetics: { victory: null, robe: null } })
+const identity = (id: string): VerifiedAccount => ({ id, ratingKey: `a_${id}`, name: id, color: null, cosmetics: { victory: null, robe: null }, connection: { device: '1'.repeat(64), controller: 'a'.repeat(64), takeover: false } })
 
 describe('persistent regional maintenance', () => {
   it('persists drain across reopen, resets explicitly, and refuses malformed stored state', () => {
@@ -143,7 +143,7 @@ describe('persistent regional maintenance', () => {
     const record = vi.fn(() => new Promise<{ status: 'unrated'; reason: string }>((resolve) => { resolveRating = resolve }))
     const reward = vi.fn(async (_receipt: ProgressionReceipt) => 'awarded' as const)
     let pending = { rewards: 0, releases: 0 }
-    const accounts = { reward, pending: () => pending, release: vi.fn(), close() {}, names: async () => new Map(), verify: vi.fn(), game: vi.fn(), claim: vi.fn() }
+    const accounts = { attachPlay: vi.fn(), checkPlay: vi.fn(), detachPlay: vi.fn(), reward, pending: () => pending, release: vi.fn(), started: vi.fn(), disconnected: vi.fn(), close() {}, names: async () => new Map(), verify: vi.fn(), game: vi.fn(), claim: vi.fn() }
     const f = fixture({ ratingAuthority: { record, rename: async () => true, read: async () => ({ status: 200, body: {} }), pending: () => 0 }, accounts })
     const room = await f.core.createRoom({ code: 'ABCDE', quick: 'dummy', ranked: true })
     const a = connect(f.core, room.code, 'ann', identity('AccountAnn'))
@@ -185,7 +185,7 @@ describe('persistent regional maintenance', () => {
   it('does not reward custom bot presets or per-room rules as official quick play', async () => {
     const reward = vi.fn(async () => 'awarded' as const)
     for (const setup of [{ quick: 'easy' as const }, { quick: 'dummy' as const, settings: { startGold: 999 } }]) {
-      const f = fixture({ accounts: { reward, release() {}, close() {} } as never })
+      const f = fixture({ accounts: { reward, release() {}, started() {}, close() {} } as never })
       const room = await f.core.createRoom({ code: 'ABCDE', ...setup })
       connect(f.core, room.code, 'ann', identity('AccountAnn'))
       await f.advance(100)

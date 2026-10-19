@@ -8,27 +8,43 @@ export function createPresence({ now = Date.now, maxDevices = 5000, perIp = 32 }
     const cutoff = now() - PRESENCE_TTL_MS
     for (const [id, entry] of devices) if (entry.at <= cutoff) devices.delete(id)
   }
-  function snapshot() {
+  function peopleNow() {
     sweep()
     const people = new Map()
     for (const entry of devices.values()) {
       const existing = people.get(entry.person)
       if (!existing || existing.order < entry.order) people.set(entry.person, entry)
     }
-    const regions = Object.fromEntries(PRESENCE_REGIONS.map((id) => [id, 0]))
+    return people
+  }
+  function snapshot() {
+    const people = peopleNow(), regions = Object.fromEntries(PRESENCE_REGIONS.map((id) => [id, 0]))
     for (const entry of people.values()) regions[entry.region]++
     return { regions, total: people.size }
   }
   return {
     snapshot,
+    segments() {
+      const rows = new Map()
+      for (const entry of peopleNow().values()) {
+        const row = { region: entry.region, build: entry.build, net: entry.net, screen: entry.screen, kind: entry.person.startsWith('a:') ? 'account' : 'guest' }
+        const key = JSON.stringify(row)
+        if (!rows.has(key)) rows.set(key, { ...row, people: 0 })
+        rows.get(key).people++
+      }
+      return [...rows.values()]
+    },
     beat(body, accountId, ip) {
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 2
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['device', 'region', 'build', 'net', 'screen'].includes(key))
+        || ['build', 'net'].some((key) => body[key] !== undefined && (typeof body[key] !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(body[key])))
+        || (body.screen !== undefined && !['boot', 'unsupported', 'menu', 'lobby', 'match', 'results', 'credits', 'replay'].includes(body.screen))
         || typeof body.device !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.device) || !PRESENCE_REGIONS.includes(body.region)) return { status: 400, error: 'Invalid online presence.' }
       sweep()
       const current = devices.get(body.device)
       const peers = [...devices.entries()].filter(([id, entry]) => id !== body.device && entry.ip === ip).length
       if ((!current && devices.size >= maxDevices) || peers >= perIp) return { status: 429, error: 'Online presence capacity reached.' }
-      devices.set(body.device, { person: accountId ? `a:${accountId}` : `g:${body.device}`, ip, region: body.region, at: now(), order: ++order })
+      devices.set(body.device, { person: accountId ? `a:${accountId}` : `g:${body.device}`, ip, region: body.region,
+        build: body.build ?? '', net: body.net ?? '', screen: body.screen ?? '', at: now(), order: ++order })
       return { status: 200, body: snapshot() }
     },
   }

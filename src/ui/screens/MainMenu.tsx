@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd, Modal } from '../widgets'
@@ -42,6 +42,7 @@ function MenuEntry({
   testId,
   ranked,
   badge,
+  ready,
 }: {
   title: string
   sub: ReactNode
@@ -54,21 +55,22 @@ function MenuEntry({
   testId?: string
   ranked?: boolean
   badge?: string
+  ready?: boolean
 }) {
   return (
     <Button
-      variant={primary && !ranked ? 'primary' : 'default'}
-      className={`menu-item ${primary ? 'menu-item-primary' : 'menu-item-secondary'}`}
-      style={ranked ? { '--rim-a': '#bfc3d3', '--rim-b': '#514455', '--rim-c': '#9e5960', '--core': '175, 67, 80', '--label': 'linear-gradient(180deg, #f3f3fc 0%, #bdc3d9 100%)' } as CSSProperties : undefined}
+      variant={primary ? 'primary' : 'default'}
+      className={`menu-item ${primary ? 'menu-item-primary' : 'menu-item-secondary'}${ranked ? ' menu-item-ranked' : ''}`}
       onClick={onClick}
       aria-expanded={expanded}
       disabled={disabled}
       title={hint}
       data-testid={testId}
+      data-ready={ready || undefined}
     >
       <span className="flex w-full min-w-0 flex-col items-start gap-0.5 leading-tight">
-        <span className="flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className="font-ui flex shrink-0 items-center gap-1.5 rounded border border-white/15 bg-black/20 px-2 py-1 text-xs font-medium tracking-normal text-[#d4cbdc]"><MenuGlyph kind="profile" size={13} />{badge}</span>}</span>
-        <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#c8c9d8]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
+        <span className="flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className={`menu-entry-badge font-ui flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium tracking-normal ${ready ? 'border-[#ffbf94]/50 bg-[#8c3227]/35 text-[#ffe4c9]' : 'border-white/15 bg-black/20 text-[#d4cbdc]'}`}>{ready ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#ffcd9f]" /> : <MenuGlyph kind="profile" size={13} />}{badge}</span>}</span>
+        <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#f1c1bc]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
         {note && <span className="font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
     </Button>
@@ -88,10 +90,11 @@ function regionText(r: RegionStatus): string {
 function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const playSupported = usePlaySupported()
   const setSettings = useGame((s) => s.setSettings)
-  const statuses = useRegions(30000)
+  const statuses = useRegions(5000)
   const choice = useRegionChoice()
   const region = pickRegion(statuses, choice)
   const problem = regionProblem(region)
+  const maintenance = region?.maintenance?.draining === true
   const regionId = region?.state === 'up' ? region.id : null
   const [availability, setAvailability] = useState<{ region: string; casual: string } | null>(null)
   useEffect(() => {
@@ -118,12 +121,14 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const known = regionId && availability?.region === regionId ? availability : null
   const account = useAccount((s) => s.player)
   const accountLoaded = useAccount((s) => s.loaded)
+  const accountError = useAccount((s) => s.error)
+  const rankedReady = playSupported && !problem && accountsEnabled && accountLoaded && !accountError && !!account?.profile
   return <div className="menu-queues">
     <RegionPicker statuses={statuses} choice={choice} onChange={(value) => setSettings({ serverRegion: value })} />
     <MenuEntry
       primary
       title="Casual"
-      sub={<span className="font-semibold text-[#ffe1a6]">{known?.casual ?? 'Checking open games…'}</span>}
+      sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.casual ?? 'Checking open games…'}</span>}
       note="Matchmaking · no Elo · 10 players · Brutal bots"
       disabled={!playSupported || !!problem}
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join an open game in ${region?.label}, or create a public game with bots filling empty seats`}
@@ -134,8 +139,9 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       primary
       ranked
       title="Ranked"
-      sub="Global Elo · 8 players · 5 rounds"
-      badge={!accountsEnabled ? 'Sign-in unavailable' : !accountLoaded ? 'Checking account' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : undefined}
+      sub={maintenance ? 'New ranked games paused' : 'Global Elo · 8 players · 5 rounds'}
+      badge={maintenance ? 'Maintenance' : !accountsEnabled ? 'Sign-in unavailable' : !accountLoaded ? 'Checking account' : accountError ? 'Account unavailable' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : rankedReady ? 'Ready' : undefined}
+      ready={rankedReady}
       disabled={!playSupported || !!problem || !accountsEnabled}
       hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? 'Ranked sign-in is unavailable in this build.' : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
       onClick={() => isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
@@ -347,20 +353,17 @@ export function MainMenu() {
 
   return (
     <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
-      <div className="menu-identity absolute z-10 flex flex-col items-end gap-2">
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="menu-identity z-10 flex flex-wrap items-center justify-end gap-2" aria-label="Player and account">
       <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={`Edit player name and color: ${name}`}>
         <span className="text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
         <span className="max-w-40 truncate font-semibold">{name}</span>
         <span className="text-ash"><MenuGlyph kind="edit" size={13} /></span>
       </button>
       {rating && <button type="button" className="rounded border border-[#aaa9c8]/30 bg-[#140e0b]/90 px-3 py-2 text-sm font-semibold text-[#e3d9ba] hover:border-gold/60" onClick={() => setProfileTab('board')} title="Open the global Elo leaderboard" data-testid="profile-elo">{Math.round(rating.rating)} Elo · #{rating.rank}</button>}
-      </div>
-      {accountsEnabled && account && <p className="max-w-full truncate text-xs text-ash" title={account.email}>Signed in · {account.email}</p>}
-      {accountsEnabled && <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={openAccount}>{account ? account.profile ? 'Account' : 'Finish setup' : 'Sign in'}</Button>
+      {accountsEnabled && <>
+        <Button variant="ghost" size="sm" className="menu-account min-w-0" title={account ? `Signed in as ${account.email}` : 'Sign in to your account'} onClick={openAccount}><span className="flex min-w-0 items-center gap-2"><span className="btn-label shrink-0">{account ? account.profile ? 'Account' : 'Finish setup' : 'Sign in'}</span>{account && <span className="menu-account-email truncate font-ui text-xs font-normal tracking-normal text-ash">{account.email}</span>}</span></Button>
         {account && <Button variant="ghost" size="sm" data-testid="open-collection" title={emberProblem ?? 'Your permanent cosmetic collection'} onClick={() => setCollectionOpen(true)}><span className="flex items-center gap-1.5"><EmberMark size={16} /><span className="tabular">{emberBalance !== null ? `${emberBalance.toLocaleString()} · Collection` : 'Collection'}</span></span></Button>}
-      </div>}
+      </>}
       </div>
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
@@ -412,7 +415,7 @@ export function MainMenu() {
       <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
         <div className="flex flex-col gap-3">
           <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /> Stats</Button>
+            <Button size="sm" className="menu-stats gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /><span className="btn-label">Stats</span></Button>
             <Button variant="ghost" size="sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => toggle('settingsOpen', true)}><MenuGlyph kind="settings" size={16} /> Settings</Button>
           </nav>

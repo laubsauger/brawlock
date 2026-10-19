@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getCareer, type Career } from '../../game/stats'
 import { useGame } from '../../game/store'
 import { session } from '../../game/session'
-import { hostGame, hostOnServer, joinRoom, playOffline, quickPlay } from '../flow'
+import { guidedPractice, hostGame, hostOnServer, joinRoom, playOffline, quickPlay } from '../flow'
 import { tutorial } from './onboarding'
 
 vi.mock('../../game/stats', () => ({ getCareer: vi.fn(() => null) }))
 vi.mock('../../game/session', () => ({ session: {
   openOffline: vi.fn(),
+  openPractice: vi.fn(),
   openHost: vi.fn(async () => ({ ok: true, mode: 'p2p', region: null })),
   openHostServer: vi.fn(async () => ({ ok: true, mode: 'server', region: null })),
   quickPlay: vi.fn(async () => ({ ok: true, mode: 'server', region: null })),
@@ -34,6 +35,24 @@ afterEach(() => {
 })
 
 describe('first-play onboarding', () => {
+  it('chooses guided practice without executing the intercepted matchmaking action', () => {
+    quickPlay('eu')
+    guidedPractice()
+    expect(tutorial.get()).toBeNull()
+    expect(session.openPractice).toHaveBeenCalledOnce()
+    expect(session.quickPlay).not.toHaveBeenCalled()
+    expect(session.openOffline).not.toHaveBeenCalled()
+    expect(useGame.getState().settings.tutorialSeen).toBe(true)
+  })
+  it('cancels a pending invite when practice is chosen instead, without joining it later', () => {
+    const run = vi.fn(), cancel = vi.fn()
+    tutorial.request({ label: 'Join game', run, cancel })
+    guidedPractice()
+    tutorial.continue()
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(run).not.toHaveBeenCalled()
+    expect(session.openPractice).toHaveBeenCalledOnce()
+  })
   it('keeps the action private until Continue, then runs it exactly once and persists completion', () => {
     const run = vi.fn()
     const changed = vi.fn()

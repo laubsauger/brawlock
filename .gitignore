@@ -68,3 +68,6 @@ __pycache__/
 /artifacts/live-release/
 /artifacts/lobby-layout/
 /artifacts/menu-labels/
+/artifacts/guided-practice/
+/artifacts/analytics/
+/artifacts/death-voice-review/

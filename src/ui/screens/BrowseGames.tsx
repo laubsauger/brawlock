@@ -7,15 +7,18 @@ import { sfx } from '../lib/sound'
 import { joinRoom } from '../flow'
 import { liveEloLabel } from '../lib/elo'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
+import { roomActivity } from '../lib/roomActivity'
+import { useRegions } from '../lib/servers'
+import { RegionMaintenance } from '../RegionMaintenance'
 
 /** how often the list refreshes (the server caches it ~1 s and allows 60 lists a minute) */
 export const BROWSE_REFRESH_MS = 4000
 
-const STATUS: Record<PublicRoom['phase'], { label: string; tone: string }> = {
-  lobby: { label: 'Waiting', tone: 'bg-[rgba(127,227,154,0.14)] text-heal' },
-  results: { label: 'Between matches', tone: 'bg-[rgba(255,197,72,0.14)] text-gold' },
-  match: { label: 'In a match', tone: 'bg-[rgba(255,255,255,0.06)] text-ash' },
-} as Record<string, { label: string; tone: string }>
+const STATUS_TONE: Record<string, string> = {
+  lobby: 'bg-[rgba(127,227,154,0.14)] text-heal',
+  results: 'bg-[rgba(255,197,72,0.14)] text-gold',
+  match: 'bg-[rgba(255,255,255,0.06)] text-ash',
+}
 
 const MODE: Record<string, string> = { ffa: 'Free for all', teams: 'Teams', shuffle: 'Shuffled teams' }
 
@@ -33,6 +36,8 @@ export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore
  */
 export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: () => void }) {
   const playSupported = usePlaySupported()
+  const statuses = useRegions(5000)
+  const allDraining = statuses.length > 0 && statuses.every((region) => region.maintenance?.draining)
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
   const [joining, setJoining] = useState<string | null>(null)
   // a join that failed lands back here with lobby.error: say so and allow another try
@@ -88,6 +93,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
         </div>
       </header>
       <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5" aria-label="Open games">
+        <RegionMaintenance statuses={statuses} />
         {failed && (
           <p role="alert" className="mb-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-2 text-[#ffd3c9]">
             Couldn't join that game. {failed}
@@ -96,11 +102,11 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
         {rooms === null ? (
           <p className="py-10 text-center text-ash">Looking for games…</p>
         ) : rooms.length === 0 ? (
-          <p className="py-10 text-center text-[1.05rem] text-ash">No open games right now. Create a custom game, or choose Casual from the main menu to find a match automatically.</p>
+          <p className="py-10 text-center text-[1.05rem] text-ash">{allDraining ? 'No open games. Server games are paused during maintenance. Solo and player-hosted custom games remain available.' : 'No open games right now. Create a custom game, or choose Casual from the main menu to find a match automatically.'}</p>
         ) : (
           <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto pr-1" data-testid="browse-list">
             {rooms.map((r) => {
-              const st = STATUS[r.phase] ?? STATUS.match
+              const activity = roomActivity(r)
               const elo = liveEloLabel(r)
               const rankedClosed = r.ranked && r.phase !== 'lobby'
               const draining = r.kind === 'server' && r.region.maintenance?.draining === true
@@ -125,7 +131,10 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                     {r.humans} {r.humans === 1 ? 'player' : 'players'}
                     {r.bots > 0 ? <span className="text-ash"> + {r.bots} bots</span> : null}
                   </span>
-                  <span className={`chip w-36 justify-center ${st.tone}`}>{st.label}</span>
+                  <span className="flex w-48 flex-col items-center gap-1">
+                    <span className={`chip justify-center ${STATUS_TONE[r.phase] ?? STATUS_TONE.match}`}>{activity.label}</span>
+                    {activity.detail && <span className="tabular text-[0.86rem] text-[#e6d3b8]" title="Match time includes shopping and stops while paused. Player-hosted listings update about every 10 seconds.">{activity.detail}</span>}
+                  </span>
                   <span className="w-44">
                     {r.kind === 'p2p' ? (
                       <span className="text-[0.95rem] text-ash" title="Hosted from a player's PC: the ping shows once you join">

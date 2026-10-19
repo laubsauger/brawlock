@@ -1,6 +1,9 @@
 import { createAuthClient } from 'better-auth/client'
 import { passkeyClient } from '@better-auth/passkey/client'
 import { useAccount } from './accountState'
+import { getDeviceId } from './device'
+import { controllerKey } from './clientKey'
+import { showRankedConflict } from './rankedControl'
 
 export type AccountProvider = 'google' | 'discord' | 'microsoft'
 export interface AccountPlayer {
@@ -74,7 +77,7 @@ function mutateAccount<T>(request: () => Promise<T>, commit: (value: T) => void)
 }
 
 /** A new, one-use credential for each regional action. Never store or reuse it. */
-export async function getAdmissionToken(required = false): Promise<string | null> {
+export async function getAdmissionToken(required = false, takeover = false): Promise<string | null> {
   if (!accountsEnabled) {
     if (required) throw new Error('Sign in is unavailable in this build.')
     return null
@@ -85,7 +88,7 @@ export async function getAdmissionToken(required = false): Promise<string | null
   const started = revision
   const response = await fetch('/api/account/admission', {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
-    headers: { 'content-type': 'application/json' }, body: '{}',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device: getDeviceId(), controller: controllerKey(), takeover }),
   })
   if (response.status === 401) {
     if (started === revision) publish(null)
@@ -94,6 +97,7 @@ export async function getAdmissionToken(required = false): Promise<string | null
   }
   const body = await response.json()
   if (started !== revision) throw new Error('Your account changed while connecting. Try joining again.')
+  if (response.status === 409 && body.rankedConflict) showRankedConflict(body.rankedConflict)
   if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Could not verify your account.')
   if (typeof body.token !== 'string' || !/^[A-Za-z0-9_-]{32}$/.test(body.token)) throw new Error('The account service returned an invalid admission ticket.')
   return body.token

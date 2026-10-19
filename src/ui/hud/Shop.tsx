@@ -177,6 +177,7 @@ function IconTile({
   card,
   slot,
   passive = false,
+  guided = false,
 }: {
   id: string
   name: string
@@ -193,6 +194,7 @@ function IconTile({
   slot?: number
   /** passive item: round frame, "Passive" label */
   passive?: boolean
+  guided?: boolean
 }) {
   // clicks are gated by the offer state only; ownership is styling
   const disabled = offer.state === 'soon' || offer.state === 'locked' || offer.state === 'closed' || offer.state === 'max'
@@ -200,7 +202,7 @@ function IconTile({
   return (
     <button
       type="button"
-      className="shop-card icon-tile"
+      className={`shop-card icon-tile ${guided ? 'ring-2 ring-gold shadow-[0_0_18px_#ffae4455]' : ''}`}
       style={{ ['--hue' as string]: hue }}
       data-state={offer.state}
       data-owned={offer.owned}
@@ -240,7 +242,7 @@ function IconTile({
   )
 }
 
-export function Shop() {
+export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
   const v = usePolled(readShop, (x) => JSON.stringify(x), 10)
   const binds = useBinds()
   const characterOpen = useGame((s) => s.characterOpen)
@@ -288,7 +290,7 @@ export function Shop() {
   return (
     <>
       {/* ---------------- left dock: masteries + items, or stats ---------------- */}
-      <aside className="dock dock-left" aria-label={characterOpen ? 'Your warlock' : 'Masteries and items'}>
+      {!guidedSpell && <aside className="dock dock-left" aria-label={characterOpen ? 'Your warlock' : 'Masteries and items'}>
         <div className="panel dock-panel flex flex-col">
           <div className="flex items-center gap-1 px-4 pt-3.5 pb-2" role="tablist">
             <button type="button" role="tab" className="tab" aria-selected={!characterOpen} onClick={() => toggle('characterOpen', false)}>
@@ -372,7 +374,7 @@ export function Shop() {
             </>
           )}
         </div>
-      </aside>
+      </aside>}
 
       {/* ---------------- right dock: spells ---------------- */}
       <section ref={right} className="dock dock-right" aria-label="Shop">
@@ -380,11 +382,12 @@ export function Shop() {
           <header className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 pt-3.5 pb-2">
             <h2 className="display text-[2.4rem] leading-none">Shop</h2>
             <GoldCounter gold={v.gold} />
-            <ShopClock />
+            {guidedSpell ? <span className="text-sm text-gold">Practice · no timer</span> : <ShopClock />}
             <Button size="sm" variant="ghost" sound={null} className="ml-auto" onClick={close}>
               Close <KeyCaps label={bindLabel(binds, 'shop')} />
             </Button>
           </header>
+          {guidedSpell && <p className="mx-4 mb-2 rounded border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-bone">Buy <strong>Teleport</strong> in Transport. Other purchases are disabled for this lesson.</p>}
           {!v.open && (
             <p className="mx-4 mb-2 rounded-md bg-[rgba(255,140,60,0.1)] px-3 py-2 text-[0.98rem] font-semibold text-[#ffcf9a] ring-1 ring-[rgba(255,150,70,0.3)]" role="status">
               {frame.curr?.rankedFinal && !isRoundParticipant(frame.curr, frame.localPlayer)
@@ -419,7 +422,8 @@ export function Shop() {
                     </span>
                   </div>
                   {defs.map((def, r) => {
-                    const o = spellOffer(def, owned, v.gold, v.open)
+                    const locked = !!guidedSpell && def.id !== guidedSpell
+                    const o = locked ? { ...spellOffer(def, owned, v.gold, v.open), state: 'locked' as const } : spellOffer(def, owned, v.gold, v.open)
                     return (
                       <IconTile
                         key={def.id}
@@ -430,9 +434,10 @@ export function Shop() {
                         size={abilityTileSize}
                         max={SPELL_MAX_LEVEL}
                         nav={`${c},${r}`}
-                        label={`${def.name}${o.state === 'soon' ? ', coming soon' : o.state === 'locked' ? `, unavailable: ${selected?.name} selected for this column` : o.owned ? `, selected, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
+                        guided={def.id === guidedSpell}
+                        label={locked ? `${def.name}, not part of this lesson` : `${def.name}${o.state === 'soon' ? ', coming soon' : o.state === 'locked' ? `, unavailable: ${selected?.name} selected for this column` : o.owned ? `, selected, level ${o.level} of ${SPELL_MAX_LEVEL}${o.price != null ? `, upgrade for ${o.price} gold` : ''}` : `, buy for ${def.buy} gold`}`}
                         card={abilityCardProps(() => ({ kind: 'spell', id: def.id, context: 'shop', side: 'left' }))}
-                        onBuy={(e) => purchase(e, o.state, { kind: 'buySpell', spell: def.id })}
+                        onBuy={(e) => { if (!locked) purchase(e, o.state, { kind: 'buySpell', spell: def.id }) }}
                         slot={o.owned ? c : undefined}
                       />
                     )

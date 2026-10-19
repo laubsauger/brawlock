@@ -26,7 +26,7 @@ The menu has a signed-in Collection/balance shortcut; results show confirmed rew
 
 The scene-linear grade opens stone/cloth midtones in the existing output shader while retaining ACES exposure 1.05, colored highlights and the warm lava/cool floor separation. It adds no render pass, texture or geometry; DOM HUD/text stays outside the grade. Fixed low/medium/high captures and bounded measurements are in [COLOR-GRADING.md](COLOR-GRADING.md). Actual HDR-display output remains separate future work.
 
-Bot transcendental math now uses deterministic `sim/math.ts`, guarded against engine-dependent calls. Node/Chrome comparisons matched **21,600 state hashes and input frames** across two seeded 180-second eight-bot runs. A paired 500-game calibration moved difficulty estimates by less than four Elo points, so `BOT_ELO` stays unchanged.
+Bot transcendental math now uses deterministic `sim/math.ts`, guarded against engine-dependent calls. Node/Chrome comparisons matched **21,600 state hashes and input frames** across two seeded 180-second eight-bot runs. A paired 500-game calibration moved difficulty estimates by less than four Elo points. `BOT_ELO` was re-measured on 2026-10-19, after Brutal and Uber moved to per-bot shop builds (Easy 400, Medium 1000, Hard 1600, Brutal 1825, Uber 2000; table in [PLAN.md](PLAN.md) §7).
 
 ## Shipped maintenance and release evidence
 

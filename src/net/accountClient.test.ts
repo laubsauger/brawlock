@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { regionalAccounts } from '../../server/account-client.mjs'
-import { accountRegions, ACCOUNT_REGIONS_SCHEMA } from '../../server/account-regions.mjs'
+import { accountRegions, ACCOUNT_REGIONS_SCHEMA, ACCOUNT_CONTROL_SCHEMA, ACCOUNT_STARTED_SCHEMA } from '../../server/account-regions.mjs'
 import { openTestDatabase, removeDir, tempDir } from '../../server/test-dir.mjs'
 import type { ProgressionReceipt } from '../../server/progression.mjs'
 
 const token = 'public-test-regional-secret-0123456789abcdef'
-const account = { id: 'account-first', name: 'AshMage', color: 0x2e7bff, ratingKey: 'a_account-first', cosmetics: { victory: null, robe: null } }
+const connection = { device: '1'.repeat(64), controller: 'a'.repeat(64), takeover: false }
+const account = { connection, id: 'account-first', name: 'AshMage', color: 0x2e7bff, ratingKey: 'a_account-first', cosmetics: { victory: null, robe: null } }
 const proof = `${'A'.repeat(30)}-_`
 const clients: ReturnType<typeof regionalAccounts>[] = []
 const cleanups: (() => void)[] = []
@@ -26,6 +27,32 @@ function fixture(reply: (body: Record<string, string>) => Response | Promise<Res
 }
 
 describe('regional ranked account authority client', () => {
+  it('retries a match-start notice in order before releasing its participants', async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    const f = fixture((body) => Response.json({ ok: true }, { status: body.op === 'started' && ++attempts === 1 ? 503 : 200 }))
+    await f.client.register()
+    f.client.started('ABCDE', [account.id])
+    await vi.advanceTimersByTimeAsync(0)
+    f.client.release('ABCDE', account.id)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.calls.map((call) => call.body.op)).toEqual(['register', 'started', 'started', 'release'])
+    expect(f.calls[1].body).toEqual(f.calls[2].body)
+    expect(f.calls[1].body).toMatchObject({ room: 'ABCDE', accountIds: [account.id] })
+    expect(f.client.pending!().releases).toBe(0)
+  })
+  it('retries a disconnected-controller update before a new claim and keeps its controller fence', async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    const f = fixture((body) => Response.json({ ok: true }, { status: body.op === 'disconnect' && ++attempts === 1 ? 503 : 200 }))
+    await f.client.register()
+    f.client.disconnected('ABCDE', account.id, connection.controller)
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(f.client.claim(account.id, 'ABCDE', connection)).resolves.toEqual({ ok: true })
+    expect(f.calls.map((call) => call.body.op)).toEqual(['register', 'disconnect', 'disconnect', 'claim'])
+    expect(f.calls[1].body).toEqual(f.calls[2].body)
+    expect(f.calls[1].body).toMatchObject({ room: 'ABCDE', accountId: account.id, connection: { controller: connection.controller } })
+  })
   it('requires registration and sends a stable server generation plus bearer secret privately', async () => {
     const f = fixture((body) => Response.json(body.op === 'verify' ? { account } : { ok: true }))
     await expect(f.client.verify(proof)).rejects.toThrow(/not registered/)
@@ -83,7 +110,7 @@ describe('regional ranked account authority client', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(f.log).toHaveBeenCalledTimes(1)
     expect(f.log).toHaveBeenCalledWith('warn', 'accounts.release.pending')
-    await expect(f.client.claim(account.id, 'FGHIJ')).resolves.toEqual({ ok: true })
+    await expect(f.client.claim(account.id, 'FGHIJ', connection)).resolves.toEqual({ ok: true })
     expect(f.calls.map((c) => c.body.op)).toEqual(['register', 'release', 'release', 'claim'])
     expect(f.calls[1].body).toEqual(f.calls[2].body)
     expect(f.calls[2].body).toMatchObject({ room: 'ABCDE', accountId: account.id })
@@ -118,29 +145,29 @@ describe('regional ranked account authority client', () => {
     const db = openTestDatabase(':memory:')
     cleanups.push(() => db.close())
     db.exec('PRAGMA foreign_keys=ON; CREATE TABLE user(id TEXT PRIMARY KEY);')
-    db.exec(ACCOUNT_REGIONS_SCHEMA)
+    db.exec(ACCOUNT_REGIONS_SCHEMA + ACCOUNT_CONTROL_SCHEMA + ACCOUNT_STARTED_SCHEMA)
     db.prepare('INSERT INTO user(id) VALUES (?)').run(account.id)
     const occupancy = accountRegions(db)
     let lostReply = true
     const f = fixture((body) => {
       if (body.op === 'register') { occupancy.register(body.region, body.instance); return Response.json({ ok: true }) }
-      if (body.op === 'claim') return Response.json(occupancy.claim(body.region, body.instance, body.accountId, body.room))
+      if (body.op === 'claim') return Response.json(occupancy.claim(body.region, body.instance, body.accountId, body.room, connection))
       if (body.op === 'game') return Response.json({ game: occupancy.game(body.accountId) })
       if (body.op !== 'release') throw new Error('Unexpected test operation')
       occupancy.release(body.region, body.instance, body.room, body.accountId)
       return Response.json({ ok: true }, { status: lostReply ? 503 : 200 })
     })
     await f.client.register()
-    expect(await f.client.claim(account.id, 'ABCDE')).toEqual({ ok: true })
+    expect(await f.client.claim(account.id, 'ABCDE', connection)).toEqual({ ok: true })
     f.client.release('ABCDE', account.id)
     await vi.advanceTimersByTimeAsync(0)
     expect(occupancy.game(account.id)).toBeNull()
-    await expect(f.client.claim(account.id, 'ABCDE')).rejects.toThrow(/release|previous game/i)
+    await expect(f.client.claim(account.id, 'ABCDE', connection)).rejects.toThrow(/release|previous game/i)
     await expect(f.client.game(account.id)).rejects.toThrow(/release|previous game/i)
     expect(f.calls.filter((c) => c.body.op === 'claim')).toHaveLength(1)
     lostReply = false
     await vi.advanceTimersByTimeAsync(2000)
-    expect(await f.client.claim(account.id, 'ABCDE')).toEqual({ ok: true })
+    expect(await f.client.claim(account.id, 'ABCDE', connection)).toEqual({ ok: true })
     await vi.advanceTimersByTimeAsync(6000)
     expect(occupancy.game(account.id)).toEqual({ region: 'eu', room: 'ABCDE' })
     expect(await f.client.game(account.id)).toEqual({ region: 'eu', room: 'ABCDE' })
@@ -150,7 +177,7 @@ describe('regional ranked account authority client', () => {
     let status = 200
     const f = fixture((body) => Response.json(body.op === 'register' ? { ok: true } : status === 200 ? { ok: false, game: { region: 'us', room: 'ABCDE' } } : { error: `private ${token}` }, { status }))
     await f.client.register()
-    await expect(f.client.claim(account.id, 'FGHIJ')).resolves.toEqual({ ok: false, game: { region: 'us', room: 'ABCDE' } })
+    await expect(f.client.claim(account.id, 'FGHIJ', connection)).resolves.toEqual({ ok: false, game: { region: 'us', room: 'ABCDE' } })
     status = 403
     await expect(f.client.verify(proof)).rejects.toThrow('Sign in again before joining ranked.')
     status = 503

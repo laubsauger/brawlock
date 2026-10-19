@@ -45,7 +45,7 @@ import { insideAny, threatZones, type ThreatZone } from './threats'
 import { firstBlocking, inPillar, routeAround, shieldedFrom } from './pillars'
 import { BOT_PRESETS, type BotParams } from './presets'
 import { afterHit, lavaOutcome, leadWithFriction, physVelocity, positionAfter, projectileHit } from './predict'
-import { planStep } from './plan'
+import { drawBuild, planStep, type Build } from './plan'
 import { botSeed, Rng } from './prng'
 import {
   BOT_SPELLS,
@@ -95,6 +95,8 @@ const UNREFLECTED = new Set(['swap', 'gravity', 'warpzone', 'meteor'])
 const DEFAULT_SHOT_SPEED = 900
 /** a bubble that drops this close to our shot's arrival counts as gone */
 const BUBBLE_MARGIN = 0.05
+/** units from an enemy whose Shield may be up: a shot it sends back can be walked out of */
+const SHIELD_STANDOFF = 700
 /** reflected but kept by the caster: they come back harmless (Boomerang returns anyway) */
 const NOT_STOLEN = new Set(['boomerang', 'link'])
 /** a typical bolt's radius (Fireball 25) plus a little slack, for the sidestep it takes */
@@ -192,6 +194,8 @@ export class BotController implements Bot {
    * HP), and attachment to the current fight.
    */
   private readonly persona: { grudge: number; opportunism: number; risk: number; focus: number }
+  /** shop build of a planning bot (drawn after the persona, from the same stream) */
+  readonly build: Build | null
   /** Recent observed damage, independent of the sim's permanent kill-credit lastHitter. */
   private recentHit: { owner: PlayerId; tick: number } | null = null
 
@@ -204,6 +208,7 @@ export class BotController implements Bot {
     this.delayTicks = Math.max(0, secToTicks(params.reactionDelay))
     const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
     this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
+    this.build = params.buildPlan === 'random' ? null : drawBuild(traits, params.buildPlan === 'plan' ? undefined : params.buildPlan)
   }
 
   think(state: SimState): InputCommand[] {
@@ -271,9 +276,9 @@ export class BotController implements Bot {
     // 1. Buy: between rounds or while dead, one spell per 40 s.
     this.checkPendingBuy(tick, me, gold)
     const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && (state.phase !== 'fight' || !me?.alive)
-    if (canShop && p.buildPlan === 'plan') {
-      // Uber: the next step of its build, several per shop phase
-      const step = planStep(me, gold, this.failedBuys)
+    if (canShop && this.build) {
+      // Brutal, Uber: the next step of its build, several per shop phase
+      const step = planStep(this.build, me, gold, this.failedBuys)
       if (step) {
         this.nextBuyTick = tick + secToTicks(0.3)
         this.pendingBuy = { spell: step.id, tick: tick + this.delayTicks, gold }
@@ -465,7 +470,10 @@ export class BotController implements Bot {
         const at = this.bubbleBlocks(me, target, spell) ? this.openTarget(me, enemies, spell) : target
         if (at && castable(me, slot) && !me.cast) {
           const aim = this.aimAt(me, at, spell, state)
-          if (aim && (p.shotGate <= 0 || this.shotChance(state, me, at, spell, aim) >= p.shotGate)) {
+          // from the stand-off, a shot at a Shield that may be up is worth it even if easy to
+          // avoid: it hits, or it draws the Shield out for its cooldown (and comes back slowly)
+          const bait = this.shieldMayRise(at, 0) && dist(me, at) >= SHIELD_STANDOFF
+          if (aim && (p.shotGate <= 0 || bait || this.shotChance(state, me, at, spell, aim) >= p.shotGate)) {
             this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
             return this.act('shoot', [{ kind: 'cast', slot, x: aim.x, y: aim.y }])
           }
@@ -798,7 +806,8 @@ export class BotController implements Bot {
       const gap = d - Math.max(0, closing) * (this.params.reactionDelay + info.castPoint)
       const back = (gap - attr(def, 'radius', lv) - PAWN_BODY) / (info.speed ?? DEFAULT_SHOT_SPEED)
       const sidestep = this.params.reactionDelay + (SHOT_RADIUS + PAWN_BODY + 10) / Math.max(1, me.moveSpeed)
-      if (ready && back < sidestep + 0.1) return true
+      // a stolen Homing missile turns on its caster: there is no stepping aside from it
+      if (ready && (spell === 'homing' || back < sidestep + 0.1)) return true
     }
     let left = -Infinity
     let radius = 0
@@ -813,6 +822,15 @@ export class BotController implements Bot {
     if (left === -Infinity) return false
     const flight = info.hitscan ? 0 : Math.max(0, dist(me, target) - radius) / (info.speed ?? DEFAULT_SHOT_SPEED)
     return left > this.params.reactionDelay + info.castPoint + flight - BUBBLE_MARGIN
+  }
+
+  /** Whether `target` owns a Shield it may raise within `within` seconds (not seen used within its cooldown). */
+  private shieldMayRise(target: PawnState, within: number): boolean {
+    const sh = target.slots.indexOf('shield')
+    const def = sh >= 0 ? spellDef('shield') : undefined
+    if (!def) return false
+    const seen = this.shieldCast.get(target.owner)
+    return seen === undefined || this.lastTick - seen + within * TICK_HZ >= cooldownSeconds(def, target.levels[sh] || 1) * TICK_HZ
   }
 
   /** The closest enemy in range of `spell` whose bubble would not stop it, if any. */
@@ -1029,13 +1047,15 @@ export class BotController implements Bot {
       delay = this.rng.range(0.4, 0.8)
     } else {
       if (p.edgePressure && target) {
-        // hold the arena-centre side of the target at shooting range, so hits push it out
+        // hold the arena-centre side of the target at shooting range, so hits push it out;
+        // farther while it may raise a Shield, so a shot it sends back leaves time to step aside
+        const far = this.shieldMayRise(target, 1)
         const tl = hypot(target.x, target.y)
         const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
         const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
         for (let i = 0; i < 6 && !point; i++) {
           const a = this.rng.range(-0.5, 0.5)
-          const r = this.rng.range(450, 650)
+          const r = far ? this.rng.range(SHIELD_STANDOFF, SHIELD_STANDOFF + 150) : this.rng.range(450, 650)
           const c = cos(a)
           const sn = sin(a)
           const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
