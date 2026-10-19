@@ -288,6 +288,8 @@ export interface BettingState {
   /** A replaced seat cannot collect its previous occupant's refund or winnings. */
   credits: BettingCredit[]
   lastSettlement: BetSettlement | null
+  /** a round that started with two warlocks: bets close at this tick (absent: when two remain) */
+  closeTick?: number
 }
 
 /**

@@ -226,18 +226,20 @@ describe('seeking and verification', () => {
   const d = recordDirect(11, KEYFRAME_EVERY * 4 + 123)
 
   it('records dead-player wager commands and replays capped settlement, bounty creation and stale resends exactly', async () => {
-    const slots: PlayerSlot[] = [0, 1, 2, 3, 4].map((id) => ({
+    // 3 wins; 4 and the bystander 5 burn in the lava (bets need 3+ warlocks alive when placed)
+    const slots: PlayerSlot[] = [0, 1, 2, 3, 4, 5].map((id) => ({
       id, name: `Human ${id}`, kind: 'human', color: id, team: id, profileId: `profile:${id}`,
     }))
     const state = createMatch({ ...SETTINGS, shopSeconds: 0.1, winScore: 99, roundGold: 0 }, slots, 11)
     startRound(state)
     for (const id of [0, 1, 2]) killPawn(state, state.pawns[id], 3, 'fireball')
-    // Real sim lava resolves the final contender, so playback needs no custom sim implementation.
-    const contender = state.pawns[4]
-    contender.x = 100000
-    contender.invulnerable = false
-    contender.modifiers = []
-    contender.hp = 100
+    // Real sim lava resolves the final contenders, so playback needs no custom sim implementation.
+    for (const contender of [state.pawns[4], state.pawns[5]]) {
+      contender.x = 100000
+      contender.invulnerable = false
+      contender.modifiers = []
+      contender.hp = 100
+    }
     const recorder = new ReplayRecorder()
     recorder.begin({ localPlayer: 1, slots, settings: state.settings, seed: 11 })
     const hashes = new Map([[state.tick, replayHash(state)]])

@@ -8,8 +8,9 @@ import { SpectatorBets } from './SpectatorBets'
 
 afterEach(resetFrame)
 
+/** two dead bettors (0, 3), contenders 1 and 2, and living bystander 4 (bets need 3+ alive) */
 function setup() {
-  const state = createMatch(DEFAULT_SETTINGS, [0, 1, 2, 3].map((id) => ({ id, name: `Player ${id}`, profileId: `device-${id}`, kind: 'human', team: id, color: 0xffa044 })), 42)
+  const state = createMatch(DEFAULT_SETTINGS, [0, 1, 2, 3, 4].map((id) => ({ id, name: `Player ${id}`, profileId: `device-${id}`, kind: 'human', team: id, color: 0xffa044 })), 42)
   state.phase = 'fight'
   state.round = 1
   state.pawns[0].alive = false
@@ -61,6 +62,7 @@ describe('personal betting presentation', () => {
     state.settings.teamMode = 'teams'
     state.slots[1].team = 0
     state.slots[2].team = 1
+    state.slots[4].team = 1
     pushState(state)
     const html = markup()
     expect(html).toContain('Bet on which team wins')

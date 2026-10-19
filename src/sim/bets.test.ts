@@ -6,8 +6,9 @@ import { roundWon, startRound } from './mode'
 import { cmd, fight, pawn } from './testkit'
 import type { InputCommand, SimState } from './types'
 
+/** `bettors` dead humans, two contenders, and a living bystander (bets need 3+ warlocks alive) */
 function setup(bettors = 4): SimState {
-  const state = fight(bettors + 2, undefined, { killGold: 0, winGold: 0, roundGold: 0, winScore: 99 })
+  const state = fight(bettors + 3, undefined, { killGold: 0, winGold: 0, roundGold: 0, winScore: 99 })
   state.slots.forEach((slot) => { slot.profileId = `profile:${slot.id}` })
   for (let id = 0; id < bettors; id++) pawn(state, id).alive = false
   return state
@@ -32,6 +33,17 @@ describe('authoritative spectator wagers', () => {
     expect(s.scores[0].gold).toBe(29)
     expect(placeSpectateBet(s, 0, s.round, 5)).toBe(false)
     expect(s.betting.bets).toHaveLength(1)
+  })
+
+  test('bets close once only two warlocks are alive', () => {
+    // Why: with two left the winner is often obvious; a safe last-moment bet made waiting
+    // until then compulsory for everyone.
+    const s = setup()
+    expect(canSpectateBet(s, 0, 4)).toBe(true)
+    pawn(s, 6).alive = false
+    expect(canSpectateBet(s, 0, 4)).toBe(false)
+    expect(placeSpectateBet(s, 0, s.round, 4)).toBe(false)
+    expect(s.betting.bets).toHaveLength(0)
   })
 
   test('rejects living players, bots, disconnected humans, spectators without seats, disabled modes, and unaffordable bets', () => {

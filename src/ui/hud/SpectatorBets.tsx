@@ -61,7 +61,7 @@ export function SpectatorBets() {
       : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed</p>
         : value.phase === 'roundEnd' ? <p className="mt-1 text-ash">Betting closed for this round</p>
           : !value.affordable ? <p className="mt-1 text-ash">You need {BET_STAKE} gold to bet</p>
-            : value.choices.length === 0 ? <p className="mt-1 text-ash">Betting closed for this round</p> : null}
+            : value.choices.length === 0 ? <p className="mt-1 text-ash">Betting closed: two warlocks left</p> : null}
     <details key={`${value.round}:${value.selected ?? ''}:${value.phase}:${result ? 'settled' : ''}`} onKeyDown={(event) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -80,7 +80,7 @@ export function SpectatorBets() {
               <span className="text-xs text-gold">Bet {BET_STAKE} gold</span>
             </button>)}</div></>}
     <p className="mt-2 text-xs leading-snug text-bone" title="Correct bets get their gold back. Profit is paid in bet order while other bets cover it.">Win: up to {BET_MAX_RETURN} gold total back ({BET_MAX_RETURN - BET_STAKE} gold profit)</p>
-    <p className="mt-1 text-[0.7rem] leading-snug text-ash">Wrong pick: lose {BET_STAKE} gold. One bet per round · profit depends on other bets.{value.bounty ? value.final ? '' : ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
+    <p className="mt-1 text-[0.7rem] leading-snug text-ash">Wrong pick: lose {BET_STAKE} gold. One bet per round · bets close when two warlocks remain · earlier bets are paid first.{value.bounty ? value.final ? '' : ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
     </details>
     </section>
   </div>

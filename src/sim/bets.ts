@@ -3,6 +3,14 @@ import type { BetIdentity, BetSettlement, PlayerId, PlayerSlot, SimState } from 
 
 export const BET_STAKE = 1
 export const BET_MAX_RETURN = 2
+/**
+ * Bets close once fewer warlocks than this are alive. With two left the outcome is often
+ * obvious (one low, one in the lava), and an always-safe last-moment bet made waiting
+ * compulsory; earlier bets also collect the capped profit first (accepted order).
+ */
+export const BET_MIN_LIVING = 3
+/** a round that starts with only two warlocks (a ranked final) takes bets this long into the fight */
+export const BET_TWO_STARTER_SECONDS = 10
 
 function identity(state: SimState, player: PlayerId): BetIdentity {
   const slot = slotOf(state, player)!
@@ -36,6 +44,8 @@ export function canSpectateBet(state: SimState, player: PlayerId, target?: Playe
   const holder = identity(state, player)
   if (state.betting.bets.some((bet) => bet.round === state.round && sameIdentity(bet.payer, holder))) return false
   const living = state.pawns.filter((p) => p.alive && isActive(state, p.owner))
+  const closeTick = state.betting.closeTick
+  if (closeTick !== undefined ? state.tick >= closeTick : living.length < BET_MIN_LIVING) return false
   if (new Set(living.map((p) => teamOf(state, p.owner))).size < 2) return false
   const validTarget = (id: PlayerId) => Number.isInteger(id) && id >= 0 &&
     !!slotOf(state, id) && !!scoreOf(state, id)?.connected && living.some((p) => p.owner === id)

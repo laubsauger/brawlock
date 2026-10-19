@@ -284,14 +284,15 @@ describe('spectator wagers over the confirmed input stream', () => {
     }
     const scriptedStep: SessionDeps['step'] = (state, inputs) => {
       // Identical authoritative/predicted fixture events; all economic transitions use real sim code.
-      if (state.round === 1 && state.tick === roundWinTick) killPawn(state, pawnOf(state, 4), 3, 'fireball')
+      // 4 and the bystander 5 fall together (bets need 3+ warlocks alive when placed)
+      if (state.round === 1 && state.tick === roundWinTick) for (const id of [4, 5]) killPawn(state, pawnOf(state, id), 3, 'fireball')
       if (state.round === 2 && state.tick === roundTwoKnockoutTick) {
         for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
       }
       step(state, inputs)
     }
     const opts: PeerOpts = { createMatch: bettingMatch, step: scriptedStep }
-    const r = await room({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 }, 4, opts, opts)
+    const r = await room({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 }, 5, opts, opts)
     const peers = [r.host, ...r.clients]
     try {
       const startedAt = performance.now()

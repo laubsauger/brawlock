@@ -21,7 +21,7 @@
  * win check (first to winScore) runs at round ends only, like the original.
  */
 import { clampLayer } from './arena'
-import { settleSpectateBets } from './bets'
+import { BET_TWO_STARTER_SECONDS, settleSpectateBets } from './bets'
 import {
   ARENA_BASE_LAYER,
   ARENA_LAYER_PER_PLAYER,
@@ -124,6 +124,8 @@ export function startRound(state: SimState): void {
   state.phase = 'fight'
   assignTeams(state)
   const players = activePlayers(state).length
+  if (players <= 2) state.betting.closeTick = state.tick + ticks(BET_TWO_STARTER_SECONDS)
+  else delete state.betting.closeTick
   if (dm) {
     state.phaseTicksLeft = ticks(DM_ROUND_SECONDS)
     state.arena.nextShrinkTick = -1 // never shrinks in deathmatch

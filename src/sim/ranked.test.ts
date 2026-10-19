@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { ROUND_END_SECONDS, ticks } from './config'
 import { killPawn } from './combat'
-import { placeSpectateBet } from './bets'
+import { BET_TWO_STARTER_SECONDS, canSpectateBet, placeSpectateBet } from './bets'
 import { cloneState, gameWinners, hashState, isRoundParticipant, setPlayerConnected, step } from './index'
 import { endRound, roundWon, startRound } from './mode'
 import { MOD_SPAWN_INVULNERABLE, removeModifiers } from './modifiers'
@@ -135,6 +135,15 @@ describe('dedicated ranked scheduled rounds', () => {
     expect(gone.phase).toBe('gameOver')
     expect(gameWinners(gone)).toEqual([0, 1])
     expect(gone.round).toBe(6)
+  })
+
+  test('the two-warlock final takes bets for its first seconds only', () => {
+    // Why: spectators may bet on the final, but not once the duel is decided (a safe late bet).
+    const state = tiedFinal()
+    startRound(state)
+    expect(canSpectateBet(state, 2, 0)).toBe(true)
+    run(state, ticks(BET_TWO_STARTER_SECONDS))
+    expect(canSpectateBet(state, 2, 0)).toBe(false)
   })
 
   test('disconnecting all finalists during combat resolves once; regular draws consume scheduled rounds', () => {
