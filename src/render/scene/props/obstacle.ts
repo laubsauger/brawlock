@@ -5,6 +5,7 @@ import type { PillarShape } from './pillars'
 import { pillarShape } from './shapes'
 import { contactDecalMaterial, lookForTheme, setPropAnisotropy, useLook, type Look } from './materials'
 import { rng } from './rng'
+import { STATIC_INSTANCE_CAPACITY } from '../world'
 
 /**
  * One destructible pillar: sculpted seeded mesh (shared theme material),
@@ -89,7 +90,10 @@ class ChipPool {
   private release: () => void
 
   constructor(look: Look, private footprint: number) {
-    this.mesh = new THREE.InstancedMesh(chipGeometry(), undefined, CHIP_N)
+    // capacity padded past the uniform limit (see staticInstancedMesh): every
+    // pillar has a pool, and on the uniform path each pool compiled its own
+    // pipeline when the match started (61 at once)
+    this.mesh = new THREE.InstancedMesh(chipGeometry(), undefined, Math.max(CHIP_N, STATIC_INSTANCE_CAPACITY))
     this.release = useLook(look, this.mesh, 'chip')
     this.mesh.count = 0
     this.mesh.visible = false

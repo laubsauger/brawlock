@@ -239,7 +239,7 @@ function MatchScene({
     if (rd.done) return
     const now = performance.now()
     rd.frames++
-    const settled = w.uploadsDone && frameCull.stagingDone(state.scene)
+    const settled = w.uploadsDone && w.warmDone && frameCull.stagingDone(state.scene)
     rd.steady = rd.last > 0 && now - rd.last < READY_STEADY_MS && settled ? rd.steady + 1 : 0
     rd.last = now
     if (rd.frames >= READY_MIN_FRAMES && rd.steady >= READY_STEADY_FRAMES) {

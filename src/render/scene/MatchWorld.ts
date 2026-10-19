@@ -127,6 +127,8 @@ const DEST_ALPHA = 1.3
 
 /** main-thread budget per frame for texture uploads (decoded bitmaps: ~1-3 ms each) */
 const UPLOAD_BUDGET_MS = 4
+/** pawn views warmed in the lobby: the largest lobby (net MAX_PLAYERS) */
+const SPARE_VIEWS = 10
 
 const SCOURGE_COLOR = [1.5, 0.55, 2.4] as const
 /** max summed flash energy per frame (sum of (size/300)^2 x brightness) */
@@ -306,6 +308,13 @@ export class MatchWorld {
   private prewarmGroup: THREE.Group | null = null
   private prewarmWarlocks: { dispose(): void }[] = []
   private prewarmState: unknown = null
+  /**
+   * Pawn views built during prewarm, every marker shown under the lava, and
+   * handed to the match's pawns. Each view's marker materials are its own
+   * (per-pawn uniforms): built fresh at the first shop they cost ~30 node
+   * builds and new pipelines in one frame (a 60 ms hitch at match start).
+   */
+  private spareViews: PawnView[] = []
 
   setPrewarm(on: boolean): void {
     if (on === this.prewarmOn) return
@@ -324,6 +333,14 @@ export class MatchWorld {
           /* character not available: nothing to warm */
         }
       }
+      if (this.opts.mode === 'match') {
+        while (this.spareViews.length < SPARE_VIEWS) this.spareViews.push(new PawnView(this.ctx))
+        this.spareViews.forEach((v, i) => {
+          v.root.position.set((i - SPARE_VIEWS / 2) * 0.4, -3, 0.8)
+          v.setWarm(true)
+          g.add(v.root)
+        })
+      }
       this.root.add(g)
       this.prewarmGroup = g
     } else this.endPrewarm()
@@ -333,6 +350,11 @@ export class MatchWorld {
     this.prewarmOn = false
     if (this.prewarmGroup) this.root.remove(this.prewarmGroup)
     this.prewarmGroup = null
+    for (const v of this.spareViews) {
+      v.root.removeFromParent()
+      v.root.position.set(0, 0, 0)
+      v.setWarm(false)
+    }
     for (const w of this.prewarmWarlocks) w.dispose()
     this.prewarmWarlocks = []
   }
@@ -340,6 +362,11 @@ export class MatchWorld {
   /** true when no texture uploads are pending (prewarm readiness) */
   get uploadsDone(): boolean {
     return texturesSettled()
+  }
+
+  /** pooled pillar visuals warmed (shape worker done, each rendered once) */
+  get warmDone(): boolean {
+    return this.obstacles.warmDone
   }
 
   /** Re-render the key-light shadow map every tier.shadowEvery frames. */
@@ -685,6 +712,10 @@ export class MatchWorld {
         }
       }
       this.builtinProjectileShadows(prev, curr, alpha)
+    } else {
+      // lobby prewarm has no match state yet: still build and render the
+      // pooled pillar visuals, or all of them land in the match's first frames
+      this.obstacles.warm()
     }
 
     this.drainUploads()
@@ -1781,7 +1812,7 @@ export class MatchWorld {
     for (const p of curr.pawns) {
       let v = this.views.get(p.id)
       if (!v) {
-        v = new PawnView(this.ctx)
+        v = this.spareViews.pop() ?? new PawnView(this.ctx)
         v.setSlot(this.slotOf(curr, p.owner), p.owner)
         v.onFizzle = (pv) => this.fizzleFx(pv)
         v.spellClaimed = (spell) => this.modulesOn && !!vfxForSpell(spell)
@@ -2373,6 +2404,8 @@ export class MatchWorld {
     this.inited.clear()
     for (const v of this.views.values()) v.dispose()
     this.views.clear()
+    for (const v of this.spareViews) v.dispose()
+    this.spareViews = []
     this.lava.dispose()
     this.env.dispose()
     this.arena.dispose()

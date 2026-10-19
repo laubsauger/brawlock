@@ -367,6 +367,15 @@ export class PawnView {
     this.root.add(this.decal, this.charge, this.aim, this.aimShadow, this.castRing, this.ward, this.wardDome)
   }
 
+  /**
+   * Prewarm: show every marker (the view sits under the lava) so their render
+   * objects and pipelines exist before a match; off restores the defaults
+   * (only the floor decal shows until the view is driven).
+   */
+  setWarm(on: boolean): void {
+    for (const m of [this.charge, this.aim, this.aimShadow, this.castRing, this.ward, this.wardDome]) m.visible = on
+  }
+
   setShadows(on: boolean): void {
     this.body.castShadow = on
     this.staff.castShadow = on

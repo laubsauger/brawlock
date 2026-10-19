@@ -31,9 +31,11 @@ export const STATIC_INSTANCE_CAPACITY = 65536 / 64 + 1
 /**
  * InstancedMesh for matrices set once. three keeps an instance-matrix array
  * that fits the uniform limit in a per-object uniform buffer and re-uploads
- * all of it every frame and every pass, moving or not; above the limit the
- * matrices live in a vertex attribute uploaded only on change. The padded
- * capacity picks that path; `count` stays the real instance count.
+ * all of it every frame and every pass, moving or not; that buffer is also
+ * declared per object, so every such mesh compiles its own shader and
+ * pipeline. Above the limit the matrices live in a vertex attribute uploaded
+ * only on change, and meshes sharing a material share one pipeline. The
+ * padded capacity picks that path; `count` stays the real instance count.
  */
 export function staticInstancedMesh(geometry: THREE.BufferGeometry, material: THREE.Material, count: number): THREE.InstancedMesh {
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(count, STATIC_INSTANCE_CAPACITY))

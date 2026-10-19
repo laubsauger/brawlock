@@ -126,6 +126,16 @@ export class PropObstacles {
     this.staged.push({ vis, key: next.key, frames: WARM_FRAMES })
   }
 
+  /** Advance the shape warm-up without a match state (lobby prewarm). */
+  warm(): void {
+    this.warmStep()
+  }
+
+  /** every shape's pooled visuals exist and have rendered once */
+  get warmDone(): boolean {
+    return this.warmQueue.length === 0 && this.staged.length === 0
+  }
+
   setTheme(theme: number): void {
     this.theme = ((theme % 3) + 3) % 3
   }
