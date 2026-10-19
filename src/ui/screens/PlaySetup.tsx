@@ -22,7 +22,7 @@ export function PlaySetup({ initialOnline, onClose }: { initialOnline: boolean; 
     else if (location === 'pc') hostGame(listed)
     else if (region) hostOnServer(choice === 'auto' ? 'auto' : region.id, listed)
   }
-  return <Modal title="Play" onClose={onClose} width="max-w-lg" footer={<Button variant="primary" className="w-full" disabled={!!problem} onClick={create}>Create game</Button>}>
+  return <Modal title="Custom game" onClose={onClose} width="max-w-lg" footer={<Button variant="primary" className="w-full" disabled={!!problem} onClick={create}>Create game</Button>}>
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3" role="group" aria-label="Players">
         <Button variant={!multiplayer ? 'primary' : 'default'} aria-pressed={!multiplayer} onClick={() => setMultiplayer(false)} className="min-h-16 flex-col gap-1">

@@ -39,7 +39,7 @@ export function chatComposer(state: ComposerState, action: ComposerAction): Comp
 
 /** Enter on an existing control belongs to that control, including menu buttons. */
 export function chatShortcutTarget(target: EventTarget | null): boolean {
-  return !isTypingTarget(target) && !(target instanceof HTMLElement && target.closest('button, a, [role="button"], input, textarea, select, [role="dialog"]'))
+  return !isTypingTarget(target) && !(target instanceof HTMLElement && target.closest('button, a, summary, [role="button"], input, textarea, select, [role="dialog"]'))
 }
 
 function senderColor(color: number): string {
@@ -56,8 +56,10 @@ export function ChatMessage({ line, fading = false }: { line: ChatLine; fading?:
   )
 }
 
-/** Reserve the actual chat footprint for narrow-screen match overlays. */
+/** Dock chat beside room screens; preserve its measured overlay during combat. */
 export function RoomChatLayout({ screen, children }: { screen: string; children: ReactNode }) {
+  const connected = useGame((s) => s.lobby.role !== 'offline' && s.lobby.status === 'open')
+  const docked = connected && (screen === 'lobby' || screen === 'results')
   const wrapper = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(0)
   const [expanded, setExpanded] = useState(false)
@@ -69,10 +71,10 @@ export function RoomChatLayout({ screen, children }: { screen: string; children:
     measure()
     return () => observer.disconnect()
   }, [])
-  return <div className="relative h-full overflow-hidden" style={{ '--room-chat-offset': height > 0 ? `${height + 10}px` : '0px', '--spectator-bets-display': expanded ? 'none' : 'flex' } as CSSProperties}>
+  return <div className="room-chat-layout relative h-full overflow-hidden" data-chat-docked={docked || undefined} style={{ '--room-chat-offset': screen === 'match' && height > 0 ? `${height + 10}px` : '0px', '--spectator-bets-display': expanded ? 'none' : 'flex' } as CSSProperties}>
     {children}
-    <div ref={wrapper} className="pointer-events-none fixed left-3 z-[45] w-[min(340px,calc(100vw-24px))] sm:[@media(max-height:520px)]:w-[min(340px,40vw)]" style={{ bottom: screen === 'match' ? 'calc(var(--hud-bottom-h, 72px) * var(--ui-scale, 1) + 18px)' : 96 }}>
-      <RoomChat compact onExpandedChange={setExpanded} />
+    <div ref={wrapper} className={docked ? 'room-chat-dock' : 'pointer-events-none fixed left-3 z-[45] w-[min(340px,calc(100vw-24px))] sm:[@media(max-height:520px)]:w-[min(340px,40vw)]'} style={docked ? undefined : { bottom: screen === 'match' ? 'calc(var(--hud-bottom-h, 72px) * var(--ui-scale, 1) + 18px)' : 96 }}>
+      <RoomChat compact={!docked} onExpandedChange={setExpanded} />
     </div>
   </div>
 }
@@ -152,7 +154,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
   const expanded = !compact || composer.open
   return (
     <section
-      className={`interactive pointer-events-auto w-full max-w-[340px] min-w-0 ${expanded ? 'hud-plate rounded-md p-2.5' : ''}`}
+      className={`interactive pointer-events-auto w-full min-w-0 ${compact ? 'max-w-[340px]' : 'flex h-full flex-col'} ${expanded ? 'hud-plate rounded-md p-3' : ''}`}
       aria-label="Room-wide chat"
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
@@ -160,7 +162,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
       onKeyUp={(event) => event.stopPropagation()}
     >
       <header className="flex items-center justify-between gap-2">
-        <button
+        {!compact ? <h2 className="font-semibold text-bone">Room chat</h2> : <button
           type="button"
           className="flex items-center gap-2 rounded px-1 py-0.5 text-sm font-semibold text-bone hover:text-gold"
           aria-expanded={composer.open}
@@ -170,7 +172,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
         >
           Chat {!composer.open && <Kbd>Enter</Kbd>}
           {!composer.open && unread > 0 && <span className="rounded bg-gold/15 px-1.5 text-xs text-gold">{unread}</span>}
-        </button>
+        </button>}
         {expanded && <span className="text-xs text-ash">Everyone in this room</span>}
       </header>
       <ol
@@ -179,7 +181,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
         aria-label="Room-wide messages"
         aria-live="polite"
         aria-relevant="additions"
-        className={`mt-1 space-y-1 ${expanded ? 'max-h-[min(24vh,180px)] overflow-y-auto overscroll-contain pr-1' : 'pointer-events-none [@media(max-width:1199px)]:[&>li:not(:last-child)]:hidden [@media(max-width:1199px)]:[&>li]:line-clamp-1'}`}
+        className={`mt-2 space-y-1 ${!compact ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1' : expanded ? 'max-h-[min(24vh,180px)] overflow-y-auto overscroll-contain pr-1' : 'pointer-events-none [@media(max-width:1199px)]:[&>li:not(:last-child)]:hidden [@media(max-width:1199px)]:[&>li]:line-clamp-1'}`}
         onScroll={(event) => {
           const list = event.currentTarget
           atBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 24
@@ -188,7 +190,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
         {expanded ? lines.map((line) => <ChatMessage key={line.id} line={line} />) : visibleRecent.map(({ line, at }) => <ChatMessage key={line.id} line={line} fading={now - at >= 6500} />)}
       </ol>
       {expanded && lines.length === 0 && <p className="mt-1 text-xs text-ash">Say hello to the room.</p>}
-      {composer.open && (
+      {(composer.open || !compact) && (
         <form
           className="mt-2"
           onSubmit={(event) => {

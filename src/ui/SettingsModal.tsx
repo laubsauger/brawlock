@@ -455,13 +455,13 @@ export function SettingsModal() {
                   <Slider label="Announcer volume" value={s.announcerVolume ?? 0.8} onChange={(announcerVolume) => setSettings({ announcerVolume })} />
                 </div>
               </Row>
-              <Row label="Announcer voice" hint={(s.announcerVoice ?? 'maverick') === 'arena' ? 'A deep, gruff arena voice' : 'The heroic default voice'}>
+              <Row label="Announcer voice" hint={(s.announcerVoice ?? 'maverick') === 'arena' ? 'Alternate Daniel voice pack' : 'Original Maverick voice pack'}>
                 <Segmented
                   label="Announcer voice"
                   value={s.announcerVoice ?? 'maverick'}
                   options={[
                     { value: 'maverick', label: 'Maverick' },
-                    { value: 'arena', label: 'Arena' },
+                    { value: 'arena', label: 'Daniel (Arena)' },
                   ]}
                   onChange={(announcerVoice) => setSettings({ announcerVoice })}
                 />

@@ -13,6 +13,7 @@ import { accountRatingKey } from '../src/net/accounts.ts'
 import { PROGRESSION_SCHEMA, ProgressionError, createProgression } from './progression.mjs'
 import { PLAYER_COLORS } from '../src/net/lobbyColors.ts'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
+import { createPresence } from './presence.mjs'
 
 const RESERVED = new Set(['admin', 'administrator', 'brawlock', 'moderator', 'server', 'system', 'support'])
 const PROVIDERS = ['google', 'discord', 'microsoft']
@@ -115,6 +116,8 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
     const names = new KeyedLimiter(6, 6 / 60)
     const admissions = new KeyedLimiter(12, 12 / 60)
     const purchases = new KeyedLimiter(20, 20 / 60)
+    const presence = createPresence()
+    const presenceWrites = new KeyedLimiter(120, 120 / 60)
     const json = (status, body, extra = {}) => Response.json(body, { status, headers: { 'cache-control': 'no-store', ...extra } })
     const handler = async (request) => {
       const url = new URL(request.url)
@@ -165,6 +168,24 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
       if (url.pathname === '/api/account/config' && request.method === 'GET') {
         return json(200, { providers: PROVIDERS.filter((id) => Object.hasOwn(providers, id)) })
       }
+      if (url.pathname === '/api/presence') {
+        if (request.method === 'GET') return json(200, presence.snapshot())
+        if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
+        if (requestOrigin !== origin) return json(403, { error: 'Origin required.' })
+        const ip = request.headers.get('x-brawlock-client-ip')
+        if (!ip) return json(400, { error: 'Missing trusted connection address.' })
+        const now = Date.now()
+        presenceWrites.sweep(now)
+        if (!presenceWrites.take(ip, now)) return json(429, { error: 'Too many online updates.' })
+        if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return json(415, { error: 'Expected JSON.' })
+        const raw = await request.text()
+        if (Buffer.byteLength(raw, 'utf8') > 256) return json(413, { error: 'Request is too large.' })
+        let body
+        try { body = JSON.parse(raw) } catch { return json(400, { error: 'Expected JSON.' }) }
+        const session = request.headers.has('cookie') ? await auth.api.getSession({ headers: request.headers }) : null
+        const result = presence.beat(body, session?.user.id ?? null, ip)
+        return json(result.status, result.body ?? { error: result.error })
+      }
       const admission = url.pathname === '/api/account/admission'
       const collection = ['/api/progression', '/api/progression/purchase', '/api/progression/equip'].includes(url.pathname)
       if (url.pathname !== '/api/account' && !admission && !collection) return json(404, { error: 'Not found.' })
@@ -193,7 +214,7 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
         if (!admissions.take(userId, Date.now())) return json(429, { error: 'Too many connection attempts. Wait a moment and try again.' })
         return json(200, await auth.api.generateOneTimeToken({ headers: request.headers }))
       }
-      if (request.method === 'GET') return json(200, { id: userId, profile: getProfile.get(userId) ?? null, game: regions.game(userId) })
+      if (request.method === 'GET') return json(200, { id: userId, email: session.user.email, profile: getProfile.get(userId) ?? null, game: regions.game(userId) })
       const now = Date.now()
       names.sweep(now)
       if (!names.take(userId, now)) return json(429, { error: 'Too many profile changes. Try again in a minute.' }, { 'retry-after': '60' })
@@ -225,7 +246,7 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
           return json(409, { error: getProfile.get(userId) ? 'This account already has a reserved name.' : 'That name is already taken.' })
         }
       }
-      return json(200, { id: userId, profile: getProfile.get(userId), game: regions.game(userId) })
+      return json(200, { id: userId, email: session.user.email, profile: getProfile.get(userId), game: regions.game(userId) })
     }
     return { auth, handler, close: () => db.close() }
   } catch (error) {

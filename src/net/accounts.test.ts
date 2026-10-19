@@ -35,7 +35,7 @@ async function fixture() {
   async function player(email: string) {
     const user = test.createUser({ email, name: 'Provider supplied name' })
     await test.saveUser(user)
-    return { id: user.id, headers: await login(user.id) }
+    return { id: user.id, email, headers: await login(user.id) }
   }
   const request = (method: string, headers?: Headers, body?: unknown, path = '/api/account') => accounts.handler(new Request(`${origin}${path}`, {
     method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -56,7 +56,7 @@ describe('account authority', () => {
     const reopened = await openAccounts({ ...f.config, migrate: true })
     cleanups.push(reopened.close)
     const response = await reopened.handler(new Request(`${origin}/api/account`, { headers: user.headers }))
-    expect(await response.json()).toEqual({ id: user.id, profile: { name: 'CinderFox', color: 0x2e7bff }, game: null })
+    expect(await response.json()).toEqual({ id: user.id, email: user.email, profile: { name: 'CinderFox', color: 0x2e7bff }, game: null })
     expect(f.db.prepare('SELECT COUNT(*) AS n FROM player_profile').get()).toEqual({ n: 1 })
   })
 
@@ -68,10 +68,35 @@ describe('account authority', () => {
     forged.set('cookie', 'brawlock.session_token=forged-account-id')
     expect((await f.request('GET', forged)).status).toBe(401)
     const response = await f.request('GET', user.headers)
-    expect(await response.json()).toEqual({ id: user.id, profile: null, game: null })
+    expect(await response.json()).toEqual({ id: user.id, email: user.email, profile: null, game: null })
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect((await f.request('POST', user.headers, {}, '/api/auth/sign-out')).status).toBe(200)
     expect((await f.request('GET', user.headers)).status).toBe(401)
+  })
+
+  it('keeps presence public and anonymous while deduplicating only server-verified account sessions', async () => {
+    const f = await fixture()
+    const user = await f.player('presence-private@example.com')
+    expect((await f.request('POST', user.headers, { name: 'PresentMage', color: null })).status).toBe(200)
+    const headers = new Headers(user.headers)
+    headers.set('x-brawlock-client-ip', 'test-address')
+    const beat = (device: string, region: string, h = headers) => f.request('POST', h, { device, region }, '/api/presence')
+    expect((await beat('browser_1', 'eu')).status).toBe(200)
+    const result = await (await beat('browser_2', 'us-west')).json()
+    expect(result).toEqual({ regions: { eu: 0, 'us-west': 1 }, total: 1 })
+    expect(JSON.stringify(result)).not.toContain(user.id)
+    expect(JSON.stringify(result)).not.toContain(user.email)
+    expect(await (await f.request('GET', undefined, undefined, '/api/presence')).json()).toEqual(result)
+    expect((await beat('browser_3', 'eu', new Headers({ 'content-type': 'application/json' }))).status).toBe(403)
+    const forged = new Headers(headers)
+    forged.set('cookie', 'brawlock.session_token=forged-account-id')
+    expect(await (await beat('browser_3', 'eu', forged)).json()).toEqual({ regions: { eu: 1, 'us-west': 1 }, total: 2 })
+    expect((await f.request('POST', headers, { device: 'browser_4', region: 'eu', accountId: user.id }, '/api/presence')).status).toBe(400)
+    const ticket = await (await f.request('POST', user.headers, {}, '/api/account/admission')).json()
+    expect(ticket).not.toHaveProperty('email')
+    const regional = await (await f.rpc({ op: 'verify', token: ticket.token })).json()
+    expect(regional.account.id).toBe(user.id)
+    expect(regional.account).not.toHaveProperty('email')
   })
 
   it('reserves names case-insensitively across simultaneous authority connections', async () => {
@@ -116,7 +141,7 @@ describe('account authority', () => {
     await f.request('POST', a.headers, { name: 'CinderFox', color: null })
     const caseOnly = await f.request('PATCH', a.headers, { name: 'cINDERfOX', color: null })
     expect(caseOnly.status).toBe(200)
-    expect(await caseOnly.json()).toEqual({ id: a.id, profile: { name: 'cINDERfOX', color: null }, game: null })
+    expect(await caseOnly.json()).toEqual({ id: a.id, email: a.email, profile: { name: 'cINDERfOX', color: null }, game: null })
     expect((await f.request('POST', b.headers, { name: 'CINDERFOX', color: null })).status).toBe(409)
     expect((await f.request('PATCH', a.headers, { name: 'PhoenixMage', color: null })).status).toBe(200)
     expect((await f.request('POST', b.headers, { name: 'CinderFox', color: null })).status).toBe(200)
@@ -145,13 +170,13 @@ describe('account authority', () => {
     const before = await snapshot()
     const renamed = await f.request('PATCH', user.headers, { name: 'PhoenixMage', color: 0x14e0c8 })
     expect(renamed.status).toBe(200)
-    expect(await renamed.json()).toEqual({ id: user.id, profile: { name: 'PhoenixMage', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } })
+    expect(await renamed.json()).toEqual({ id: user.id, email: user.email, profile: { name: 'PhoenixMage', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } })
     const after = await snapshot()
     expect(after).toMatchObject({ balance: before.balance, owned: before.owned, equipped: before.equipped, recentRewards: before.recentRewards })
     const reopened = await openAccounts(f.config)
     cleanups.push(reopened.close)
     const profile = await reopened.handler(new Request(`${origin}/api/account`, { headers: user.headers }))
-    expect(await profile.json()).toEqual({ id: user.id, profile: { name: 'PhoenixMage', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } })
+    expect(await profile.json()).toEqual({ id: user.id, email: user.email, profile: { name: 'PhoenixMage', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } })
     const ticket = await (await f.request('POST', user.headers, {}, '/api/account/admission')).json() as { token: string }
     const verified = await (await f.rpc({ op: 'verify', token: ticket.token })).json()
     expect(verified.account).toMatchObject({ id: user.id, ratingKey: `a_${user.id}`, name: 'PhoenixMage', color: 0x14e0c8, cosmetics: before.equipped })
@@ -179,9 +204,9 @@ describe('account authority', () => {
     expect((await f.request('POST', user.headers, { name: 'AshMage', color: null })).status).toBe(200)
     expect((await f.request('POST', user.headers, { name: 'NewMage', color: null })).status).toBe(409)
     expect((await f.request('POST', user.headers, { name: 'NewMage' }, '/api/auth/update-user')).status).toBe(200)
-    expect(await (await f.request('GET', user.headers)).json()).toEqual({ id: user.id, profile: { name: 'AshMage', color: null }, game: null })
+    expect(await (await f.request('GET', user.headers)).json()).toEqual({ id: user.id, email: user.email, profile: { name: 'AshMage', color: null }, game: null })
     expect((await f.request('PATCH', user.headers, { color: 0x14e0c8 })).status).toBe(200)
-    expect(await (await f.request('GET', other.headers)).json()).toEqual({ id: other.id, profile: null, game: null })
+    expect(await (await f.request('GET', other.headers)).json()).toEqual({ id: other.id, email: other.email, profile: null, game: null })
     expect((await f.request('PATCH', other.headers, { color: 0x14e0c8 })).status).toBe(409)
   })
 
@@ -276,7 +301,7 @@ describe('ranked admission proof boundary', () => {
     expect(simultaneous.map((r) => r.status).sort()).toEqual([200, 401])
     expect((await f.request('GET', user.headers, undefined, '/api/auth/one-time-token/generate')).status).toBe(404)
     expect((await f.request('POST', user.headers, { token: ticket.token }, '/api/auth/one-time-token/verify')).status).toBe(404)
-    expect(await (await f.request('GET', user.headers)).json()).toEqual({ id: user.id, profile: { name: 'CinderFox', color: 0x2e7bff }, game: null })
+    expect(await (await f.request('GET', user.headers)).json()).toEqual({ id: user.id, email: user.email, profile: { name: 'CinderFox', color: 0x2e7bff }, game: null })
   })
 
   it.each(['revoked', 'session expired', 'ticket expired'] as const)('rejects an unconsumed proof after its %s condition', async (condition) => {
@@ -306,7 +331,7 @@ describe('ranked admission proof boundary', () => {
     expect(await (await f.rpc({ op: 'claim', region: 'us', instance: 'instance-us-1', accountId: user.id, room: 'FGHIJ' })).json()).toEqual({ ok: false, game: { region: 'eu', room: 'ABCDE' } })
     const reopened = await openAccounts(f.config)
     cleanups.push(reopened.close)
-    expect(await (await reopened.handler(new Request(`${origin}/api/account`, { headers: user.headers }))).json()).toEqual({ id: user.id, profile: { name: 'AshMage', color: null }, game: { region: 'eu', room: 'ABCDE' } })
+    expect(await (await reopened.handler(new Request(`${origin}/api/account`, { headers: user.headers }))).json()).toEqual({ id: user.id, email: user.email, profile: { name: 'AshMage', color: null }, game: { region: 'eu', room: 'ABCDE' } })
     await f.rpc({ op: 'register', region: 'eu', instance: 'instance-eu-2' })
     expect((await f.rpc({ op: 'release', region: 'eu', instance: 'instance-eu-1', room: 'ABCDE' })).status).toBe(409)
     expect((await f.request('GET', user.headers)).status).toBe(200)

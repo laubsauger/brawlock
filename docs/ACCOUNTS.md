@@ -1,8 +1,8 @@
 # Accounts, ranked admission and shared progression
 
-Status, 2026-10-19: the standalone US account service is running under non-root PM2 with schema 3. Public provider metadata and EU's authenticated private HTTPS lookup passed. The live Pages client and regional game services still run the previous release; the first-party game page and account-required ranked cutover remain pending. A real Google login through the public site remains unverified.
+Status, 2026-10-19: account release `f97de56b685b` is deployed on the first-party website and both regions, with schema 3. The user confirmed real public Google login works. See [the deployment receipt](../deploy/releases/2026-10-19-accounts.md). Follow-up onboarding, private owner-email display and menu-inclusive population changes described below are verified locally and await the next release.
 
-The user approved `https://brawlock.osc.link` as the main game/auth origin and, superseding the earlier preservation plan, a **wipe of old device-based ratings and match history at cutover**. Start a fresh account season; do not publish a legacy ladder or import device ratings. Keep newly created accounts, provider credentials and session secrets intact. A private operational backup is compatible with this reset. No live reset has been performed.
+The approved fresh account season is active at `https://brawlock.osc.link`. Old device-based ratings/history and the old regional submission outbox were retired into private stopped backups; newly created accounts, wallets, credentials and session secrets were preserved. No legacy ladder or device-rating import is published. This one-time reset must never be part of a routine release.
 
 ## Authority and identity
 
@@ -14,13 +14,19 @@ Better Auth and `@better-auth/passkey` are pinned to 1.7.11. The library owns co
 
 ## Public API and player profiles
 
-All browser endpoints are same-origin and `no-store`; writes require the exact configured Origin and JSON. Public API paths are `/api/auth/*`, `/api/account`, `/api/account/config`, `/api/account/admission` and `/api/progression*`. The direct library one-time-token routes are blocked from browsers.
+All browser endpoints are same-origin and `no-store`; writes require the exact configured Origin and JSON. Browser API paths are `/api/auth/*`, `/api/account`, `/api/account/config`, `/api/account/admission`, `/api/progression*` and `/api/presence`. The direct library one-time-token routes are blocked from browsers.
 
-`GET /api/account` returns only `{id, profile, game}`: a stable account ID, the reserved name/preferred color or `null`, and an occupied ranked region/room or `null`. It never returns email, provider credentials or session tokens.
+Authenticated `GET /api/account` returns `{id, email, profile, game}`: a stable account ID, the owner's sign-in email, the reserved name/preferred color or `null`, and an occupied ranked region/room or `null`. Profile writes return the same private shape. Email is shown only to its signed-in owner; it is absent from regional admission, snapshots, leaderboards, public profiles and population counts. Provider credentials and session tokens are never returned here.
 
 `POST /api/account` claims a name/color. `PATCH /api/account` changes the name and color; color-only requests retain the current name. Names use 3–16 ASCII letters, numbers or underscores, start with a letter, normalize NFKC and are unique case-insensitively. Controls, other scripts and reserved system names are rejected. SQLite uniqueness handles competing claims and renames. A successful rename atomically releases the previous name; a conflicting name returns 409 without changing either field. No rename cooldown or old-name hold is imposed; the existing six-per-minute profile-write limiter applies. The provider display name cannot overwrite the game profile. Renames retain the immutable account ID, rating key, ownership and currency.
 
 The Account dialog edits the claimed name and color, displays validation/conflict errors and publishes the server's canonical profile to shared client state. An earlier in-flight identity read cannot replace a newly saved profile. Unsigned players keep their separate guest identity and preferences. In account-enabled dedicated rooms, the server supplies signed-in names and marks unauthenticated names as guests; guest claims using the account identity namespace are rejected.
+
+## Online population
+
+Prepared after `f97de56b685b`: `/api/presence` is a public aggregate separate from regional `/health.players`, which continues to count connected humans in lobbies/matches. A browser sends one small same-origin JSON heartbeat every 30 seconds throughout the app, including menus, offline play and replays. It submits only its existing anonymous browser ID and selected/current region. Account identity comes exclusively from a verified session cookie, never the body. Multiple tabs on one browser count once; multiple signed-in devices count once, assigned to the most recently active region. Region changes update a single authority entry, avoiding cross-region double counting.
+
+Leases expire after 90 seconds without a heartbeat, need no unload request and are held only in memory. A service restart briefly clears presence until visitors refresh their leases; it does not touch accounts or game state. Public responses contain only regional counts and a total. Request shape/size, trusted proxy address, per-IP rate/device limits and total capacity bound anonymous writes. New official regions must be added to `src/shared/presence.ts` as well as the game/workflow fleet configuration. Population is approximate and has no authority over matchmaking, account ownership, Elo or rewards. Failed reads display unknown rather than substituting game counts or assuming zero.
 
 Leaderboard and public-profile reads resolve the current reserved name from the account authority. Completed matches store their server-verified historical label under the immutable account key; rating commits do not depend on the account service being reachable. An older result therefore cannot revert the visible current name, and a temporary auth outage cannot discard a completed US rating. Account-name lookup failures are explicit rather than displaying a potentially reassigned historical name.
 
@@ -62,7 +68,7 @@ The explicit Vite opt-in proxies auth, account and progression API paths to loop
 
 `npm run accounts:build` creates `dist-accounts/accounts.mjs`. The separate [PM2 template](../deploy/accounts.config.cjs) names only `brawlock-accounts`; it does not replace the game ecosystem or operate on other apps. Prepared US paths are `/opt/apps/brawlock-accounts` (root-owned code), its service-writable `data/`, and protected configuration/secrets under `/etc/brawlock/`. Routine updates retain the session secret and consistently back up SQLite/WAL data. `TRUST_PROXY=1` is appropriate only behind the trusted loopback proxy setting `X-Real-IP`.
 
-The supplied Google JSON was validated and used in a local authorization-URL probe with the exact callback, PKCE and only `openid email profile`. Secrets and the original JSON remain outside Git/client assets. Provisioning is preparation, not evidence of provider login or a completed website cutover.
+The supplied Google JSON was validated with the exact callback, PKCE and only `openid email profile`. Secrets and the original JSON remain outside Git/client assets. The public website cutover is complete and the user confirmed the real provider flow.
 
 ## Evidence and remaining release gates
 
@@ -70,6 +76,6 @@ Local tests cover explicit/idempotent migration, profile races/renames, valid/fo
 
 Local browser WebAuthn proof enrolled a virtual-authenticator credential, signed out/in and recovered the same account in a second independent browser context. DOM-only React proofs cover the account/profile flow and Collection/result states. They do not establish a real Google callback or public regional deployment. Ignored captures are under `artifacts/account-identity/`.
 
-Before release: finish the combined real-TCP regional admission/reconnect/result gates; verify cosmetic presentation and the final visual build; complete and exercise maintenance/drain and coordinated rollout; prepare the matching first-party proxy/Pages redirect; perform the authorized old-history reset after a private backup; then verify real Google login, logout, passkey enrollment/reuse and both advertised regions on public HTTPS. Publish/announce only after those live checks. The current code/test state is not a deployment receipt.
+The combined release passed real-TCP account admission, local result/receipt tests, cosmetic/visual checks and live guest admission in both regions. First-party routing, Pages media/redirects and the fresh-season cutover are complete. Public passkey enrollment/reuse, signed-in cross-device regional play and a complete live reward match still need human verification. The local browser fixtures do not establish those production flows.
 
 Primary implementation references: [SQLite adapter](https://better-auth.com/docs/adapters/sqlite), [passkeys](https://better-auth.com/docs/plugins/passkey), and the installed 1.7.11 definitions. Dependency advisories and the final exact build belong to the release gate; do not force an unrelated test-runner upgrade as part of authentication.

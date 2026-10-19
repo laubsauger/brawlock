@@ -25,6 +25,7 @@ import { accountsEnabled, refreshAccount } from '../../game/account'
 import { useAccount } from '../../game/accountState'
 import { loadProgression } from '../../game/progression'
 import { EmberMark } from './Collection'
+import { accountReturn } from '../../game/accountReturn'
 
 const Account = lazy(() => import('./Account').then((module) => ({ default: module.Account })))
 const Collection = lazy(() => import('./Collection').then((module) => ({ default: module.Collection })))
@@ -40,6 +41,7 @@ function MenuEntry({
   hint,
   testId,
   ranked,
+  badge,
 }: {
   title: string
   sub: ReactNode
@@ -51,6 +53,7 @@ function MenuEntry({
   hint?: string
   testId?: string
   ranked?: boolean
+  badge?: string
 }) {
   return (
     <Button
@@ -64,7 +67,7 @@ function MenuEntry({
       data-testid={testId}
     >
       <span className="flex w-full min-w-0 flex-col items-start gap-0.5 leading-tight">
-        <span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem]'}`}>{title}</span>
+        <span className="flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className="font-ui flex shrink-0 items-center gap-1.5 rounded border border-white/15 bg-black/20 px-2 py-1 text-xs font-medium tracking-normal text-[#d4cbdc]"><MenuGlyph kind="profile" size={13} />{badge}</span>}</span>
         <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#c8c9d8]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
         {note && <span className="font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
@@ -78,7 +81,7 @@ function regionText(r: RegionStatus): string {
 }
 
 /**
- * "Quick play" (server builds): jump into an open game on the game server, or
+ * Casual matchmaking (server builds): jump into an open game on the game server, or
  * a new one filled with bots. Region, health and ping at a glance; greyed out
  * with the reason when the server cannot take players.
  */
@@ -113,13 +116,15 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
     return () => { live = false; window.clearInterval(timer) }
   }, [regionId])
   const known = regionId && availability?.region === regionId ? availability : null
+  const account = useAccount((s) => s.player)
+  const accountLoaded = useAccount((s) => s.loaded)
   return <div className="menu-queues">
     <RegionPicker statuses={statuses} choice={choice} onChange={(value) => setSettings({ serverRegion: value })} />
     <MenuEntry
       primary
-      title="Quick play"
+      title="Casual"
       sub={<span className="font-semibold text-[#ffe1a6]">{known?.casual ?? 'Checking open games…'}</span>}
-      note="Casual · no Elo · 10 players · Brutal bots"
+      note="Matchmaking · no Elo · 10 players · Brutal bots"
       disabled={!playSupported || !!problem}
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join an open game in ${region?.label}, or create a public game with bots filling empty seats`}
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
@@ -129,7 +134,8 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       primary
       ranked
       title="Ranked"
-      sub="Account Elo · 8 players · 5 rounds"
+      sub="Global Elo · 8 players · 5 rounds"
+      badge={!accountsEnabled ? 'Sign-in unavailable' : !accountLoaded ? 'Checking account' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : undefined}
       disabled={!playSupported || !!problem || !accountsEnabled}
       hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? 'Ranked sign-in is unavailable in this build.' : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
       onClick={() => isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
@@ -250,6 +256,7 @@ export function MainMenu() {
   const [browseOpen, setBrowseOpen] = useState(false)
   const [nameOpen, setNameOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [accountMode, setAccountMode] = useState<'onboarding' | 'settings'>('onboarding')
   const [collectionOpen, setCollectionOpen] = useState(false)
   const [emberBalance, setEmberBalance] = useState<number | null>(null)
   const [emberProblem, setEmberProblem] = useState<string | null>(null)
@@ -275,16 +282,32 @@ export function MainMenu() {
   }, [name, account?.id])
   useEffect(() => {
     if (!accountsEnabled) return
-    void refreshAccount().catch(() => {}) // Store exposes the failure and its retry action below.
+    let live = true
+    const returned = accountReturn()
     const url = new URL(window.location.href)
-    const intent = url.searchParams.get('account')
-    if (intent !== 'open' && intent !== 'ranked') return
-    const region = url.searchParams.get('region')
-    if (intent === 'ranked' && region && (region === 'auto' || online.regions.some((candidate) => candidate.id === region))) setRankedRegion(region)
-    if (url.searchParams.has('error')) setAccountProblem('Sign-in was cancelled or could not be completed. Please try again.')
-    setAccountOpen(true)
-    url.searchParams.delete('account'); url.searchParams.delete('region'); url.searchParams.delete('error'); url.searchParams.delete('error_description')
-    window.history.replaceState(null, '', url)
+    if (url.searchParams.has('account') || url.searchParams.has('accountReturn')) {
+      for (const key of ['account', 'accountReturn', 'region', 'error', 'error_description']) url.searchParams.delete(key)
+      window.history.replaceState(window.history.state, '', url)
+    }
+    void refreshAccount().then((player) => {
+      if (!live || !returned) return
+      const region = returned.intent === 'ranked' && returned.region && (returned.region === 'auto' || online.regions.some((candidate) => candidate.id === returned.region)) ? returned.region : undefined
+      if (player?.profile && !returned.problem && !returned.settings) {
+        if (region && isPlaySupported()) rankedPlay(region)
+        return
+      }
+      setAccountMode(returned.settings && player?.profile ? 'settings' : 'onboarding')
+      setRankedRegion(region)
+      setAccountProblem(returned.problem ?? undefined)
+      setAccountOpen(true)
+    }).catch((error: unknown) => {
+      if (live && returned) {
+        setAccountMode('onboarding')
+        setAccountProblem(error instanceof Error ? error.message : 'Could not check your sign-in. Please try again.')
+        setAccountOpen(true)
+      }
+    }) // Ordinary failures remain visible through the shared account status below.
+    return () => { live = false }
   }, [])
   const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
@@ -304,7 +327,7 @@ export function MainMenu() {
     try {
       const player = await refreshAccount()
       if (player?.profile) rankedPlay(region)
-      else { setRankedRegion(region); setAccountOpen(true) }
+      else { setAccountMode('onboarding'); setAccountProblem(undefined); setRankedRegion(region); setAccountOpen(true) }
     } catch { /* Account status and retry remain visible in the menu. */ }
     finally { setAccountBusy(false) }
   }
@@ -314,6 +337,7 @@ export function MainMenu() {
   const hostResult = useLastHostResult()
   const hostAction = lastHostAction()
   const dismissError = () => setLobby({ status: 'idle', error: null })
+  const openAccount = () => { setAccountMode(account?.profile ? 'settings' : 'onboarding'); setRankedRegion(undefined); setAccountProblem(undefined); setAccountOpen(true) }
 
   if (profileTab) return <Profile initialTab={profileTab} initialBoardScope={online.configured ? 'global' : 'device'} onBack={() => setProfileTab(null)} />
   if (browseOpen) return <>
@@ -325,15 +349,16 @@ export function MainMenu() {
     <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
       <div className="menu-identity absolute z-10 flex flex-col items-end gap-2">
       <div className="flex flex-wrap justify-end gap-2">
-      <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) { setRankedRegion(undefined); setAccountOpen(true) } else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={`Edit player name and color: ${name}`}>
+      <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={`Edit player name and color: ${name}`}>
         <span className="text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
         <span className="max-w-40 truncate font-semibold">{name}</span>
         <span className="text-ash"><MenuGlyph kind="edit" size={13} /></span>
       </button>
       {rating && <button type="button" className="rounded border border-[#aaa9c8]/30 bg-[#140e0b]/90 px-3 py-2 text-sm font-semibold text-[#e3d9ba] hover:border-gold/60" onClick={() => setProfileTab('board')} title="Open the global Elo leaderboard" data-testid="profile-elo">{Math.round(rating.rating)} Elo · #{rating.rank}</button>}
       </div>
+      {accountsEnabled && account && <p className="max-w-full truncate text-xs text-ash" title={account.email}>Signed in · {account.email}</p>}
       {accountsEnabled && <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => { setRankedRegion(undefined); setAccountOpen(true) }}>{account ? 'Account' : 'Sign in'}</Button>
+        <Button variant="ghost" size="sm" onClick={openAccount}>{account ? account.profile ? 'Account' : 'Finish setup' : 'Sign in'}</Button>
         {account && <Button variant="ghost" size="sm" data-testid="open-collection" title={emberProblem ?? 'Your permanent cosmetic collection'} onClick={() => setCollectionOpen(true)}><span className="flex items-center gap-1.5"><EmberMark size={16} /><span className="tabular">{emberBalance !== null ? `${emberBalance.toLocaleString()} · Collection` : 'Collection'}</span></span></Button>}
       </div>}
       </div>
@@ -355,7 +380,7 @@ export function MainMenu() {
               {online.configured && hostResult && !hostResult.ok && hostResult.reason !== 'cancelled' ? (
                 <>
                   <p className="text-[1rem] leading-snug font-semibold text-[#ffd3c9]">
-                    {hostAction === 'quick' ? "Couldn't join quick play." : hostAction === 'ranked' ? "Couldn't join ranked." : hostResult.mode === 'p2p' ? "Couldn't host from your PC." : "Couldn't host on the game server."}
+                    {hostAction === 'quick' ? "Couldn't join casual matchmaking." : hostAction === 'ranked' ? "Couldn't join ranked." : hostResult.mode === 'p2p' ? "Couldn't host from your PC." : "Couldn't host on the game server."}
                   </p>
                   <p className="text-[0.88rem] leading-snug text-[#e9b8ac]">{error}</p>
                 </>
@@ -373,8 +398,8 @@ export function MainMenu() {
         <nav ref={navRef} className="menu-navigation flex flex-col" aria-label="Main menu">
           {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
-            <MenuEntry primary={!online.configured} title="Play" sub="Set up a game · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
-            {online.configured && <MenuEntry title="Browse games" sub="Find a game or host your own" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
+            <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
+            {online.configured && <MenuEntry title="Browse games" sub="Choose an existing public game" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
           </div>
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
@@ -424,7 +449,7 @@ export function MainMenu() {
         </span>
       </footer>
       {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
-      {accountOpen && <Suspense fallback={null}><Account initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
+      {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
       {collectionOpen && account && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} /></Suspense>}
       {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name

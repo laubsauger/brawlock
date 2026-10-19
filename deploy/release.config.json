@@ -1,0 +1,21 @@
+{
+  "github": { "repository": "laubsauger/brawlock", "workflow": "deploy.yml", "artifact": "first-party-client" },
+  "appOrigin": "https://brawlock.osc.link",
+  "mediaOrigin": "https://laubsauger.github.io/brawlock/",
+  "webRoot": "/var/www/brawlock",
+  "backupRoot": "/root/brawlock-backups",
+  "runtime": { "user": "brawlock", "home": "/var/lib/brawlock", "pm2Home": "/var/lib/brawlock/.pm2" },
+  "regions": [
+    {
+      "id": "us-west", "label": "US West", "host": "root@147.182.251.185", "origin": "https://us.brawlock.osc.link",
+      "globalAuthority": true,
+      "game": { "name": "brawlock-server", "dir": "/opt/apps/brawlock-server", "config": "/etc/brawlock/ecosystem.config.cjs", "port": 3077 },
+      "accounts": { "name": "brawlock-accounts", "dir": "/opt/apps/brawlock-accounts", "config": "/etc/brawlock/accounts.config.cjs" }
+    },
+    {
+      "id": "eu", "label": "Europe", "host": "root@167.99.216.102", "origin": "https://eu.brawlock.osc.link",
+      "globalAuthority": false,
+      "game": { "name": "brawlock-server", "dir": "/opt/apps/brawlock-server", "config": "/etc/brawlock/ecosystem.config.cjs", "port": 3077 }
+    }
+  ]
+}

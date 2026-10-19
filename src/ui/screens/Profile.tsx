@@ -767,7 +767,7 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
   ]
 
   return (
-    <div className="screen-in flex h-full flex-col px-[max(16px,5vw)] py-[max(16px,4vh)]">
+    <div className="screen-in mx-auto flex h-full w-full max-w-[1440px] flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-5">
           <h1 className="display text-6xl leading-none text-[#ffd890]">{tab === 'replays' ? 'Watch replay' : tab === 'board' ? 'Leaderboards' : 'Your record'}</h1>

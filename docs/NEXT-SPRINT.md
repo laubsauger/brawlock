@@ -1,51 +1,43 @@
-# Current sprint: accounts, progression and visual finish
+# Release status and next sprint
 
-Status, 2026-10-19: this is the upcoming combined release. The work below is local unless explicitly identified as previously shipped. **The account/domain release has not been deployed.**
+Release **`f97de56b685b`** is deployed, 2026-10-19. The commit is pushed, [Pages publication succeeded](https://github.com/laubsauger/brawlock/actions/runs/39193099814), and both regional game bundles match network ID `29ca39c129e2`, protocol 8. US West and Europe are open; the shared account authority runs schema 3.
 
-## Accounts and the fresh ranked season
+[The main game](https://brawlock.osc.link/) now serves the root-path client and matching version. Its public provider configuration advertises Google; anonymous `/api/account` correctly returns 401. Heavy media remains on GitHub Pages. The explicitly authorized old-rating/history and regional-outbox season reset is complete, preserving the new account records and credentials. There is no separate legacy ladder or device-rating import.
 
-Implemented locally: provider/passkey account UI, globally unique names and editable names/colors, server-verified ranked admission, account-keyed Elo identity, global ranked occupancy with explicit reconnect/generation cleanup, and shared account progression. Guests can still play casually. See [ACCOUNTS.md](ACCOUNTS.md) and [ACCOUNT-IDENTITY-PLAN.md](ACCOUNT-IDENTITY-PLAN.md) for the actual boundaries.
+The user confirmed a real public Google login worked. Follow-up account onboarding, Ranked readiness and menu-inclusive population changes are being verified locally. **Still human-unverified:** production passkey enrollment/reuse and signed-in gameplay across both regions.
 
-The user approved the first-party game/auth origin `https://brawlock.osc.link`, keeping heavy media on GitHub Pages and redirecting its old entry page. The supplied Google credentials and separate auth-service configuration are provisioned privately on US. A real Google login through the public HTTPS origin remains unverified; provider setup is not a deployment receipt.
+## Shipped accounts and ranked identity
 
-The user's later **wipe old ratings and match history** instruction supersedes the earlier plan to preserve a legacy ladder. Start the new account season without device-rating adoption or an import. Keep the new accounts, reserved names, provider credentials and session secrets. A private operational backup is fine. No live reset/cutover has occurred.
+The release includes provider/passkey UI, globally unique editable player names/colors, server-verified ranked admission, account-keyed global Elo, and global ranked occupancy with reconnect and regional-generation cleanup. Immutable account IDs own ratings, names and progression across machines; browser device IDs do not prove ownership. Successful renames release the previous name atomically without moving the account or its currency. Casual guests remain supported.
 
-Still required: combined real-TCP ranked admission/reconnect/result proof, matching first-party/fleet packages and proxy configuration, authorized reset at cutover, and public Google/passkey/two-region verification. [STATIC-HOSTING.md](STATIC-HOSTING.md) separates prepared packaging from live publication.
+The existing ranked format remains eight players, five scoring rounds and a final brawl when needed. Casual Quick Play and custom matches retain their separate formats. Details: [ACCOUNTS.md](ACCOUNTS.md), [ACCOUNT-IDENTITY-PLAN.md](ACCOUNT-IDENTITY-PLAN.md), [RANKED-FORMAT.md](RANKED-FORMAT.md) and [STATIC-HOSTING.md](STATIC-HOSTING.md).
 
-## Embers and the daily cosmetic selection
+## Shipped Embers and collection
 
-Implemented locally: the account authority's versioned reward ledger, idempotent match receipts, permanent ownership, atomic purchases/equipment and a small Collection dialog. Regions persist completed official-match receipts in a durable outbox. Clients never submit balances, reward amounts or trusted account IDs. Official casual bot games can earn rewards independently of Elo; custom games and replay viewing cannot.
+Embers are account-owned cosmetic currency, independent of Elo and match shop gold. Only fixed-rule official Quick Play/Ranked matches qualify; official casual bot games can qualify without an Elo opponent. Custom games and replay viewing cannot manufacture rewards.
 
-Policy 1 pays **20 completion + up to 5 for round wins + 5 for a match win**. Meaningful participation requires a completed human-controlled seat, at least two rounds, 30 seconds alive, five casts and either 100 damage or 500 walked game units in a match lasting at least 120 seconds. The completion base exceeds all bonuses combined. There is no daily cap or streak penalty.
+Policy 1 pays **20 completion + up to 5 for round wins + 5 for a match win**. Eligibility requires a completed human-controlled seat, at least two rounds, 30 seconds alive, five casts and either 100 damage or 500 walked game units in a match lasting at least 120 seconds. The completion base exceeds all bonuses combined. There is no daily cap or streak penalty. Regional durable outboxes and authority receipts prevent duplicate credits; clients never submit balances or reward amounts.
 
-The explicit four-item catalog contains two additional victory poses and two restrained cloth tints. Three appear each shared UTC day; ownership persists after refresh. Original robes and the original three-celebration mix remain free. Purchases check offer/version, server price, balance and ownership atomically; retry keys prevent duplicate charges and SQLite serializes concurrent purchases. Verified admission supplies presentation equipment for the next game.
+The four-item catalog has two additional victory poses and two cloth palettes. Three appear each shared UTC day. Ownership is permanent; purchases check the current offer, server price, balance and ownership atomically, with retry keys preventing duplicate charges. Original robes and the original celebration mix stay free. Verified admission supplies equipped presentation for the next game.
 
-The menu shows a discreet signed-in balance/Collection entry. Results fetch confirmed rewards by match ID, display the base/bonus breakdown and count into the balance. Pending durable delivery and a failure to save are distinct; retry is explicit, with no indefinite polling or optimistic credit. See [PROGRESSION.md](PROGRESSION.md).
+The menu has a signed-in Collection/balance shortcut; results show confirmed reward breakdowns and a count-up. Durably pending delivery and an inability to save are distinct, with explicit retry and no optimistic credit. See [PROGRESSION.md](PROGRESSION.md). Payments, premium currency, hats, new character meshes and a larger customization editor remain later work.
 
-Focused SQLite/pose tests and DOM menu/results/collection proofs pass locally, including a failed purchase retry retaining its request ID. Final release gates still include authenticated cross-region result delivery, recovery and cosmetic appearance in the combined game. Paid currency, payments, hats, new character models and a broad customization editor remain later work.
+## Shipped visual and deterministic finish
 
-## Ranked format already shipped
+The scene-linear grade opens stone/cloth midtones in the existing output shader while retaining ACES exposure 1.05, colored highlights and the warm lava/cool floor separation. It adds no render pass, texture or geometry; DOM HUD/text stays outside the grade. Fixed low/medium/high captures and bounded measurements are in [COLOR-GRADING.md](COLOR-GRADING.md). Actual HDR-display output remains separate future work.
 
-The shorter eight-player ranked format shipped in `a03358d76509`; see [RANKED-FORMAT.md](RANKED-FORMAT.md). It uses the fixed five-round format and final brawl rather than an unbounded first-to-five loop. Casual Quick Play and custom games retain their separate flexible formats. Do not reimplement the ranked format in the account sprint.
+Bot transcendental math now uses deterministic `sim/math.ts`, guarded against engine-dependent calls. Node/Chrome comparisons matched **21,600 state hashes and input frames** across two seeded 180-second eight-bot runs. A paired 500-game calibration moved difficulty estimates by less than four Elo points, so `BOT_ELO` stays unchanged.
 
-## Tone mapping and color grading
+## Shipped maintenance and release evidence
 
-Implemented and proven locally: a scene-linear grade fused into the existing output shader, opening stone/cloth midtones while retaining ACES exposure 1.05, colored emissive highlights and the warm lava/cool floor separation. No additional render pass, texture, geometry or draw submission is introduced; DOM HUD/text remains outside the grade. This is SDR finishing, not actual HDR-display output.
+Persistent authenticated regional drain blocks new rooms, reservations, listings and rematches while existing players finish their whole current match and reconnect to their own seats. This includes casual/custom matches and ranked final brawls; there is no forced shutdown timer or silent region migration. Readiness accounts for match settlement, rating/Embers outboxes and pending account releases. See [MAINTENANCE.md](MAINTENANCE.md).
 
-Fixed arena, combat, oblique menu-like and winner compositions were compared on low/medium/high at the same resolution. Captures, luminance/white-pixel/HUD checks and bounded throughput measurements are documented in [COLOR-GRADING.md](COLOR-GRADING.md). The measurements are from a contested development machine and do not claim a precise standalone GPU cost. Final combined-build visual review, including the new cosmetics, remains a release gate.
+Verification includes **1,383 tests across 129 files**, a final focused **58 tests across 9 files**, Node/Chrome parity, grade/cosmetic rendering proofs, an actual production desktop casual bot fight and live guest admission through both regions. These checks passed; the human account flows listed above remain unverified.
 
-## Bot determinism in Node and Chrome
+The follow-up includes [one-command release automation](../deploy/TOOLS.md#one-command-routine-release): plan by default, explicit apply, frozen source, coordinated drains, stopped backups, exact-revision publication, verification and resumable checkpoints. Nine interruption/lock/configuration regressions pass, including under frozen Git metadata; a read-only plan passed. It has **not yet run a live fleet rollout**. The deployment above used the individual checked-in helpers.
 
-Implemented locally: bot transcendental math now goes through `sim/math.ts`, including deterministic `asin` and `hypot`; a guard rejects engine-dependent bot `Math.*` calls. This addresses seeded matches that previously drifted between Node and Chrome after roughly 60–150 seconds. Live authority-driven bot input distribution is unchanged.
+## Next sprint: partial combat activity
 
-The local parity receipt at `/private/tmp/brawlock-bot-parity-20261019/receipt.json` compares **10,800 state hashes and input frames per run**, covering 180 seconds of eight Uber bots (seed 11) and eight Brutal bots (seed 7) in Node 24 and Chrome 155. Both runs match. A paired 500-game calibration changed estimated difficulty ratings by less than four Elo points, so `BOT_ELO` remains unchanged. Preserve this evidence with the release artifacts; it is local verification, not proof of the deployed build.
+Consider recording combat activity from aborted games and players who leave, independently of completed-match results. Use separate idempotent activity checkpoints covering only human-controlled intervals, so reconnects/retries cannot duplicate counters and bot-controlled time cannot be attributed to the player.
 
-## Graceful regional maintenance and coordinated releases
-
-Implemented locally: persistent authenticated per-region drain; creation/reservation/start/rematch guards; verified existing-seat reconnects; waiting/HUD/result notices; and readiness counts covering match settlement, rating/Embers outboxes and account releases. See [MAINTENANCE.md](MAINTENANCE.md) for operator configuration and acceptance evidence. Fleet deployment scripts/provisioning are coordinated in the release workstream.
-
-Still to complete: authenticated per-region drain controls, discovery/queue/in-game status and an exercised coordinated release path. Draining must stop new games, reservations and automatic rematches while retaining existing players' reconnects and allowing active games/results to finish. Ranked final brawls and both rating/progression outboxes must settle. Define the casual drain behavior explicitly; do not introduce a blind kill timer or silently move an active match to another region.
-
-Operators need live room/player counts, pending result counts and a clear ready-to-update condition. Ordinary hosts and browsers must not gain maintenance authority. Persist mode/outboxes through restart as designed. Waiting lobbies need clear next steps and an optional compatible region; changing region requires the player's action.
-
-The combined release gate must exercise unauthorized control rejection, no new admissions/rematches, reconnect during drain, completion and exactly-once settlement, an interrupted delivery, reopen and rollback. Drain and settle regions before an incompatible authority update; back up, update and verify dependencies in order. Publish the client/version notice only when its media and advertised regions support it. Root release documentation/pipeline work is still in progress; no deployment completion is claimed here.
+Unfinished matches must grant **no Elo, match wins or Embers**. Preserve that boundary rather than presenting partial activity as a completed match. Checkpoint cadence, eligible counters, retention and UI labeling still need a scoped design; implementation is deferred to the next sprint.

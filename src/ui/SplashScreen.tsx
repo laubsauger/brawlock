@@ -19,6 +19,8 @@ import { isTypingTarget } from './lib/keys'
 import { forcedMute } from './lib/sound'
 import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
+import { accountsEnabled } from '../game/account'
+import { accountReturn } from '../game/accountReturn'
 
 /** Matches the fade in index.html. */
 const FADE_MS = 700
@@ -76,8 +78,9 @@ export function SplashScreen() {
   const [root] = useState(() => document.getElementById('splash'))
   const [done, setDone] = useState<Record<Stage, boolean>>({ gpu: false, fonts: false, arena: false, music: false })
   const [entered, setEntered] = useState(!root)
+  const [returningAccount] = useState(() => accountsEnabled ? accountReturn() : null)
   // first run: ask for a name right here, so the first lobby already shows it
-  const [askName] = useState(() => !hasChosenName())
+  const [askName] = useState(() => !returningAccount && !hasChosenName())
   const [name, setName] = useState(() => {
     const current = useGame.getState().settings.playerName
     return askName && current === 'Warlock' ? suggestedName() : current
@@ -120,13 +123,13 @@ export function SplashScreen() {
     root.setAttribute('aria-label', mode === 'loading' ? 'Brawlock is loading' : 'Brawlock')
   }, [root, progress, stage, mode])
 
-  const enter = () => {
+  const enter = (resumeAccount = false) => {
     if (entered) return
-    if (askName && isPlaySupported()) {
+    if (!resumeAccount && askName && isPlaySupported()) {
       chooseName(name)
       setPreferredColor(color)
     }
-    try {
+    if (!resumeAccount) try {
       audio.unlock()
       const s = useGame.getState().settings
       audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, announcer: s.announcerVolume ?? 0.8, muted: s.muted || forcedMute })
@@ -139,13 +142,19 @@ export function SplashScreen() {
     }
     setEntered(true)
     const store = useGame.getState()
-    if (initialRoom && isPlaySupported()) {
+    if (!resumeAccount && initialRoom && isPlaySupported()) {
       if (joinRoom(initialRoom)) store.setScreen('menu')
     } else {
       clearPendingRoom()
       store.setScreen('menu')
     }
   }
+
+  // A correlated sign-in return resumes the menu after loading. The next real
+  // click (setup/save/play) uses App's normal audio unlock; no fake gesture.
+  useEffect(() => {
+    if (ready && returningAccount && !entered) enter(true)
+  }, [ready, returningAccount, entered])
 
   // fade out, then take the splash out of the way for good
   useEffect(() => {
@@ -172,6 +181,7 @@ export function SplashScreen() {
 
   const action = root?.querySelector<HTMLElement>('#splash-action') ?? null
   if (!root || !action) return null
+  if (returningAccount) return null
   const controlsNotice = <p data-testid="splash-play-requirement" className={`max-w-[min(340px,calc(100vw-40px))] text-center text-sm leading-snug ${playSupported ? 'text-ash' : 'rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-[#f3d3a1]'}`}>{playSupported ? 'Mouse and keyboard required' : PLAY_REQUIREMENT}</p>
   if (mode !== 'ready') return mode === 'loading' ? createPortal(controlsNotice, action) : null
 
@@ -195,7 +205,7 @@ export function SplashScreen() {
         </label>
         <PreferredColorPicker color={color} onChange={setColor} />
       </div>}
-      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName || !playSupported} aria-label={initialRoom && playSupported ? `Press Enter to join room ${initialRoom}` : undefined} onClick={enter}>
+      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName || !playSupported} aria-label={initialRoom && playSupported ? `Press Enter to join room ${initialRoom}` : undefined} onClick={() => enter()}>
         {playSupported ? 'Press Enter' : 'Enter menu'}
       </button>
     </div>,

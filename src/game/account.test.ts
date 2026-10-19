@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const player = { id: 'Account123', profile: { name: 'AshFox', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } }
+const player = { id: 'Account123', email: 'private@example.com', profile: { name: 'AshFox', color: 0x14e0c8 }, game: { region: 'eu', room: 'ABCDE' } }
 let account: typeof import('./account')
 let state: typeof import('./accountState')
 

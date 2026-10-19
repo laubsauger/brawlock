@@ -5,6 +5,8 @@ import { useAccount } from './accountState'
 export type AccountProvider = 'google' | 'discord' | 'microsoft'
 export interface AccountPlayer {
   id: string
+  /** Private own-account display only; never propagated to game slots or public stats. */
+  email: string
   profile: { name: string; color: number | null } | null
   game: { region: string; room: string } | null
 }

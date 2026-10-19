@@ -61,3 +61,20 @@ node scripts/release/verify-fleet.mjs NET_ID PROTOCOL us-west=https://us.brawloc
 ```
 
 Add `--admission` only when each region is empty and accepting games. It requires Node 24.11+ and account-aware protocol 8+, creates a casual quick-play lobby, checks the canonical guest identity, leaves before combat, and confirms room/discovery cleanup. It refuses any existing rooms, players or connections, never enters ranked, and prints only a small JSON result. The default request Origin is `https://brawlock.osc.link`; use `--origin HTTPS_ORIGIN` for another allowed first-party site. `--allow-local-http` permits HTTP only on loopback for local fixtures; public endpoints always require HTTPS. No credentials are needed or accepted. Run regions during a controlled empty window: the initial empty check cannot prevent a real player from joining concurrently.
+
+## One-command routine release
+
+```sh
+node deploy/release.mjs --revision FULL_APPROVED_SHA
+node deploy/release.mjs --revision FULL_APPROVED_SHA --apply
+```
+
+The first command prints the plan and blockers without building or networking. A new apply requires a clean tracked tree, committed deployment tools, that exact HEAD already at the live `origin/main` tip, Node 22+, npm, Git, tar, SSH/rsync and authenticated `gh`. Existing SSH host keys must be verified; unknown keys fail closed. No command commits, pushes, checks out, resets, provisions hosts or resets history. The non-secret fleet configuration is [release.config.json](release.config.json); its region/media/account build settings must match the approved Pages workflow.
+
+On 2026-10-19, both existing regional keys were verified in the operator's normal `~/.ssh/known_hosts`; EU's already-verified session entry was moved into that durable store. Strict noninteractive SSH succeeds for both hosts without a temporary wrapper or trust-file path. A different operator/new host must establish its own verified trust first.
+
+Apply archives the revision, installs dependencies independently in that snapshot, runs serial tests and all builds, and monitors the existing exact-SHA Pages workflow. It uses that workflow's first-party artifact, stages it, drains both regions, waits for complete matches/deliveries, stops only Brawlock processes, and takes private consistent game/account backups. It updates the account bundle only when changed, deploys the global game authority before other regions, checks hashes/versions/shared ratings, activates the website and reopens regions. The final check is read-only unless `--admission` is explicitly added (Node 24.11+, empty regions only).
+
+Each phase is journaled in the printed private directory; retain it through the release. Resume an interrupted release with the same arguments and `--resume /ABSOLUTE/JOURNAL_DIRECTORY`. Its frozen Git metadata preserves the approved revision even if the working checkout advances; tool/config hashes must still match. Existing owned staging uploads and verified backups are reused without overwriting another release. A kernel-owned loopback lock prevents simultaneous releases and disappears on process exit, including a crash. Failures keep reachable regions drained and never automatically roll back or reopen them. Check the reported error/private logs, resolve its cause, then resume. Successful runs write `receipt.json` with source, artifact hashes, workflow, backups and final proof.
+
+`release-remote.cjs` contains the shared targeted SSH operations; no temporary remote script from a past session is needed. Run the orchestration regression tests with `node --test --test-concurrency=1 deploy/release.test.mjs` (uses local subprocesses and loopback only).

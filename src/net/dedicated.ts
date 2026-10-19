@@ -342,7 +342,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }, EMPTY_CHECK_MS)
 
   await session.openHost({ dedicated: true })
-  if (opts.ranked && opts.settings) session.updateSettings(opts.settings)
+  if ((quick || opts.ranked) && opts.settings) session.updateSettings(opts.settings)
   if (quick || opts.public) session.setRoom({ quick: !!quick, ranked: opts.ranked === true, public: true, cap: quick ? quick.seats : null })
 
   const joinableSeats = () => opts.ranked && screen === 'match' ? 0 : session.joinableSeats()

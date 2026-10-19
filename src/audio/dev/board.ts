@@ -38,7 +38,7 @@ export interface BoardGroup {
 }
 
 export const ANNOUNCER_VOICES: readonly AnnouncerVoice[] = ['maverick', 'arena']
-const VOICE_NAME: Record<AnnouncerVoice, string> = { maverick: 'Maverick', arena: 'Arena' }
+const VOICE_NAME: Record<AnnouncerVoice, string> = { maverick: 'Maverick', arena: 'Daniel (Arena)' }
 
 /** Spell ids a sound belongs to, from the event mapping's tables and the sound's own name. */
 function owners(): Map<SfxId, Set<string>> {

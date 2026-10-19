@@ -11,7 +11,7 @@ vi.mock('../../game/store', async (importOriginal) => {
   const useCurrent = (selector: (state: ReturnType<typeof store.useGame.getState>) => unknown) => selector(store.useGame.getState())
   return { ...store, useGame: Object.assign(useCurrent, store.useGame) }
 })
-import { ChatMessage, RoomChat, chatComposer, chatShortcutTarget } from './Chat'
+import { ChatMessage, RoomChat, RoomChatLayout, chatComposer, chatShortcutTarget } from './Chat'
 
 const initialStore = useGame.getState()
 const line = (patch: Partial<ChatLine> = {}): ChatLine => ({ id: 1, player: 1, name: 'Thorn', color: 0xff7700, text: 'Good round!', ...patch })
@@ -43,7 +43,28 @@ describe('room chat presentation', () => {
     expect(panel).toContain('role="log" aria-label="Room-wide messages"')
     expect(panel).toContain('Everyone in this room')
     expect(panel).toContain('Good round!')
-    expect(panel).toContain('aria-label="Open room chat"')
+    expect(panel).toContain('Room chat</h2>')
+    expect(panel).toContain('aria-label="Message everyone in this room"')
+    expect(panel).not.toContain('aria-label="Open room chat"')
+  })
+
+  it('reserves chat space in connected lobbies and results, keeping combat chat compact', () => {
+    for (const screen of ['lobby', 'results'] as const) {
+      useGame.setState({ screen })
+      const html = renderToStaticMarkup(createElement(RoomChatLayout, { screen, children: createElement('main', { className: 'room-screen-content' }) }))
+      expect(html).toContain('data-chat-docked="true"')
+      expect(html).toContain('room-chat-dock')
+      expect(html).toContain('aria-label="Message everyone in this room"')
+    }
+    useGame.setState({ screen: 'match' })
+    const match = renderToStaticMarkup(createElement(RoomChatLayout, { screen: 'match', children: null }))
+    expect(match).not.toContain('data-chat-docked')
+    expect(match).toContain('aria-label="Open room chat"')
+    expect(match).not.toContain('aria-label="Message everyone in this room"')
+    useGame.setState({ screen: 'lobby', lobby: { ...useGame.getState().lobby, role: 'offline' } })
+    const offline = renderToStaticMarkup(createElement(RoomChatLayout, { screen: 'lobby', children: null }))
+    expect(offline).not.toContain('data-chat-docked')
+    expect(offline).not.toContain('Room-wide chat')
   })
 
   it('shows only the latest three messages in the compact closed view', () => {
@@ -101,12 +122,12 @@ describe('chat composer interaction state', () => {
     class Element {
       isContentEditable = false
       constructor(readonly tagName: string, readonly type = '', readonly blocked = false) {}
-      closest() { return this.blocked ? this : null }
+      closest(selector: string) { return this.blocked || selector.split(',').map((part) => part.trim()).includes(this.tagName.toLowerCase()) ? this : null }
     }
     vi.stubGlobal('HTMLElement', Element)
     const target = (tag: string, type = '', blocked = false) => new Element(tag, type, blocked) as unknown as HTMLElement
     expect(chatShortcutTarget(target('BODY'))).toBe(true)
-    for (const el of [target('INPUT', 'text'), target('TEXTAREA'), target('SELECT'), target('BUTTON', '', true), target('SPAN', '', true), target('INPUT', 'range', true)]) {
+    for (const el of [target('INPUT', 'text'), target('TEXTAREA'), target('SELECT'), target('SUMMARY'), target('BUTTON', '', true), target('SPAN', '', true), target('INPUT', 'range', true)]) {
       expect(chatShortcutTarget(el)).toBe(false)
     }
     const editable = target('DIV')

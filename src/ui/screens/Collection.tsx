@@ -92,7 +92,7 @@ export function Collection({ onClose }: { onClose: () => void }) {
             </div>)}
           </>}
         </div>
-        <p className="border-t border-[#ffa85a]/15 pt-3 text-xs leading-relaxed text-ash">Earn Embers by finishing official Quick Play or Ranked games. A played loss earns a base reward; round wins and match victories add a little more. Cosmetics apply when you enter your next game.</p>
+        <p className="border-t border-[#ffa85a]/15 pt-3 text-xs leading-relaxed text-ash">Earn Embers by finishing official Casual or Ranked games. A played loss earns a base reward; round wins and match victories add a little more. Cosmetics apply when you enter your next game.</p>
       </>}
     </div>
   </Modal>

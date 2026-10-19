@@ -413,13 +413,28 @@ describe('dedicated server (M4.1)', () => {
 })
 
 describe('public rooms and quick play (M4.3)', () => {
+  it('keeps custom lobbies on the standard economy instead of the queue preset', async () => {
+    const { base } = await start()
+    const owner = headlessClient(base, { key: 'custom-economy', play: false })
+    try {
+      const code = await owner.online.createRoom('test')
+      await owner.session.join(code)
+      await until(() => owner.lobby().settings !== null, 3000, 'the custom lobby settings')
+      expect(owner.screen()).toBe('lobby')
+      expect(owner.lobby().settings).toMatchObject({ startGold: 30, roundGold: 10, killGold: 1, winGold: 2 })
+    } finally { owner.session.leave() }
+  }, 10000)
+
   it('fills a default quick game to ten with Brutal bots, uses modest gold rewards and reuses it for a newcomer', async () => {
-    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 400, startMs: 100 } })
+    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 4000, startMs: 100 } })
     const a = headlessClient(base, { key: 'full-house-a', device: 'full-house-device-a', play: false })
     const b = headlessClient(base, { key: 'full-house-b', device: 'full-house-device-b', play: false })
     try {
       const opened = await a.online.quickPlay('test')
       await a.session.join(opened.code)
+      await until(() => a.lobby().autoStart !== null && a.lobby().autoStart !== undefined, 3000, 'the quick lobby countdown')
+      expect(a.screen()).toBe('lobby')
+      expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       expect(srv.core.room(opened.code)!.summary().elo).toEqual({ enabled: false, minSeconds: 120 })
       await until(() => a.screen() === 'match' && a.lobby().slots.length === 10, 8000, 'a full-house quick start')
       expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })

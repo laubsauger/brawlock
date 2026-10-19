@@ -65,3 +65,6 @@ __pycache__/
 /artifacts/color-grade/
 /artifacts/production-smoke/
 /artifacts/production-smoke-fight/
+/artifacts/live-release/
+/artifacts/lobby-layout/
+/artifacts/menu-labels/

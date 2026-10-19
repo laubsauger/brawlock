@@ -155,7 +155,7 @@ function PlayerCard({
   const glyph = playerGlyph(slot, shown, cb)
   return (
     <li
-      className="card-in relative flex flex-wrap items-center gap-3.5 rounded-lg px-3 py-2.5 sm:flex-nowrap"
+      className="card-in relative flex flex-wrap items-center gap-3 rounded-lg px-3 py-2.5"
       style={{ background: `linear-gradient(90deg, ${color}1f, rgba(0,0,0,.22) 45%)`, boxShadow: `inset 3px 0 0 ${color}, inset 0 0 0 1px rgba(255,170,100,.08)` }}
     >
       <span
@@ -163,7 +163,7 @@ function PlayerCard({
         style={{ background: `linear-gradient(135deg, ${color}, ${color}77)`, boxShadow: `0 0 16px ${color}66, inset 0 0 0 1px rgba(255,255,255,.3)` }}
         aria-hidden
       />
-      <div className="min-w-24 flex-1 sm:min-w-0">
+      <div className="min-w-24 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[1.15rem] font-bold">
             {glyph && <span className="mr-1.5" style={{ color }} aria-hidden>{glyph}</span>}
@@ -268,7 +268,7 @@ function InviteCard({ code, url, host }: { code: string | null; url: string | nu
           {(code ?? '·····').split('').map((ch, i) => (
             <span
               key={i}
-              className="grid h-14 w-12 place-items-center rounded-md text-[2.1rem] font-bold text-[#fff1d6]"
+              className="grid h-12 w-10 place-items-center rounded-md text-[1.8rem] font-bold text-[#fff1d6] sm:h-14 sm:w-12 sm:text-[2.1rem]"
               style={{ background: 'linear-gradient(180deg,#2c1d14,#160e0a)', boxShadow: 'inset 0 0 0 1px rgba(255,170,100,.3), 0 0 18px rgba(255,110,30,.15)' }}
               aria-hidden
             >
@@ -330,11 +330,11 @@ export function Lobby() {
   const ready = !lobby.maintenance && lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
 
   return (
-    <div className="screen-in flex h-full flex-col overflow-y-auto px-[max(16px,4vw)] py-[max(16px,3vh)] lg:overflow-hidden">
+    <div className="lobby-screen screen-in">
       <header className={`mb-4 flex flex-wrap items-end justify-between gap-3 ${lobby.ranked ? 'border-b border-[#bfc3d3]/30 pb-3' : ''}`}>
         <div className="flex flex-wrap items-end gap-4">
           <h1 className={`display text-6xl leading-none ${lobby.ranked ? 'text-[#e4ddf7]' : 'text-[#ffd890]'}`}>{lobby.ranked ? 'Ranked lobby' : 'Lobby'}</h1>
-          <span className="chip mb-1.5">{lobby.ranked ? 'Global Elo' : lobby.quick ? 'Quick play · Casual' : ROLE_LABEL[lobby.role]}</span>
+          <span className="chip mb-1.5">{lobby.ranked ? 'Global Elo' : lobby.quick ? 'Casual' : ROLE_LABEL[lobby.role]}</span>
           {transport && (
             <span
               className="chip mb-1.5 text-ash"
@@ -370,7 +370,7 @@ export function Lobby() {
         aria-live="polite"
         data-testid="lobby-auto-start"
       >
-        <p className="text-[0.74rem] font-bold tracking-[0.18em] text-gold/80 uppercase">{lobby.ranked ? 'Ranked matchmaking' : betweenMatches ? 'Quick play · Next match' : 'Quick play'}</p>
+        <p className="text-[0.74rem] font-bold tracking-[0.18em] text-gold/80 uppercase">{lobby.ranked ? 'Ranked matchmaking' : betweenMatches ? 'Casual · Next match' : 'Casual matchmaking'}</p>
         <p className="mt-0.5 text-[clamp(1.5rem,2.6vw,2rem)] leading-tight font-semibold text-[#ffe0a6]">
           {lobby.ranked && humans < 2 ? 'Waiting for one more player' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} between={betweenMatches} /> : 'Waiting for players to join…'}
         </p>
@@ -388,14 +388,14 @@ export function Lobby() {
       <LobbyVote />
 
       <div className="grid shrink-0 grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-        <section className="panel flex min-h-80 max-h-[70vh] flex-col p-6 lg:min-h-0 lg:max-h-none" aria-label="Players">
+        <section className="panel flex min-h-80 min-w-0 max-h-[70vh] flex-col p-4 sm:p-5 lg:min-h-0 lg:max-h-none" aria-label="Players">
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="section-title text-[1.9rem]">Warlocks</h2>
             <span className="tabular text-ash">
               {lobby.slots.length} / {lobby.ranked ? 8 : MAX_PLAYERS}
             </span>
           </div>
-          <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
+          <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1" aria-label="Warlock roster">
             {lobby.slots.map((s) => (
               <PlayerCard
                 key={s.id}
@@ -440,7 +440,7 @@ export function Lobby() {
           )}
         </section>
 
-        <section className="panel flex min-h-0 max-h-[70vh] flex-col p-6 lg:max-h-none" aria-label="Match options">
+        <section className="panel flex min-h-0 min-w-0 max-h-[70vh] flex-col p-4 sm:p-5 lg:max-h-none" aria-label="Match options">
           <div className="-ml-2 min-h-0 flex-1 overflow-y-auto pl-2 pr-2">
             {(lobby.role === 'host' || (lobby.role === 'client' && lobby.roomCode)) && <InviteCard code={lobby.roomCode} url={lobby.joinUrl} host={lobby.role === 'host'} />}
             {((transport === 'server' && (lobby.quick || lobby.role === 'host')) || (transport === 'p2p' && lobby.role === 'host' && regions.length > 0)) && (
@@ -448,7 +448,7 @@ export function Lobby() {
                 <span className="flex flex-col">
                   <span className="font-semibold">Listed publicly</span>
                   <span className="text-[0.88rem] text-ash">
-                    {lobby.ranked ? 'Ranked lobbies are open while matchmaking; rules are locked' : lobby.quick ? 'Quick play games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
+                    {lobby.ranked ? 'Ranked lobbies are open while matchmaking; rules are locked' : lobby.quick ? 'Casual games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
                   </span>
                 </span>
                 <Switch label="Listed publicly" checked={lobby.quick || lobby.ranked ? true : !!lobby.public} disabled={!!lobby.quick || !!lobby.ranked} onChange={(v) => session.setPublic(v)} />

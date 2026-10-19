@@ -35,7 +35,7 @@ export function playOffline(): void {
   tutorial.request({ label: 'Play vs bots', run: () => session.openOffline() })
 }
 
-/** What the last attempt was, for the failure line ("Couldn't join quick play.") */
+/** What the last attempt was, for the failure line ("Couldn't join casual matchmaking.") */
 export type HostAction = 'pc' | 'server' | 'quick' | 'ranked'
 let lastAction: HostAction | null = null
 export function lastHostAction(): HostAction | null {
@@ -79,11 +79,11 @@ export function hostGame(listed = false): void {
   })
 }
 
-/** Quick play: an open game on the server (or a new one, filled with bots). */
+/** Casual matchmaking: an open game on the server (or a new one, filled with bots). */
 export function quickPlay(region: string): void {
   if (!allowPlay()) return
   tutorial.request({
-    label: 'Find a game',
+    label: 'Find a casual match',
     run: () => {
       lastAction = 'quick'
       setLastHost(null)

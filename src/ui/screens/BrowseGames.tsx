@@ -73,7 +73,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
   }
 
   return (
-    <div className="screen-in flex h-full flex-col px-[max(16px,5vw)] py-[max(16px,4vh)]">
+    <div className="screen-in mx-auto flex h-full w-full max-w-[1440px] flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="display text-6xl leading-none text-[#ffd890]">Browse games</h1>
@@ -81,7 +81,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
           {!playSupported && <p data-testid="play-requirement" className="text-sm text-[#f3d3a1]">{PLAY_REQUIREMENT}</p>}
         </div>
         <div className="flex flex-wrap gap-3">
-        <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) onHost() }} data-testid="browse-host">Host a game</Button>
+        <Button variant="primary" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) onHost() }} data-testid="browse-host">Create custom game</Button>
         <Button sound="back" onClick={onBack}>
           Back <Kbd>Esc</Kbd>
         </Button>
@@ -96,7 +96,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
         {rooms === null ? (
           <p className="py-10 text-center text-ash">Looking for games…</p>
         ) : rooms.length === 0 ? (
-          <p className="py-10 text-center text-[1.05rem] text-ash">No open games right now. Host a game to open a lobby, or try Quick play.</p>
+          <p className="py-10 text-center text-[1.05rem] text-ash">No open games right now. Create a custom game, or choose Casual from the main menu to find a match automatically.</p>
         ) : (
           <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto pr-1" data-testid="browse-list">
             {rooms.map((r) => {
@@ -113,7 +113,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                 <li key={`${r.kind}:${r.code}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
                   <span className="flex min-w-[12rem] flex-1 flex-col leading-tight">
                     <span className="truncate text-[1.08rem] font-bold">
-                      {r.ranked ? 'Ranked' : r.quick ? 'Quick play · Casual' : r.host ? `${r.host}'s game` : 'Open game'}
+                      {r.ranked ? 'Ranked' : r.quick ? 'Casual' : r.host ? `${r.host}'s game` : 'Custom game'}
                       {r.kind === 'p2p' && <span className="ml-2 align-middle text-[0.78rem] font-semibold tracking-wide text-ash uppercase">Player-hosted</span>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.86rem] text-ash">

@@ -44,7 +44,7 @@ export function Credits() {
   }, [setScreen])
 
   return (
-    <div className="screen-in flex h-full flex-col px-[max(16px,7vw)] py-[max(16px,5vh)]">
+    <div className="screen-in mx-auto flex h-full w-full max-w-[1280px] flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header className="mb-6 flex items-end justify-between gap-4">
         <h1 className="display text-6xl leading-none text-[#ffd890]">Credits</h1>
         <Button sound="back" onClick={() => setScreen('menu')}>

@@ -387,6 +387,52 @@
     --rim-c: rgba(120, 92, 66, 0.3);
   }
 
+  /* Room pages stay within reach on ultrawide displays. Chat owns a grid track,
+     while the full-viewport backdrop and combat HUD remain outside this frame. */
+  .room-screen-content { position: absolute; inset: 0; }
+  .room-chat-layout[data-chat-docked] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) clamp(180px, 25vh, 240px);
+    gap: 16px;
+    width: calc(100% - 32px);
+    max-width: 1480px;
+    margin-inline: auto;
+    padding-block: 16px;
+  }
+  .room-chat-layout[data-chat-docked] > .room-screen-content {
+    position: relative;
+    inset: auto;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+  }
+  .room-chat-dock { position: relative; min-width: 0; min-height: 0; }
+  .lobby-screen {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    max-width: 1280px;
+    min-width: 0;
+    margin-inline: auto;
+    padding: 24px;
+    overflow-y: auto;
+  }
+  .room-chat-layout[data-chat-docked] .lobby-screen { max-width: none; padding: 0; }
+  @media (min-width: 1024px) {
+    .lobby-screen { overflow: hidden; }
+  }
+  @media (min-width: 1280px) {
+    .room-chat-layout[data-chat-docked] {
+      grid-template-columns: minmax(0, 1fr) 300px;
+      grid-template-rows: minmax(0, 1fr);
+      gap: 20px;
+      width: calc(100% - 48px);
+      padding-block: 24px;
+    }
+  }
+
   /* Main menu entries: large, left aligned, title over a quiet subtitle */
   .menu-item {
     width: 100%;
@@ -408,7 +454,7 @@
   @media (max-height: 850px) {
     .menu-screen .menu-tagline { display: none; }
     .menu-screen { padding-top: 4rem; padding-bottom: 1rem; }
-    .menu-main { max-width: 470px; padding-block: 0.75rem; }
+    .menu-main { max-width: 470px; padding-block: 0.5rem; }
     .menu-screen .brand-mark { width: 350px !important; }
     .menu-navigation { margin-top: 1rem; gap: 1rem; }
     .menu-queues { gap: 0.75rem; }

@@ -22,6 +22,7 @@ import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { forcedMute, forcedSynth, music } from './ui/lib/sound'
 import { Tutorial } from './ui/Tutorial'
 import { RoomChatLayout } from './ui/hud/Chat'
+import { useOnlinePresence } from './ui/lib/presence'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -146,6 +147,7 @@ export default function App() {
   const screen = useGame((s) => s.screen)
   const settingsOpen = useGame((s) => s.settingsOpen)
   useAudioSettings()
+  useOnlinePresence()
   useGlobalKeys()
   useUiScale()
   // connection stats at 4 Hz for the HUD indicator, net graph and warnings
@@ -158,26 +160,28 @@ export default function App() {
   }, [screen])
 
   return (
-    <RoomChatLayout screen={screen}>
+    <div className="relative h-full overflow-hidden">
       <InkFilters />
       {BACKDROP.has(screen) && <Backdrop />}
       {/* lobby -> match -> results: one match scene instance, warmed hidden in the lobby */}
       <MatchLayer />
-      {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
-      <main key={screen} className={`absolute inset-0 ${screen === 'match' ? 'pointer-events-none' : ''}`}>
-        {screen === 'menu' && <MainMenu />}
-        {screen === 'lobby' && <Lobby />}
-        {screen === 'match' && <Match />}
-        {screen === 'results' && <Results />}
-        {screen === 'credits' && <Credits />}
-        {screen === 'replay' && <Replay />}
-      </main>
-      {settingsOpen && <SettingsModal />}
-      <Tutorial />
-      <SplashScreen />
-      <Toasts />
-      <PerfHud />
-      <NetGraph />
-    </RoomChatLayout>
+      <RoomChatLayout screen={screen}>
+        {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
+        <main key={screen} className={`room-screen-content ${screen === 'match' ? 'pointer-events-none' : ''}`}>
+          {screen === 'menu' && <MainMenu />}
+          {screen === 'lobby' && <Lobby />}
+          {screen === 'match' && <Match />}
+          {screen === 'results' && <Results />}
+          {screen === 'credits' && <Credits />}
+          {screen === 'replay' && <Replay />}
+        </main>
+        {settingsOpen && <SettingsModal />}
+        <Tutorial />
+        <SplashScreen />
+        <Toasts />
+        <PerfHud />
+        <NetGraph />
+      </RoomChatLayout>
+    </div>
   )
 }
