@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sigil } from '../icons'
 import { displayName } from '../data/catalog'
 import { useGame } from '../../game/store'
-import { announcements, type Announcement } from '../../game/announcer'
+import { announcements, type Announcement, type AnnouncerLine } from '../../game/announcer'
 import { frame } from '../../game/frame'
 import { slotColor, slotGlyph, slotName } from '../lib/view'
 
@@ -56,6 +56,30 @@ export function Skull({ size = 16, color = 'currentColor' }: { size?: number; co
 
 /** how long the callout and an announcer line stay */
 const MYKILL_MS = 1500
+/** how long a big kill line (streak, multi kill, first blood, shutdown) stays */
+const BIG_MS = 2200
+
+/**
+ * Kill lines shown big for whoever hears them (the announcer decides the audience: streaks from
+ * Rampage, First Blood and Shutdown for everyone, your own multi kills and sprees for you),
+ * by tier: 1 smallest .. 4 loudest.
+ */
+const BIG_TIER: Partial<Record<AnnouncerLine, 1 | 2 | 3 | 4>> = {
+  double_kill: 1,
+  killing_spree: 1,
+  triple_kill: 2,
+  first_blood: 2,
+  rampage: 2,
+  multi_kill: 3,
+  unstoppable: 3,
+  shutdown: 3,
+  mega_kill: 4,
+  ultra_kill: 4,
+  monster_kill: 4,
+  godlike: 4,
+}
+
+export const bigTier = (line: AnnouncerLine): 1 | 2 | 3 | 4 | 0 => BIG_TIER[line] ?? 0
 
 /** An announcer line as the banner shows it: the spoken words, and whose it is. */
 export interface AnnouncerBanner {
@@ -93,8 +117,9 @@ export function KillCallout() {
       killTimer = window.setTimeout(() => setKill(null), MYKILL_MS)
     }
     const off = announcements.subscribe((a: Announcement) => {
-      // round flow (Round N, Fight!, Round Won!, Victory!) lives in the center banners
-      if (a.kind === 'flow') return
+      // round flow (Round N, Fight!, Round Won!, Victory!) lives in the center banners,
+      // kill lines in the big streak callout
+      if (a.kind === 'flow' || bigTier(a.line)) return
       setLine({ text: a.text, player: a.player, key: ++n })
       window.clearTimeout(lineTimer)
       lineTimer = window.setTimeout(() => setLine(null), MYKILL_MS)
@@ -141,6 +166,48 @@ export function KillCallout() {
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * Big kill lines ("Unstoppable!", "Double Kill!") above the action, sized and lit by tier, with
+ * whose it is underneath ("You" for your own).
+ */
+export function StreakCallout() {
+  const [shown, setShown] = useState<(Announcement & { key: number }) | null>(null)
+  useEffect(() => {
+    let timer = 0
+    let n = 0
+    const off = announcements.subscribe((a: Announcement) => {
+      if (a.kind === 'flow' || !bigTier(a.line)) return
+      setShown({ ...a, key: ++n })
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setShown(null), BIG_MS)
+    })
+    return () => {
+      window.clearTimeout(timer)
+      off()
+    }
+  }, [])
+  if (!shown) return null
+  const state = frame.curr
+  const mine = shown.player === frame.localPlayer
+  return (
+    <div key={shown.key} className="streak-callout" data-tier={bigTier(shown.line)} role="status" aria-live="polite" style={{ ['--dur' as string]: `${BIG_MS}ms` }}>
+      <div className="streak-callout-title">{shown.text}</div>
+      {shown.player >= 0 && (
+        <div className="streak-callout-who">
+          {mine ? (
+            'You'
+          ) : (
+            <b style={{ color: slotColor(state, shown.player) }}>
+              {slotGlyph(state, shown.player) && <span className="mr-0.5">{slotGlyph(state, shown.player)}</span>}
+              {slotName(state, shown.player)}
+            </b>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

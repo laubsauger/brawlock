@@ -101,7 +101,7 @@ export function DeathFeedback() {
     <>
       <div ref={edge} className="pointer-events-none absolute inset-0" style={{ opacity: 0, background: 'radial-gradient(ellipse at center, transparent 40%, rgba(145, 20, 8, .7) 100%)' }} aria-hidden />
       <div className="pointer-events-none absolute inset-x-3 top-[88px] flex justify-center sm:top-[124px] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
-        <div ref={panel} hidden className="hud-scale w-full max-w-[360px] origin-top rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-4 py-3 text-center shadow-[0_8px_40px_#0008] max-sm:[@media(max-height:740px)]:py-2" role="status" aria-live="polite" aria-atomic="true">
+        <div ref={panel} hidden className="death-card hud-scale w-full max-w-[360px] origin-top rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-4 py-3 text-center shadow-[0_8px_40px_#0008] max-sm:[@media(max-height:740px)]:py-2" role="status" aria-live="polite" aria-atomic="true">
           <div className="flex items-center justify-center gap-2 text-[#ffb69a]">
             <Skull size={22} />
             <span className="font-display text-xl font-bold tracking-wide max-sm:[@media(max-height:740px)]:text-base">You were knocked out</span>

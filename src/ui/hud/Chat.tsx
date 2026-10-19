@@ -71,7 +71,7 @@ export function RoomChatLayout({ screen, children }: { screen: string; children:
     measure()
     return () => observer.disconnect()
   }, [])
-  return <div className="room-chat-layout pointer-events-none relative h-full overflow-hidden" data-chat-docked={docked || undefined} style={{ '--room-chat-offset': screen === 'match' && height > 0 ? `${height + 10}px` : '0px', '--spectator-bets-display': expanded ? 'none' : 'flex' } as CSSProperties}>
+  return <div className="room-chat-layout pointer-events-none relative h-full overflow-hidden" data-chat-docked={docked || undefined} data-screen={screen} style={{ '--room-chat-offset': screen === 'match' && height > 0 ? `${height + 10}px` : '0px', '--spectator-bets-display': expanded ? 'none' : 'flex' } as CSSProperties}>
     {children}
     <div ref={wrapper} className={docked ? 'room-chat-dock' : 'pointer-events-none fixed left-3 z-[45] w-[min(340px,calc(100vw-24px))] sm:[@media(max-height:520px)]:w-[min(340px,40vw)]'} style={docked ? undefined : { bottom: screen === 'match' ? 'calc(var(--hud-bottom-h, 72px) * var(--ui-scale, 1) + 18px)' : 96 }}>
       <RoomChat compact={!docked} onExpandedChange={setExpanded} />

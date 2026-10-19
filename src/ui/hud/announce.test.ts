@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ANNOUNCER_TEXT } from '../../game/announcer'
-import { calloutLines } from './Announce'
+import { bigTier, calloutLines } from './Announce'
 
 const thorn = { name: 'Thorn', color: '#a24bff' }
 const LOCAL = 0
@@ -24,5 +24,18 @@ describe('the KO callout shows the announcer line word for word', () => {
     const r = calloutLines(thorn, null, LOCAL)
     expect(r.top).toBeNull()
     expect(r.main?.name).toBe('Thorn')
+  })
+})
+
+describe('big kill lines', () => {
+  it('shows every streak, multi kill, First Blood and Shutdown big, and nothing else', () => {
+    // Why: these are the lines players brag about; a small chip under the clock went unseen.
+    // Round flow has its own center banner, occasional lines stay in the small chip.
+    const big = ['first_blood', 'double_kill', 'triple_kill', 'multi_kill', 'mega_kill', 'ultra_kill', 'monster_kill', 'killing_spree', 'rampage', 'unstoppable', 'godlike', 'shutdown'] as const
+    for (const line of big) expect(bigTier(line)).toBeGreaterThan(0)
+    for (const line of ['round_one', 'fight', 'victory', 'arena_shrinks', 'revenge', 'close_call'] as const) expect(bigTier(line)).toBe(0)
+    // louder lines are never drawn smaller than the ones they top
+    expect(bigTier('godlike')).toBeGreaterThan(bigTier('rampage'))
+    expect(bigTier('unstoppable')).toBeGreaterThan(bigTier('killing_spree'))
   })
 })

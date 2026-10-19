@@ -431,6 +431,13 @@
       width: calc(100% - 48px);
       padding-block: 24px;
     }
+    /* results: a wider, shorter chat at the bottom right next to the table,
+       not a full-height strip */
+    .room-chat-layout[data-chat-docked][data-screen="results"] { grid-template-columns: minmax(0, 1fr) 360px; }
+    .room-chat-layout[data-chat-docked][data-screen="results"] .room-chat-dock {
+      align-self: end;
+      height: min(440px, 55vh);
+    }
   }
 
   /* Main menu entries: large, left aligned, title over a quiet subtitle */
@@ -1035,6 +1042,39 @@
     white-space: nowrap;
   }
   .kill-callout b { font-weight: 800; }
+  /* big kill lines (Unstoppable!, Double Kill!) above the action, for whoever hears them */
+  .streak-callout {
+    position: absolute; left: 0; right: 0; top: 15%;
+    display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
+    pointer-events: none; text-align: center;
+    animation: streak-in var(--dur, 2.2s) cubic-bezier(.2, .9, .3, 1) both;
+    --streak: #ffd27a; --streak-glow: rgba(255, 150, 40, 0.55); --streak-size: clamp(1.7rem, 3.4vw, 2.6rem);
+  }
+  /* below the "You were knocked out" card while it is up */
+  body:has(.death-card:not([hidden])) .streak-callout { top: 36%; }
+  .streak-callout[data-tier="2"] { --streak: #ffb347; --streak-glow: rgba(255, 120, 30, 0.6); --streak-size: clamp(2rem, 4vw, 3.1rem); }
+  .streak-callout[data-tier="3"] { --streak: #ff7a3a; --streak-glow: rgba(255, 70, 20, 0.7); --streak-size: clamp(2.3rem, 4.8vw, 3.7rem); }
+  .streak-callout[data-tier="4"] { --streak: #ffd9f0; --streak-glow: rgba(210, 90, 255, 0.75); --streak-size: clamp(2.6rem, 5.6vw, 4.4rem); }
+  .streak-callout-title {
+    font-family: var(--font-title);
+    font-size: var(--streak-size);
+    line-height: 0.95;
+    color: var(--streak);
+    text-shadow: 0 3px 0 #3b0a02, 0 0 18px var(--streak-glow), 0 0 42px var(--streak-glow);
+  }
+  .streak-callout-who {
+    font: 700 clamp(0.95rem, 1.5vw, 1.2rem) var(--font-ui);
+    letter-spacing: 0.04em;
+    color: #f6e7d2;
+    text-shadow: 0 1px 2px #000, 0 0 10px rgba(0, 0, 0, 0.8);
+  }
+  @keyframes streak-in {
+    0% { opacity: 0; transform: scale(1.6); filter: blur(5px); }
+    10% { opacity: 1; transform: scale(1); filter: blur(0); }
+    82% { opacity: 1; transform: scale(0.99); }
+    100% { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  }
+  @media (prefers-reduced-motion: reduce) { .streak-callout { animation-name: streak-fade; } @keyframes streak-fade { 0%, 100% { opacity: 0; } 8%, 85% { opacity: 1; } } }
   .kill-callout-streak { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.06em; color: #ffd27a; }
   .feed-row[data-out="true"] { animation: feed-out 0.4s ease both; }
   @keyframes feed-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
