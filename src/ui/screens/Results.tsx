@@ -79,8 +79,9 @@ export function Results() {
   const role = useGame((s) => s.lobby.role)
   const local = useGame((s) => s.lobby.localPlayer)
   const ready = useGame((s) => s.lobby.ready)
-  // quick play: no rematch vote, the next match starts by itself
+  // quick play: no host. Casual waits for Ready on this screen; ranked returns to its lobby by itself.
   const quick = useGame((s) => !!s.lobby.quick)
+  const ranked = useGame((s) => !!s.lobby.ranked)
   const autoStart = useGame((s) => s.lobby.autoStart ?? null)
   const maintenance = useGame((s) => s.lobby.maintenance ?? null)
   const isHost = role !== 'client'
@@ -94,10 +95,11 @@ export function Results() {
   // Enter = rematch, the one-click loop
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.repeat || collectionOpen || isTypingTarget(e.target) || useGame.getState().settingsOpen || useGame.getState().lobby.quick || useGame.getState().lobby.maintenance) return
+      const lobby = useGame.getState().lobby
+      if (e.key !== 'Enter' || e.repeat || collectionOpen || isTypingTarget(e.target) || useGame.getState().settingsOpen || lobby.ranked || lobby.maintenance) return
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       e.preventDefault()
-      if (isHost) rematch()
+      if (isHost && !lobby.quick) rematch()
       else setReady(!useGame.getState().lobby.ready?.[useGame.getState().lobby.localPlayer])
     }
     window.addEventListener('keydown', onKey)
@@ -269,12 +271,32 @@ export function Results() {
         <p className="font-semibold text-gold">Region updating · match complete</p>
         <p className="text-sm text-bone">{maintenance}</p>
         <Button onClick={leaveToMenu}>Choose another region</Button>
-      </div> : quick ? (
+      </div> : quick && ranked ? (
         <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
-          <span className="text-[1.15rem] font-semibold text-[#f0d9b8]">{autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : 'The next match starts by itself.'}</span>
+          <span className="text-[1.15rem] font-semibold text-[#f0d9b8]">{autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : 'The ranked lobby opens by itself.'}</span>
           <Button variant="ghost" sound="back" onClick={leaveToMenu}>
             Leave
           </Button>
+        </div>
+      ) : quick ? (
+        <div className="mt-7 flex flex-col items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus data-testid="quick-ready">
+              {localReady ? 'Not ready' : 'Ready for the next match'} {!localReady && <Kbd>Enter</Kbd>}
+            </Button>
+            {rec && replayIds.has(rec.id) && (
+              <Button size="lg" onClick={() => void watchReplay(rec.id)}>
+                Watch replay
+              </Button>
+            )}
+            <Button variant="ghost" sound="back" onClick={leaveToMenu}>
+              Leave
+            </Button>
+          </div>
+          <p className="text-[0.98rem] text-ash" aria-live="polite" data-testid="quick-ready-status">
+            {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}
+            {autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : localReady ? 'Starting when everyone is ready.' : 'Take your time: the next match starts when you are ready.'}
+          </p>
         </div>
       ) : (
       <div className="mt-7 flex flex-wrap items-center justify-center gap-3">

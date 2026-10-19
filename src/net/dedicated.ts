@@ -12,7 +12,9 @@
  * - one human: the match starts after fillMs
  * - arrivals reserve bot seats during a match and start playing next round;
  *   between matches they can also take free seats
- * - results: after nextMs the next match starts
+ * - results: nothing starts by itself. The next match starts once every human pressed Ready;
+ *   after the first Ready the rest get READY_GRACE_MS (a stranger who walked away cannot hold
+ *   the room). Nobody ready: the room waits as long as they like (no match runs meanwhile).
  * Ranked quick rooms prefill bots, require minHumans, and return to a fresh lobby
  * countdown between matches. A lone ranked player never starts against only bots.
  * Always: a match nobody is connected to goes back to the lobby.
@@ -73,8 +75,10 @@ export interface QuickPlayPolicy {
   fillMs: number
   /** two or more humans: the match starts after this long */
   startMs: number
-  /** results: the next match starts after this long */
+  /** ranked results: back to the lobby after this long (casual results wait for Ready) */
   nextMs: number
+  /** casual results: after the first Ready, the others get this long (default READY_GRACE_MS) */
+  readyGraceMs?: number
   /** humans per room, at most (quick play sends no more; MAX_PLAYERS caps it too) */
   seats: number
   /** bots top the table up to this many players when fewer humans are in */
@@ -151,6 +155,8 @@ const REMATCH_MS = 6000
 const EMPTY_CHECK_MS = 1000
 /** a whole match without touching anything, and never fewer rounds than this */
 const IDLE_ROUNDS = 3
+/** casual results: once someone pressed Ready, the others get this long to join them */
+const READY_GRACE_MS = 60_000
 const IDLE_REASON = 'You were away for a whole game, so you left the room. Join again any time.'
 
 export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Room> {
@@ -189,6 +195,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }
 
   const humans = () => lobby.slots.filter((s) => s.kind === 'human').length
+  const readyHumans = () => lobby.slots.filter((s) => s.kind === 'human' && lobby.ready?.[s.id]).length
   const tracker = opts.onMatch ? new ServerMatchTracker(opts.onMatch, opts.onName) : undefined
 
   const session = createSession({
@@ -196,11 +203,12 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       lobby: () => lobby,
       setLobby: (p) => {
         const before = humans()
+        const readyBefore = readyHumans()
         lobby = { ...lobby, ...p }
         if (humans() !== before) {
           log(`room ${opts.code}: ${humans()} human(s)`)
           schedule()
-        }
+        } else if (p.ready && readyHumans() !== readyBefore) schedule()
       },
       screen: () => screen,
       setScreen: (s) => {
@@ -288,7 +296,8 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     quickAt = at
     quickFill = fill
     if (at !== null) startTimer = setTimeout(quickFire, Math.max(0, at - deps.now()) / timeScale())
-    session.setRoom({ auto: at === null || screen !== 'lobby' ? null : { inMs: Math.max(0, at - deps.now()), fill } })
+    // shown in the lobby, and on the results screen as the Ready grace countdown
+    session.setRoom({ auto: at === null || screen === 'match' ? null : { inMs: Math.max(0, at - deps.now()), fill } })
   }
 
   /** wall ms per session ms (tests run the session clock faster than the wall clock) */
@@ -331,7 +340,11 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null && !quickFill ? Math.min(quickAt, at) : at, false)
       } else if (quickAt === null) setQuickTimer(now + quick.fillMs, true)
     } else if (screen === 'results') {
-      if (quickAt === null) setQuickTimer(now + quick.nextMs, false)
+      const ready = readyHumans()
+      if (ready === 0) {
+        if (quickAt !== null) setQuickTimer(null, false)
+      } else if (ready >= n) setQuickTimer(now, false)
+      else if (quickAt === null) setQuickTimer(now + (quick.readyGraceMs ?? READY_GRACE_MS), false)
     } else if (quickAt !== null && screen === 'match') setQuickTimer(null, false)
   }
 

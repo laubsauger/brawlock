@@ -649,6 +649,7 @@ describe('public rooms and quick play (M4.3)', () => {
       await until(() => kinds().humans === want[i].humans, 3000, `newcomer ${i + 1} seated`)
       expect(kinds()).toEqual(want[i])
     }
+    for (const c of [a, ...late]) c.session.setReady(true)
     await until(() => [a, ...late].every((c) => c.screen() === 'match'), 15000, 'the next match with the newcomers')
     expect(kinds()).toEqual({ humans: 4, bots: 0 })
     for (const c of [a, ...late]) c.session.leave()
@@ -683,10 +684,36 @@ describe('public rooms and quick play (M4.3)', () => {
     await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
     expect(a.session.sendChat('brb')).toBe('sent')
     await until(() => a.screen() === 'results', 90000, 'the game to end')
+    a.session.setReady(true)
     await until(() => a.screen() === 'match' || a.screen() === 'menu', 15000, 'the next game')
     expect(a.screen()).toBe('match')
     expect(a.lobby().error).toBeNull()
     a.session.leave()
+  }, 120000)
+
+  /**
+   * Why: players were pulled into the next game seconds after a match, before they could read
+   * the results. Casual quick play now waits on the results screen until players press Ready:
+   * all ready starts at once, and once someone is ready the rest get a grace period so one idle
+   * stranger cannot hold the room.
+   */
+  it('quick play: the next match waits for Ready, then gives the rest a grace period', async () => {
+    const { base } = await start(quick({ fill: 3, fillMs: 500, nextMs: 1000, readyGraceMs: 6000, settings: { ...FAST, winScore: 1 } }))
+    const a = headlessClient(base, { key: 'qr1', device: 'device-qr-1', play: true })
+    const b = headlessClient(base, { key: 'qr2', device: 'device-qr-2', play: true })
+    const r = await a.online.quickPlay('test')
+    await a.session.join(r.code)
+    await b.session.join(r.code)
+    await until(() => a.screen() === 'match' && b.screen() === 'match', 12000, 'the first match')
+    await until(() => a.screen() === 'results' && b.screen() === 'results', 60000, 'the first match to end')
+    // well past the old nextMs: nobody pressed Ready, so nothing starts
+    await new Promise((r) => setTimeout(r, 3000))
+    expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
+    a.session.setReady(true)
+    await until(() => a.lobby().autoStart != null, 3000, 'the grace countdown')
+    expect(b.screen()).toBe('results')
+    await until(() => a.screen() === 'match' && b.screen() === 'match', 8000, 'the next match after the grace period')
+    for (const c of [a, b]) c.session.leave()
   }, 120000)
 
   /** Why: a quick-play room enforces its configured human cap; the next player gets a new room, and a full-room link is refused. */
@@ -702,7 +729,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'brutal', settings: { startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'brutal', settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 
