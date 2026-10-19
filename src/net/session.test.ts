@@ -567,6 +567,30 @@ describe('session lobby over the network', () => {
     expect(host.out.states.at(-1)!.scores.find((s) => s.id === id)?.connected).toBe(false)
   })
 
+  it('gives the bots of one lobby different builds', async () => {
+    // Why: identical bots (same shop build, same persona) make every lobby
+    // play the same. The per-bot draw only varies if each bot gets its own
+    // random streams through the session's real seeding.
+    if (!sim) throw new Error(simMissing)
+    const net = createMemoryNet({ ...LINK, loss: 0 })
+    const made: ReturnType<typeof createBot>[] = []
+    const host = makePeer(net, 'Hosty', 'host-key', sim, {
+      createBot: (p, d, s) => {
+        const b = createBot(p, d, s)
+        made.push(b)
+        return b
+      },
+    })
+    await host.session.openHost()
+    for (let i = 0; i < 8; i++) host.session.addBot('brutal')
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(200)
+    const builds = made.map((b) => (b as unknown as { build: { id: string } | null }).build?.id)
+    expect(builds).toHaveLength(8)
+    expect(builds.every(Boolean)).toBe(true)
+    expect(new Set(builds).size).toBeGreaterThanOrEqual(4)
+  })
+
   it('preserves a waiting bot-seat reservation through a same-tab refresh', async () => {
     if (!sim) throw new Error(simMissing)
     const { host, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, { createBot })

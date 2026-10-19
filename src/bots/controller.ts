@@ -132,6 +132,16 @@ const dist = (a: Vec2, b: Vec2) => hypot(a.x - b.x, a.y - b.y)
 /** Alliance by current team, as the sim decides it. */
 export const areEnemies = (state: SimState, a: PlayerId, b: PlayerId): boolean => isEnemy(state, a, b)
 
+/**
+ * Windwalk hides a warlock from its enemies (the renderer draws it for allies only). Bots read
+ * the sim state directly, so without this they saw, chased and aimed at an invisible player.
+ */
+const windwalking = (p: PawnState): boolean => p.modifiers.some((m) => m.id === 'windwalk')
+
+/** An enemy this player can see: alive, hostile and not windwalking. */
+export const seenEnemy = (state: SimState, player: PlayerId, o: PawnState): boolean =>
+  o.alive && areEnemies(state, player, o.owner) && !windwalking(o)
+
 /** A pawn standing here would overlap a pillar (its radius + our body + a little slack). */
 function blockedByObstacle(state: SimState, x: number, y: number): boolean {
   for (const o of state.obstacles) if (hypot(x - o.x, y - o.y) < o.radius + PAWN_BODY + 8) return true
@@ -297,7 +307,7 @@ export class BotController implements Bot {
 
     const layer = state.arena.layer
     const safety = this.safetyLayer(state)
-    const enemies = state.pawns.filter((o) => o.alive && areEnemies(state, this.player, o.owner))
+    const enemies = state.pawns.filter((o) => seenEnemy(state, this.player, o))
     this.watchShields(enemies, tick)
     let closest: PawnState | null = null
     let closestDist = Infinity
@@ -360,7 +370,7 @@ export class BotController implements Bot {
     // 3. Retarget: lost target or 1/5 chance -> closest enemy (edgePressure: best kill chance).
     // With several enemies (FFA): local opportunities with score hysteresis (see pickTarget).
     const current = this.target === null ? null : state.pawns.find((o) => o.owner === this.target)
-    const lost = !current || !current.alive || !areEnemies(state, this.player, current.owner)
+    const lost = !current || !seenEnemy(state, this.player, current)
     if (enemies.length >= 2) {
       const pick = this.pickTarget(state, me, enemies, lost ? null : current, threats)
       this.target = pick ? pick.owner : null
@@ -368,7 +378,7 @@ export class BotController implements Bot {
       const pick = p.edgePressure ? this.killTarget(state, me, enemies) : closest
       this.target = pick ? pick.owner : null
     }
-    const target = this.target === null ? null : (state.pawns.find((o) => o.owner === this.target && o.alive) ?? null)
+    const target = this.target === null ? null : (state.pawns.find((o) => o.owner === this.target && seenEnemy(state, this.player, o)) ?? null)
 
     // 4. Wander point.
     if (
@@ -737,7 +747,7 @@ export class BotController implements Bot {
     // Nearby bodies imply competition and crossfire, continuously rather than a headcount
     // inside a radius. Saturation leaves an excellent contested finish worth taking.
     let engaged = 0
-    for (const other of state.pawns) if (other.alive && other !== me && other !== e) {
+    for (const other of state.pawns) if (other.alive && other !== me && other !== e && !(windwalking(other) && areEnemies(state, this.player, other.owner))) {
       engaged += 1 / (1 + (dist(other, e) / CROWD_FALLOFF) ** 2)
     }
     const contested = (engaged / (1 + engaged)) * (0.65 - 0.25 * this.persona.risk)
@@ -889,7 +899,7 @@ export class BotController implements Bot {
     const keep = p.momentumAware ? 0.8 : 0
     const carry = { x: ph.x * keep, y: ph.y * keep }
     const zones = threatZones(state, this.player)
-    const enemies = state.pawns.filter((o) => o.alive && areEnemies(state, this.player, o.owner))
+    const enemies = state.pawns.filter((o) => seenEnemy(state, this.player, o))
     let best: Vec2 | null = null
     let bestCost = Infinity
     for (const rf of TP_RADII) {
@@ -1041,7 +1051,7 @@ export class BotController implements Bot {
     const tries = p.safeWander ? 12 : 1
     let point: Vec2 | null = null
     let delay = 0.6
-    const enemies = state.pawns.filter((other) => other.alive && areEnemies(state, this.player, other.owner))
+    const enemies = state.pawns.filter((other) => seenEnemy(state, this.player, other))
     if (enemies.length >= 2) {
       point = this.pickFfaWander(state, me, target, enemies, safety)
       delay = this.rng.range(0.4, 0.8)

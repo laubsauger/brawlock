@@ -240,6 +240,32 @@ describe('bots: lead aim', () => {
   })
 })
 
+describe('bots: Windwalk hides an enemy', () => {
+  // Why: Windwalk makes a warlock invisible to its enemies. Bots read the sim state, so unless
+  // they filter it out they chase and shoot at a player nobody else can see.
+  function shotsAt(windwalk: boolean, difficulty: BotDifficulty) {
+    const target = makePawn(ENEMY, 600, -200)
+    if (windwalk) target.modifiers.push({ id: 'windwalk', ticksLeft: 10_000, source: ENEMY, data: {} })
+    const state = makeState([makePawn(BOT, 0, 0), target])
+    const bot = createBot(BOT, difficulty, 11)
+    let casts = 0
+    for (let t = 0; t < 240; t++) {
+      state.tick = t
+      for (const c of bot.think(state)) if (c.kind === 'cast') casts++
+    }
+    return { casts, target: (bot as BotController).targetPlayer }
+  }
+
+  for (const d of ['hard', 'brutal', 'uber'] as const) {
+    it(`${d}: shoots a visible enemy, never a windwalking one`, () => {
+      expect(shotsAt(false, d).casts).toBeGreaterThan(0)
+      const hidden = shotsAt(true, d)
+      expect(hidden.casts).toBe(0)
+      expect(hidden.target).toBeNull()
+    })
+  }
+})
+
 describe('bots: lava escape', () => {
   function onLavaWithTeleport(cooldown = 0): SimState {
     const me = makePawn(BOT, 1000, 0)

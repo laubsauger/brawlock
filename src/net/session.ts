@@ -774,7 +774,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function tryCreateBot(id: PlayerId, d: BotDifficulty, seed: number): Bot | null {
     try {
-      return deps.createBot(id, d, (seed ^ Math.imul(id + 1, 0x9e3779b1)) >>> 0)
+      // the match seed as is: the bot mixes its player id in itself (bots/prng
+      // botSeed). Mixing it here too, the same way, cancelled out: every bot of
+      // a lobby drew the same persona, build and dice.
+      return deps.createBot(id, d, seed)
     } catch (e) {
       console.warn(`[session] bot for player ${id} unavailable, its pawn idles`, e)
       return null
