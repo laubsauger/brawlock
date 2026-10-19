@@ -11,10 +11,11 @@ import { createRoot } from 'react-dom/client'
 import { AudioEngine, type AudioMode } from '../engine'
 import type { AssetId } from '../assets'
 import { buildBoard, type BoardItem } from './board'
+import { ASSET_BASE } from '../../lib/assets'
 
 const engine = new AudioEngine()
 engine.autoLoadSamples = false
-const BASE = import.meta.env.BASE_URL
+const BASE = ASSET_BASE
 
 const initialVolume = (() => {
   const v = Number(new URLSearchParams(location.search).get('vol'))

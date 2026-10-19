@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd, Modal } from '../widgets'
@@ -10,7 +10,7 @@ import { online, rejoin, session, type ServerProfile } from '../../game/session'
 import { getProfile, setPreferredColor } from '../../game/profile'
 import { PreferredColorPicker } from './PlayerColorPicker'
 import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
-import { RegionPing } from '../RegionPing'
+import { RegionPicker } from '../RegionPicker'
 import { sfx } from '../lib/sound'
 import { chooseName, NAME_MAX } from '../lib/name'
 import { staggerIn } from '../lib/motion'
@@ -21,6 +21,13 @@ import { quickPlayAvailability } from '../lib/quickPlay'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
 import { usePolled } from '../lib/ticker'
 import { RejoinPrompt } from './RejoinPrompt'
+import { accountsEnabled, refreshAccount } from '../../game/account'
+import { useAccount } from '../../game/accountState'
+import { loadProgression } from '../../game/progression'
+import { EmberMark } from './Collection'
+
+const Account = lazy(() => import('./Account').then((module) => ({ default: module.Account })))
+const Collection = lazy(() => import('./Collection').then((module) => ({ default: module.Collection })))
 
 function MenuEntry({
   title,
@@ -48,7 +55,7 @@ function MenuEntry({
   return (
     <Button
       variant={primary && !ranked ? 'primary' : 'default'}
-      className={`menu-item ${primary ? 'py-[1.05rem] [@media(max-height:1000px)]:py-2.5' : 'py-[0.6rem]'}`}
+      className={`menu-item ${primary ? 'menu-item-primary' : 'menu-item-secondary'}`}
       style={ranked ? { '--rim-a': '#bfc3d3', '--rim-b': '#514455', '--rim-c': '#9e5960', '--core': '175, 67, 80', '--label': 'linear-gradient(180deg, #f3f3fc 0%, #bdc3d9 100%)' } as CSSProperties : undefined}
       onClick={onClick}
       aria-expanded={expanded}
@@ -57,7 +64,7 @@ function MenuEntry({
       data-testid={testId}
     >
       <span className="flex w-full min-w-0 flex-col items-start gap-0.5 leading-tight">
-        <span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.2rem] sm:text-[1.4rem]' : 'text-[1.08rem]'}`}>{title}</span>
+        <span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem]'}`}>{title}</span>
         <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#c8c9d8]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
         {note && <span className="font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
@@ -75,10 +82,10 @@ function regionText(r: RegionStatus): string {
  * a new one filled with bots. Region, health and ping at a glance; greyed out
  * with the reason when the server cannot take players.
  */
-function QueueEntries() {
+function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const playSupported = usePlaySupported()
   const setSettings = useGame((s) => s.setSettings)
-  const statuses = useRegions(5000)
+  const statuses = useRegions(30000)
   const choice = useRegionChoice()
   const region = pickRegion(statuses, choice)
   const problem = regionProblem(region)
@@ -106,17 +113,8 @@ function QueueEntries() {
     return () => { live = false; window.clearInterval(timer) }
   }, [regionId])
   const known = regionId && availability?.region === regionId ? availability : null
-  return <>
-    <div data-testid="queue-region" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded border border-white/10 bg-[#140e0b]/85 px-3 py-2 text-sm">
-      <label className="flex min-w-0 flex-1 items-center gap-2 text-ash">
-        <span>Region</span>
-        <select aria-label="Game region" className="field min-w-0 flex-1 py-1 text-sm" value={choice} onChange={(event) => setSettings({ serverRegion: event.target.value })}>
-          <option value="auto">Auto · lowest ping</option>
-          {statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
-        </select>
-      </label>
-      {region ? <RegionPing s={region} withName={choice === 'auto'} /> : <span className="text-ash">Checking region…</span>}
-    </div>
+  return <div className="menu-queues">
+    <RegionPicker statuses={statuses} choice={choice} onChange={(value) => setSettings({ serverRegion: value })} />
     <MenuEntry
       primary
       title="Quick play"
@@ -131,13 +129,13 @@ function QueueEntries() {
       primary
       ranked
       title="Ranked"
-      sub="8 players · 5 rounds"
-      disabled={!playSupported || !!problem}
-      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Find a ranked opponent in ${region?.label}. Eight players, five rounds; tied leaders fight a final. Wait for two humans, then a 60-second lobby; Brutal bots fill empty seats.`}
-      onClick={() => isPlaySupported() && region && rankedPlay(choice === 'auto' ? 'auto' : region.id)}
+      sub="Account Elo · 8 players · 5 rounds"
+      disabled={!playSupported || !!problem || !accountsEnabled}
+      hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? 'Ranked sign-in is unavailable in this build.' : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
+      onClick={() => isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
-  </>
+  </div>
 }
 
 /**
@@ -234,7 +232,10 @@ export function MainMenu() {
   useEffect(() => { rejoin.restore() }, [])
   const playSupported = usePlaySupported()
   const activeRoom = usePolled(() => session.isActive(), String, 4)
-  const name = useGame((s) => s.settings.playerName)
+  const guestName = useGame((s) => s.settings.playerName)
+  const account = useAccount((s) => s.player)
+  const accountError = useAccount((s) => s.error)
+  const name = account?.profile?.name ?? guestName
   const gpu = useGame((s) => s.gpu)
   const muted = useGame((s) => s.settings.muted)
   const lobbyStatus = useGame((s) => s.lobby.status)
@@ -248,14 +249,43 @@ export function MainMenu() {
   const [profileTab, setProfileTab] = useState<'stats' | 'board' | 'replays' | null>(null)
   const [browseOpen, setBrowseOpen] = useState(false)
   const [nameOpen, setNameOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [collectionOpen, setCollectionOpen] = useState(false)
+  const [emberBalance, setEmberBalance] = useState<number | null>(null)
+  const [emberProblem, setEmberProblem] = useState<string | null>(null)
+  const [rankedRegion, setRankedRegion] = useState<string | undefined>()
+  const [accountProblem, setAccountProblem] = useState<string | undefined>()
+  const [accountBusy, setAccountBusy] = useState(false)
   const [draftColor, setDraftColor] = useState(() => getProfile().color)
   const [rating, setRating] = useState<ServerProfile | null>(null)
+  useEffect(() => {
+    setEmberBalance(null); setEmberProblem(null)
+    if (!accountsEnabled || !account || collectionOpen) return
+    let live = true
+    void loadProgression().then((state) => { if (live) setEmberBalance(state.balance) }).catch((error: unknown) => {
+      if (live) setEmberProblem(error instanceof Error ? error.message : 'Balance unavailable. Open your collection to retry.')
+    })
+    return () => { live = false }
+  }, [account?.id, collectionOpen])
   useEffect(() => {
     if (!online.configured) return
     let alive = true
     void session.serverProfile().then((profile) => { if (alive) setRating(profile) }).catch(() => { if (alive) setRating(null) })
     return () => { alive = false }
-  }, [name])
+  }, [name, account?.id])
+  useEffect(() => {
+    if (!accountsEnabled) return
+    void refreshAccount().catch(() => {}) // Store exposes the failure and its retry action below.
+    const url = new URL(window.location.href)
+    const intent = url.searchParams.get('account')
+    if (intent !== 'open' && intent !== 'ranked') return
+    const region = url.searchParams.get('region')
+    if (intent === 'ranked' && region && (region === 'auto' || online.regions.some((candidate) => candidate.id === region))) setRankedRegion(region)
+    if (url.searchParams.has('error')) setAccountProblem('Sign-in was cancelled or could not be completed. Please try again.')
+    setAccountOpen(true)
+    url.searchParams.delete('account'); url.searchParams.delete('region'); url.searchParams.delete('error'); url.searchParams.delete('error_description')
+    window.history.replaceState(null, '', url)
+  }, [])
   const fullscreen = useFullscreen()
   const navRef = useRef<HTMLElement>(null)
   // menu entries rise in one after another whenever the menu shows
@@ -268,6 +298,16 @@ export function MainMenu() {
   }, [name])
 
   const commitName = () => { setDraft(chooseName(draft)); setPreferredColor(draftColor); setNameOpen(false) }
+  const requestRanked = async (region: string) => {
+    if (accountBusy) return
+    setAccountBusy(true)
+    try {
+      const player = await refreshAccount()
+      if (player?.profile) rankedPlay(region)
+      else { setRankedRegion(region); setAccountOpen(true) }
+    } catch { /* Account status and retry remain visible in the menu. */ }
+    finally { setAccountBusy(false) }
+  }
 
   // the session lands here with lobby.error after a failed host / join / disconnect
   const error = lobbyStatus === 'error' ? lobbyError : null
@@ -282,24 +322,32 @@ export function MainMenu() {
   </>
 
   return (
-    <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto px-[max(24px,7vw)] pt-20 pb-5 sm:pt-8 sm:[@media(max-height:850px)]:pb-1">
-      <div className="absolute top-5 right-[max(24px,4vw)] z-10 flex flex-wrap justify-end gap-2">
-      <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { setDraftColor(getProfile().color); setNameOpen(true) }} aria-label={`Edit player name and color: ${name}`}>
+    <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
+      <div className="menu-identity absolute z-10 flex flex-col items-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
+      <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) { setRankedRegion(undefined); setAccountOpen(true) } else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={`Edit player name and color: ${name}`}>
         <span className="text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
         <span className="max-w-40 truncate font-semibold">{name}</span>
         <span className="text-ash"><MenuGlyph kind="edit" size={13} /></span>
       </button>
       {rating && <button type="button" className="rounded border border-[#aaa9c8]/30 bg-[#140e0b]/90 px-3 py-2 text-sm font-semibold text-[#e3d9ba] hover:border-gold/60" onClick={() => setProfileTab('board')} title="Open the global Elo leaderboard" data-testid="profile-elo">{Math.round(rating.rating)} Elo · #{rating.rank}</button>}
       </div>
+      {accountsEnabled && <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={() => { setRankedRegion(undefined); setAccountOpen(true) }}>{account ? 'Account' : 'Sign in'}</Button>
+        {account && <Button variant="ghost" size="sm" data-testid="open-collection" title={emberProblem ?? 'Your permanent cosmetic collection'} onClick={() => setCollectionOpen(true)}><span className="flex items-center gap-1.5"><EmberMark size={16} /><span className="tabular">{emberBalance !== null ? `${emberBalance.toLocaleString()} · Collection` : 'Collection'}</span></span></Button>}
+      </div>}
+      </div>
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
-      <div className="relative my-auto flex w-full max-w-[460px] shrink-0 flex-col">
+      <div className="menu-main relative my-auto flex w-full shrink-0 flex-col">
         <Wordmark />
         {!playSupported && <p data-testid="play-requirement" className="mt-2 rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-sm leading-snug text-[#f3d3a1]">{PLAY_REQUIREMENT}</p>}
         {/* the tagline makes room on short screens (1280x720 with the game-server options) */}
         <p className="menu-tagline hud-text-shadow mt-[min(1rem,2vh)] mb-[min(1.75rem,3vh)] max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4] [@media(max-height:780px)]:hidden">Knock rival warlocks into the lava. Last one standing takes the round.</p>
 
         {activeRoom ? <Button variant="primary" className="mt-4 w-full" data-testid="return-active-room" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : 'Resume your active lobby or match'} onClick={() => { if (isPlaySupported()) session.resume() }}>Return to your game</Button> : <RejoinPrompt />}
+        {!activeRoom && account?.game && <Button variant="primary" className="mt-3 w-full" data-testid="rejoin-account-game" disabled={!playSupported} onClick={() => { if (isPlaySupported() && account.game) void session.join(account.game.room, { kind: 'server', region: account.game.region }) }}>Rejoin your ranked game</Button>}
+        {accountError && <div role="alert" className="mt-3 rounded border border-red-400/30 bg-[#321717] p-3 text-sm text-red-200">{accountError}<Button size="sm" variant="ghost" disabled={accountBusy} onClick={() => { setAccountBusy(true); void refreshAccount().catch(() => {}).finally(() => setAccountBusy(false)) }}>Retry account</Button></div>}
 
         {error && (
           <div role="alert" className="pop-in mb-5 flex items-start gap-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-3">
@@ -322,31 +370,28 @@ export function MainMenu() {
           </div>
         )}
 
-        <nav ref={navRef} className="mt-6 flex flex-col gap-2.5 [@media(max-height:1000px)]:mt-3 [@media(max-height:1000px)]:gap-0.5" aria-label="Main menu">
-          {online.configured && <QueueEntries />}
-          <MenuEntry primary={!online.configured} title="Play" sub="Set up a game · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
-          {online.configured && <MenuEntry title="Browse games" sub="Find a game or host your own" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
-          <Button variant="ghost" className="justify-start text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
+        <nav ref={navRef} className="menu-navigation flex flex-col" aria-label="Main menu">
+          {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
+          <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
+            <MenuEntry primary={!online.configured} title="Play" sub="Set up a game · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
+            {online.configured && <MenuEntry title="Browse games" sub="Find a game or host your own" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
+          </div>
+          <div className="menu-access flex flex-wrap items-center justify-between gap-3">
+            <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
+            <Button className="gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" size="sm" variant="ghost" onClick={tutorial.open} data-testid="how-to-play"><MenuGlyph kind="guide" size={16} /> How to play</Button>
+          </div>
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
-          <Button className="justify-start gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" variant="ghost" onClick={tutorial.open} data-testid="how-to-play">
-            <MenuGlyph kind="guide" /> How to play <span className="ml-auto font-ui text-sm font-normal text-ash">Four quick lessons</span>
-          </Button>
-          <div className="mt-1 grid grid-cols-2 gap-2.5">
-            <Button variant="ghost" size="sm" className="gap-1 px-1 text-[0.72rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileTab('stats')} aria-label="Your statistics">
-              <span className="hidden sm:inline-flex"><MenuGlyph kind="record" size={16} /></span> Stats
-            </Button>
-            <Button variant="ghost" size="sm" className="px-1 text-[0.72rem] whitespace-nowrap sm:text-sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
-          </div>
-          <div className="flex items-center justify-center gap-4">
-            <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-[0.78rem] whitespace-nowrap sm:text-sm" onClick={() => toggle('settingsOpen', true)}>
-              <MenuGlyph kind="settings" size={16} /> Settings
-            </Button>
-          </div>
         </nav>
       </div>
 
-      <footer className="relative mt-6 flex shrink-0 flex-wrap items-center justify-between gap-3 text-sm text-[#cdb8a4] [@media(max-height:1000px)]:mt-3">
-        <div className="flex items-center gap-3">
+      <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
+        <div className="flex flex-col gap-3">
+          <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /> Stats</Button>
+            <Button variant="ghost" size="sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => toggle('settingsOpen', true)}><MenuGlyph kind="settings" size={16} /> Settings</Button>
+          </nav>
+          <div className="flex items-center gap-3">
           {gpu === 'fallback' ? (
             <span className="chip text-[#ffcf9a]" title="No WebGPU in this browser. Brawlock runs on WebGL2 with lighter effects.">
               Limited graphics mode
@@ -355,6 +400,7 @@ export function MainMenu() {
             <span className="chip">WebGPU</span>
           ) : null}
           <span>Pre-alpha build</span>
+          </div>
         </div>
         <span className="flex items-center gap-1">
           <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
@@ -378,6 +424,8 @@ export function MainMenu() {
         </span>
       </footer>
       {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
+      {accountOpen && <Suspense fallback={null}><Account initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
+      {collectionOpen && account && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} /></Suspense>}
       {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name
           <input autoFocus aria-label="Display name" className="field" maxLength={NAME_MAX} spellCheck={false} value={draft} onFocus={(e) => e.target.select()} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitName() }} />

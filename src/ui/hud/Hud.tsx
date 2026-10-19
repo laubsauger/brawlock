@@ -187,13 +187,15 @@ function StatusLayer() {
 function SessionNotice() {
   const notice = useGame((s) => s.lobby.notice)
   const waiting = useGame((s) => s.lobby.waitingForRound)
-  return notice || waiting ? (
+  const maintenance = useGame((s) => s.lobby.maintenance)
+  return notice || waiting || maintenance ? (
     <div className="hud-scale absolute top-11 left-3 flex max-w-[min(28rem,calc(100%_-_1.5rem))] flex-col items-start gap-1.5 text-sm font-semibold text-[#e6d3b8] max-sm:top-24">
       {waiting && <div className="rounded border border-gold/30 bg-obsidian/90 px-3 py-2" role="status" aria-live="polite">
         <div className="text-gold">Joining next round</div>
         <div className="mt-0.5 text-xs font-normal text-ash">Watching until this round ends</div>
       </div>}
       {notice && <div className="rounded border border-white/10 bg-obsidian/85 px-3 py-1.5" role="status" aria-live="polite" aria-atomic="true">{notice}</div>}
+      {maintenance && <div className="rounded border border-gold/30 bg-obsidian/90 px-3 py-2 text-xs font-normal text-[#e6d3b8]" role="status">{maintenance}</div>}
     </div>
   ) : null
 }

@@ -415,6 +415,11 @@ export class PawnView {
     this.warlock?.setColor(identityHex)
   }
 
+  /** Re-read authoritative equipment when a seat changes occupant mid-match. */
+  setCosmetics(equipment: PlayerSlot['cosmetics']): void {
+    this.warlock?.setRobe(equipment?.robe ?? null)
+  }
+
   /** last physics (knockback) velocity, game units/s, for directional death FX */
   knockX = 0
   knockY = 0

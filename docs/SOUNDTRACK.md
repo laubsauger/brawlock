@@ -17,7 +17,7 @@ The default match ends at five round wins, with 25-second shop phases between ro
 | Combat C | Runebreaker | 3–4 minutes, loopable |
 | Final shrinking arena | The Last Ring | 1–2 minutes, loopable |
 | Match results | The Embers Remain | 45–90 seconds, loopable |
-| Trailer | Into the Lava | Approximately 75–90 seconds, edited to the footage |
+| Teaser trailer | Into the Lava — Teaser 60 | Approximately 60 seconds; round 2 audition ceiling 90 seconds |
 
 Prioritize two additional combat tracks, then the results cue. Extend a successful recording rather than regenerating a longer version from scratch. A restrained menu extension is useful if players spend a long time in the lobby.
 
@@ -25,13 +25,13 @@ Suggested playback behavior for later integration: choose a different combat cue
 
 ## Suno fields
 
-Use Create → Custom. The Styles field describes sound and arrangement; Lyrics contains sung words. With Instrumental enabled, leave Lyrics blank and put the arrangement directions in Styles.
+Use Create → Custom. Styles describes the sound and can also carry arrangement directions. The original game cues below use Instrumental with Lyrics blank. For the latest trailer round, use Lyrics as a bracketed arrangement sheet instead: see the matching Styles and Lyrics blocks for D–F in [TRAILER-MUSIC.md](TRAILER-MUSIC.md). Those scripts contain section and performance directions, with no sung words. This is an audition technique, not guaranteed timing control.
 
 | Field | Starting value |
 |---|---|
 | Model | v6 |
 | Instrumental | On |
-| Lyrics | Blank |
+| Lyrics | Blank for these game cues; bracketed arrangement for trailer D–F |
 | Styles | The corresponding track prompt below |
 | Exclude | Shared exclusion list below |
 | Vocal Gender | Unset |
@@ -117,21 +117,11 @@ Instrumental dark fantasy sudden-death arena game score. 144 BPM, 4/4, D Phrygia
 
 Higher pressure and less breathing room while preserving clarity for the fight.
 
-## 5. Trailer
+## 5. Teaser trailer — current round
 
-Title:
+The current target is a roughly **60-second teaser**, with 90 seconds as the upper bound for this audition round. The [trailer prompt pack](TRAILER-MUSIC.md) now contains six complete Suno field sets.
 
-```text
-Into the Lava
-```
-
-Styles:
-
-```text
-Instrumental dark fantasy arena game trailer score, approximately 80 seconds. 128 BPM, 4/4, D Phrygian. Begin with a solitary iron bell and a threatening low-cello melody. Bring in syncopated hide drums and short low-string patterns, then develop the melody into a forceful low-brass statement. Build through distinct phrases with clear accents for gameplay cuts. Briefly strip back to bell and bass before the final full-ensemble return. Heavy, physical percussion, rough brass texture, clear melodic identity, and audible space for spell impacts. Finish with a decisive unison accent and a short natural decay for the game logo. Entirely instrumental.
-```
-
-Use the winning menu recording as a reference. The trailer can have a deliberate build and final accent because its length will be controlled by the edit.
+For the current short-intro brief, start with **D — Straight Into the Arena**: identity hook in the first two seconds and battle rhythm by three to four seconds. **E — No Safe Ground** is faster and more agile; **F — Ash and Iron** is heavier and more physical. All three escalate through the fight and finish with a title accent around 56 seconds plus a short decay. A–C remain as earlier, more gradual options. Use the winning Circle of Ash recording as an optional reference.
 
 ## 6. Regular combat B
 

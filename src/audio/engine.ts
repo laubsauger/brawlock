@@ -12,6 +12,7 @@
  */
 import { MusicLayer, type MusicTrack } from './music'
 import { MenuMusic } from './menuMusic'
+import { ASSET_BASE } from '../lib/assets'
 import { AmbienceLayer, edgeProximity, type AmbienceKind } from './ambience'
 import { isLocationSafeAtLayer } from '../sim'
 import { AUDIO_ASSETS } from './assets'
@@ -36,11 +37,7 @@ function initialMode(): AudioMode {
 }
 
 function baseUrl(): string {
-  try {
-    return import.meta.env?.BASE_URL ?? '/'
-  } catch {
-    return '/'
-  }
+  return ASSET_BASE
 }
 
 /** Seconds after unlock before samples load, so the splash and first sounds go first. */
@@ -701,7 +698,12 @@ export class AudioEngine {
   }
 
   preloadMenuMusic(): Promise<void> {
-    return this.menuMusic.preload(baseUrl())
+    // Decode the first-click accent before a gesture without creating a live audio graph.
+    const decoder = new OfflineAudioContext(2, 1, 48000)
+    const entrance = this.samples.loadIds(decoder, baseUrl(), ['ui_enter']).then(() => {
+      if (!this.samples.get('ui_enter')) throw new Error('Unable to preload the Enter sound')
+    })
+    return Promise.all([this.menuMusic.preload(baseUrl()), entrance]).then(() => undefined)
   }
 
   /** One lava bed on its own, or none (the sound board; in game the bed follows the music). */

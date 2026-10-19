@@ -7,7 +7,7 @@
 import { TICK_HZ } from '../../sim/types'
 import { FLOOR } from './cam'
 import { ShotSim } from './simShot'
-import type { ShotSpec } from './types'
+import { speedAt, type ShotSpec } from './types'
 
 export interface ActionSample {
   /** sim seconds */
@@ -34,7 +34,7 @@ const BODY = 150
 export function collectAction(spec: ShotSpec): ActionInfo {
   const sim = new ShotSim(spec)
   let st = 0
-  for (let vt = 0; vt < spec.dur - 1e-6; vt += 1 / 60) st += (1 / 60) * Math.max(0, spec.speed ? spec.speed(st) : 1)
+  for (let vt = 0; vt < spec.dur - 1e-6; vt += 1 / 60) st += (1 / 60) * speedAt(spec, vt, st)
   const ticks = Math.ceil(st * TICK_HZ)
   const out: ActionInfo = { samples: [], deaths: [], endSt: st }
   const sample = () => {

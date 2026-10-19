@@ -19,6 +19,10 @@ export function netId(root) {
     }
   }
   for (const d of ['src/sim', 'src/net']) walk(join(root, d))
+  // Both authorities validate these IDs before sending cosmetic slot metadata.
+  const cosmetics = 'src/game/progressionCatalog.ts'
+  h.update(cosmetics)
+  h.update(readFileSync(join(root, cosmetics)))
   return h.digest('hex').slice(0, 12)
 }
 

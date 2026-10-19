@@ -72,6 +72,8 @@ export interface MatchSettings {
 export type BotDifficulty = 'dummy' | 'easy' | 'medium' | 'hard' | 'brutal' | 'uber'
 
 export interface PlayerSlot {
+  /** Authority-verified ownership; presentation only, never affects simulation. */
+  cosmetics?: import('../game/progressionCatalog').CosmeticEquipment
   id: PlayerId
   name: string
   /** 0xRRGGBB */

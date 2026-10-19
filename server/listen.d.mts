@@ -24,6 +24,10 @@ export interface ServerOptions {
   ratingAuthorityAllowInsecureForTests?: boolean
   ratingAuthorityRequestMs?: number
   ratingAuthorityRetryMs?: number
+  accountsAuthorityUrl?: string
+  accountsAllowInsecureForTests?: boolean
+  /** Tests inject a private operator token; production reads MAINTENANCE_SECRET_FILE. */
+  maintenanceToken?: string
   /** Tests inject config; production uses TURN_SECRET_FILE and JSON TURN_URLS. */
   turnSecret?: string
   turnUrls?: string[]

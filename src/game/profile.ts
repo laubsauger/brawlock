@@ -9,6 +9,7 @@
  * in-memory profile instead of throwing.
  */
 import { useGame } from './store'
+import { useAccount } from './accountState'
 
 export interface Profile {
   id: string
@@ -87,6 +88,8 @@ function save(kv: KV | null, p: StoredProfile): void {
 
 /** The local profile. Creates and persists the id on first use. */
 export function getProfile(kv: KV | null = safeLocalStorage()): Profile {
+  const account = useAccount.getState().player
+  if (account?.profile) return { id: `a_${account.id}`, name: account.profile.name, color: account.profile.color }
   const p = load(kv)
   return { id: p.id, name: useGame.getState().settings.playerName, color: p.color }
 }

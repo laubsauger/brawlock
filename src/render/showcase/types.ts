@@ -62,6 +62,8 @@ export interface OverlaySpec {
   /** world overlay nameplates / combat numbers (default true / true) */
   plates?: boolean
   nums?: boolean
+  /** kill stamps and bounty tags on the plates (default true) */
+  stamps?: boolean
 }
 
 export interface ShotSpec extends SimShotSpec {
@@ -70,10 +72,23 @@ export interface ShotSpec extends SimShotSpec {
   dur: number
   /** time scale as a function of sim seconds (1 = real time) */
   speed?(st: number): number
+  /**
+   * time scale as a function of video seconds; wins over `speed`. Can reach 0 (a true freeze:
+   * the sim and the render clock stop while the camera keeps moving), which a sim-time curve
+   * cannot, since the sim clock would never move past the freeze.
+   */
+  speedV?(vt: number): number
   camera(c: CamCtx): CamPose
   overlay?: OverlaySpec
   /** whose point of view the world renders (Windwalk ghosting, nameplate highlight); default 0 */
   localPlayer?: number
   /** rendered but not captured frames before the shot (camera settle, default 12) */
   preroll?: number
+  /** trailer: video seconds of the shot's key moment (the edit lands it on a beat) */
+  hit?: number
+}
+
+/** the shot's time scale at video second `vt` / sim second `st` (never negative) */
+export function speedAt(spec: Pick<ShotSpec, 'speed' | 'speedV'>, vt: number, st: number): number {
+  return Math.max(0, spec.speedV ? spec.speedV(vt) : spec.speed ? spec.speed(st) : 1)
 }

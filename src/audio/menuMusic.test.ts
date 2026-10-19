@@ -13,19 +13,30 @@ beforeEach(() => {
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
-async function prepared() {
+async function prepared(base = '/brawlock/') {
   const queue = new MenuMusic()
-  const loading = queue.preload('/brawlock/')
+  const loading = queue.preload(base)
   const media = MockMedia.instances[0]
   media.readyState = 3
   media.dispatchEvent(new Event('canplay'))
   await loading
   const ctx = new MockAudioContext()
-  const activate = (active: boolean) => queue.setActive(active, ctx as unknown as AudioContext, ctx.destination as unknown as AudioNode, '/brawlock/')
+  const activate = (active: boolean) => queue.setActive(active, ctx as unknown as AudioContext, ctx.destination as unknown as AudioNode, base)
   return { queue, media, ctx, activate }
 }
 
 describe('streaming menu queue', () => {
+  it('requests CORS before streaming CDN music into Web Audio and retains the CDN for the next song', async () => {
+    const base = 'https://laubsauger.github.io/brawlock/'
+    const { media, activate } = await prepared(base)
+    expect(media.corsWhenAssigned).toBe('anonymous')
+    expect(media.loaded).toEqual([base + MENU_SONGS[0]])
+    activate(true)
+    media.dispatchEvent(new Event('ended'))
+    expect(media.src).toBe(base + MENU_SONGS[1])
+    expect(media.corsWhenAssigned).toBe('anonymous')
+    expect(MockMedia.instances).toHaveLength(1)
+  })
   it('ships exactly the two supplied MP3 tracks within a separate streaming budget', async () => {
     const fs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as { readdirSync(p: URL): string[]; statSync(p: URL): { size: number } }
     const dir = new URL('../../public/audio/music/', import.meta.url)

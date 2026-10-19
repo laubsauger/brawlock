@@ -3,6 +3,7 @@
  * them instead of pushing into them, and know when a pillar shields us from a bolt.
  * Pillars are `state.obstacles` (static circles; projectiles collide with them).
  */
+import { asin, atan2, cos, hypot, sin } from '../sim/math'
 import type { ObstacleState, ProjectileState, SimState, Vec2 } from '../sim/types'
 import { isSafe } from './arena'
 
@@ -14,7 +15,7 @@ const clearance = (o: ObstacleState, extra: number) => o.radius + BODY + extra
 
 /** Standing here would overlap (or brush) a pillar. */
 export function inPillar(state: SimState, x: number, y: number, extra = PILLAR_MARGIN): boolean {
-  for (const o of state.obstacles) if (Math.hypot(x - o.x, y - o.y) < clearance(o, extra)) return true
+  for (const o of state.obstacles) if (hypot(x - o.x, y - o.y) < clearance(o, extra)) return true
   return false
 }
 
@@ -28,7 +29,7 @@ export function firstBlocking(state: SimState, from: Vec2, to: Vec2, extra = PIL
   let bestT = Infinity
   for (const o of state.obstacles) {
     const t = Math.max(0, Math.min(1, ((o.x - from.x) * dx + (o.y - from.y) * dy) / len2))
-    const d = Math.hypot(from.x + dx * t - o.x, from.y + dy * t - o.y)
+    const d = hypot(from.x + dx * t - o.x, from.y + dy * t - o.y)
     if (d < clearance(o, extra) && t < bestT) {
       bestT = t
       best = o
@@ -49,7 +50,7 @@ export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number
   const R = clearance(o, PILLAR_MARGIN) + 8
   const fx = from.x - o.x
   const fy = from.y - o.y
-  const d0 = Math.hypot(fx, fy)
+  const d0 = hypot(fx, fy)
   const ok = (w: Vec2) => isSafe(layer, w.x, w.y) && !inPillar(state, w.x, w.y, 0)
   // which way round is shorter: the side `to` lies on, seen from the pillar
   const cross = fx * (to.y - o.y) - fy * (to.x - o.x)
@@ -57,14 +58,14 @@ export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number
   for (const side of [first, -first]) {
     let w: Vec2
     if (d0 <= R + 4) {
-      const a = Math.atan2(fy, fx) + side * 1.1 // ~63 degrees around the ring
-      w = { x: o.x + Math.cos(a) * (R + 10), y: o.y + Math.sin(a) * (R + 10) }
+      const a = atan2(fy, fx) + side * 1.1 // ~63 degrees around the ring
+      w = { x: o.x + cos(a) * (R + 10), y: o.y + sin(a) * (R + 10) }
     } else {
-      const alpha = Math.asin(Math.min(1, R / d0))
-      const base = Math.atan2(-fy, -fx) // from -> pillar centre
+      const alpha = asin(Math.min(1, R / d0))
+      const base = atan2(-fy, -fx) // from -> pillar centre
       const a = base - side * alpha
       const t = Math.sqrt(Math.max(0, d0 * d0 - R * R)) * 1.08
-      w = { x: from.x + Math.cos(a) * t, y: from.y + Math.sin(a) * t }
+      w = { x: from.x + cos(a) * t, y: from.y + sin(a) * t }
     }
     if (ok(w)) return w
   }

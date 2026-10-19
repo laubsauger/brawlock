@@ -250,6 +250,15 @@ export class CC0Warlock implements WarlockHandle {
     return this.gpu.castCharge
   }
 
+  setRobe(item: 'robe-cinder' | 'robe-moon' | null): void {
+    // Near-unit luminance palettes affect untrimmed cloth only. Player-colored
+    // trims, the woven shoulder cue and cast effects are composed afterward.
+    this.gpu.clothBlend = item === null ? 0 : 1
+    if (item === 'robe-cinder') this.gpu.clothTint.setRGB(1.22, 0.96, 0.8)
+    else if (item === 'robe-moon') this.gpu.clothTint.setRGB(0.76, 1.01, 1.55)
+    else this.gpu.clothTint.setRGB(1, 1, 1)
+  }
+
   setColor(color: number): void {
     this.gpu.team.setHex(color)
     if (this.castColorOverride === null) this.gpu.castColor.copy(this.gpu.team)
@@ -984,6 +993,8 @@ export class CC0Warlock implements WarlockHandle {
       }
       if (P.sky > 1e-3) this.rotBone('upperarm_r', Z, -0.4 * P.sky)
       if (victory) {
+        this.rotBone('spine_02', X, victory.bow * 0.6)
+        this.rotBone('spine_03', X, victory.bow * 0.4)
         this.rotBone('pelvis', Z, victory.sway)
         this.rotBone('spine_02', Y, victory.twist)
         this.rotBone('spine_03', Z, -victory.sway * 0.6)

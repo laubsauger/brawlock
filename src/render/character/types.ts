@@ -67,6 +67,7 @@ export interface WarlockHandle {
   /** Colour of the current cast glow (hand, sleeve runes, staff crystal). Default: player colour. */
   setCastColor(color: number | null): void
   setColor(color: number): void
+  setRobe(item: 'robe-cinder' | 'robe-moon' | null): void
   setStaff(variant: StaffVariant | null): void
   setCastFrom(from: CastFrom): void
   /** Extra cloth kick (game-space direction, strength ~ knockback speed). Damage events already do this. */

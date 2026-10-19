@@ -392,16 +392,36 @@
     width: 100%;
     justify-content: flex-start;
     text-align: left;
-    padding: 0.85rem 1.35rem;
+    padding: 1rem 1.4rem;
   }
-  .menu-pair .menu-item { padding: 0.65rem 0.85rem; }
-  .menu-pair .btn-label { font-size: 0.95rem; }
-  @media (max-height: 850px), (max-width: 640px) {
+  .menu-screen { padding: 4rem max(32px, 7vw) 1.5rem; }
+  .menu-main { max-width: 500px; padding-block: 1.5rem; }
+  .menu-main .brand-mark { max-width: 100%; }
+  .menu-identity { top: 1.5rem; right: max(24px, 4vw); max-width: min(440px, 44vw); }
+  .menu-navigation { margin-top: 1.5rem; gap: 1.25rem; }
+  .menu-queues { display: flex; flex-direction: column; gap: 0.85rem; }
+  .menu-item-primary { min-height: 96px; }
+  .menu-pair { gap: 0.85rem; }
+  .menu-pair .menu-item { height: 100%; padding: 0.85rem 1rem; }
+  .menu-access { padding-top: 0.15rem; }
+  .menu-footer { margin-top: 1.5rem; }
+  @media (max-height: 850px) {
     .menu-screen .menu-tagline { display: none; }
-    .menu-screen .brand-mark { width: min(360px, 78vw, 42vh) !important; }
-    .menu-screen nav { margin-top: 0.75rem !important; gap: 0.25rem !important; }
-    .menu-screen .menu-item { padding: 0.55rem 1rem !important; }
-    .menu-screen footer { margin-top: 0.75rem !important; }
+    .menu-screen { padding-top: 4rem; padding-bottom: 1rem; }
+    .menu-main { max-width: 470px; padding-block: 0.75rem; }
+    .menu-screen .brand-mark { width: 350px !important; }
+    .menu-navigation { margin-top: 1rem; gap: 1rem; }
+    .menu-queues { gap: 0.75rem; }
+    .menu-item-primary { min-height: 84px; padding: 0.85rem 1.25rem; }
+    .menu-pair .menu-item { padding: 0.7rem 0.9rem; }
+    .menu-footer { margin-top: 1rem; }
+  }
+  @media (max-width: 640px) {
+    .menu-screen { padding: 7.5rem 24px 1rem; }
+    .menu-identity { max-width: calc(100vw - 48px); }
+    .menu-main { padding-block: 1rem; }
+    .menu-screen .brand-mark { width: min(350px, 78vw) !important; }
+    .menu-footer { align-items: flex-start; }
   }
   .brand-mark { position: relative; flex: none; }
   .brand-mark img { filter: drop-shadow(0 8px 25px #000b) drop-shadow(0 0 1px #f7832c) drop-shadow(0 0 17px #ff641c50); }

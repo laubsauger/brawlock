@@ -4,6 +4,7 @@
  * 1000 / (1 + perpendicular distance to its flight line). One projectile on a
  * collision course is ~1000; a path 332 units to the side is 3 (the dodge threshold).
  */
+import { hypot } from '../sim/math'
 import type { ProjectileState, Vec2 } from '../sim/types'
 
 export const DANGER_SCALE = 1000
@@ -16,9 +17,9 @@ export function dangerAt(projectiles: readonly ProjectileState[], x: number, y: 
   for (const p of projectiles) {
     const dx = x - p.x
     const dy = y - p.y
-    const dist = Math.hypot(dx, dy)
+    const dist = hypot(dx, dy)
     if (dist > DANGER_MAX_DIST) continue
-    const speed = Math.hypot(p.vx, p.vy)
+    const speed = hypot(p.vx, p.vy)
     // a resting projectile has no direction; the original's normalize() yields NaN and the
     // dot test fails, so it is ignored there too
     if (speed < 1e-6) continue
@@ -44,9 +45,9 @@ export function dodgeDirection(projectiles: readonly ProjectileState[], x: numbe
   for (const p of projectiles) {
     const dx = x - p.x
     const dy = y - p.y
-    const dist = Math.hypot(dx, dy)
+    const dist = hypot(dx, dy)
     if (dist > DANGER_MAX_DIST) continue
-    const speed = Math.hypot(p.vx, p.vy)
+    const speed = hypot(p.vx, p.vy)
     if (speed < 1e-6) continue
     if (dist > 1e-6 && (p.vx * dx + p.vy * dy) / (speed * dist) < DANGER_MIN_COS) continue
     const ux = p.vx / speed
@@ -60,7 +61,7 @@ export function dodgeDirection(projectiles: readonly ProjectileState[], x: numbe
     gx += w * side * -uy
     gy += w * side * ux
   }
-  const len = Math.hypot(gx, gy)
+  const len = hypot(gx, gy)
   if (len < 1e-12) return { x: 0, y: 0 }
   return { x: gx / len, y: gy / len }
 }

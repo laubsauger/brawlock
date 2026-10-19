@@ -71,6 +71,7 @@ export const AUDIO_CREDITS: readonly AudioCredit[] = [
   { title: 'Announcer voice generated with ElevenLabs', creator: 'ElevenLabs text-to-speech (voices Maverick and Daniel)', license: 'ElevenLabs', url: 'https://elevenlabs.io' },
   { title: 'Energy impact 1', creator: 'ihitokage', license: 'CC0', url: 'https://freesound.org/people/ihitokage/sounds/413219' },
   { title: 'Sci-Fi Impact', creator: 'Kierham', license: 'CC0', url: 'https://freesound.org/people/Kierham/sounds/646831' },
+  { title: 'Cinematic Impact Boom Metalic', creator: 'EminYILDIRIM', license: 'CC0', url: 'https://freesound.org/people/EminYILDIRIM/sounds/535413' },
 ]
 
 export const AUDIO_ASSETS = {
@@ -122,6 +123,7 @@ export const AUDIO_ASSETS = {
   thud_b: { loop: false, duration: 0.424, credit: 44 },
   impact_energy: { loop: false, duration: 0.556, credit: 46 },
   shield_impact: { loop: false, duration: 0.526, credit: 47 },
+  ui_enter: { loop: false, duration: 1.6, credit: 48 },
   // announcer pack (art/tools/gen_announcer.mjs + process_announcer.py)
   'announcer/maverick_first_blood': { loop: false, duration: 1.011, credit: 45 },
   'announcer/maverick_double_kill': { loop: false, duration: 1.159, credit: 45 },

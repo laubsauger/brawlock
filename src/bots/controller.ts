@@ -24,6 +24,7 @@
  * - A purchase the sim rejects is detected and that spell is skipped until the next shop
  *   phase, instead of burning the 40 s buy timer.
  */
+import { cos, exp, hypot, sin } from '../sim/math'
 import { TICK_HZ } from '../sim/types'
 import type {
   BotDifficulty,
@@ -124,14 +125,14 @@ export type BotAction =
   | 'shield'
 
 const secToTicks = (s: number) => Math.round(s * TICK_HZ)
-const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y)
+const dist = (a: Vec2, b: Vec2) => hypot(a.x - b.x, a.y - b.y)
 
 /** Alliance by current team, as the sim decides it. */
 export const areEnemies = (state: SimState, a: PlayerId, b: PlayerId): boolean => isEnemy(state, a, b)
 
 /** A pawn standing here would overlap a pillar (its radius + our body + a little slack). */
 function blockedByObstacle(state: SimState, x: number, y: number): boolean {
-  for (const o of state.obstacles) if (Math.hypot(x - o.x, y - o.y) < o.radius + PAWN_BODY + 8) return true
+  for (const o of state.obstacles) if (hypot(x - o.x, y - o.y) < o.radius + PAWN_BODY + 8) return true
   return false
 }
 
@@ -500,16 +501,16 @@ export class BotController implements Bot {
       return []
     }
     const target = me.moveTarget
-    const dist = Math.hypot(target.x - me.x, target.y - me.y)
+    const dist = hypot(target.x - me.x, target.y - me.y)
     const last = this.lastCheck
     this.lastCheck = { tick: state.tick, dist, x: target.x, y: target.y }
     if (!last || last.x !== target.x || last.y !== target.y || dist < 40) return []
     if (!inPillar(state, me.x, me.y, 8)) return []
     const expected = (me.moveSpeed * (state.tick - last.tick)) / TICK_HZ
     if (last.dist - dist >= 0.3 * expected) return []
-    const goal = this.wander && Math.hypot(this.wander.x - target.x, this.wander.y - target.y) > 1 ? this.wander : target
+    const goal = this.wander && hypot(this.wander.x - target.x, this.wander.y - target.y) > 1 ? this.wander : target
     const via = routeAround(state, me, goal, state.arena.layer)
-    if (Math.hypot(via.x - target.x, via.y - target.y) < 20) return []
+    if (hypot(via.x - target.x, via.y - target.y) < 20) return []
     this.lastCheck = null
     return [{ kind: 'move', x: via.x, y: via.y }]
   }
@@ -518,7 +519,7 @@ export class BotController implements Bot {
   private pushingIntoPillar(state: SimState, me: PawnState): boolean {
     const target = me.moveTarget
     const last = this.lastWalk
-    const dist = target ? Math.hypot(target.x - me.x, target.y - me.y) : -1
+    const dist = target ? hypot(target.x - me.x, target.y - me.y) : -1
     this.lastWalk = target ? { tick: state.tick, dist } : null
     if (!target || !last || me.cast || dist < 40) return false
     if (!inPillar(state, me.x, me.y, 6)) return false
@@ -550,7 +551,7 @@ export class BotController implements Bot {
       t = at
       for (const c of q.cmds) {
         if (c.kind === 'move') {
-          const d = Math.hypot(c.x - x, c.y - y)
+          const d = hypot(c.x - x, c.y - y)
           vx = d > 1e-6 ? ((c.x - x) / d) * me.moveSpeed : 0
           vy = d > 1e-6 ? ((c.y - y) / d) * me.moveSpeed : 0
         } else if (c.kind === 'stop' || c.kind === 'cast') {
@@ -571,24 +572,24 @@ export class BotController implements Bot {
    */
   private fleeThreats(state: SimState, me: PawnState, zones: ThreatZone[], safety: number): InputCommand[] | null {
     const from = this.predictSelf(me, state.tick)
-    const inside = zones.filter((z) => Math.hypot(from.x - z.x, from.y - z.y) < z.r || Math.hypot(me.x - z.x, me.y - z.y) < z.r)
+    const inside = zones.filter((z) => hypot(from.x - z.x, from.y - z.y) < z.r || hypot(me.x - z.x, me.y - z.y) < z.r)
     if (inside.length === 0) return null
     inside.sort((a, b) => a.fireIn - b.fireIn)
     const urgent = inside[0]
     let bx = from.x - urgent.x
     let by = from.y - urgent.y
-    if (Math.hypot(bx, by) < 1) {
+    if (hypot(bx, by) < 1) {
       // on top of it: head for the arena centre
       bx = -from.x
       by = -from.y
-      if (Math.hypot(bx, by) < 1) bx = 1
+      if (hypot(bx, by) < 1) bx = 1
     }
-    const bl = Math.hypot(bx, by)
+    const bl = hypot(bx, by)
     const threats = state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner))
     let best: { dir: Vec2; dist: number; cost: number } | null = null
     for (const a of FLEE_ANGLES) {
-      const c = Math.cos(a)
-      const s = Math.sin(a)
+      const c = cos(a)
+      const s = sin(a)
       const dir = { x: (bx / bl) * c - (by / bl) * s, y: (bx / bl) * s + (by / bl) * c }
       let dist = 0
       let pathOk = true
@@ -636,7 +637,7 @@ export class BotController implements Bot {
     const p = this.params
     const ph = physVelocity(me)
     const onLava = !isSafe(layer, me.x, me.y)
-    const sliding = Math.hypot(ph.x, ph.y) > me.moveSpeed
+    const sliding = hypot(ph.x, ph.y) > me.moveSpeed
     if (!onLava && !(p.saveLookahead && sliding)) return false
     const out = lavaOutcome(state, me, ph, me.hp, me.moveSpeed, layer)
     return out.lethal || out.damage >= me.hp * 0.45 || (onLava && out.lavaTime > 1.5)
@@ -681,7 +682,7 @@ export class BotController implements Bot {
       if (pr.owner !== this.player) continue
       const kind = pr.kind ?? pr.spell
       if (UNREFLECTED.has(kind) || NOT_STOLEN.has(kind)) continue
-      const v = Math.hypot(pr.vx, pr.vy)
+      const v = hypot(pr.vx, pr.vy)
       if (v < 1) continue
       for (const e of enemies) {
         const m = e.modifiers.find((x) => x.id === 'shield')
@@ -734,25 +735,25 @@ export class BotController implements Bot {
     const contested = (engaged / (1 + engaged)) * (0.65 - 0.25 * this.persona.risk)
     if (sense <= 0) return near
     const r = layerRadius(state.arena.layer)
-    const edge = Math.max(0, Math.min(1, 1 - (r - Math.hypot(e.x, e.y)) / 600))
+    const edge = Math.max(0, Math.min(1, 1 - (r - hypot(e.x, e.y)) / 600))
     // a kill chance across the map is worth less: by the time we get there it has moved on
     const kill = Math.min(1, (edge * 1.2 + e.kbPoints / 600 + (1 - e.hp / Math.max(1, e.maxHp)) * 0.3) / 2) * (1 - 0.6 * Math.min(1, d / 1500))
-    const speed = Math.hypot(e.vx, e.vy)
+    const speed = hypot(e.vx, e.vy)
     const easyHit = 1 - Math.min(1, speed / 320)
     // who threatens us: close, or with a bolt on its way to us
     let threat = Math.max(0, 1 - d / 500)
     for (const pr of threats) {
       if (pr.owner !== e.owner) continue
-      const v = Math.hypot(pr.vx, pr.vy)
+      const v = hypot(pr.vx, pr.vy)
       if (v < 1) continue
       const rx = me.x - pr.x
       const ry = me.y - pr.y
       if ((rx * pr.vx + ry * pr.vy) / v > 0 && Math.abs(rx * pr.vy - ry * pr.vx) / v < 120) threat = 1
     }
-    const grudge = this.recentHit?.owner === e.owner ? this.persona.grudge * Math.exp(-(state.tick - this.recentHit.tick) / (4 * TICK_HZ)) : 0
+    const grudge = this.recentHit?.owner === e.owner ? this.persona.grudge * exp(-(state.tick - this.recentHit.tick) / (4 * TICK_HZ)) : 0
     // third-party push: already flying from someone's hit, toward the edge
-    const kb = Math.hypot(e.vx - e.walkVx, e.vy - e.walkVy)
-    const outward = Math.hypot(e.x, e.y) > 1 ? ((e.vx - e.walkVx) * e.x + (e.vy - e.walkVy) * e.y) / Math.hypot(e.x, e.y) : 0
+    const kb = hypot(e.vx - e.walkVx, e.vy - e.walkVy)
+    const outward = hypot(e.x, e.y) > 1 ? ((e.vx - e.walkVx) * e.x + (e.vy - e.walkVy) * e.y) / hypot(e.x, e.y) : 0
     const push = outward > 0 ? Math.min(1, kb / 600) * (0.4 + 0.6 * edge) * this.persona.opportunism : 0
     const killWeight = p.edgePressure ? 1 : 0.3
     const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near
@@ -876,7 +877,7 @@ export class BotController implements Bot {
     for (const rf of TP_RADII) {
       for (let i = 0; i < TP_DIRS; i++) {
         const a = (i / TP_DIRS) * Math.PI * 2
-        const land = { x: me.x + Math.cos(a) * range * rf, y: me.y + Math.sin(a) * range * rf }
+        const land = { x: me.x + cos(a) * range * rf, y: me.y + sin(a) * range * rf }
         if (!isSafeWithMargin(safety, land.x, land.y, 40) || inPillar(state, land.x, land.y) || insideAny(zones, land.x, land.y)) continue
         const out = lavaOutcome(state, land, carry, me.hp, me.moveSpeed, safety, 2.5)
         if (out.lethal) continue
@@ -884,7 +885,7 @@ export class BotController implements Bot {
         cost += this.dangerHere(state, threats, land.x, land.y) * (purpose === 'dodge' ? 60 : 25)
         for (const e of enemies) cost += Math.max(0, 450 - dist(land, e)) * 1.5
         if (!isSafeWithMargin(safety, land.x, land.y, 160)) cost += 250
-        cost += Math.hypot(land.x, land.y) * 0.15
+        cost += hypot(land.x, land.y) * 0.15
         if (cost < bestCost) {
           bestCost = cost
           best = land
@@ -917,7 +918,7 @@ export class BotController implements Bot {
       const stuck =
         e.modifiers.some((m) => m.id === 'grip') ||
         linked.has(e.id) ||
-        myGravity.some((g) => Math.hypot(g.x - e.x, g.y - e.y) < (g.data.pawnRadius || 550))
+        myGravity.some((g) => hypot(g.x - e.x, g.y - e.y) < (g.data.pawnRadius || 550))
       const at = stuck ? { x: e.x, y: e.y } : positionAfter(state, e, Math.min(windup, HUMAN_NOTICE))
       const d = dist(me, at)
       if (d >= radius) continue
@@ -941,7 +942,7 @@ export class BotController implements Bot {
     let best: PawnState | null = null
     let bestScore = -Infinity
     for (const e of enemies) {
-      const edge = Math.max(0, Math.min(1, 1 - (r - Math.hypot(e.x, e.y)) / 600))
+      const edge = Math.max(0, Math.min(1, 1 - (r - hypot(e.x, e.y)) / 600))
       const score = edge * 1.2 + e.kbPoints / 600 + (1 - e.hp / e.maxHp) * 0.5 - dist(me, e) / 2500
       if (score > bestScore) {
         bestScore = score
@@ -957,7 +958,7 @@ export class BotController implements Bot {
    */
   private repositionSpot(state: SimState, me: PawnState, target: PawnState, threats: ProjectileState[], safety: number): Vec2 | null {
     if (me.hp < me.maxHp * 0.6) return null
-    const tl = Math.hypot(target.x, target.y)
+    const tl = hypot(target.x, target.y)
     if (tl < 50 || layerRadius(state.arena.layer) - tl > 350) return null
     const ox = target.x / tl
     const oy = target.y / tl
@@ -984,11 +985,11 @@ export class BotController implements Bot {
     if (!info?.speed) return 1
     if (target.cast || target.modifiers.some((m) => m.id === 'grip')) return 1
     const ph = physVelocity(target)
-    if (Math.hypot(ph.x, ph.y) > target.moveSpeed * 1.5) return 1
+    if (hypot(ph.x, ph.y) > target.moveSpeed * 1.5) return 1
     const flight = dist(me, aim) / info.speed + info.castPoint
     const room = Math.max(0, flight - HUMAN_NOTICE) * target.moveSpeed
     const r = (spell === 'fireball' ? 25 : 30) + PAWN_BODY
-    const edge = Math.max(0, Math.min(1, 1 - (layerRadius(state.arena.layer) - Math.hypot(target.x, target.y)) / 400))
+    const edge = Math.max(0, Math.min(1, 1 - (layerRadius(state.arena.layer) - hypot(target.x, target.y)) / 400))
     // a shot at a target near the edge is worth it even if it can step aside: it must
     return Math.max(edge, Math.min(1, r / Math.max(1, room)))
   }
@@ -1029,14 +1030,14 @@ export class BotController implements Bot {
     } else {
       if (p.edgePressure && target) {
         // hold the arena-centre side of the target at shooting range, so hits push it out
-        const tl = Math.hypot(target.x, target.y)
+        const tl = hypot(target.x, target.y)
         const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
         const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
         for (let i = 0; i < 6 && !point; i++) {
           const a = this.rng.range(-0.5, 0.5)
           const r = this.rng.range(450, 650)
-          const c = Math.cos(a)
-          const sn = Math.sin(a)
+          const c = cos(a)
+          const sn = sin(a)
           const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
           if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
         }
@@ -1056,7 +1057,7 @@ export class BotController implements Bot {
         }
         const a = this.rng.range(0, Math.PI * 2)
         const r = this.rng.range(0, radius)
-        const cand = { x: centre.x + Math.cos(a) * r, y: centre.y + Math.sin(a) * r }
+        const cand = { x: centre.x + cos(a) * r, y: centre.y + sin(a) * r }
         if (inPillar(state, cand.x, cand.y)) continue
         if (!p.safeWander || isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
       }
@@ -1088,7 +1089,7 @@ export class BotController implements Bot {
       const danger = Math.min(1, this.dangerHere(state, threats, point.x, point.y) / 1000)
       let pushAngle = 0
       if (p.edgePressure && target) {
-        const radius = Math.hypot(target.x, target.y)
+        const radius = hypot(target.x, target.y)
         if (radius > 1) pushAngle = ((target.x - point.x) * target.x + (target.y - point.y) * target.y) / (radius * Math.max(1, range))
       }
       const score = firing + pushAngle * 0.2 - pressure * (0.2 + caution * 0.5) - travel * 0.25 - danger * 0.6
@@ -1104,7 +1105,7 @@ export class BotController implements Bot {
       const aroundTarget = target && i < 6
       const centre = aroundTarget ? target : me
       const radius = aroundTarget ? this.rng.range(300, 850) : this.rng.range(180, 600)
-      consider({ x: centre.x + Math.cos(angle) * radius, y: centre.y + Math.sin(angle) * radius })
+      consider({ x: centre.x + cos(angle) * radius, y: centre.y + sin(angle) * radius })
     }
     return best
   }
@@ -1120,7 +1121,7 @@ export class BotController implements Bot {
     const margin = Math.min(60, Math.max(this.params.edgeMargin, 30))
     const cands: Vec2[] = []
     if (this.wander) cands.push(this.wander)
-    const d = Math.hypot(me.x, me.y)
+    const d = hypot(me.x, me.y)
     if (d > 1) {
       for (const inset of [this.params.edgeMargin + 120, 300, 500]) {
         const r = Math.max(0, layerRadius(safety) - inset)
@@ -1171,8 +1172,8 @@ export class BotController implements Bot {
     }
     if (!clear(dir) || !lowers(dir, DODGE_LOOKAHEAD)) {
       for (const a of [0.5, -0.5, 1.0, -1.0, 1.4, -1.4, 1.9, -1.9]) {
-        const c = Math.cos(a)
-        const s = Math.sin(a)
+        const c = cos(a)
+        const s = sin(a)
         const d = { x: dir.x * c - dir.y * s, y: dir.x * s + dir.y * c }
         if (clear(d) && lowers(d, DODGE_LOOKAHEAD)) {
           dir = d
@@ -1217,8 +1218,8 @@ export class BotController implements Bot {
       if (pr.owner !== this.player || pr.spell !== 'fireball' || pr.kind !== undefined) continue
       const fx = pr.x + pr.vx * lag
       const fy = pr.y + pr.vy * lag
-      if (Math.hypot(fx - me.x, fy - me.y) > LIGHTNING_RANGE * 0.95) continue
-      const victim = enemies.find((e) => Math.hypot(e.x + e.vx * lag - fx, e.y + e.vy * lag - fy) < FIREBALL_DETONATE_RADIUS * 0.8)
+      if (hypot(fx - me.x, fy - me.y) > LIGHTNING_RANGE * 0.95) continue
+      const victim = enemies.find((e) => hypot(e.x + e.vx * lag - fx, e.y + e.vy * lag - fy) < FIREBALL_DETONATE_RADIUS * 0.8)
       if (victim) return { kind: 'cast', slot, x: fx, y: fy }
     }
     return null

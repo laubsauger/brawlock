@@ -52,6 +52,7 @@ export interface RoomOptions {
   elo?: { enabled: boolean; minSeconds: number }
   /** a connected device's display label, including lobby changes before the next match */
   onName?: (device: string, name: string) => void
+  requireRankedAccount?: boolean
   log?: (msg: string) => void
 }
 
@@ -120,12 +121,14 @@ export interface Room {
   isPublic(): boolean
   isQuick(): boolean
   isRanked(): boolean
+  hasProfile(profileId: string): boolean
   summary(): RoomSummary
   /** connected links (humans and spectators) */
   peers(): number
   screen(): Screen
   results(): MatchResult[]
   netStats(): NetStatsView | null
+  setMaintenance(message: string | null): void
   debug(): SessionDebug
   close(): void
 }
@@ -155,6 +158,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   let startTimer: ReturnType<typeof setTimeout> | null = null
   let rankedLobbyTimer: ReturnType<typeof setTimeout> | null = null
   let closed = false
+  let maintenance: string | null = null
 
   const endpoint: HostEndpoint = {
     id: opts.code,
@@ -210,12 +214,14 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     clientKey: () => 'dedicated-server',
     netMode: () => 'predict',
     build: deps.build,
+    requireRankedAccount: opts.requireRankedAccount,
     ...(opts.onMatch ? { recorder: new ServerMatchTracker((m, result) => opts.onMatch!(m, result), opts.onName) } : {}),
   })
   const quick = opts.quick ?? null
 
   /** Lobby with humans: count down to a match. Results: rematch. Nobody left: idle. */
   function schedule(): void {
+    if (maintenance) return
     if (quick) {
       scheduleQuick()
       return
@@ -231,7 +237,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
 
   function start(): void {
     startTimer = null
-    if (closed || screen !== 'lobby' || humans() === 0) return
+    if (closed || maintenance || screen !== 'lobby' || humans() === 0) return
     const bots = lobby.slots.filter((s) => s.kind === 'bot').length
     for (let i = bots; i < opts.bots.length; i++) session.addBot(opts.bots[i])
     if (opts.settings) session.updateSettings(opts.settings)
@@ -241,7 +247,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
 
   function rematch(): void {
     startTimer = null
-    if (closed || screen !== 'results') return
+    if (closed || maintenance || screen !== 'results') return
     if (humans() === 0) session.backToLobby()
     else session.rematch()
   }
@@ -265,7 +271,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }
 
   function scheduleQuick(): void {
-    if (closed || !quick) return
+    if (closed || maintenance || !quick) return
     const n = humans()
     if (opts.ranked && screen === 'results') {
       if (quickAt !== null) setQuickTimer(null, false)
@@ -306,7 +312,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   function quickFire(): void {
     startTimer = null
     quickAt = null
-    if (closed || !quick || humans() < (quick.minHumans ?? 1) || session.debug().peers === 0) return
+    if (closed || maintenance || !quick || humans() < (quick.minHumans ?? 1) || session.debug().peers === 0) return
     if (screen === 'results') session.backToLobby()
     else if (screen !== 'lobby') return
     rebalance(true)
@@ -353,6 +359,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     isPublic: () => session.roomState().public,
     isQuick: () => !!quick,
     isRanked: () => opts.ranked === true,
+    hasProfile: (profileId) => lobby.slots.some((slot) => slot.kind === 'human' && slot.profileId === profileId),
     summary() {
       const st = lobby.settings ?? deps.defaultSettings
       const ownerSlot = quick ? null : lobby.slots.find((x) => x.kind === 'human')
@@ -377,6 +384,14 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     screen: () => screen,
     results: () => results,
     netStats: () => session.netStats(),
+    setMaintenance(message) {
+      maintenance = message
+      if (startTimer) clearTimeout(startTimer)
+      if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
+      startTimer = null; rankedLobbyTimer = null; quickAt = null
+      session.setRoom({ maintenance: message, auto: null })
+      if (!message) schedule()
+    },
     debug: () => session.debug(),
     close() {
       closed = true

@@ -174,6 +174,8 @@ export interface SessionDeps {
   device?: () => string
   /** this build's id (vite define __BUILD_ID__, 'dev-…' for dev builds); dedicated servers refuse other release builds */
   build?: string
+  /** Official ranked rooms require trusted transport identity before seating anyone. */
+  requireRankedAccount?: boolean
 }
 
 export interface SessionApi {
@@ -229,6 +231,8 @@ export interface SessionApi {
 export interface SessionDebug {
   role: NetRole | null
   peers: number
+  /** Connected human seats, including people waiting to replace a bot next round. */
+  connectedHumans: number
   matchId: number
   tick: number
   unreliable: string[]
@@ -305,14 +309,15 @@ const HOST_PLAYER_ID = 0
 const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
 
 /** Lobby view of a plain room: not listed, not quick play. Every new lobby starts from it. */
-const NO_ROOM: Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart'> = { public: false, quick: false, ranked: false, autoStart: null }
+const NO_ROOM: Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance'> = { public: false, quick: false, ranked: false, autoStart: null, maintenance: null }
 
 /** Lobby view fields of a server room's state (missing on older servers: a private owner room). */
-function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart'> {
+function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance'> {
   return {
     public: r?.public === true,
     quick: r?.quick === true,
     ranked: r?.ranked === true,
+    maintenance: typeof r?.maintenance === 'string' ? r.maintenance : null,
     autoStart: r?.auto && Number.isFinite(r.auto.inMs) ? { at: now + Math.max(0, r.auto.inMs), fill: r.auto.fill === true } : null,
   }
 }
@@ -527,7 +532,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let serverRoom = false
   let owner: PlayerId = -1
   /** dedicated host: listing / quick-play state; `autoAt` is the session clock of the auto start */
-  let roomInfo: { public: boolean; quick: boolean; ranked: boolean; autoAt: number | null; autoFill: boolean; cap: number | null } = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null }
+  let roomInfo: { public: boolean; quick: boolean; ranked: boolean; autoAt: number | null; autoFill: boolean; cap: number | null; maintenance: string | null } = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null, maintenance: null }
   let joinedCode: string | null = null
   let unsubScreen: (() => void) | null = null
   let matchCounter = 0
@@ -676,7 +681,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function roomStateNow(): RoomState {
     const r = roomInfo
-    return { public: r.public, quick: r.quick, ranked: r.ranked, auto: r.autoAt === null ? null : { inMs: Math.max(0, Math.round(r.autoAt - deps.now())), fill: r.autoFill } }
+    return { public: r.public, quick: r.quick, ranked: r.ranked, maintenance: r.maintenance, auto: r.autoAt === null ? null : { inMs: Math.max(0, Math.round(r.autoAt - deps.now())), fill: r.autoFill } }
   }
 
   /** Dedicated server: the first connected human seat owns the room (lobby controls); quick-play rooms have no owner. */
@@ -792,7 +797,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     dedicated = false
     serverRoom = false
     owner = -1
-    roomInfo = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null }
+    roomInfo = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null, maintenance: null }
     joinedCode = null
     stopClientMatch()
     link?.close()
@@ -895,7 +900,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (!m) return
     if (m.t === 'hello') onHello(p, m)
     else if (m.t === 'rename' && p.playerId !== null && typeof m.name === 'string') {
-      p.name = sanitizeName(m.name)
+      if (p.t.account) return // Reserved account names come only from the authority.
+      p.name = sanitizeName(p.t.account === null ? `Guest ${m.name}` : m.name)
       renameSlot(p.playerId, p.name)
     }
     else if (m.t === 'input') onInput(p, m)
@@ -960,14 +966,23 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, 'This server runs a different version of the game. Reload the page; if that does not help, the server is being updated.')
       return
     }
-    const profileId = sanitizeProfileId(m.profileId)
+    const account = p.t.account
+    if (roomInfo.ranked && deps.requireRankedAccount && !account) {
+      rejectPeer(p, 'Sign in and choose your player name before joining ranked.')
+      return
+    }
+    const profileId = account?.ratingKey ?? sanitizeProfileId(m.profileId)
     if (!profileId) {
       rejectPeer(p, 'Your player profile is missing or invalid. Reload the game before joining.')
       return
     }
-    p.name = sanitizeName(m.name)
+    p.name = account?.name ?? sanitizeName(p.t.account === null ? `Guest ${m.name}` : m.name)
     p.key = typeof m.key === 'string' ? m.key.slice(0, 64) : ''
-    const device = sanitizeProfileId(m.device)
+    const device = account?.ratingKey ?? sanitizeProfileId(m.device)
+    if (p.t.account === null && (profileId.startsWith('a_') || device?.startsWith('a_'))) {
+      rejectPeer(p, 'Sign in to use an account player identity.')
+      return
+    }
     if (roomInfo.ranked && (!device || [...slotDevices].some(([id, known]) => {
       const slot = slots.find((s) => s.id === id && s.kind === 'human')
       return known === device && !!slot && slot.profileId !== profileId
@@ -1012,6 +1027,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         match.connectedPatch.set(back, true)
       }
       renameSlot(back, p.name)
+      if (account) {
+        slots = slots.map((s) => s.id === back ? { ...s, cosmetics: account.cosmetics } : s)
+        const active = match?.slotPatch.get(back) ?? match?.state.slots.find((s) => s.id === back)
+        if (active) match?.slotPatch.set(back, { ...active, cosmetics: account.cosmetics })
+      }
       p.t.sendReliable(encode(welcomeFor(back)))
       p.t.sendReliable(encode({ t: 'chatlog', lines: chat }))
       p.t.sendReliable(encode(lobbyMsg()))
@@ -1020,17 +1040,21 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       return
     }
 
+    if (roomInfo.maintenance) {
+      rejectPeer(p, 'This region is preparing an update. Reconnecting players can finish their game; choose another region for a new game.')
+      return
+    }
     if (roomInfo.ranked && ui.screen() !== 'lobby') {
       rejectPeer(p, 'This ranked match has already started. Join the Ranked queue for the next game.')
       return
     }
-    const preferred = sanitizeColor(m.color)
+    const preferred = account?.color ?? sanitizeColor(m.color)
     const replace = slots.find((s) => s.kind === 'bot' && s.color === preferred) ?? slots.find((s) => s.kind === 'bot')
     if ((!replace && slots.length >= MAX_PLAYERS) || (roomInfo.cap !== null && slots.filter((s) => s.kind === 'human').length >= roomInfo.cap)) {
       rejectPeer(p, 'The lobby is full.')
       return
     }
-    const identity = { name: p.name, kind: 'human' as const, profileId }
+    const identity = { name: p.name, kind: 'human' as const, profileId, ...(account ? { cosmetics: account.cosmetics } : {}) }
     // Keep the bot's seat, team, equipment and life state. Joining never resurrects a pawn.
     const color = preferred !== null && !slots.some((s) => s.id !== replace?.id && s.color === preferred) ? preferred : replace?.color
     const slot = replace ? { id: replace.id, color: color!, team: replace.team, ...identity } : addSlot(identity, preferred)
@@ -2385,6 +2409,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     startMatch() {
       if (ownerCtl({ t: 'ctl', op: 'start' })) return
+      if (dedicated && roomInfo.maintenance) { showNotice(roomInfo.maintenance, true); return }
       if (!isAuthority() || match || vote || slots.length === 0) return
       voteResult = null
       const seed = Math.floor(deps.random() * 0x100000000) >>> 0
@@ -2472,6 +2497,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         return
       }
       if (!isAuthority()) return
+      if (dedicated && roomInfo.maintenance) { showNotice(roomInfo.maintenance, true); return }
       if (match) stopMatch(match)
       api.startMatch()
     },
@@ -2566,6 +2592,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (patch.public !== undefined) roomInfo.public = patch.public
       if (patch.quick !== undefined) roomInfo.quick = patch.quick
       if (patch.ranked !== undefined) roomInfo.ranked = patch.ranked
+      if (patch.maintenance !== undefined) roomInfo.maintenance = patch.maintenance
       if (patch.cap !== undefined) roomInfo.cap = patch.cap
       if (patch.auto !== undefined) {
         roomInfo.autoAt = patch.auto === null ? null : deps.now() + patch.auto.inMs
@@ -2598,6 +2625,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       return {
         role,
         peers: peers.length,
+        connectedHumans: peers.filter((p) => p.playerId !== null && p.t.open && slots.some((slot) => slot.id === p.playerId && slot.kind === 'human')).length,
         matchId: match?.id ?? cm?.id ?? -1,
         tick: match?.state.tick ?? cm?.buffer.latestTick ?? -1,
         unreliable: link ? [link.unreliableMode] : peers.map((p) => p.t.unreliableMode),

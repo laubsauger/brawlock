@@ -1,36 +1,31 @@
-# Account identity for the next release
+# Account identity and the fresh ranked season
 
-Planned after the current regional/chat release. No account gate is included in this deployment.
+Decision record, 2026-10-19. The account flow, regional ranked verification and progression are implemented locally; **not deployed**. [ACCOUNTS.md](ACCOUNTS.md) is the current contract and release-gate reference.
 
-Ranked requires a verified account; casual Quick Play and custom games retain guest entry. One stable server-owned account ID owns the global Elo, reserved player name, preferred color and match history across computers and regions. Email is private and is never the displayed identifier or rating key. Device IDs remain guest/reconnection hints; they are not authentication proofs.
+## Chosen identity model
 
-## Recommended approach
+Ranked requires a verified account. Casual Quick Play and custom games retain guest entry. One immutable server-owned account ID owns the global Elo identity, reserved player name, preferred color, Embers and cosmetic ownership across computers and regions. Email is private. Device IDs remain guest/reconnect hints, never authentication proofs.
 
-Evaluate self-hosted Better Auth on the existing backend: Google, Discord and Microsoft sign-in, with a passkey option for people who do not want a social account. Its OAuth/account-linking and passkey-first registration are supported library features. This avoids a per-user authentication subscription; running, patching and backing up the service still has a cost. Confirm deployed library versions and advisories before implementation.
+Use the single self-hosted Better Auth authority on US, with configured Google/Discord/Microsoft providers and passkeys added after an initial provider sign-in. Only Google credentials are currently provisioned. Provider scopes stay minimal; explicit authenticated linking is supported, implicit email-based linking is disabled. Password registration, passkey-only enrollment and an email recovery service are outside this release. No placeholder email identities or custom authentication protocol are introduced.
 
-Keep a managed alternative available for the decision: Clerk Hobby currently includes three social connections and 50,000 monthly retained users, but production passkeys are paid. Supabase Free currently includes 50,000 monthly active users; public email authentication needs a custom SMTP service. Do not choose a provider on a stale free-tier assumption.
+The browser obtains a fresh short-lived, single-use library proof for each regional admission action. Regions verify it through the private authority link, receive trusted canonical identity/equipment and enforce global ranked occupancy. Account IDs, display names and ranks supplied by a browser cannot substitute for proof. The account authority's occupancy has no expiry that could admit a second active ranked game during a network interruption; reconnect and regional generation cleanup are explicit.
 
-Email/password can be supported, but recovery and verification require dependable email delivery. A passkey plus linked social login (or a carefully designed recovery method) avoids operating that email flow initially. Do not ship password accounts that cannot recover access. Offer a second login method and explicit account linking so Google/Discord/passkeys join the same account rather than creating parallel ratings. Never link accounts merely because a client supplies the same email string.
+## Names and renames
 
-## Player names
+Claim and change names on the authenticated profile endpoint. Names normalize NFKC and use 3–16 ASCII letters/numbers/underscores, beginning with a letter. Their lower-case canonical key is globally unique in the authority's SQLite database; system names and control/confusable scripts outside this explicit alphabet are rejected.
 
-An authenticated account claims an available unique name through an atomic server transaction. Enforce uniqueness on a canonical normalized, case-insensitive key, with bounded input, prohibited control characters, reserved system names and a documented confusable-character policy. Resolve uniqueness races in the database, not just the form. Existing guest display names do not automatically reserve account names.
+Renaming works in this release. A successful atomic update releases the old name immediately. A competing claim returns 409 and leaves name/color unchanged. There is no invented cooldown or reservation hold; the existing profile-write rate limit applies. Immutable account identity, Elo key and progression remain the same. Account-enabled dedicated rooms use the server's canonical account name and mark unauthenticated guest names explicitly. Guest names do not reserve account names.
 
-Guests have an unmistakable Guest marker and cannot use an exact reserved name in online rooms. The server supplies the signed-in account’s canonical player name instead of accepting an arbitrary client label. Name changes never move or recreate the account or its Elo. Set a rename cooldown and old-name hold before opening registration; the UI must show availability and explain when an old name becomes available again. Email changes must not affect the reserved name.
+## Cutover decisions
 
-## Integration and acceptance
+The user approved `https://brawlock.osc.link` as the main game/auth origin, with the old GitHub Pages entry redirecting there. Keep the regional endpoints at `us.brawlock.osc.link` and `eu.brawlock.osc.link`. Issue production passkeys only on the final HTTPS game origin; their relying-party domain cannot be casually moved later. [STATIC-HOSTING.md](STATIC-HOSTING.md) describes the retained Pages media split and link-preserving entry redirects.
 
-- One auth authority, shared by both game regions; verify sessions server-side before ranked admission and rating submission. Never trust client account IDs, claimed rank or match results.
-- Explicitly link existing guest history to an authenticated account. Current device IDs are user-controlled, so they do not prove ownership of a public leaderboard identity. Decide legacy Elo adoption versus a fresh public ranked season before migration; never merge by name/email alone.
-- Prefer a stable first-party game/auth domain (for example game at `brawlock.osc.link`, auth at `auth.brawlock.osc.link`) before issuing passkeys; WebAuthn credentials are scoped to a relying-party domain. Review cross-origin cookies and browser storage behavior with the existing GitHub Pages client.
-- Cover login on a second machine, account linking, logout/revocation, reserved-name races/case variations, renames, expired sessions, duplicate ranked sessions, return from OAuth and account recovery. Preserve guest casual play throughout.
-- Keep OAuth secrets and session keys server-only; rate-limit auth and name claims, validate callback/state/PKCE, retain a minimal permissions scope, and back up the account database. Use library facilities rather than a custom authentication protocol.
+**The later explicit instruction to wipe history supersedes the earlier legacy-preservation plan.** Reset old device-based ratings and match history when cutting over to the fresh account season. Do not expose a legacy ladder, merge device Elo into accounts, or implement an import. A private operational backup is fine. Keep new account records, reserved names, provider credentials and session secrets intact. The reset has not been executed on the live fleet.
 
-## Sources checked 2026-10-18
+Old-origin local settings/replays do not automatically transfer between domains; no cross-origin history-import flow is part of this release. Preserve query/hash invite behavior in the entry redirect.
 
-- Better Auth free MIT license: https://github.com/better-auth/better-auth/blob/main/LICENSE.md
-- Better Auth OAuth/account linking: https://better-auth.com/docs/concepts/oauth and https://better-auth.com/docs/concepts/users-accounts
-- Better Auth passkeys and passkey-first registration: https://better-auth.com/docs/plugins/passkey
-- Clerk limits and passkey availability: https://clerk.com/pricing
-- Supabase limits: https://supabase.com/pricing
-- Supabase public email delivery requirements: https://supabase.com/docs/guides/auth/auth-smtp
+## Release acceptance
+
+Locally covered: session revocation/expiry, profile uniqueness and rename identity, one-use admission proofs, regional RPC identity validation, global ranked occupancy/reconnect routes and account-owned progression invariants. Real browser virtual-passkey and DOM account/collection proofs are also available.
+
+Still gate the combined release on real-TCP regional admission/reconnect and result settlement, completed maintenance/drain behavior, visual/cosmetic review, exact matching builds and the coordinated hostname/fleet cutover. Real Google login through the production HTTPS site remains unverified. Keep secrets server-only and preserve casual guest play throughout. A local implementation or provider URL probe is not evidence that the production rollout is complete.

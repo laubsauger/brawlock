@@ -15,8 +15,8 @@ function b64(u: Uint8Array): string {
 }
 
 ;(window as unknown as Record<string, unknown>).__audio = {
-  async render(edit: string[], mode: 'synth' | 'hybrid' = 'hybrid', muteSfx = false) {
-    const r = await renderSoundtrack({ edit, mode, muteSfx })
+  async render(edit: string[], mode: 'synth' | 'hybrid' = 'hybrid', muteSfx = false, ambience = true) {
+    const r = await renderSoundtrack({ edit, mode, muteSfx, ambience })
     wav = r.wav
     return { chunks: Math.ceil(r.wav.length / CHUNK), dur: r.dur, cues: r.cues, bytes: r.wav.length, musicStarted: r.musicStarted }
   },

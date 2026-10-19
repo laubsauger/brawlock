@@ -3,6 +3,8 @@ export class MockMedia extends EventTarget {
   static instances: MockMedia[] = []
   readonly loaded: string[] = []
   preload = ''
+  crossOrigin: string | null = null
+  corsWhenAssigned: string | null = null
   readyState = 0
   paused = true
   ended = false
@@ -13,7 +15,7 @@ export class MockMedia extends EventTarget {
   private url = ''
   constructor() { super(); MockMedia.instances.push(this) }
   get src() { return this.url }
-  set src(value: string) { this.url = value; this.ended = false; this.paused = true; this.currentTime = 0; this.readyState = 0 }
+  set src(value: string) { this.corsWhenAssigned = this.crossOrigin; this.url = value; this.ended = false; this.paused = true; this.currentTime = 0; this.readyState = 0 }
   setAttribute() {}
   load() { this.loaded.push(this.src) }
   play() { this.paused = false; this.plays++; return Promise.resolve() }

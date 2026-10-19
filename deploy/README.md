@@ -4,6 +4,7 @@ This is the dedicated game server (M4.1, `docs/M4.md` §11). One Node process ho
 The prepared runtime uses the unprivileged **brawlock** account under **pm2**, behind **nginx**, which terminates TLS (certbot).
 
 For repeatable releases, verification, backups and rollback, follow [the fleet release checklist](RELEASE.md).
+The [operations tool index](TOOLS.md) covers checked-in region configuration, account deployment, website staging and maintenance controls.
 
 This release introduces the dedicated runtime on both hosts and shared global ratings. The first deployment must migrate only the existing US Brawlock app out of root PM2, preserve its database, then start the EU game with a durable outbox. EU authenticated TURN is managed separately. Provisioning alone is not a completed game deployment; verify both running versions after release.
 

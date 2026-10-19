@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 dist-server/
+dist-accounts/
 
 # TypeScript
 *.tsbuildinfo
@@ -59,3 +60,8 @@ __pycache__/
 /artifacts/ability-readability/
 /artifacts/audio-polish/
 /artifacts/cast-cancel/
+/artifacts/account-identity/
+/artifacts/audio-enter-review/
+/artifacts/color-grade/
+/artifacts/production-smoke/
+/artifacts/production-smoke-fight/

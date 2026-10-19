@@ -63,7 +63,7 @@ import type { LobbyVoteChoice, LobbyVoteSetting, LobbyVoteWire, LobbyVoteResult 
 import type { ChatLine } from './chat'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -94,6 +94,8 @@ export interface RoomState {
   /** a quick-play room: the server runs it (no owner), it starts and refills by itself */
   quick: boolean
   ranked?: boolean
+  /** Persistent regional update notice; null/absent when accepting new games. */
+  maintenance?: string | null
   /** quick play: the automatic start in this many ms from the message ('fill': the one-human countdown; bots top the table up either way); null = none pending */
   auto: { inMs: number; fill: boolean } | null
 }

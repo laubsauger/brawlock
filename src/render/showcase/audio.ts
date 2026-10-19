@@ -5,6 +5,7 @@
  * the video frame that shows them. Runs in a page (audio.html) on an OfflineAudioContext.
  */
 import { AudioEngine, buildGraph } from '../../audio/engine'
+import { ASSET_BASE } from '../../lib/assets'
 import type { SimEvent, SimState } from '../../sim/types'
 import { camOverride } from './camRig'
 import { Director, VIDEO_FPS } from './director'
@@ -85,6 +86,8 @@ export interface RenderOpts {
   mode?: 'synth' | 'hybrid'
   /** verification: silence the SFX and UI buses (only a music bus could then be heard) */
   muteSfx?: boolean
+  /** the lava ambience bed (default on; a trailer under its own music leaves it out) */
+  ambience?: boolean
 }
 
 /** Render the whole edit's soundtrack. Returns interleaved 16-bit PCM WAV bytes. */
@@ -113,7 +116,7 @@ export async function renderSoundtrack(o: RenderOpts): Promise<{ wav: Uint8Array
     g.sfx.gain.value = 0
     g.ui.gain.value = 0
   }
-  if (eng.modeNow === 'hybrid') await engine.samples.load(facade, import.meta.env?.BASE_URL ?? '/')
+  if (eng.modeNow === 'hybrid') await engine.samples.load(facade, ASSET_BASE)
   // real-time timers would fire against the wall clock, not the offline timeline: the engine
   // only uses them to disconnect finished nodes (GC does that) and to pump the beds (done below)
   const realTimeout = window.setTimeout
@@ -122,7 +125,7 @@ export async function renderSoundtrack(o: RenderOpts): Promise<{ wav: Uint8Array
   ;(window as unknown as { setInterval: unknown }).setInterval = () => 0
   try {
     // lava ambience only (no music track)
-    eng.applyAmbience('match')
+    if (o.ambience !== false) eng.applyAmbience('match')
     const ambOut = total - 2.2
     let released = false
     const extra = new Map<number, { id: string; gain: number; param?: number }[]>()
@@ -135,7 +138,7 @@ export async function renderSoundtrack(o: RenderOpts): Promise<{ wav: Uint8Array
     // one suspend per video frame: events, travel-loop following, ambience lookahead
     for (const cue of all) {
       void ctx.suspend(Math.max(128 / sr, cue.t)).then(() => {
-        if (!released && cue.t >= ambOut) {
+        if (!released && cue.t >= ambOut && o.ambience !== false) {
           eng.applyAmbience(null)
           released = true
         }

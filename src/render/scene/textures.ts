@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu'
+import { assetUrl } from '../../lib/assets'
 
 /**
  * Optional authored PBR texture sets (art pipeline drops them into
@@ -37,8 +38,7 @@ const cache = new Map<string, Promise<SurfaceMaps | null>>()
 const fallbackLoader = new THREE.TextureLoader()
 
 function url(path: string): string {
-  const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
-  return `${base}/textures/${path}`
+  return assetUrl(`textures/${path}`)
 }
 
 async function exists(u: string): Promise<boolean> {

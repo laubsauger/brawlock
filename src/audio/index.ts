@@ -48,7 +48,7 @@ export interface Listener {
 export interface AudioApi {
   /** Create / resume the AudioContext. Call from a user gesture. Safe to call repeatedly. */
   unlock(): void
-  /** Prepare only the first streaming menu song during the splash. Does not start playback. */
+  /** Prepare the first menu song and Enter accent during the splash. Does not start playback. */
   preloadMenuMusic(): Promise<void>
   setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; announcer?: number; muted: boolean }): void
   /** Play SFX for sim events from one tick. */

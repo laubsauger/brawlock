@@ -24,7 +24,7 @@ export function regionStatus(): RegionStatus[] {
  */
 export function pickRegion(statuses: RegionStatus[], choice: string): RegionStatus | null {
   if (choice !== 'auto') return statuses.find((s) => s.id === choice) ?? null
-  const up = statuses.filter((s) => s.state === 'up')
+  const up = statuses.filter((s) => s.state === 'up' && !s.maintenance?.draining)
   if (up.length) return up.reduce((a, b) => ((a.rttMs ?? Infinity) <= (b.rttMs ?? Infinity) ? a : b))
   return statuses[0] ?? null
 }
@@ -36,12 +36,30 @@ export function pingGrade(rttMs: number | null): NetGrade | null {
 }
 
 /** Why a region cannot host right now, or null when it can. */
-export function regionProblem(s: Pick<RegionStatus, 'state' | 'label'> | null): string | null {
+export function regionProblem(s: Pick<RegionStatus, 'state' | 'label' | 'maintenance'> | null): string | null {
   if (!s) return 'No game server is set up for this build.'
   if (s.state === 'down') return `The game server in ${s.label} is not reachable right now.`
   if (s.state === 'mismatch') return `The game server in ${s.label} runs a different game version.`
   if (s.state === 'checking') return `Checking the game server in ${s.label}…`
+  if (s.maintenance?.draining) return s.maintenance.message ?? `${s.label} is preparing an update. Choose another region for a new game.`
   return null
+}
+
+/** Human connections in games/lobbies; never retain a stale count for an offline region. */
+export function regionPlayerCount(s: RegionStatus): number | null {
+  return (s.state === 'up' || s.state === 'mismatch') && s.players !== null && Number.isSafeInteger(s.players) && s.players >= 0 ? s.players : null
+}
+
+export function regionPlayerLabel(s: RegionStatus): string {
+  const count = regionPlayerCount(s)
+  return count === null ? '— players' : `${count} ${count === 1 ? 'player' : 'players'}`
+}
+
+export function regionPopulation(statuses: readonly RegionStatus[]): { total: number | null; partial: boolean; label: string } {
+  const known = statuses.map(regionPlayerCount).filter((count): count is number => count !== null)
+  const total = known.length ? known.reduce((sum, count) => sum + count, 0) : null
+  const partial = known.length < statuses.length
+  return { total, partial, label: total === null ? '— online' : `${total}${partial ? '+' : ''} online` }
 }
 
 /**

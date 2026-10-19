@@ -19,6 +19,8 @@
 export type UnreliableMode = 'pending' | 'raw' | 'reliable'
 
 export interface Transport {
+  /** Server-only metadata: undefined for P2P/dev; null is an authenticated guest channel. */
+  readonly account?: import('./accounts').VerifiedAccount | null
   /** Ordered and retransmitted. */
   sendReliable(data: string): void
   /** Unordered, may be dropped. Falls back to the reliable channel unless mode is 'raw'. */

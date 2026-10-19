@@ -38,6 +38,8 @@ const config = {
 }
 const trustProxy = ['1', 'true'].includes(String(arg('trust-proxy', 'TRUST_PROXY', '0')))
 const dataDir = String(arg('data', 'DATA_DIR', ''))
+if (process.env.NODE_ENV === 'production' && !process.env.ACCOUNTS_AUTHORITY_URL) throw new Error('Production ranked requires ACCOUNTS_AUTHORITY_URL')
+if (process.env.NODE_ENV === 'production' && !process.env.MAINTENANCE_SECRET_FILE) throw new Error('Production requires MAINTENANCE_SECRET_FILE for regional updates')
 const server = await startServer({ port, host, config, trustProxy, dataDir })
 
 const demo = arg('demo', 'DEMO_ROOM', '')

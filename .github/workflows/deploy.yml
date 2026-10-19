@@ -26,14 +26,26 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run build
+      # Root-path app; public media remains on Pages.
+      # CLI --base is required because Actions otherwise uses /brawlock/.
+      - run: npm run build -- --base=/
         env:
           # game-server regions (deploy/README.md "Adding a region"); remove to hide the server option
           VITE_GAME_SERVERS: '[{"id":"us-west","label":"US West","url":"wss://us.brawlock.osc.link"},{"id":"eu","label":"Europe","url":"wss://eu.brawlock.osc.link"}]'
+          VITE_ACCOUNTS_ENABLED: 'true'
+          VITE_ASSET_BASE_URL: 'https://laubsauger.github.io/brawlock/'
+
+      - run: node scripts/package-client.mjs dist client-package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: first-party-client
+          path: client-package/web
+          retention-days: 30
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: client-package/pages
 
   deploy:
     needs: build

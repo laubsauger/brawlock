@@ -20,6 +20,8 @@ export class MenuMusic {
     if (this.media) return this.media
     this.base = base
     const media = new Audio()
+    // Set before src: cross-origin media otherwise becomes silent in Web Audio.
+    media.crossOrigin = 'anonymous'
     media.preload = 'auto'
     media.setAttribute('playsinline', '')
     media.src = base + MENU_SONGS[this.index]

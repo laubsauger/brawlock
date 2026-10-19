@@ -11,9 +11,10 @@ const STATE_DOT: Record<RegionState, { color: string; label: string }> = {
 
 /** Health dot plus signal bars and ping coloured by the netcode grade, for one region. */
 export function RegionPing({ s, withName = false }: { s: RegionStatus; withName?: boolean }) {
-  const grade = s.state === 'up' ? pingGrade(s.rttMs) : null
-  const dot = STATE_DOT[s.state]
-  const ms = s.state === 'up' ? (s.rttMs != null ? `${s.rttMs} ms` : '…') : dot.label.toLowerCase()
+  const draining = s.maintenance?.draining === true
+  const grade = s.state === 'up' && !draining ? pingGrade(s.rttMs) : null
+  const dot = draining && s.state === 'up' ? { color: '#ffb347', label: 'Updating · reconnects available' } : STATE_DOT[s.state]
+  const ms = draining && s.state === 'up' ? 'Updating' : s.state === 'up' ? (s.rttMs != null ? `${s.rttMs} ms` : '…') : dot.label.toLowerCase()
   return (
     <span className="font-ui flex shrink-0 items-center gap-2 tracking-normal whitespace-nowrap normal-case" aria-label={`${s.label}: ${dot.label}${s.rttMs != null && s.state === 'up' ? `, ${s.rttMs} ms` : ''}`}>
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot.color, boxShadow: `0 0 6px ${dot.color}` }} aria-hidden />
@@ -21,7 +22,7 @@ export function RegionPing({ s, withName = false }: { s: RegionStatus; withName?
       <span className="tabular font-semibold" style={{ color: grade ? GRADE_COLOR[grade] : dot.color }}>
         {ms}
       </span>
-      {s.state === 'up' && <SignalBars grade={grade} scale={0.8} />}
+      {s.state === 'up' && !draining && <SignalBars grade={grade} scale={0.8} />}
     </span>
   )
 }

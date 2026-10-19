@@ -4,6 +4,7 @@
  * edit list, in sync with the recorded shots, in a headless muted Chrome.
  *   node scripts/showcase/audio.mjs --shots open,tip_move,... --out <file.wav> [--port 5343] [--mode synth|hybrid]
  *     [--static <snapshot dir>] [--mute-sfx]  (verification: SFX + UI buses at zero)
+ *     [--no-ambience]  (leave out the lava bed, e.g. under a trailer's own music)
  */
 import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
@@ -23,6 +24,7 @@ const PORT = Number(opt('port', '5343'))
 const OUT = resolve(opt('out', 'soundtrack.wav'))
 const MODE = opt('mode', 'hybrid')
 const MUTE_SFX = args.includes('--mute-sfx')
+const AMBIENCE = !args.includes('--no-ambience')
 const ids = opt('shots', '').split(',').filter(Boolean)
 const require = createRequire(import.meta.url)
 const puppeteer = require(opt('puppeteer', '/Users/flo/work/code/wave-rider/node_modules/puppeteer'))
@@ -46,7 +48,7 @@ try {
   await page.goto(`http://localhost:${PORT}/src/render/showcase/audio.html?mute`, { waitUntil: 'load' })
   for (let i = 0; i < 200 && !(await page.evaluate(() => !!window.__audio)); i++) await sleep(100)
   const t0 = Date.now()
-  const info = await page.evaluate((e, m, mute) => window.__audio.render(e, m, mute), ids, MODE, MUTE_SFX)
+  const info = await page.evaluate((e, m, mute, amb) => window.__audio.render(e, m, mute, amb), ids, MODE, MUTE_SFX, AMBIENCE)
   console.log(`rendered ${info.dur.toFixed(2)} s (${info.cues} frames) in ${((Date.now() - t0) / 1000).toFixed(1)} s; music started: ${info.musicStarted}${MUTE_SFX ? ' (SFX + UI buses muted)' : ''}`)
   const parts = []
   for (let i = 0; i < info.chunks; i++) parts.push(Buffer.from(await page.evaluate((k) => window.__audio.chunk(k), i), 'base64'))

@@ -15,6 +15,8 @@ export interface RatingSubmission {
 
 export interface RatingRead { status: number; body: unknown }
 export interface RatingAuthority {
+  /** Durable undelivered result/rename operations; local authority has none. */
+  pending?(): number
   record(submission: RatingSubmission): Promise<MatchRating>
   rename(device: string, name: string): Promise<boolean>
   read(path: string): Promise<RatingRead>
@@ -119,7 +121,7 @@ export async function ratingFingerprint(v: RatingSubmission): Promise<string> {
 }
 
 /** Preserves the existing database and rating formula; only receipt storage is new. */
-export function localRatingAuthority(store: RatingReceiptStore, opts: { minSeconds?: number; clock?: () => number } = {}): RatingAuthority {
+export function localRatingAuthority(store: RatingReceiptStore, opts: { minSeconds?: number; clock?: () => number; names?: (devices: string[]) => Promise<Map<string, string>> } = {}): RatingAuthority {
   const clock = opts.clock ?? Date.now
   return {
     async record(s) {
@@ -151,12 +153,14 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
       const parts = url.pathname.split('/').filter(Boolean)
       const now = clock()
       const since = now - 7 * 24 * 3600 * 1000
-      function publicRows(rows: { rank: number; row: BoardRow }[]) {
+      async function publicRows(rows: { rank: number; row: BoardRow }[]) {
         const changes = store.ratingChanges(rows.map(({ row }) => row.device), since, now)
+        const names = opts.names ? await opts.names([...new Set(rows.map(({ row }) => row.device))]) : null
         return rows.map(({ rank, row }) => {
           const change = changes.get(row.device)
           if (change === undefined) throw new Error('Missing rating change for a stored leaderboard player')
-          return publicRow(rank, row, change)
+          if (names && !names.has(row.device)) throw new Error('Missing canonical player name')
+          return publicRow(rank, names ? { ...row, name: names.get(row.device)! } : row, change)
         })
       }
       const all: BoardQuery = { period: 'all', region: null, since: 0 }
@@ -173,7 +177,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         if (!r) return { status: 200, body: { found: false } }
         const p = store.players([device]).get(device)!
         const details = store.details(device)
-        return { status: 200, body: { found: true, ...publicRows([r])[0], firstAt: p.firstAt,
+        return { status: 200, body: { found: true, ...(await publicRows([r]))[0], firstAt: p.firstAt,
           coverage: { totalMatches: p.matches, detailedMatches: details?.detail.matches ?? 0,
             firstDetailedAt: details?.firstAt ?? null, lastDetailedAt: details?.lastAt ?? null },
           detail: details?.detail ?? null,
@@ -187,7 +191,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
       const device = url.searchParams.get('device')
       const mine = device && DEVICE.test(device) ? store.rank(q, device) : null
       const entries = store.top(q, LB_TOP)
-      const rows = publicRows([...entries.map((row, i) => ({ rank: i + 1, row })), ...(mine ? [mine] : [])])
+      const rows = await publicRows([...entries.map((row, i) => ({ rank: i + 1, row })), ...(mine ? [mine] : [])])
       return { status: 200, body: { period, region: '', entries: rows.slice(0, entries.length), you: mine ? rows[entries.length] : null } }
     },
     close: () => store.close(),

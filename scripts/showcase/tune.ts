@@ -5,6 +5,7 @@
  */
 import { ShotSim } from '../../src/render/showcase/simShot'
 import { SHOTS } from '../../src/render/showcase/shots'
+import { speedAt } from '../../src/render/showcase/types'
 
 const [id, everyArg] = process.argv.slice(2)
 const ids = id === 'all' ? SHOTS.map((s) => s.id) : [id]
@@ -15,7 +16,7 @@ for (const sid of ids) {
   const every = Number(everyArg ?? 0.25)
   // integrate the speed curve: sim seconds covered by the shot's video duration
   let st = 0
-  for (let vt = 0; vt < spec.dur; vt += 1 / 60) st += (1 / 60) * (spec.speed ? spec.speed(st) : 1)
+  for (let vt = 0; vt < spec.dur; vt += 1 / 60) st += (1 / 60) * speedAt(spec, vt, st)
   const ticks = Math.ceil(st * 60)
   console.log(`== ${sid}: ${spec.dur}s video = ${st.toFixed(2)}s sim (${ticks} ticks), layer ${sim.state.arena.layer}, theme ${sim.state.arena.theme}`)
   let nextPrint = 0

@@ -11,6 +11,9 @@ import type { NodeFrame } from 'three/webgpu'
 export class WarlockGpu {
   /** player colour (linear) */
   readonly team = new THREE.Color()
+  /** Account cloth tint; neutral leaves the starter robe unchanged. */
+  readonly clothTint = new THREE.Color(1, 1, 1)
+  clothBlend = 0
   /** colour of the current cast (defaults to the team colour; render may set a spell colour) */
   readonly castColor = new THREE.Color()
   /** 0..1 over the cast point, 0 when idle / released / cancelled */
@@ -122,6 +125,8 @@ function uf(get: (s: WarlockGpu) => number) {
 /** Shared per-object uniforms (created once, used by every warlock material). */
 export const U = {
   team: uc((s) => s.team),
+  clothTint: uc((s) => s.clothTint),
+  clothBlend: uf((s) => s.clothBlend),
   castColor: uc((s) => s.castColor),
   castCharge: uf((s) => s.castCharge),
   castFlare: uf((s) => s.castFlare),

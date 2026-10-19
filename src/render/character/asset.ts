@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu'
+import { assetUrl } from '../../lib/assets'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -13,7 +14,7 @@ import { clothParams, createClothMaterial, createOutfitMaterial, createStaffMate
  * lower / upper body halves for layered playback.
  */
 
-export const WARLOCK_URL = `${import.meta.env.BASE_URL}models/warlock/warlock.glb`
+export const WARLOCK_URL = assetUrl('models/warlock/warlock.glb')
 
 /** finger bones (animated only by the cast clips) */
 const FINGER = /^(index|middle|ring|pinky|thumb)_0[1-4](_leaf)?_[lr]$/

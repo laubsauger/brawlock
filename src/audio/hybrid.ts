@@ -4,7 +4,7 @@
  * - hybrid: the recording adds what synthesis lacks (real fire, stone, ice, metal, cloth,
  *   electricity); the synth keeps the punch, timing and spell identity;
  * - synth: magical / abstract sounds (Homing, Twin, Gravity, Warpzone, Magnetize, Splitter,
- *   orbs, windups, cast inhale and snuff, UI, music) where the synth reads better and the
+ *   orbs, windups, cast inhale and snuff, ordinary UI, music) where the synth reads better and the
  *   timing must be exact.
  * `trim` scales the combined voice to fit the existing mix and limiter headroom.
  * Body layers carry the impact; clicks, cloth and crackle stay behind them.
@@ -38,6 +38,8 @@ export interface HybridDef {
 }
 
 export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
+  // Approved E04 "Iron thunder": full replacement, fixed pitch and audition gain.
+  uiReady: { layers: [{ assets: ['ui_enter'], gain: 1 }], synth: 0 },
   killConfirm: {
     layers: [
       { assets: ['thud_a', 'thud_b'], gain: 0.65, rate: [0.85, 0.95] },

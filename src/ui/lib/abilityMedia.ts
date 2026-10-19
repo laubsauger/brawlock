@@ -7,7 +7,9 @@
  * hide it is paused and emptied so the decoder is freed. Save-Data: posters only.
  */
 
-const BASE = `${import.meta.env.BASE_URL}media/abilities/`
+import { ASSET_BASE } from '../../lib/assets'
+
+const BASE = `${ASSET_BASE}media/abilities/`
 
 let index: Promise<ReadonlySet<string>> | null = null
 let known: ReadonlySet<string> | null = null

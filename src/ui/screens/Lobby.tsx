@@ -324,10 +324,10 @@ export function Lobby() {
   const warm = useMatchRenderReady(6000)
   const canEdit = lobby.role !== 'client' && !lobby.ranked
   const humans = lobby.slots.filter((s) => s.kind === 'human').length
-  const automatic = (lobby.quick || lobby.ranked) && lobby.status === 'open' && !lobby.error
+  const automatic = (lobby.quick || lobby.ranked) && lobby.status === 'open' && !lobby.error && !lobby.maintenance
   const status = statusLine(lobby, humans)
   const full = lobby.slots.length >= MAX_PLAYERS
-  const ready = lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
+  const ready = !lobby.maintenance && lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
 
   return (
     <div className="screen-in flex h-full flex-col overflow-y-auto px-[max(16px,4vw)] py-[max(16px,3vh)] lg:overflow-hidden">
@@ -358,6 +358,11 @@ export function Lobby() {
         </div>
       </header>
 
+      {lobby.maintenance && <section role="status" data-testid="lobby-maintenance" className="mb-4 rounded-lg border border-gold/40 bg-[#281d13] px-5 py-4 text-center">
+        <h2 className="text-xl font-semibold text-gold">Region updating</h2>
+        <p className="mt-1 text-sm text-bone">{lobby.maintenance}</p>
+        <Button className="mt-3" onClick={leaveToMenu}>Choose another region</Button>
+      </section>}
       {automatic && <section
         className={`mb-4 shrink-0 rounded-lg border px-5 py-3 text-center ${lobby.ranked ? 'border-[#bfc3d3]/40 bg-[linear-gradient(110deg,rgba(68,48,74,.75),rgba(23,18,29,.94),rgba(77,35,44,.65))] shadow-[inset_0_1px_0_rgba(221,212,244,.12),0_0_24px_rgba(158,89,96,.08)]' : 'border-[#e7a656]/35 bg-[linear-gradient(110deg,rgba(68,40,15,.65),rgba(28,18,13,.94),rgba(68,40,15,.65))] shadow-[inset_0_1px_0_rgba(255,216,144,.12),0_0_24px_rgba(255,150,50,.06)]'}`}
         aria-label="Automatic match start"

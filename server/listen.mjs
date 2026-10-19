@@ -9,6 +9,10 @@ import { openLeaderboard } from './leaderboard-store.mjs'
 import { remoteRatingAuthority } from './rating-client.mjs'
 import { iceCredentialEndpoint, turnCredentialIssuer } from './turn-credentials.mjs'
 import { createServerPerf } from './perf.mjs'
+import { regionalAccounts } from './account-client.mjs'
+import { openMaintenance } from './maintenance.mjs'
+import { validMaintenance } from '../src/net/maintenance.ts'
+import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
@@ -139,9 +143,29 @@ export async function startServer(opts = {}) {
     requestMs: opts.ratingAuthorityRequestMs, retryMs: opts.ratingAuthorityRetryMs,
   }) : dataDir ? localRatingAuthority(openLeaderboard(join(dataDir, 'leaderboard.sqlite')), {
     minSeconds: config.leaderboardMinSeconds ?? DEFAULT_SERVER_CONFIG.leaderboardMinSeconds, clock,
+    names: (opts.accountsAuthorityUrl ?? process.env.ACCOUNTS_AUTHORITY_URL) ? async (devices) => {
+      if (devices.some((device) => !/^a_[A-Za-z0-9_-]{8,60}$/.test(device))) throw new Error('Account-ranked leaderboard contains a non-account identity; complete the season reset before startup')
+      const ids = [...new Set(devices.map((device) => device.slice(2)))]
+      const names = ids.length ? await accounts.names(ids) : new Map()
+      return new Map(devices.map((device) => {
+        const name = names.get(device.slice(2))
+        if (!name) throw new Error('Missing canonical account name')
+        return [device, name]
+      }))
+    } : undefined,
   }) : undefined
   const privateAuthority = !authorityUrl && authorityToken ? authority : undefined
+  const accountsUrl = opts.accountsAuthorityUrl ?? process.env.ACCOUNTS_AUTHORITY_URL ?? ''
+  if (accountsUrl && !dataDir) throw new Error('Account progression requires DATA_DIR for durable storage')
+  const accounts = accountsUrl ? regionalAccounts({ url: accountsUrl, token: authorityToken, region: config.region, log,
+    rewardFile: join(dataDir, 'progression-outbox.sqlite'),
+    allowInsecureForTests: opts.accountsAllowInsecureForTests === true }) : undefined
   const perf = opts.perf ?? createServerPerf()
+  const maintenanceFile = process.env.MAINTENANCE_SECRET_FILE
+  const maintenanceToken = opts.maintenanceToken ?? (maintenanceFile ? readFileSync(maintenanceFile, 'utf8').trim() : '')
+  if (maintenanceToken && maintenanceToken.length < 32) throw new Error('Maintenance token must contain at least 32 characters')
+  const maintenance = dataDir ? openMaintenance(join(dataDir, 'maintenance.sqlite')) : undefined
+  let pendingAuthority = 0
   const core = createServerCore(
     { ...DEFAULT_SERVER_CONFIG, ...config, build },
     {
@@ -158,6 +182,9 @@ export async function startServer(opts = {}) {
       log,
       ratingAuthority: authority,
       clock,
+      accounts,
+      maintenance,
+      pendingAuthority: () => pendingAuthority,
     },
   )
   const ipOf = (req) => {
@@ -165,8 +192,40 @@ export async function startServer(opts = {}) {
     return fwd || req.socket.remoteAddress || 'unknown'
   }
   const sockets = new Set()
+  const authLimit = new KeyedLimiter(config.quickplaysPerMin ?? DEFAULT_SERVER_CONFIG.quickplaysPerMin, (config.quickplaysPerMin ?? DEFAULT_SERVER_CONFIG.quickplaysPerMin) / 60)
+  const origins = config.allowedOrigins ?? DEFAULT_SERVER_CONFIG.allowedOrigins
+  let ready = !accounts
   const server = http.createServer(async (req, res) => {
     try {
+      if (!ready) { res.writeHead(503, { 'retry-after': '2' }); res.end('Server is starting.'); req.resume(); return }
+      if ((req.url ?? '').split('?')[0] === '/internal/maintenance') {
+        const reply = (status, body) => {
+          res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+          res.end(JSON.stringify(body))
+        }
+        const received = Buffer.from(String(req.headers.authorization ?? ''))
+        const expected = Buffer.from(`Bearer ${maintenanceToken}`)
+        if (!maintenanceToken || req.headers.origin !== undefined || received.length !== expected.length || !timingSafeEqual(received, expected)) reply(403, { error: 'forbidden' })
+        else if (req.method === 'GET') reply(200, core.maintenance())
+        else if (req.method !== 'POST') reply(405, { error: 'method not allowed' })
+        else if (!maintenance) reply(503, { error: 'Persistent regional maintenance requires DATA_DIR.' })
+        else if (String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() !== 'application/json') reply(415, { error: 'expected JSON' })
+        else {
+          const raw = await readBody(req, 2048)
+          if (raw === null) reply(413, { error: 'too large' })
+          else {
+            let state
+            try { state = JSON.parse(raw) } catch { reply(400, { error: 'expected JSON' }); req.resume(); return }
+            if (!validMaintenance(state)) reply(400, { error: 'Expected draining and a bounded message (null to use the standard notice).' })
+            else {
+              const status = core.setMaintenance(state)
+              log('info', 'maintenance.changed', { draining: status.draining, activeMatches: status.activeMatches, ready: status.ready })
+              reply(200, status)
+            }
+          }
+        }
+        req.resume(); return
+      }
       if ((req.url ?? '').split('?')[0] === '/ice') {
         const r = ice.handle({ method: req.method ?? 'GET', origin: req.headers.origin ?? null, ip: ipOf(req) })
         res.writeHead(r.status, r.headers)
@@ -194,17 +253,23 @@ export async function startServer(opts = {}) {
             if (path === '/internal/rating/record') {
               if (!validRatingSubmission(body)) reply(400, { error: 'invalid rating submission' })
               else {
+                pendingAuthority++
                 try { reply(200, await privateAuthority.record(body)) }
                 catch (error) {
                   log('error', 'rating.authority.error', { error: String(error) })
                   reply(String(error).includes('idempotency key conflicts') ? 409 : 503, { error: 'The rating submission could not be applied.' })
                 }
+                finally { pendingAuthority-- }
               }
             } else if (path === '/internal/rating/rename') {
               if (!body || typeof body.device !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.device)
                 || typeof body.name !== 'string' || !body.name || body.name.length > 24 || /[\u0000-\u001f\u007f]/.test(body.name)
                 || Object.keys(body).some((k) => k !== 'device' && k !== 'name')) reply(400, { error: 'invalid display label' })
-              else reply(200, { changed: await privateAuthority.rename(body.device, body.name) })
+              else {
+                pendingAuthority++
+                try { reply(200, { changed: await privateAuthority.rename(body.device, body.name) }) }
+                finally { pendingAuthority-- }
+              }
             } else if (path === '/internal/rating/read') {
               if (!body || typeof body.path !== 'string' || body.path.length > 2048 || !/^\/(leaderboard(?:\?|$)|players\/[A-Za-z0-9_-]{8,64}$|profiles\/[0-9a-f-]{36}$)/.test(body.path)
                 || Object.keys(body).length !== 1) reply(400, { error: 'invalid rating read' })
@@ -216,7 +281,25 @@ export async function startServer(opts = {}) {
         return
       }
       const body = await readBody(req)
-      const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null, body })
+      let account
+      if (accounts && req.method === 'POST' && (req.url ?? '').split('?')[0] === '/ranked') {
+        const origin = req.headers.origin ?? null
+        if (origins !== null && (!origin || !origins.includes(origin))) { res.writeHead(403); res.end('Origin not allowed.'); return }
+        authLimit.sweep(performance.now())
+        if (!authLimit.take(ipOf(req), performance.now())) {
+          res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '60', ...(origin ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {}) })
+          res.end('{"error":"Too many ranked requests. Try again in a minute."}'); return
+        }
+        if (body === null) { res.writeHead(413, { 'content-type': 'application/json' }); res.end('{"error":"Request is too large."}'); return }
+        let proof
+        try { const data = JSON.parse(body); if (data && Object.keys(data).length === 1) proof = data.accountToken } catch { /* handled as missing proof */ }
+        try { account = await accounts.verify(proof) }
+        catch {
+          res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': req.headers.origin && (config.allowedOrigins ?? []).includes(req.headers.origin) ? req.headers.origin : 'null', vary: 'Origin' })
+          res.end('{"error":"Sign in and choose your player name before joining ranked."}'); return
+        }
+      }
+      const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null, body, account })
       const health = req.method === 'GET' && (req.url ?? '').split('?')[0] === '/health' && r.status === 200
       res.writeHead(r.status, r.headers)
       res.end(health ? JSON.stringify({ ...JSON.parse(r.body), perf: perf.snapshot() }) : r.body)
@@ -228,6 +311,7 @@ export async function startServer(opts = {}) {
     req.resume()
   })
   server.on('upgrade', (req, socket) => {
+    if (!ready || sockets.size >= (config.maxRooms ?? DEFAULT_SERVER_CONFIG.maxRooms) * 12) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return }
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
     const ip = ipOf(req)
@@ -241,16 +325,44 @@ export async function startServer(opts = {}) {
     const acceptKey = createHash('sha1').update(key + WS_GUID).digest('base64')
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey}\r\n\r\n`)
     socket.setNoDelay(true)
-    core.attach(admission, wrapSocket(socket, log), ip)
+    const textSocket = wrapSocket(socket, log)
+    if (!accounts || admission.kind !== 'room') { core.attach(admission, textSocket, ip); return }
+    let busy = false
+    let done = false
+    const timer = setTimeout(() => { done = true; textSocket.close() }, 8000)
+    textSocket.onClose(() => { done = true; clearTimeout(timer) })
+    textSocket.onText(async (text) => {
+      if (busy || done) return
+      busy = true
+      try {
+        const hello = JSON.parse(text)
+        if (!hello || hello.t !== 'account' || Object.keys(hello).some((key) => key !== 't' && key !== 'token')) throw new Error('Reload the game to complete account verification.')
+        const account = hello.token === null ? null : await accounts.verify(hello.token)
+        await core.authorize(admission.code, account)
+        if (done) return
+        clearTimeout(timer)
+        textSocket.send(JSON.stringify({ t: 'account-ready' }))
+        core.attach(admission, textSocket, ip, account)
+      } catch (error) {
+        if (done) return
+        done = true; clearTimeout(timer)
+        textSocket.send(JSON.stringify({ t: 'error', message: error instanceof Error ? error.message : 'Could not verify your account.' }))
+        setTimeout(() => textSocket.close(), 150)
+      }
+    })
   })
   try {
     await new Promise((resolve, reject) => {
       server.once('error', reject)
       server.listen(port, host, resolve)
     })
+    // Registration fences previous room claims only after this process owns the port.
+    if (accounts) await accounts.register()
+    ready = true
   } catch (error) {
     perf.close()
     core.close()
+    server.close()
     throw error
   }
   const sweeper = setInterval(() => { core.sweep(); ice.sweep() }, 5000)

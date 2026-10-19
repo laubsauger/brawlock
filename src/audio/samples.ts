@@ -1,6 +1,6 @@
 /**
- * Recorded samples: loaded lazily after the first gesture (the splash), decoded once, and
- * looked up by asset id. Until a sample has loaded (or when loading fails, or in 'synth'
+ * Recorded samples: Enter is decoded during the splash; other samples load lazily after
+ * the first gesture. All are looked up by asset id. Until a sample has loaded (or when loading fails, or in 'synth'
  * mode) every sound is the procedural synth version, so nothing ever waits on the network.
  */
 import { AUDIO_ASSETS, type AssetId } from './assets'

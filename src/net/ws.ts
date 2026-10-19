@@ -8,6 +8,7 @@
  * TextSocket and hands a SocketTransport to the room (server.ts, dedicated.ts).
  */
 import { BaseTransport, type HostEndpoint, type NetFactory, type Transport } from './transport'
+import type { VerifiedAccount } from './accounts'
 
 /** A message-oriented text socket: what both ends of the link need. */
 export interface TextSocket {
@@ -29,7 +30,7 @@ const CONGESTED_BYTES = 256 * 1024
 const CONNECT_TIMEOUT_MS = 8000
 
 export class SocketTransport extends BaseTransport {
-  constructor(private readonly socket: TextSocket) {
+  constructor(private readonly socket: TextSocket, readonly account?: VerifiedAccount | null) {
     super()
     // TCP: there is no unordered channel to probe for
     this.unreliableMode = 'reliable'
@@ -114,7 +115,7 @@ export function serverUrlFrom(search: string): string | null {
  * NetFactory for a dedicated server: join(code) opens `<serverUrl>/<code>`. Hosting
  * is the server's job, so host() rejects with a friendly message.
  */
-export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as unknown as { WebSocket: WebSocketCtor }).WebSocket): NetFactory {
+export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as unknown as { WebSocket: WebSocketCtor }).WebSocket, authorize?: () => Promise<string | null>): NetFactory {
   return {
     host(): Promise<HostEndpoint> {
       return Promise.reject(new Error('Connected to a dedicated server: rooms are hosted there. Open the page without ?server= to host yourself.'))
@@ -136,9 +137,29 @@ export function wsNet(serverUrl: string, Ctor: WebSocketCtor = (globalThis as un
           clearTimeout(timer)
           reject(new Error('Could not reach the server.'))
         }
-        ws.onopen = () => {
+        ws.onclose = () => {
           clearTimeout(timer)
-          resolve(new SocketTransport(webSocketText(ws)))
+          reject(new Error('The server connection closed before joining completed.'))
+        }
+        ws.onopen = async () => {
+          if (!authorize) {
+            clearTimeout(timer)
+            resolve(new SocketTransport(webSocketText(ws)))
+            return
+          }
+          try {
+            const token = await authorize()
+            if (ws.readyState !== 1) throw new Error('The server connection closed before sign-in completed.')
+            ws.onmessage = (event) => {
+              try {
+                const reply = typeof event.data === 'string' ? JSON.parse(event.data) : null
+                clearTimeout(timer)
+                if (reply?.t !== 'account-ready') throw new Error(typeof reply?.message === 'string' ? reply.message : 'The server could not verify your account.')
+                resolve(new SocketTransport(webSocketText(ws)))
+              } catch (error) { ws.close(); reject(error) }
+            }
+            ws.send(JSON.stringify({ t: 'account', token }))
+          } catch (error) { clearTimeout(timer); ws.close(); reject(error) }
         }
       })
     },

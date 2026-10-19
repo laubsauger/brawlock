@@ -103,6 +103,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
               const st = STATUS[r.phase] ?? STATUS.match
               const elo = liveEloLabel(r)
               const rankedClosed = r.ranked && r.phase !== 'lobby'
+              const draining = r.kind === 'server' && r.region.maintenance?.draining === true
               const full = r.humans >= r.max || rankedClosed
               const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
               const watch = r.phase === 'match' && r.joinable === 0
@@ -134,8 +135,8 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                       <RegionPing s={r.region} withName />
                     )}
                   </span>
-                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={!playSupported || full || joining !== null} onClick={() => join(r)} title={!playSupported ? PLAY_REQUIREMENT : joinTitle}>
-                    {joining === r.code ? 'Joining…' : rankedClosed ? 'In progress' : full ? 'Full' : joinLabel}
+                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={!playSupported || full || draining || joining !== null} onClick={() => join(r)} title={!playSupported ? PLAY_REQUIREMENT : draining ? 'This region is updating. Rejoin your existing game from the main menu, or choose another region.' : joinTitle}>
+                    {joining === r.code ? 'Joining…' : draining ? 'Updating' : rankedClosed ? 'In progress' : full ? 'Full' : joinLabel}
                   </Button>
                 </li>
               )

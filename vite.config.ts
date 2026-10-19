@@ -1,8 +1,10 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
+import { readFileSync } from 'node:fs'
 import { netId } from './scripts/net-id.mjs'
+import { resolveAssetBase } from './src/lib/assetBase'
 
 // GitHub Pages serves the site under /<repo-name>/
 const repo = process.env.GITHUB_REPOSITORY?.split('/')[1]
@@ -45,24 +47,53 @@ function soundsPage(): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => ({
-  base: process.env.GITHUB_ACTIONS && repo ? `/${repo}/` : '/',
-  plugins: [react(), tailwindcss(), versionFile(), soundsPage()],
-  define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __NET_ID__: JSON.stringify(NET_ID) },
-  resolve: {
-    // bare 'three' (addons, r3f) and 'three/webgpu' (scene) would pull two
-    // copies of three. Alias bare 'three' to the webgpu build so one instance
-    // serves all. Skipped in tests: node has no WebGPU globals.
-    alias: mode === 'test' ? [] : [{ find: /^three$/, replacement: 'three/webgpu' }],
-  },
-  build: {
-    rollupOptions: { input: { main: 'index.html', sounds: SOUNDS_ENTRY } },
-  },
-  server: {
-    port: process.env.PORT ? Number(process.env.PORT) : 5173,
-    strictPort: false,
-  },
-  test: {
-    include: ['src/**/*.test.ts'],
-  },
-}) as Parameters<typeof defineConfig>[0])
+function hostedManifest(mediaBase: string): Plugin {
+  return {
+    name: 'brawlock-hosted-manifest',
+    generateBundle() {
+      const manifest = JSON.parse(readFileSync('public/brand/site.webmanifest', 'utf8'))
+      for (const icon of manifest.icons) icon.src = new URL(icon.src, `${mediaBase}brand/`).href
+      this.emitFile({ type: 'asset', fileName: 'brand/site.webmanifest', source: JSON.stringify(manifest) })
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  const appBase = process.env.GITHUB_ACTIONS && repo ? `/${repo}/` : '/'
+  const configuredAssets = loadEnv(mode, process.cwd(), 'VITE_').VITE_ASSET_BASE_URL
+  const mediaBase = resolveAssetBase(configuredAssets, appBase)
+  return {
+    base: appBase,
+    experimental: {
+      renderBuiltUrl(filename, { type }) {
+        // Also handles splash/preload/CSS URLs before the application starts.
+        // The install manifest stays on the game origin for its correct start URL.
+        if (configuredAssets !== undefined && type === 'public' && filename !== 'brand/site.webmanifest') return mediaBase + filename
+      },
+    },
+    plugins: [react(), tailwindcss(), versionFile(), soundsPage(), ...(configuredAssets === undefined ? [] : [hostedManifest(mediaBase)])],
+    define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __NET_ID__: JSON.stringify(NET_ID) },
+    resolve: {
+      // bare 'three' (addons, r3f) and 'three/webgpu' (scene) would pull two
+      // copies of three. Alias bare 'three' to the webgpu build so one instance
+      // serves all. Skipped in tests: node has no WebGPU globals.
+      alias: mode === 'test' ? [] : [{ find: /^three$/, replacement: 'three/webgpu' }],
+    },
+    build: {
+      rollupOptions: { input: { main: 'index.html', sounds: SOUNDS_ENTRY } },
+    },
+    server: {
+      // Explicit local opt-in. Production nginx proxies these same paths to the US authority.
+      proxy: process.env.VITE_ACCOUNTS_ENABLED === 'true' ? {
+        '/api/auth': { target: 'http://127.0.0.1:5352' },
+        '/api/account': { target: 'http://127.0.0.1:5352' },
+        '/api/progression': { target: 'http://127.0.0.1:5352' },
+      } : undefined,
+      port: process.env.PORT ? Number(process.env.PORT) : 5173,
+      strictPort: false,
+    },
+    test: {
+      include: ['src/**/*.test.ts'],
+    },
+  }
+})

@@ -75,6 +75,8 @@ export interface ServerRegion {
 export type RegionState = 'up' | 'down' | 'mismatch' | 'checking'
 
 export interface RegionStatus extends ServerRegion {
+  /** Reachable regions may drain existing games while refusing new ones. */
+  maintenance?: { draining: boolean; message: string | null } | null
   state: RegionState
   /** median of `samples`, whole ms; null until a probe answered (and while down) */
   rttMs: number | null
@@ -396,15 +398,15 @@ export class Online {
     return this.queue(regionId, 'quickplay', bots)
   }
 
-  async rankedPlay(regionId: string): Promise<{ code: string; created: boolean }> {
-    return this.queue(regionId, 'ranked')
+  async rankedPlay(regionId: string, accountToken?: string): Promise<{ code: string; created: boolean }> {
+    return this.queue(regionId, 'ranked', undefined, accountToken)
   }
 
-  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty): Promise<{ code: string; created: boolean }> {
+  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty, accountToken?: string): Promise<{ code: string; created: boolean }> {
     const r = await this.usable(regionId)
     let res
     try {
-      res = await this.fetch(`${httpBase(r.url)}/${kind}${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', signal: timeout(REQUEST_TIMEOUT_MS) })
+      res = await this.fetch(`${httpBase(r.url)}/${kind}${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', ...(accountToken ? { body: JSON.stringify({ accountToken }) } : {}), signal: timeout(REQUEST_TIMEOUT_MS) })
     } catch {
       this.markDown(r.id)
       throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)
@@ -537,7 +539,7 @@ export class Online {
     const samples = [...s.samples]
     for (let i = 0; i < n; i++) {
       const t0 = this.now()
-      let v: { ok?: unknown; protocol?: unknown; build?: unknown; players?: unknown; rooms?: unknown } | null
+      let v: { ok?: unknown; protocol?: unknown; build?: unknown; players?: unknown; rooms?: unknown; maintenance?: { draining?: unknown; message?: unknown } } | null
       try {
         const res = await this.fetch(`${httpBase(s.url)}/health`, { signal: timeout(REQUEST_TIMEOUT_MS), cache: 'no-store' })
         v = res.ok ? ((await res.json()) as typeof v) : null
@@ -552,6 +554,7 @@ export class Online {
       samples.push(Math.round(this.now() - t0))
       versionOk = v.protocol === PROTOCOL_VERSION && !(release(v.build) && release(this.cfg.build) && v.build !== this.cfg.build)
       load = { players: typeof v.players === 'number' ? v.players : null, rooms: typeof v.rooms === 'number' ? v.rooms : null }
+      s.maintenance = v.maintenance?.draining === true ? { draining: true, message: typeof v.maintenance.message === 'string' ? v.maintenance.message : null } : null
     }
     const kept = healthy ? samples.slice(-SAMPLE_WINDOW) : []
     Object.assign(s, {
@@ -591,7 +594,7 @@ function failure(status: number, body: { error?: unknown } | null, fallback: str
 /** Lowest ping among regions that are up. */
 function best(xs: (RegionStatus | null)[]): RegionStatus | null {
   let out: RegionStatus | null = null
-  for (const s of xs) if (s && s.state === 'up' && (out === null || (s.rttMs ?? Infinity) < (out.rttMs ?? Infinity))) out = s
+  for (const s of xs) if (s && s.state === 'up' && !s.maintenance?.draining && (out === null || (s.rttMs ?? Infinity) < (out.rttMs ?? Infinity))) out = s
   return out
 }
 

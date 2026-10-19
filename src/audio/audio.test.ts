@@ -11,7 +11,7 @@ import { isLocationSafeAtLayer } from '../sim'
 import { createSynth, RECIPES, Voice, type SfxId } from './synth'
 import { HYBRID } from './hybrid'
 import { AUDIO_ASSETS, AUDIO_CREDITS } from './assets'
-import { asContext, MockAudioContext } from './mockContext'
+import { asContext, MockAudioContext, MockBuffer } from './mockContext'
 import { MockMedia, mockVisibility } from './mockMedia'
 
 beforeEach(() => {
@@ -588,6 +588,52 @@ describe('audio: recordings (hybrid mode)', () => {
     delete (globalThis as { AudioContext?: unknown }).AudioContext
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  it('prepares Iron thunder before the first gesture and replaces the Enter chime immediately after unlock', async () => {
+    vi.useFakeTimers()
+    const recording = new MockBuffer(2, 76800, 48000)
+    vi.stubGlobal('OfflineAudioContext', class {
+      decodeAudioData() { return Promise.resolve(recording) }
+    })
+    vi.stubGlobal('AudioContext', MockAudioContext)
+    const fetchSample = vi.fn(async (_url: string) => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }))
+    vi.stubGlobal('fetch', fetchSample)
+    const e = new AudioEngine()
+    const preparing = e.preloadMenuMusic()
+    const menu = MockMedia.instances.find((m) => m.src.endsWith('circle-of-ash-1.mp3'))!
+    menu.readyState = 3
+    menu.dispatchEvent(new Event('canplay'))
+    await preparing
+    expect(e.graph).toBeNull() // offline decoding creates no live graph or playback
+    expect(menu.paused).toBe(true)
+    expect(fetchSample).toHaveBeenCalledTimes(1) // no delayed full-bank load is needed
+    expect(fetchSample.mock.calls[0][0]).toMatch(/audio\/ui_enter\.m4a$/)
+    e.unlock()
+    const m = MockAudioContext.instances.at(-1)!
+    const before = m.sources().length
+    e.ui('uiReady')
+    const sources = m.sources().slice(before)
+    expect(sources).toHaveLength(1) // no click or three-note synthetic bell layer
+    expect((sources[0] as unknown as { buffer: MockBuffer }).buffer).toBe(recording)
+    expect(sources[0].started).toBeLessThan(0.02)
+    e.setVolumes({ master: 1, sfx: 1, music: 1, muted: true })
+    e.ui('uiReady')
+    expect(m.sources()).toHaveLength(before + 1)
+    vi.clearAllTimers()
+  })
+
+  it('reports an unavailable Enter recording during splash preparation', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('OfflineAudioContext', class {})
+    vi.stubGlobal('fetch', async () => ({ ok: false }))
+    const e = new AudioEngine()
+    const preparing = e.preloadMenuMusic()
+    const menu = MockMedia.instances.find((m) => m.src.endsWith('circle-of-ash-1.mp3'))!
+    menu.readyState = 3
+    menu.dispatchEvent(new Event('canplay'))
+    await expect(preparing).rejects.toThrow('Unable to preload the Enter sound')
+    vi.clearAllTimers()
   })
 
   it('every asset a hybrid layer uses ships as Opus and AAC, and every shipped file is credited (CC0, or generated for the announcer)', async () => {

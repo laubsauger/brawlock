@@ -37,6 +37,9 @@ import { clearPendingRoom } from '../lib/pendingRoom'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
+import { getAdmissionToken, saveAccountColor } from './account'
+import { useAccount } from './accountState'
+import { accountRatingKey } from '../net/accounts'
 
 export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
@@ -103,7 +106,7 @@ if (online.configured) void online.probe()
 let routed: ServerRegion | null = null
 /** Consumed by exactly one dial. Explicit browser/rejoin routes never change backend. */
 let nextJoinRoute: RoomRoute | null = null
-const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url), (region) => { routed = region })
+const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url, undefined, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => getAdmissionToken(false) : undefined), (region) => { routed = region })
 
 /** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {
@@ -435,7 +438,9 @@ export const session: GameSession = {
       try {
         region = await serverRegion(opts.region)
         if (!current()) return cancelled('server')
-        code = (await online.rankedPlay(region.id)).code
+        const proof = import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? await getAdmissionToken(true) : null
+        if (!current()) return cancelled('server')
+        code = (await online.rankedPlay(region.id, proof ?? undefined)).code
       } catch (e) {
         if (!current()) return cancelled('server')
         return hostFailed('server', e instanceof ServerError ? e.reason : 'error', e instanceof Error ? e.message : String(e), null, { mode: 'p2p', available: false, region: null })
@@ -449,10 +454,12 @@ export const session: GameSession = {
     })
   },
   async leaderboard(period, choice) {
-    return online.leaderboard((await serverRegion(choice)).id, period, getDeviceId())
+    const account = useAccount.getState().player
+    return online.leaderboard((await serverRegion(choice)).id, period, account ? accountRatingKey(account.id) : getDeviceId())
   },
   async serverProfile(choice) {
-    return online.profile((await serverRegion(choice)).id, getDeviceId())
+    const account = useAccount.getState().player
+    return online.profile((await serverRegion(choice)).id, account ? accountRatingKey(account.id) : getDeviceId())
   },
   async publicProfile(publicId, choice) {
     return online.publicProfile((await serverRegion(choice)).id, publicId)
@@ -496,6 +503,10 @@ export const session: GameSession = {
   setPlayerColor(color) {
     setPreferredColor(color)
     impl.setPlayerColor(color)
+    const profile = useAccount.getState().player?.profile
+    if (profile) void saveAccountColor(color).catch(() => {
+      useGame.getState().setLobby({ error: 'Your color changed for this game, but your account preference could not be saved. Update it in Account before your next game.' })
+    })
   },
   startLobbyVote: impl.startLobbyVote,
   castLobbyVote: impl.castLobbyVote,

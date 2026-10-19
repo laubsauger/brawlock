@@ -35,6 +35,8 @@ import { KeyedLimiter, TokenBucket } from './ratelimit'
 import { SocketTransport, type TextSocket } from './ws'
 import type { BotDifficulty, MatchSettings } from '../sim/types'
 import type { MatchRating } from './rating'
+import type { RankedAccountAuthority, VerifiedAccount } from './accounts'
+import { MAINTENANCE_NOTICE, validMaintenance, type MaintenanceState, type MaintenanceStatus, type MaintenanceStore } from './maintenance'
 
 export interface ServerConfig {
   build: string
@@ -85,13 +87,14 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   listsPerMin: 60,
   quickplaysPerMin: 20,
   boardReadsPerMin: 60,
+  // Queue economy: a broader opening kit, then enough shared income for a purchase each round.
   quickplay: {
     fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'brutal',
-    settings: { startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+    settings: { startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   ranked: {
     fillMs: 0, startMs: 60_000, nextMs: 15_000, seats: 8, fill: 8, bots: 'brutal', minHumans: 2,
-    settings: { rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+    settings: { rankedRounds: 5, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   leaderboardMinSeconds: LB_MIN_SECONDS,
   listingCreatesPerMin: 6,
@@ -117,6 +120,8 @@ export interface HttpRequest {
   origin: string | null
   /** request body (POST / PUT / DELETE); null: over the size limit */
   body?: string | null
+  /** Set by the Node boundary after a single-use proof is verified, never parsed from JSON. */
+  account?: VerifiedAccount
 }
 
 export interface HttpResponse {
@@ -152,13 +157,16 @@ interface Entry {
   hadHuman: boolean
   /** Accepted sockets include a pending hello, so a newcomer in flight is not evicted. */
   connections: number
+  accounts: Map<string, number>
+  accountReservations: Map<string, number>
 }
 
 export interface ServerCore {
   http(req: HttpRequest): Promise<HttpResponse>
   admit(path: string, ip: string, origin: string | null): Admission
   /** an accepted socket: into its room (code from admit) or told why not (message) */
-  attach(admission: Admission, socket: TextSocket, ip: string): void
+  attach(admission: Admission, socket: TextSocket, ip: string, account?: VerifiedAccount | null): void
+  authorize(code: string, account: VerifiedAccount | null): Promise<void>
   /** create a room directly (CLI demo rooms, tests) */
   createRoom(opts?: RoomSetup): Promise<Room>
   room(code: string): Room | null
@@ -166,6 +174,8 @@ export interface ServerCore {
   sweep(): void
   close(): void
   stats(): { rooms: number; players: number; connections: number }
+  maintenance(): MaintenanceStatus
+  setMaintenance(state: MaintenanceState): MaintenanceStatus
 }
 
 export function createServerCore(
@@ -179,6 +189,9 @@ export function createServerCore(
     ratingAuthority?: RatingAuthority
     /** ms since epoch, for stored results (default Date.now) */
     clock?: () => number
+    accounts?: RankedAccountAuthority
+    maintenance?: MaintenanceStore
+    pendingAuthority?(): number
   },
 ): ServerCore {
   const rooms = new Map<string, Entry>()
@@ -200,6 +213,8 @@ export function createServerCore(
   const listingBeatLimit = new KeyedLimiter(cfg.listingBeatsPerMin, cfg.listingBeatsPerMin / 60)
   const conns = new Map<string, number>()
   let connections = 0
+  let maintenance = deps.maintenance?.get() ?? { draining: false, message: null }
+  let pendingResults = 0
   const log = deps.log
 
   const originOk = (origin: string | null) => cfg.allowedOrigins === null || (origin !== null && cfg.allowedOrigins.includes(origin))
@@ -222,13 +237,15 @@ export function createServerCore(
 
   function players(): number {
     let n = 0
-    for (const e of rooms.values()) n += e.room.humans()
+    for (const e of rooms.values()) n += e.room.debug().connectedHumans
     return n
   }
 
   async function newRoom(code: string, setup: RoomSetup = {}): Promise<Room> {
+    if (maintenance.draining) throw new Error(MAINTENANCE_NOTICE)
     const policy = setup.ranked ? cfg.ranked : cfg.quickplay
     const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : DEFAULT_SERVER_CONFIG.quickplay
+    const officialRewards = !!setup.quick && setup.quick === policy.bots && setup.settings === undefined
     const room = await createRoom(
       {
         code,
@@ -239,13 +256,42 @@ export function createServerCore(
         rematchMs: setup.rematchMs,
         ...(setup.quick ? { quick: { ...policy, bots: setup.quick } } : {}),
         ranked: setup.ranked === true,
+        requireRankedAccount: !!deps.accounts,
         public: setup.public,
         elo: { enabled: !!authority && setup.ranked === true, minSeconds: cfg.leaderboardMinSeconds },
         onMatch: async (m, result) => {
-          result.rating = setup.ranked ? await record(code, m) : { status: 'unrated', reason: 'Casual games do not affect global Elo.' }
+          pendingResults++
+          try {
+            // Snapshot participation before any authority await: a player leaving
+            // the result screen cannot retroactively lose their completion reward.
+            const e = rooms.get(code)
+            const matchId = crypto.randomUUID()
+            const receipt = officialRewards && deps.accounts ? {
+              matchId, queue: setup.ranked ? 'ranked' as const : 'quick' as const, rulesVersion: 1 as const,
+              completedAt: clock(), durationSeconds: Math.floor(m.ticks / 60),
+              players: m.seats.filter((s) => /^a_[A-Za-z0-9_-]{8,60}$/.test(s.device)).map((s) => ({
+                accountId: s.device.slice(2), completed: !!s.stats && (e?.accounts.get(s.device.slice(2)) ?? 0) > 0,
+                aliveSeconds: s.stats?.aliveSec ?? 0,
+                casts: Object.values(s.stats?.spells ?? {}).reduce((n, [casts]) => n + casts, 0),
+                damageDealt: s.stats?.damageDealt ?? 0, walked: s.stats?.walked ?? 0,
+                roundsPlayed: s.roundsPlayed, roundsWon: s.roundsWon, won: s.won,
+              })),
+            } : null
+            // reward() persists its outbox receipt before awaiting network delivery.
+            // Its delivery and Elo proceed independently and cannot suppress one another.
+            const progression = receipt ? deps.accounts!.reward(receipt).then((status) => {
+              result.progression = { matchId, status }
+            }).catch(() => {
+              log('error', 'progression.storage.error', { room: code })
+              result.progression = { matchId, status: 'unavailable' }
+            }) : Promise.resolve()
+            const rating = setup.ranked ? record(code, m) : Promise.resolve({ status: 'unrated' as const, reason: 'Casual games do not affect global Elo.' })
+            ;[result.rating] = await Promise.all([rating, progression])
+            if (e && deps.accounts) for (const [id, connected] of e.accounts) if (connected === 0) { deps.accounts.release(code, id); e.accounts.delete(id) }
+          } finally { pendingResults-- }
         },
         onName: (device, name) => {
-          if (!authority) return
+          if (!authority || (deps.accounts && !/^a_[A-Za-z0-9_-]{8,60}$/.test(device))) return
           void authority.rename(device, name).catch((error) => {
             log('error', 'leaderboard.error', { room: code, error: String(error) })
           })
@@ -254,7 +300,9 @@ export function createServerCore(
       },
       deps,
     )
-    rooms.set(code, { room, created: deps.now(), emptySince: deps.now(), reserved: [], hadHuman: false, connections: 0 })
+    // Draining can begin while the host endpoint is being created.
+    if (maintenance.draining) { room.close(); throw new Error(MAINTENANCE_NOTICE) }
+    rooms.set(code, { room, created: deps.now(), emptySince: deps.now(), reserved: [], hadHuman: false, connections: 0, accounts: new Map(), accountReservations: new Map() })
     log('info', 'room.created', { room: code, rooms: rooms.size, ...(setup.quick ? { quick: true } : {}) })
     return room
   }
@@ -285,6 +333,7 @@ export function createServerCore(
     e.reserved = []
     listCache = null
     e.room.close()
+    deps.accounts?.release(code)
     log('info', 'room.closed', { room: code, reason: 'empty', rooms: rooms.size })
   }
 
@@ -343,10 +392,11 @@ export function createServerCore(
       const parts = url.pathname.split('/').filter(Boolean)
       if (req.method === 'OPTIONS') return { status: 204, headers: cors(req.origin), body: '' }
       if (req.method === 'GET' && url.pathname === '/health') {
-        return json(200, { ok: true, build: cfg.build, protocol: PROTOCOL_VERSION, region: cfg.region, listings: listings.size, rooms: rooms.size, maxRooms: cfg.maxRooms, players: players(), connections, uptimeS: Math.round((deps.now() - started) / 1000) }, req.origin)
+        return json(200, { ok: true, build: cfg.build, protocol: PROTOCOL_VERSION, region: cfg.region, maintenance: { ...maintenance }, listings: listings.size, rooms: rooms.size, maxRooms: cfg.maxRooms, players: players(), connections, uptimeS: Math.round((deps.now() - started) / 1000) }, req.origin)
       }
       if (parts[0] === 'rooms' && parts.length === 1 && req.method === 'POST') {
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
+        if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         if (!createLimit.take(req.ip, deps.now())) {
           log('warn', 'room.create.limited', { ip: tag(req.ip) })
           return json(429, { error: 'Too many rooms created, try again in a minute.' }, req.origin)
@@ -359,8 +409,16 @@ export function createServerCore(
         creating.add(code)
         try {
           await newRoom(code)
+        } catch (error) {
+          if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
+          throw error
         } finally {
           creating.delete(code)
+        }
+        if (maintenance.draining) {
+          const entry = rooms.get(code)
+          if (entry) closeRoom(code, entry)
+          return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         }
         log('info', 'room.create', { room: code, ip: tag(req.ip) })
         return json(201, { code, build: cfg.build, protocol: PROTOCOL_VERSION }, req.origin)
@@ -378,6 +436,7 @@ export function createServerCore(
         const update = parts.length === 2 && (req.method === 'PUT' || req.method === 'DELETE')
         if (!create && !update) return json(405, { error: 'method not allowed' }, req.origin)
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
+        if (create && maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         if (req.body === null) return json(413, { error: 'too large' }, req.origin)
         const limit = create ? listingCreateLimit : listingBeatLimit
         if (!limit.take(req.ip, deps.now())) {
@@ -411,14 +470,39 @@ export function createServerCore(
       }
       if ((parts[0] === 'quickplay' || parts[0] === 'ranked') && parts.length === 1 && req.method === 'POST') {
         const ranked = parts[0] === 'ranked'
+        if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         if (!originOk(req.origin)) return json(403, { error: 'origin not allowed' }, req.origin)
         if (ranked && !authority) return json(503, { error: 'Ranked matchmaking is unavailable: this server has no Elo storage.' }, req.origin)
+        if (ranked && deps.accounts && !req.account) return json(401, { error: 'Sign in and choose your player name before joining ranked.' }, req.origin)
         if (!quickLimit.take(req.ip, deps.now())) {
           log('warn', 'quickplay.limited', { ip: tag(req.ip) })
           return json(429, { error: 'Too many quick-play requests, try again in a minute.' }, req.origin)
         }
+        if (ranked && deps.accounts && req.account) {
+          const game = await deps.accounts.game(req.account.id)
+          if (game) {
+            const e = game.region === cfg.region ? rooms.get(game.room) : undefined
+            if (e) return json(200, { code: game.room, created: false, region: cfg.region }, req.origin)
+            return json(409, { error: `You already have a ranked game in ${game.region}. Rejoin it from the main menu.`, game }, req.origin)
+          }
+        }
+        if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         const open = openQuickRoom(ranked)
         if (open) {
+          if (ranked && deps.accounts && req.account) {
+            const claimed = await deps.accounts.claim(req.account.id, open.room.code)
+            if (!claimed.ok) return json(409, { error: 'You already have an active ranked game.', game: claimed.game }, req.origin)
+            if (maintenance.draining) {
+              deps.accounts.release(open.room.code, req.account.id)
+              return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
+            }
+            if (rooms.get(open.room.code) !== open) {
+              deps.accounts.release(open.room.code, req.account.id)
+              return json(409, { error: 'This room closed. Try Ranked again.' }, req.origin)
+            }
+            open.accounts.set(req.account.id, open.accounts.get(req.account.id) ?? 0)
+            open.accountReservations.set(req.account.id, deps.now() + RESERVE_MS)
+          }
           open.reserved.push(deps.now() + RESERVE_MS)
           log('info', 'quickplay.join', { room: open.room.code, ip: tag(req.ip) })
           return json(200, { code: open.room.code, created: false, region: cfg.region }, req.origin)
@@ -433,10 +517,37 @@ export function createServerCore(
         creating.add(code)
         try {
           await newRoom(code, { quick: bots, ranked })
+        } catch (error) {
+          if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
+          throw error
         } finally {
           creating.delete(code)
         }
+        if (maintenance.draining) {
+          const entry = rooms.get(code)
+          if (entry) closeRoom(code, entry)
+          return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
+        }
         rooms.get(code)!.reserved.push(deps.now() + RESERVE_MS)
+        if (ranked && deps.accounts && req.account) {
+          const entry = rooms.get(code)!
+          const claimed = await deps.accounts.claim(req.account.id, code)
+          if (!claimed.ok) {
+            if (rooms.get(code) === entry) closeRoom(code, entry)
+            return json(409, { error: 'You already have an active ranked game.', game: claimed.game }, req.origin)
+          }
+          if (maintenance.draining) {
+            deps.accounts.release(code, req.account.id)
+            if (rooms.get(code) === entry) closeRoom(code, entry)
+            return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
+          }
+          if (rooms.get(code) !== entry) {
+            deps.accounts.release(code, req.account.id)
+            return json(409, { error: 'This room closed. Try Ranked again.' }, req.origin)
+          }
+          entry.accounts.set(req.account.id, 0)
+          entry.accountReservations.set(req.account.id, deps.now() + RESERVE_MS)
+        }
         log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
         return json(201, { code, created: true, region: cfg.region }, req.origin)
       }
@@ -493,7 +604,28 @@ export function createServerCore(
       return { kind: 'room', code: parsed.code }
     },
 
-    attach(admission, socket, ip) {
+    async authorize(code, account) {
+      const e = rooms.get(code)
+      if (!e) throw new Error('This room has closed.')
+      if (maintenance.draining && account && !e.room.hasProfile(account.ratingKey)) throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
+      if (!e.room.isRanked() || !deps.accounts) return
+      if (!account) throw new Error('Sign in and choose your player name before joining ranked.')
+      if (e.room.screen() === 'match' && !e.room.hasProfile(account.ratingKey)) {
+        if ((e.accounts.get(account.id) ?? 0) === 0) { deps.accounts.release(code, account.id); e.accounts.delete(account.id); e.accountReservations.delete(account.id) }
+        throw new Error('This ranked game has already started. Join the queue for another game.')
+      }
+      const claimed = await deps.accounts.claim(account.id, code)
+      if (!claimed.ok) throw new Error(`You already have a ranked game in ${claimed.game.region}. Rejoin it from the main menu.`)
+      if (maintenance.draining && !e.room.hasProfile(account.ratingKey)) {
+        deps.accounts.release(code, account.id)
+        throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
+      }
+      if (rooms.get(code) !== e) { deps.accounts.release(code, account.id); throw new Error('This room has closed.') }
+      e.accounts.set(account.id, e.accounts.get(account.id) ?? 0)
+      e.accountReservations.set(account.id, deps.now() + RESERVE_MS)
+    },
+
+    attach(admission, socket, ip, account) {
       if (admission.kind === 'refuse') {
         socket.close()
         return
@@ -510,6 +642,11 @@ export function createServerCore(
         return
       }
       connections++
+      if (e.room.isRanked() && deps.accounts && !account) {
+        connections--
+        socket.send(encode({ t: 'error', message: 'Sign in before joining ranked.' })); socket.close(); return
+      }
+      if (account) e.accounts.set(account.id, (e.accounts.get(account.id) ?? 0) + 1)
       e.connections++
       conns.set(ip, (conns.get(ip) ?? 0) + 1)
       const msgs = new TokenBucket(cfg.msgsPerSec * 2, cfg.msgsPerSec, deps.now())
@@ -520,6 +657,11 @@ export function createServerCore(
         done = true
         connections--
         e.connections--
+        if (account) {
+          const remaining = Math.max(0, (e.accounts.get(account.id) ?? 1) - 1)
+          e.accounts.set(account.id, remaining)
+          if (remaining === 0 && (e.room.screen() !== 'match' || !e.room.hasProfile(account.ratingKey))) { deps.accounts?.release(admission.code, account.id); e.accounts.delete(account.id); e.accountReservations.delete(account.id) }
+        }
         const n = (conns.get(ip) ?? 1) - 1
         if (n > 0) conns.set(ip, n)
         else conns.delete(ip)
@@ -538,6 +680,7 @@ export function createServerCore(
               return
             }
             cb(t)
+            if (account && e.room.hasProfile(account.ratingKey)) e.accountReservations.delete(account.id)
             if (e.room.humans() > 0) e.hadHuman = true
             closeEmptyQueue(admission.code, e)
           })
@@ -552,7 +695,7 @@ export function createServerCore(
       }
       if (reservedNow(e) > 0) e.reserved.shift()
       log('info', 'ws.join', { room: admission.code, ip: tag(ip) })
-      e.room.accept(new SocketTransport(limited))
+      e.room.accept(new SocketTransport(limited, account))
       if (e.room.humans() > 0) e.hadHuman = true
     },
 
@@ -560,6 +703,7 @@ export function createServerCore(
       const code = opts.code ?? freeCode()
       const existing = rooms.get(code)
       if (existing) return existing.room
+      if (maintenance.draining) throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
       return newRoom(code, opts)
     },
 
@@ -570,6 +714,9 @@ export function createServerCore(
     sweep() {
       const now = deps.now()
       for (const [code, e] of rooms) {
+        for (const [id, until] of e.accountReservations) if (until <= now && (e.accounts.get(id) ?? 0) === 0) {
+          deps.accounts?.release(code, id); e.accounts.delete(id); e.accountReservations.delete(id)
+        }
         closeEmptyQueue(code, e)
         if (rooms.get(code) !== e) continue
         if (e.room.peers() > 0) {
@@ -596,11 +743,31 @@ export function createServerCore(
     close() {
       for (const e of rooms.values()) e.room.close()
       rooms.clear()
+      deps.accounts?.close()
       authority?.close?.()
+      deps.maintenance?.close()
     },
 
     stats() {
       return { rooms: rooms.size, players: players(), connections }
+    },
+    maintenance() {
+      const activeMatches = [...rooms.values()].filter((entry) => entry.room.screen() === 'match').length
+      const accountPending = deps.accounts?.pending?.() ?? { rewards: 0, releases: 0 }
+      const pendingRatings = authority?.pending?.() ?? 0
+      const settling = pendingResults + (deps.pendingAuthority?.() ?? 0)
+      return { ...maintenance, rooms: rooms.size, players: players(), connections, activeMatches,
+        waitingRooms: rooms.size - activeMatches, creatingRooms: creating.size, pendingResults: settling, pendingRatings,
+        pendingRewards: accountPending.rewards, pendingReleases: accountPending.releases,
+        ready: maintenance.draining && activeMatches === 0 && creating.size === 0 && settling === 0 && pendingRatings === 0 && accountPending.rewards === 0 && accountPending.releases === 0 }
+    },
+    setMaintenance(state) {
+      if (!validMaintenance(state)) throw new Error('Invalid regional maintenance state')
+      deps.maintenance?.set(state)
+      maintenance = { ...state }
+      listCache = null
+      for (const entry of rooms.values()) entry.room.setMaintenance(state.draining ? state.message ?? MAINTENANCE_NOTICE : null)
+      return core.maintenance()
     },
   }
   return core

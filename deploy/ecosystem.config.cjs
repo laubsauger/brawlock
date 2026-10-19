@@ -25,6 +25,11 @@ module.exports = {
         // Other regions: the HTTPS US authority URL, never an independent ladder.
         RATING_AUTHORITY_URL: '__RATING_AUTHORITY_URL__',
         RATING_AUTHORITY_TOKEN: readFileSync('/etc/brawlock/rating-authority-token', 'utf8').trim(),
+        // One shared account authority runs on the US host; matches run regionally.
+        // On the US game server use http://127.0.0.1:5352 (same machine).
+        // On the EU game server use https://us.brawlock.osc.link (private API).
+        ACCOUNTS_AUTHORITY_URL: '__ACCOUNTS_AUTHORITY_URL__',
+        MAINTENANCE_SECRET_FILE: '/etc/brawlock/maintenance-secret',
         TURN_SECRET_FILE: '/etc/brawlock/turn-secret',
         TURN_URLS: JSON.stringify([
           'turn:__TURN_HOST__:3478?transport=udp',

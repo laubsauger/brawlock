@@ -5,6 +5,7 @@
  * - an enemy Gravity orb: damages within its dps radius (and pulls within 550), now.
  * All of it is visible state: pawn.cast, projectile data.
  */
+import { hypot } from '../sim/math'
 import { TICK_HZ } from '../sim/types'
 import type { PlayerId, SimState } from '../sim/types'
 import { attr, isEnemy, spellDef } from '../sim'
@@ -51,5 +52,5 @@ export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
 }
 
 export function insideAny(zones: readonly ThreatZone[], x: number, y: number, margin = 0): boolean {
-  return zones.some((z) => Math.hypot(x - z.x, y - z.y) < z.r + margin)
+  return zones.some((z) => hypot(x - z.x, y - z.y) < z.r + margin)
 }

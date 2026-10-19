@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { ASSET_BASE } from '../lib/assets'
 import { hueFor, MASTERY_HUE } from './data/catalog'
 
 /** Navigation glyphs share the same warm, fine stroke as the engraved controls. */
@@ -201,7 +202,7 @@ export function Sigil({ id, size = 40, hue, dim = false }: { id: string | null; 
   const [, bump] = useState(0)
   const file = id ? artFile(id) : null
   if (file && !failedArt.has(file)) {
-    const base = import.meta.env.BASE_URL
+    const base = ASSET_BASE
     return (
       <img
         src={`${base}icons/128/${file}.png`}

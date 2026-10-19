@@ -5,6 +5,7 @@
  * delta as shooter - target, which flips the sign of the linear term; the intent is
  * clearly the intercept, so that is what we implement).
  */
+import { cos, sin } from '../sim/math'
 import type { Vec2 } from '../sim/types'
 
 /** Smallest t >= 0 at which a projectile of `speed` from the origin meets a target at (dx, dy) moving with (vx, vy). */
@@ -45,8 +46,8 @@ export function leadPoint(shooter: Vec2, target: Vec2, targetVel: Vec2, speed: n
 
 /** Rotate `point` around `origin` by `angle` radians. */
 export function rotateAround(origin: Vec2, point: Vec2, angle: number): Vec2 {
-  const c = Math.cos(angle)
-  const s = Math.sin(angle)
+  const c = cos(angle)
+  const s = sin(angle)
   const dx = point.x - origin.x
   const dy = point.y - origin.y
   return { x: origin.x + dx * c - dy * s, y: origin.y + dx * s + dy * c }

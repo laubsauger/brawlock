@@ -11,6 +11,8 @@ import { isTypingTarget } from '../lib/keys'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useReplayIds, watchReplay } from '../lib/replays'
 import { AutoStart } from './Lobby'
+import { accountsEnabled } from '../../game/account'
+import { Collection, MatchEmbers } from './Collection'
 
 interface Row {
   id: number
@@ -80,17 +82,19 @@ export function Results() {
   // quick play: no rematch vote, the next match starts by itself
   const quick = useGame((s) => !!s.lobby.quick)
   const autoStart = useGame((s) => s.lobby.autoStart ?? null)
+  const maintenance = useGame((s) => s.lobby.maintenance ?? null)
   const isHost = role !== 'client'
   const rec = useMemo(() => (result ? recordFor(result) : null), [result])
   // the replay is saved a moment after the match (compressed): the button appears then
   const replayIds = useReplayIds()
   // one player's detail row open at a time (all closed at first, so the board fits at 1280x720)
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [collectionOpen, setCollectionOpen] = useState(false)
 
   // Enter = rematch, the one-click loop
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.repeat || isTypingTarget(e.target) || useGame.getState().settingsOpen || useGame.getState().lobby.quick) return
+      if (e.key !== 'Enter' || e.repeat || collectionOpen || isTypingTarget(e.target) || useGame.getState().settingsOpen || useGame.getState().lobby.quick || useGame.getState().lobby.maintenance) return
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       e.preventDefault()
       if (isHost) rematch()
@@ -98,7 +102,7 @@ export function Results() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [isHost])
+  }, [isHost, collectionOpen])
 
   if (!result) {
     return (
@@ -259,7 +263,13 @@ export function Results() {
         </table>
       </div>
 
-      {quick ? (
+      {accountsEnabled && inMatch && result.progression && <div className="mt-4 w-full max-w-3xl"><MatchEmbers progression={result.progression} onCollection={() => setCollectionOpen(true)} /></div>}
+
+      {maintenance ? <div className="mt-6 flex max-w-3xl flex-col items-center gap-3 rounded-lg border border-gold/30 bg-[#281d13] px-5 py-4 text-center" role="status" data-testid="results-maintenance">
+        <p className="font-semibold text-gold">Region updating · match complete</p>
+        <p className="text-sm text-bone">{maintenance}</p>
+        <Button onClick={leaveToMenu}>Choose another region</Button>
+      </div> : quick ? (
         <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
           <span className="text-[1.15rem] font-semibold text-[#f0d9b8]">{autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : 'The next match starts by itself.'}</span>
           <Button variant="ghost" sound="back" onClick={leaveToMenu}>
@@ -290,11 +300,12 @@ export function Results() {
         </Button>
       </div>
       )}
-      {online && !quick && humans.length > 1 && (
+      {online && !quick && !maintenance && humans.length > 1 && (
         <p className="mt-3 text-[0.98rem] text-ash" aria-live="polite">
           {isHost ? `${readyCount} of ${humans.length - 1} ${humans.length - 1 === 1 ? 'opponent wants' : 'players want'} a rematch.` : localReady ? 'The host sees that you are ready.' : 'The host starts the rematch.'}
         </p>
       )}
+      {collectionOpen && <Collection onClose={() => setCollectionOpen(false)} />}
     </div>
   )
 }

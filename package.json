@@ -11,10 +11,15 @@
     "test": "vitest run",
     "server": "vite-node server/main.mjs",
     "bots:elo": "vite-node scripts/bots/elo.ts --",
-    "server:build": "node scripts/build-server.mjs"
+    "server:build": "node scripts/build-server.mjs",
+    "accounts": "vite-node server/accounts-main.mjs",
+    "accounts:migrate": "vite-node server/accounts-main.mjs --migrate",
+    "accounts:build": "node scripts/build-accounts.mjs"
   },
   "dependencies": {
+    "@better-auth/passkey": "1.7.11",
     "@react-three/fiber": "^9.8.2",
+    "better-auth": "1.7.11",
     "peerjs": "^1.5.5",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

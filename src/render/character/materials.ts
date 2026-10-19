@@ -558,6 +558,11 @@ export function createClothMaterial(chevronZ = 0): THREE.MeshPhysicalNodeMateria
   const fadeAt = (coord: F, period: number) => float(1).sub(smoothstep(0.2, 0.45, fwidth(coord).div(period)))
   const wear = sin(um.mul(97)).mul(sin(fromTop.mul(41))).mul(0.5).mul(fadeAt(um, 0.065)).add(0.5)
   let base = v3(fabric(1).mul(float(0.85).add(wear.mul(0.3))))
+  // Only the untrimmed cloth changes. Team trims, runes, hood void, hands,
+  // hit/death effects and the silhouette retain their existing values.
+  // The cloth palette follows its original luminance rather than multiplying
+  // player hue: blue players can wear warm charcoal without recoloring identity.
+  base = v3(select(U.clothBlend.greaterThan(0.5), U.clothTint.mul(dot(base, LUMA)), base))
   // readable: the front pieces (tabard, chest panel) carry more player colour, a
   // facing cue from above; the cape back stays the darkest
   base = v3(mix(base, U.team.mul(0.2).add(vec3(0.02, 0.018, 0.022)), isTabard.add(isPanel).mul(0.3).mul(L)))

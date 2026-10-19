@@ -10,6 +10,7 @@
  * every pair that played (as BayesElo does), which keeps such ratings finite: they then read
  * as "at least this far apart", not as a measurement.
  */
+import { exp, pow } from '../sim/math'
 
 export interface PairRecord {
   a: string
@@ -70,7 +71,7 @@ export function bradleyTerry(
     for (let i = 0; i < n; i++)
       for (let j = 0; j < n; j++) {
         if (i === j || games[i][j] === 0) continue
-        const p = 1 / (1 + Math.exp(theta[j] - theta[i]))
+        const p = 1 / (1 + exp(theta[j] - theta[i]))
         grad[i] += score[i][j] - games[i][j] * p
         const w = games[i][j] * p * (1 - p)
         hess[i][i] += w
@@ -104,7 +105,7 @@ export function bradleyTerry(
 
 /** Expected score of a player rated `ra` against one rated `rb`. */
 export function expectedScore(ra: number, rb: number): number {
-  return 1 / (1 + 10 ** ((rb - ra) / 400))
+  return 1 / (1 + pow(10, (rb - ra) / 400))
 }
 
 /** Wilson 95% interval for a win share (draws count half). */

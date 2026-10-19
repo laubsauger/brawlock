@@ -4,6 +4,7 @@
  * a pawn's velocity decays by frictionPerTick, its walk part is re-added, and lava burns
  * lavaDps in 0.25 s bursts. Pure functions of visible state.
  */
+import { hypot, pow } from '../sim/math'
 import { DT, TICK_HZ } from '../sim/types'
 import type { PawnState, SimState, Vec2 } from '../sim/types'
 import { attr, frictionPerTick, knockbackSpeed, spellDef } from '../sim'
@@ -65,7 +66,7 @@ export function lavaOutcome(
     if (home) {
       const dx = home.x - x
       const dy = home.y - y
-      const d = Math.hypot(dx, dy)
+      const d = hypot(dx, dy)
       if (d > 1) {
         wx = (dx / d) * moveSpeed
         wy = (dy / d) * moveSpeed
@@ -75,7 +76,7 @@ export function lavaOutcome(
     y += (vy + wy) * DT
     if (isSafe(layer, x, y)) {
       // back on a tile and no longer being carried off it
-      if (Math.hypot(vx, vy) < moveSpeed) break
+      if (hypot(vx, vy) < moveSpeed) break
       continue
     }
     onLava++
@@ -109,7 +110,7 @@ export function afterHit(state: SimState, p: PawnState, damage: number, spellKb:
 export function positionAfter(state: SimState, p: PawnState, t: number): Vec2 {
   const f = frictionPerTick(state.settings.friction)
   const n = t * TICK_HZ
-  const k = (DT * f * (1 - Math.pow(f, n))) / (1 - f)
+  const k = (DT * f * (1 - pow(f, n))) / (1 - f)
   const ph = physVelocity(p)
   return { x: p.x + ph.x * k + p.walkVx * t, y: p.y + ph.y * k + p.walkVy * t }
 }
@@ -119,10 +120,10 @@ export function positionAfter(state: SimState, p: PawnState, t: number): Vec2 {
  * Fixed-point iteration on the flight time.
  */
 export function leadWithFriction(state: SimState, from: Vec2, target: PawnState, speed: number, delay: number): Vec2 {
-  let t = Math.hypot(target.x - from.x, target.y - from.y) / speed
+  let t = hypot(target.x - from.x, target.y - from.y) / speed
   let at = positionAfter(state, target, delay + t)
   for (let i = 0; i < 6; i++) {
-    t = Math.hypot(at.x - from.x, at.y - from.y) / speed
+    t = hypot(at.x - from.x, at.y - from.y) / speed
     at = positionAfter(state, target, delay + t)
   }
   return at

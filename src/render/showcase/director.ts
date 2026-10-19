@@ -15,7 +15,7 @@ import { collectAction, type ActionInfo } from './action'
 import { camOverride, setRigFocus } from './camRig'
 import type { ShowcaseOverlay } from './overlay'
 import { ShotSim } from './simShot'
-import type { CamCtx, ShotSpec } from './types'
+import { speedAt, type CamCtx, type ShotSpec } from './types'
 
 export const VIDEO_FPS = 60
 const DTV = 1 / VIDEO_FPS
@@ -122,7 +122,7 @@ export class Director {
    */
   advance(nextNow: number, preroll = false): void {
     if (!preroll) {
-      const s = Math.max(0, this.spec.speed ? this.spec.speed(this.simT) : 1)
+      const s = speedAt(this.spec, this.vt, this.simT)
       this.timeScale = s
       this.simT += DTV * s
       const target = this.simT * TICK_HZ

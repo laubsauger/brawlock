@@ -4,7 +4,7 @@ import { roundWon } from '../../sim/mode'
 import { fight, run } from '../../sim/testkit'
 import { newVictoryPose, sampleVictoryPose, victoryStyle, type VictoryStyle } from './victoryPose'
 
-const STYLES: VictoryStyle[] = ['dance', 'summon', 'flourish']
+const STYLES: VictoryStyle[] = ['dance', 'summon', 'flourish', 'ascendant', 'revel']
 
 describe('round winner poses', () => {
   it('cycles all three styles per winner without random state or simulation mutations', () => {
@@ -33,6 +33,21 @@ describe('round winner poses', () => {
     sampleVictoryPose('flourish', 1.6, 1, cast)
     expect(cast.flare).toBeGreaterThan(0.7)
     expect(cast.overhead).toBeLessThan(0.2)
+  })
+
+  it('uses account equipment for the new poses without changing the free celebration mix', () => {
+    expect(victoryStyle(1, 0, 'victory-ascendant')).toBe('ascendant')
+    expect(victoryStyle(1, 0, 'victory-revel')).toBe('revel')
+    expect(victoryStyle(1, 0, null)).toBe(victoryStyle(1, 0))
+    const ascendant = newVictoryPose(), revel = newVictoryPose()
+    sampleVictoryPose('ascendant', 1.8, 1, ascendant)
+    sampleVictoryPose('revel', 1.0, 1, revel)
+    expect(ascendant.flare).toBe(0.8)
+    expect(ascendant.overhead).toBeGreaterThan(0.4)
+    expect(revel.overhead).toBe(0.56)
+    expect(revel.elbowR).toBeGreaterThan(revel.elbowL)
+    sampleVictoryPose('revel', 2.1, 1, revel)
+    expect(revel.bow).toBeGreaterThan(0.5)
   })
 
   it('keeps all three animations continuous and bounded throughout the longer camera hold', () => {

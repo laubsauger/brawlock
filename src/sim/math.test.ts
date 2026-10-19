@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { DT, ORIGINAL_TICK, TICK_HZ } from './types'
 import { frictionPerTick } from './config'
-import { PI, atan2, cos, exp, log, pow, sin, wrapAngle } from './math'
+import { PI, asin, atan2, cos, exp, hypot, log, pow, sin, wrapAngle } from './math'
 
 // The sim may not use engine trig (cross-browser determinism), so its own trig must still be
 // accurate enough that geometry (spawn ring, facing, aim) matches what engine trig would give.
@@ -22,6 +22,36 @@ describe('deterministic math matches libm closely', () => {
     expect(atan2(0, -1)).toBe(PI)
     expect(atan2(1, 0)).toBe(PI / 2)
     expect(atan2(0, 0)).toBe(0)
+  })
+
+  test('asin across its domain and close to the endpoints used by tangent routes', () => {
+    for (let i = -1000; i <= 1000; i++) {
+      const x = i / 1000
+      expect(Math.abs(asin(x) - Math.asin(x))).toBeLessThan(7e-16)
+    }
+    for (const x of [1 - Number.EPSILON, -1 + Number.EPSILON, 1e-300, -1e-300]) {
+      expect(Math.abs(asin(x) - Math.asin(x))).toBeLessThan(7e-16)
+    }
+    expect(asin(1)).toBe(PI / 2)
+    expect(asin(-1)).toBe(-PI / 2)
+    expect(Object.is(asin(-0), -0)).toBe(true)
+    for (const x of [NaN, Infinity, -Infinity, 1.001, -1.001]) expect(asin(x)).toBeNaN()
+  })
+
+  test('hypot preserves lengths across game coordinates and extreme scales', () => {
+    for (const scale of [1e-300, 1e-100, 1, 1e5, 1e150, 1e300]) {
+      for (let i = -20; i <= 20; i++) {
+        const x = i * scale
+        const y = (i + 0.37) * scale
+        expect(Math.abs(hypot(x, y) / Math.hypot(x, y) - 1)).toBeLessThan(6e-16)
+      }
+    }
+    expect(hypot(3, 4)).toBe(5)
+    expect(Object.is(hypot(-0, -0), 0)).toBe(true)
+    expect(hypot(0, 1e-320)).toBe(1e-320)
+    expect(hypot(NaN, 1)).toBeNaN()
+    expect(hypot(Infinity, NaN)).toBe(Infinity)
+    expect(hypot(-Infinity, 1)).toBe(Infinity)
   })
 
   test('exp / log / pow', () => {

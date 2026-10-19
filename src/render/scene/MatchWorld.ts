@@ -1092,7 +1092,7 @@ export class MatchWorld {
         for (const [pawn, v] of living) {
           if (match && this.lastCamera) {
             const facing = this.victoryShot?.facing ?? Math.atan2(-this.lastCamera.position.z / S - v.y, this.lastCamera.position.x / S - v.x)
-            if (e.type !== 'gameOver' || this.victoryShot?.pawn !== pawn) v.celebrate(facing, victoryStyle(curr.round, v.owner))
+            if (e.type !== 'gameOver' || this.victoryShot?.pawn !== pawn) v.celebrate(facing, victoryStyle(curr.round, v.owner, this.slotOf(curr, v.owner)?.cosmetics?.victory))
           }
           if (fx <= 0 || this.reducedMotion.matches) continue
           const c = v.identityColor
@@ -1803,6 +1803,7 @@ export class MatchWorld {
       // team identity (Shuffle re-teams every round): ring, trims, plate fill
       v.name = this.slotOf(curr, p.owner)?.name ?? ''
       v.setIdentity(colorForPawn(curr, p.owner), slotColorOf(curr, p.owner))
+      v.setCosmetics(this.slotOf(curr, p.owner)?.cosmetics)
       v.combat = curr.phase === 'fight'
       samplePawn(pp, p, alpha, this.sample)
       // shop-phase ward (combat off): full until the 3-2-1, easing down through it

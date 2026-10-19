@@ -45,3 +45,9 @@ Music defaults to 65% on fresh loads or when no music preference is saved. Exist
 Every credited kill already triggers a centered confirmation exclusively for the killer. Its dry slam now finishes with two short, mellow metallic coin strikes. This ordinary kill reward remains separate from the existing bounty settlement, and disconnects, self-deaths, other players and spectators do not receive it.
 
 The shared death sound has a tighter second low-body answer at 65 ms, using its existing synthesis layers and node budget. Death visuals add a small matching pressure echo while preserving cause-specific effects, quiet disconnects, and player effect settings.
+
+## Splash Enter audition
+
+The user requested a much more substantial, epic entrance sound for **Press Enter**. The previous `uiReady` recipe was a click followed by three bright FM-bell notes. The [Enter listening pass](../artifacts/audio-enter-review/README.md) offered five edited options: low metal, low ritual gong, two cinematic impacts, and a metal/gong combination. Each has an isolated preview and a preview over the current menu theme, plus a snapshot of the old sound for comparison. Keep the attack on the click and the tail short enough to hand over to the music.
+
+**Selected: E04 — Iron thunder.** The user's “iron thunder works” approves the 1.60-second metallic cinematic impact. It now replaces the `uiReady` chime in normal hybrid mode, at fixed playback speed and with no synthetic chime layered over it. The selected stereo audition master is encoded unchanged as Opus and AAC (`ui_enter`), retaining its trimmed attack, 60–4200 Hz filtering, and 0.65-second fade. The splash preloads and decodes this one sample before Enter so the first gesture can play the chosen recording immediately. Music timing and saved volume settings remain unchanged. Credits include EminYILDIRIM's CC0 source.

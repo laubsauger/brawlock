@@ -37,6 +37,7 @@ import { postState } from './scene/MatchWorld'
 import { getNoiseTexture } from './scene/noiseTexture'
 import * as frameCull from './frameCull'
 import { perfMark, perfProbe, renderStats } from './stats'
+import { gradeSceneColor } from './colorGrade'
 
 /** HDR ceilings (linear, max channel). Scene: before bloom/composite (bloom
  * still gets bright cores). Final: before tone mapping. Low: no bloom, so
@@ -121,7 +122,7 @@ export function RenderLoop({
       const lowPass = pass(scene, camera, { samples: 0 })
       const c = lowPass.getTextureNode('output').rgb
       const rp = new THREE.RenderPipeline(gl)
-      rp.outputNode = vec4(clampHdr(c, LOW_TIER_MAX), 1)
+      rp.outputNode = vec4(gradeSceneColor(clampHdr(c, LOW_TIER_MAX)), 1)
       return rp
     }
     // GTAO needs a single-sampled depth buffer: with AO the scene pass drops
@@ -185,7 +186,7 @@ export function RenderLoop({
     col = col.mul(float(1).sub(vig))
     col = mix(col, col.mul(vec3(1.25, 0.55, 0.5)), smoothstep(0.25, 0.9, r).mul(u.hurt).mul(0.8))
 
-    let toned: Node<'vec4'> = renderOutput(vec4(clampHdr(col, FINAL_MAX), 1))
+    let toned: Node<'vec4'> = renderOutput(vec4(gradeSceneColor(clampHdr(col, FINAL_MAX)), 1))
     if (useFxaa) toned = fxaa(toned) as unknown as Node<'vec4'>
     // integer pixel seed (hash() truncates to uint, so fractional seeds band)
     const px = screenCoordinate.xy.floor()

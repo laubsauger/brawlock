@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { MenuBackdropSlot } from './renderBridge'
+import { assetUrl } from '../lib/assets'
 
 /**
  * Wordmark art (public/brand/wordmark.webp; the PNG master stays alongside).
@@ -17,7 +18,7 @@ export function Wordmark({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
   }
   // lg follows the screen height too, so the main menu fits on short screens (1280x720 with the server options)
   const width = { sm: '220px', md: '340px', lg: 'min(520px, 84vw, 58vh)', xl: 'min(640px, 86vw)' }[size]
-  const src = `${import.meta.env.BASE_URL}brand/wordmark.webp`
+  const src = assetUrl('brand/wordmark.webp')
   return (
     <h1 className={`brand-mark m-0 max-w-[calc(100vw-48px)] leading-none ${size === 'lg' ? 'brand-mark-live' : ''}`} style={{ width, '--brand-image': `url("${src}")` } as CSSProperties}>
       <img

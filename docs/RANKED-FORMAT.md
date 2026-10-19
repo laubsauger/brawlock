@@ -4,6 +4,8 @@ This format shipped in release `a03358d76509` on 2026-10-19. See the [release re
 
 Ranked uses one locked preset: eight seats, Brutal bots filling spare seats, at least two distinct human identities, and a60-second lobby once the second human joins. Additional humans replace lobby bots; new ranked admission closes when the match starts. Casual Quick Play remains ten players, and custom games retain their existing configurable first-to rules.
 
+Economy tuning prepared after that release: both Ranked and Quick Play now use **50 starting gold, 15 gold per completed round, 2 per kill, and 3 per round win** in the server defaults (previous queue settings: 40/12/2/3). The larger shared budget gives the opening build another useful option and lets everyone progress between rounds without increasing winner-only rewards. For example, Teleport, Shield, Lightning and one Fireball upgrade cost 42 gold; maxing Teleport alone costs 63. Custom/offline defaults and prices are unchanged. This tuning requires a server rollout and applies to newly created queue rooms; it does not rewrite running matches.
+
 ## Match structure
 
 Play five scheduled scoring rounds. A sole leader wins early if every opponent's score plus all remaining scheduled rounds is strictly below the leader's score. A sole leader after round five wins the match.

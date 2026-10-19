@@ -422,11 +422,11 @@ describe('public rooms and quick play (M4.3)', () => {
       await a.session.join(opened.code)
       expect(srv.core.room(opened.code)!.summary().elo).toEqual({ enabled: false, minSeconds: 120 })
       await until(() => a.screen() === 'match' && a.lobby().slots.length === 10, 8000, 'a full-house quick start')
-      expect(a.lobby().settings).toMatchObject({ startGold: 40, roundGold: 12, killGold: 2, winGold: 3 })
+      expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(9)
       expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
       await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
-      expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(40)
+      expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(50)
       expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
       await b.session.join(opened.code)
       await until(() => a.lobby().slots.filter((s) => s.kind === 'human').length === 2, 3000, 'a human replacing a full-house bot')
@@ -639,7 +639,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'brutal', settings: { startGold: 40, roundGold: 12, killGold: 2, winGold: 3 } })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'brutal', settings: { startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 
@@ -874,7 +874,7 @@ describe('ranked queue over real TCP', () => {
     try {
       expect(DEFAULT_SERVER_CONFIG.ranked).toMatchObject({
         seats: 8, fill: 8, bots: 'brutal', minHumans: 2, startMs: 60_000,
-        settings: { rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 },
+        settings: { rankedRounds: 5, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
       })
       const first = await queue(http, '?bots=easy&seats=2&fill=2&startGold=999&rankedRounds=1')
       const room = srv.core.room(first.code)!
@@ -886,7 +886,7 @@ describe('ranked queue over real TCP', () => {
       expect(a.lobby()).toMatchObject({ role: 'client', ranked: true, quick: true, public: true, autoStart: null })
       expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(7)
       expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
-      expect(a.lobby().settings).toMatchObject({ rankedRounds: 5, startGold: 40, roundGold: 12, killGold: 2, winGold: 3 })
+      expect(a.lobby().settings).toMatchObject({ rankedRounds: 5, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       // fillMs is zero: a mistaken solo fill timer would already have fired.
       await new Promise((resolve) => setTimeout(resolve, 150))
       expect(a.screen()).toBe('lobby')
@@ -904,7 +904,7 @@ describe('ranked queue over real TCP', () => {
       await c.session.join(first.code)
       await until(() => room.humans() === 3 && a.lobby().slots.filter((s) => s.kind === 'human').length === 3, 3000, 'a third human')
       expect(Math.abs(a.lobby().autoStart!.at - deadline)).toBeLessThan(150)
-      expect(a.lobby().settings?.startGold).toBe(40)
+      expect(a.lobby().settings?.startGold).toBe(50)
       expect(a.lobby().slots).toHaveLength(8)
       b.session.leave()
       c.session.leave()

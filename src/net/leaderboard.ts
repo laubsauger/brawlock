@@ -182,7 +182,7 @@ export class ServerMatchTracker implements MatchRecorder {
     this.ranked = []
     this.roundParticipants = null
     this.settings = info.settings
-    this.details = info.settings.rankedRounds === 5 ? new MatchTracker({ ...info, localPlayer: -1 }) : null
+    this.details = new MatchTracker({ ...info, localPlayer: -1 })
     this.detailedSeats.clear()
     this.observedDetails = false
     this.bots = info.slots.filter((s) => s.kind === 'bot').length

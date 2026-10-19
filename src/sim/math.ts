@@ -166,6 +166,13 @@ export function atan2(y: number, x: number): number {
   return y < 0 ? z - PI_LO - PI : PI - (z - PI_LO)
 }
 
+/** Inverse sine on [-1, 1], preserving precision near both endpoints. */
+export function asin(x: number): number {
+  if (x !== x || Math.abs(x) > 1) return NaN
+  if (x === 0) return x
+  return atan2(x, Math.sqrt((1 - x) * (1 + x)))
+}
+
 // ---------------------------------------------------------------------------
 // exp / log / pow (setup-time only, e.g. friction conversion)
 // ---------------------------------------------------------------------------
@@ -253,6 +260,18 @@ export function pow(x: number, y: number): number {
 
 export function length(x: number, y: number): number {
   return Math.sqrt(x * x + y * y)
+}
+
+/** Two-dimensional length, scaled to avoid overflow or underflow when squaring. */
+export function hypot(x: number, y: number): number {
+  const a = Math.abs(x)
+  const b = Math.abs(y)
+  if (a === Infinity || b === Infinity) return Infinity
+  if (a !== a || b !== b) return NaN
+  const hi = Math.max(a, b)
+  if (hi === 0) return 0
+  const ratio = Math.min(a, b) / hi
+  return hi * Math.sqrt(1 + ratio * ratio)
 }
 
 /** Wrap an angle to (-pi, pi]. */
