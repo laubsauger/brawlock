@@ -14,10 +14,11 @@ import { tierConfig } from './quality'
 import { RenderLoop } from './RenderLoop'
 import { MatchWorld } from './scene/MatchWorld'
 import { createPrivateSource } from './source'
+import { warlockReady } from './character'
 
 /**
  * Animated backdrop for menu and lobby screens: a slow cinematic drift over a
- * ten-warlock coven, looking out across the lava to the caldera rim.
+ * ten-warlock coven rehearsing short spells over a clear practice floor.
  * The prior sparring scene remains available with ?menuScene=sparring.
  * Both use a private frame buffer and never touch match state.
  *
@@ -27,23 +28,30 @@ import { createPrivateSource } from './source'
 export function MenuBackdrop({ className, style }: { className?: string; style?: CSSProperties }) {
   const quality = useGame((s) => s.settings.quality)
   const fx = useGame((s) => s.settings.fxIntensity)
+  const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
+  const renderIdle = useRef(false)
   return (
     <div className={className} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#0b0604', ...style }}>
       <GpuCanvas quality={quality} style={{ position: 'absolute', inset: 0 }}>
-        <MenuScene quality={quality} fx={fx} />
-        <RenderLoop quality={quality} fx={fx} inspect={false} />
+        <MenuScene quality={quality} fx={fx} reducedMotion={reducedMotion} renderIdle={renderIdle} />
+        <RenderLoop quality={quality} fx={fx} inspect={false} idle={renderIdle} />
       </GpuCanvas>
     </div>
   )
 }
 
-function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0]; fx: number }) {
-  const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
+function MenuScene({ quality, fx, reducedMotion, renderIdle }: {
+  quality: Parameters<typeof tierConfig>[0]
+  fx: number
+  reducedMotion: boolean
+  renderIdle: { current: boolean }
+}) {
   const [sparring] = useState(() => new URLSearchParams(window.location.search).get('menuScene') === 'sparring')
   const scene = useThree((s) => s.scene)
   const gl = useThree((s) => s.gl)
   const eff = useEffectiveQuality(quality)
   const worldRef = useRef<MatchWorld | null>(null)
+  const still = useRef({ width: 0, height: 0, dpr: 0, readyFrames: 0 })
   const driveRef = useRef<{ stage: MenuStage; source: ReturnType<typeof createPrivateSource>; acc: number; t0: number; ticks: number; t: number } | null>(null)
   const tmp = useRef({
     pos: new THREE.Vector3(), aim: new THREE.Vector3(),
@@ -51,6 +59,8 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
   })
 
   useEffect(() => {
+    renderIdle.current = false
+    still.current.readyFrames = 0
     const source = createPrivateSource()
     const stage = sparring ? createMenuStage() : createMenuTableau()
     // two ticks up front so the first rendered frame already has prev + curr
@@ -78,17 +88,28 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
       driveRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, eff, gl, sparring])
+  }, [scene, eff, gl, sparring, reducedMotion])
 
   useEffect(() => {
     worldRef.current?.setFx(fx)
-  }, [fx])
+    renderIdle.current = false
+    still.current.readyFrames = 0
+  }, [fx, renderIdle])
 
   useFrame((state, dtRaw) => {
     const world = worldRef.current
     const drive = driveRef.current
     if (!world || !drive) return
-    const dt = Math.min(dtRaw, 0.1)
+    const frozen = still.current
+    if (frozen.width !== state.size.width || frozen.height !== state.size.height || frozen.dpr !== state.viewport.dpr) {
+      frozen.width = state.size.width
+      frozen.height = state.size.height
+      frozen.dpr = state.viewport.dpr
+      frozen.readyFrames = 0
+      renderIdle.current = false
+    }
+    if (renderIdle.current) return
+    const dt = reducedMotion ? 0 : Math.min(dtRaw, 0.1)
     drive.t += dt
     // stage on a virtual 60 Hz timeline that trails real time by < 1 tick, so
     // the world interpolates smoothly at any display rate (and pauses with the tab)
@@ -121,6 +142,12 @@ function MenuScene({ quality, fx }: { quality: Parameters<typeof tierConfig>[0];
     // Culling, shadows and VFX use the same camera that will render this frame.
     try {
       world.update(dt, cam, aspect)
+      // Finish loading the real models/textures before holding the rendered
+      // portrait. Skipping subsequent renders also freezes shader-time motion,
+      // rather than merely stopping the camera while cloth/lava keep moving.
+      if (reducedMotion && warlockReady() && world.uploadsDone) {
+        if (frozen.readyFrames++ >= 2) renderIdle.current = true
+      }
     } catch (err) {
       if (!updateErrorLogged) console.error('[render] menu world update threw', err)
       updateErrorLogged = true
@@ -136,17 +163,17 @@ type TableauShot = ReturnType<typeof menuCameraAt> & { aimHeight: number }
  * the menu on desktop. Reuses the caller's shot object every frame. */
 function tableauCameraAt(seconds: number, focus: Vec2, out: Vec2, aspect: number, reducedMotion: boolean, shot: TableauShot): void {
   const t = reducedMotion ? 0 : seconds
-  const arc = Math.sin(t * Math.PI * 2 / 96) * 0.035
+  const arc = Math.sin(t * Math.PI * 2 / 96) * 0.02
   const ca = Math.cos(arc)
   const sa = Math.sin(arc)
   const ux = out.x * ca - out.y * sa
   const uy = out.x * sa + out.y * ca
   const portrait = aspect < 1
   const fit = Math.max(1, 0.95 / aspect)
-  const breath = (1 - Math.cos(t * Math.PI * 2 / 96)) * 15
-  const back = (2200 - breath) * fit
-  const height = (1080 - breath * 0.35) * fit
-  const screenX = portrait ? 0.52 : 0.70
+  const breath = (1 - Math.cos(t * Math.PI * 2 / 96)) * 10
+  const back = (1980 - breath) * fit
+  const height = (1190 - breath * 0.35) * fit
+  const screenX = portrait ? 0.52 : 0.72
   const reach = Math.hypot(back, height)
   const shift = reach * (2 * screenX - 1) * Math.tan(35 * Math.PI / 360) * aspect
   shot.x = focus.x - ux * back
@@ -154,6 +181,6 @@ function tableauCameraAt(seconds: number, focus: Vec2, out: Vec2, aspect: number
   shot.height = height
   shot.aimX = focus.x - uy * shift
   shot.aimY = focus.y + ux * shift
-  shot.aimHeight = portrait ? -560 : 70
+  shot.aimHeight = portrait ? -560 : 35
   shot.fov = 35
 }

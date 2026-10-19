@@ -76,7 +76,6 @@ export function SplashScreen() {
   const [root] = useState(() => document.getElementById('splash'))
   const [done, setDone] = useState<Record<Stage, boolean>>({ gpu: false, fonts: false, arena: false, music: false })
   const [entered, setEntered] = useState(!root)
-  const gpu = useGame((s) => s.gpu)
   // first run: ask for a name right here, so the first lobby already shows it
   const [askName] = useState(() => !hasChosenName())
   const [name, setName] = useState(() => {
@@ -173,7 +172,7 @@ export function SplashScreen() {
 
   const action = root?.querySelector<HTMLElement>('#splash-action') ?? null
   if (!root || !action) return null
-  const controlsNotice = <p data-testid="splash-play-requirement" className={`max-w-[min(340px,calc(100vw-40px))] text-center text-sm leading-snug ${playSupported ? 'text-ash' : 'rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-[#f3d3a1]'}`}>{playSupported ? 'Mouse and keyboard to play · Sound starts when you enter' : PLAY_REQUIREMENT}</p>
+  const controlsNotice = <p data-testid="splash-play-requirement" className={`max-w-[min(340px,calc(100vw-40px))] text-center text-sm leading-snug ${playSupported ? 'text-ash' : 'rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-[#f3d3a1]'}`}>{playSupported ? 'Mouse and keyboard required' : PLAY_REQUIREMENT}</p>
   if (mode !== 'ready') return mode === 'loading' ? createPortal(controlsNotice, action) : null
 
   return createPortal(
@@ -196,15 +195,9 @@ export function SplashScreen() {
         </label>
         <PreferredColorPicker color={color} onChange={setColor} />
       </div>}
-      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName || !playSupported} onClick={enter}>
-        {initialRoom && playSupported ? `Join room ${initialRoom}` : playSupported ? 'Enter the arena' : 'Enter menu'}
+      <button type="button" className="btn btn-primary btn-lg min-w-[260px]" autoFocus={!askName || !playSupported} aria-label={initialRoom && playSupported ? `Press Enter to join room ${initialRoom}` : undefined} onClick={enter}>
+        {playSupported ? 'Press Enter' : 'Enter menu'}
       </button>
-      <span className="text-sm text-ash">or press Enter</span>
-      {gpu === 'fallback' && (
-        <span className="max-w-md text-[0.95rem] leading-snug text-[#ffcf9a]">
-          Limited graphics mode: this browser has no WebGPU, so Brawlock runs on WebGL2 with lighter effects.
-        </span>
-      )}
     </div>,
     action,
   )

@@ -1,6 +1,8 @@
 /** One server-side rating authority. Regions submit finished simulations, never client scores. */
-import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type FinishedMatch, type LeaderboardStore } from './leaderboard'
+import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore } from './leaderboard'
 import type { MatchRating } from './rating'
+import { PASSIVE_ITEMS, SPELL_IDS } from '../sim/spells/data'
+import type { PlayerMatchStats } from '../game/stats'
 
 export interface RatingSubmission {
   key: string
@@ -32,6 +34,37 @@ const DEVICE = /^[A-Za-z0-9_-]{8,64}$/
 const integer = (n: unknown, max: number) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= max
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const only = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).every((k) => keys.includes(k))
+export const PUBLIC_PLAYER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const STAT_NUMBERS = [
+  'walked', 'pushed', 'longestFlight', 'teleported', 'damageDealt', 'damageTaken', 'knockbacksDealt', 'knockbacksTaken',
+  'selfKills', 'lastHitKills', 'bestStreak', 'bestMulti', 'scourgeHits', 'teleportSaves', 'shieldReflects',
+  'pillarsDestroyed', 'lavaDamage', 'roundsSurvived', 'goldEarned', 'goldSpent',
+] as const
+const SPELLS = new Set(SPELL_IDS)
+const CAUSES = new Set([...SPELL_IDS, 'lava', 'obstacle', 'disconnect', 'unknown'])
+const ITEMS = new Set([...SPELL_IDS, ...Object.keys(PASSIVE_ITEMS)])
+
+/** Additive detail is complete, bounded server data; sparse legacy records omit it entirely. */
+function validStats(value: unknown, ticks: number): value is PlayerMatchStats {
+  if (!object(value) || !only(value, [...STAT_NUMBERS, 'firstBlood', 'aliveSec', 'lavaSec', 'killsByCause', 'deathsByCause', 'spells', 'topSpell'])
+    || STAT_NUMBERS.some((key) => !integer(value[key], 1_000_000_000_000)) || typeof value.firstBlood !== 'boolean') return false
+  for (const key of ['aliveSec', 'lavaSec']) {
+    const n = value[key]
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > ticks / 60 + 1) return false
+  }
+  if ((value.lavaSec as number) > (value.aliveSec as number)) return false
+  for (const key of ['killsByCause', 'deathsByCause']) {
+    const rows = value[key]
+    if (!object(rows) || Object.keys(rows).length > CAUSES.size
+      || Object.entries(rows).some(([cause, count]) => !CAUSES.has(cause) || !integer(count, 1_000_000))) return false
+  }
+  if (!object(value.spells) || Object.keys(value.spells).length > SPELLS.size) return false
+  for (const [id, row] of Object.entries(value.spells)) {
+    if (!SPELLS.has(id) || !Array.isArray(row) || row.length !== 2 || !integer(row[0], 1_000_000) || !integer(row[1], row[0] as number)) return false
+  }
+  return value.topSpell === null || (Array.isArray(value.topSpell) && value.topSpell.length === 2
+    && typeof value.topSpell[0] === 'string' && ITEMS.has(value.topSpell[0]) && integer(value.topSpell[1], 7) && value.topSpell[1] > 0)
+}
 
 /** Strict bounded validation at the trusted-server boundary, before SQL or Elo work. */
 export function validRatingSubmission(v: unknown): v is RatingSubmission {
@@ -48,12 +81,13 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false
   const players = new Set<number>()
   for (const s of m.seats) {
-    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won'])
+    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'stats'])
       || !integer(s.player, 9) || players.has(s.player as number)
       || typeof s.device !== 'string' || !DEVICE.test(s.device)
       || typeof s.name !== 'string' || s.name.length === 0 || s.name.length > 24 || /[\u0000-\u001f\u007f]/.test(s.name)
       || !integer(s.roundsPlayed, 10000) || !integer(s.roundsWon, s.roundsPlayed as number)
-      || !integer(s.kills, 1_000_000) || !integer(s.deaths, 1_000_000) || typeof s.won !== 'boolean') return false
+      || !integer(s.kills, 1_000_000) || !integer(s.deaths, 1_000_000) || typeof s.won !== 'boolean'
+      || (Object.hasOwn(s, 'stats') && !validStats(s.stats, m.ticks as number))) return false
     players.add(s.player as number)
   }
   for (const r of m.ranked) {
@@ -115,24 +149,46 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
     async read(path) {
       const url = new URL(path, 'http://rating')
       const parts = url.pathname.split('/').filter(Boolean)
+      const now = clock()
+      const since = now - 7 * 24 * 3600 * 1000
+      function publicRows(rows: { rank: number; row: BoardRow }[]) {
+        const changes = store.ratingChanges(rows.map(({ row }) => row.device), since, now)
+        return rows.map(({ rank, row }) => {
+          const change = changes.get(row.device)
+          if (change === undefined) throw new Error('Missing rating change for a stored leaderboard player')
+          return publicRow(rank, row, change)
+        })
+      }
       const all: BoardQuery = { period: 'all', region: null, since: 0 }
-      if (parts[0] === 'players' && parts.length === 2) {
-        const device = decodeURIComponent(parts[1])
-        if (!DEVICE.test(device)) return { status: 400, body: { error: 'bad device id' } }
+      if ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 2) {
+        let id: string
+        try { id = decodeURIComponent(parts[1]) }
+        catch { return { status: 400, body: { error: 'bad player id encoding' } } }
+        if (parts[0] === 'players' ? !DEVICE.test(id) : !PUBLIC_PLAYER_ID.test(id)) {
+          return { status: 400, body: { error: parts[0] === 'players' ? 'bad device id' : 'bad public player id' } }
+        }
+        const device = parts[0] === 'players' ? id : store.publicDevice(id)
+        if (!device) return { status: 200, body: { found: false } }
         const r = store.rank(all, device)
         if (!r) return { status: 200, body: { found: false } }
         const p = store.players([device]).get(device)!
-        return { status: 200, body: { found: true, ...publicRow(r.rank, r.row), firstAt: p.firstAt,
+        const details = store.details(device)
+        return { status: 200, body: { found: true, ...publicRows([r])[0], firstAt: p.firstAt,
+          coverage: { totalMatches: p.matches, detailedMatches: details?.detail.matches ?? 0,
+            firstDetailedAt: details?.firstAt ?? null, lastDetailedAt: details?.lastAt ?? null },
+          detail: details?.detail ?? null,
           recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })) } }
       }
       if (url.pathname !== '/leaderboard') return { status: 404, body: { error: 'not found' } }
       const period = url.searchParams.get('period') ?? 'all'
       if (period !== 'all' && period !== 'week') return { status: 400, body: { error: 'period must be all or week' } }
       // A single global board, including when older clients still send region=.
-      const q: BoardQuery = { period, region: null, since: clock() - 7 * 24 * 3600 * 1000 }
+      const q: BoardQuery = { period, region: null, since }
       const device = url.searchParams.get('device')
       const mine = device && DEVICE.test(device) ? store.rank(q, device) : null
-      return { status: 200, body: { period, region: '', entries: store.top(q, LB_TOP).map((row, i) => publicRow(i + 1, row)), you: mine ? publicRow(mine.rank, mine.row) : null } }
+      const entries = store.top(q, LB_TOP)
+      const rows = publicRows([...entries.map((row, i) => ({ rank: i + 1, row })), ...(mine ? [mine] : [])])
+      return { status: 200, body: { period, region: '', entries: rows.slice(0, entries.length), you: mine ? rows[entries.length] : null } }
     },
     close: () => store.close(),
   }

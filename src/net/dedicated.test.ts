@@ -10,6 +10,7 @@ import { createBot } from '../bots'
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import type { SimState } from '../sim/types'
 import { startServer, type DedicatedServer, type ServerOptions } from '../../server/listen.mjs'
+import type { ServerPerfSampler } from '../../server/perf.mjs'
 import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 import type { RatingSubmission } from './ratingAuthority'
 import { DEFAULT_SERVER_CONFIG } from './server'
@@ -1306,13 +1307,16 @@ describe('shared global ratings authority over TCP', () => {
       await until(() => ann.results.length === 1 && bob.results.length === 1, 60000, 'the EU result to wait for US commit')
       expect(ann.results[0].rating).toEqual({ status: 'rated' })
       expect(bob.results[0].rating).toEqual({ status: 'rated' })
-      const read = async (http: string, region: string) => (await fetch(`${http}/leaderboard?region=${region}`)).json() as Promise<{ entries: { name: string; matches: number }[] }>
+      const read = async (http: string, region: string) => (await fetch(`${http}/leaderboard?region=${region}`)).json() as Promise<{ entries: { name: string; matches: number; rating: number; ratingChange7d: number }[] }>
       const global = await read(us.http, 'us-west')
       expect(await read(eu.http, 'eu')).toEqual(global)
       expect(global.entries.map((p) => p.matches)).toEqual([2, 2])
+      // Both matches happened inside the same rolling window, including the US result read through EU.
+      expect(global.entries.every((p) => p.ratingChange7d === p.rating - 1000)).toBe(true)
       expect(JSON.stringify(global)).not.toContain('global-ann-device')
-      const profile = await (await fetch(`${eu.http}/players/global-ann-device`)).json() as { recent: { region: string }[] }
+      const profile = await (await fetch(`${eu.http}/players/global-ann-device`)).json() as { ratingChange7d: number; recent: { region: string }[] }
       expect(profile.recent.map((r) => r.region)).toEqual(['eu', 'us-west'])
+      expect(profile.ratingChange7d).toBe(global.entries.find((p) => p.name === 'Ann')!.ratingChange7d)
       ann.session.setDisplayName('Ann across regions')
       await until(() => ann.lobby().slots.some((s) => s.name === 'Ann across regions'), 3000, 'EU rename accepted')
       // The public read is fresh from the authority; no regional cache can fork it.
@@ -1394,5 +1398,162 @@ describe('anonymous ICE credentials over HTTP', () => {
     expect((await fetch(`${http}/ice`)).status).toBe(200) // native/no-Origin clients
     for (let i = 0; i < 10; i++) expect((await fetch(`${http}/ice`)).status).toBe(200)
     expect((await fetch(`${http}/ice`)).status).toBe(429)
+  }, 10000)
+})
+
+describe('cached server performance over HTTP', () => {
+  it('publishes a finite native Node measurement without requiring any active match', async () => {
+    const srv = await startServer({ port: 0, log: quiet })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      const body = await (await fetch(`http://127.0.0.1:${srv.port}/health`)).json() as { perf: Record<string, number> | null }
+      expect(body.perf).not.toBeNull()
+      expect(Object.values(body.perf!).every(Number.isFinite)).toBe(true)
+      expect(body.perf!.windowMs).toBeGreaterThan(0)
+      expect(body.perf!.sampleAt).toBeGreaterThan(0)
+      expect(body.perf!.rssMb).toBeGreaterThan(0)
+      expect(body.perf).toMatchObject({ simStepsPerSec: 0, simStepAvgMs: 0, simStepMaxMs: 0 })
+    } finally { await srv.close() }
+  }, 10000)
+
+  it('adds null then the same cached sample to existing health, preserves CORS, and closes diagnostics', async () => {
+    let sample: ReturnType<ServerPerfSampler['snapshot']> = null
+    const perf = {
+      snapshot: vi.fn(() => sample),
+      wrapStep: vi.fn(<T extends (...args: any[]) => any>(step: T): T => step),
+      close: vi.fn(),
+    }
+    const srv = await startServer({ port: 0, log: quiet, perf, config: { allowedOrigins: ['https://game.example'] } })
+    const base = `http://127.0.0.1:${srv.port}`
+    try {
+      const initial = await fetch(`${base}/health`, { headers: { origin: 'https://game.example' } })
+      expect(initial.headers.get('access-control-allow-origin')).toBe('https://game.example')
+      expect(await initial.json()).toMatchObject({ ok: true, rooms: 0, players: 0, perf: null })
+      expect(perf.wrapStep).toHaveBeenCalledOnce()
+      // This is only Node glue: simulation core health and its route policy are unchanged.
+      const core = await srv.core.http({ method: 'GET', path: '/health', ip: 'test', origin: null })
+      expect(JSON.parse(core.body)).not.toHaveProperty('perf')
+      sample = Object.freeze({ sampleAt: 1_700_000_000_000, windowMs: 1000, processCpuPct: 12.5,
+        eventLoopP95Ms: 21, eventLoopMaxMs: 29, simStepAvgMs: 0.6, simStepMaxMs: 2, simStepsPerSec: 120, rssMb: 85 })
+      for (let i = 0; i < 2; i++) expect(await (await fetch(`${base}/health`)).json()).toMatchObject({ perf: sample })
+      expect(perf.snapshot).toHaveBeenCalledTimes(3)
+      const unknown = await fetch(`${base}/perf`)
+      expect(unknown.status).toBe(404)
+      expect(perf.snapshot).toHaveBeenCalledTimes(3)
+      expect(perf.close).not.toHaveBeenCalled()
+    } finally { await srv.close() }
+    expect(perf.close).toHaveBeenCalledOnce()
+  }, 10000)
+
+  it('closes its sampler if the HTTP listener cannot start', async () => {
+    const first = await startServer({ port: 0, log: quiet })
+    const perf = {
+      snapshot: () => null,
+      wrapStep: <T extends (...args: any[]) => any>(step: T): T => step,
+      close: vi.fn(),
+    }
+    try {
+      await expect(startServer({ port: first.port, log: quiet, perf })).rejects.toMatchObject({ code: 'EADDRINUSE' })
+      expect(perf.close).toHaveBeenCalledOnce()
+    } finally { await first.close() }
+  }, 10000)
+})
+
+describe('automatic room last-human cleanup', () => {
+  const dirs: string[] = []
+  afterEach(() => { for (const dir of dirs.splice(0)) removeDir(dir) })
+
+  it.each([
+    ['quick', 'lobby'], ['quick', 'running'], ['ranked', 'lobby'], ['ranked', 'running'],
+  ] as const)('closes an empty %s %s room, removes its cached listing and stops its session', async (kind, phase) => {
+    const dir = tempDir('brawlock-empty-queue-')
+    dirs.push(dir)
+    const { base, http, srv } = await start({
+      emptyRoomMs: 60_000,
+      quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: phase === 'lobby' ? 60_000 : 100, startMs: 100,
+        settings: { ...DEFAULT_SERVER_CONFIG.quickplay.settings, shopSeconds: 10, lavaDps: 0, dmgMultiplier: 0 } },
+      ranked: { ...DEFAULT_SERVER_CONFIG.ranked, startMs: phase === 'lobby' ? 60_000 : 100,
+        settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, shopSeconds: 10, lavaDps: 0, dmgMultiplier: 0 } },
+    }, 'dev-server', { dataDir: dir })
+    const a = headlessClient(base, { key: 'empty-a', device: 'empty-device-a', play: false })
+    const b = headlessClient(base, { key: 'empty-b', device: 'empty-device-b', play: false })
+    try {
+      const opened = await (await fetch(`${http}/${kind === 'quick' ? 'quickplay' : 'ranked'}`, { method: 'POST' })).json() as { code: string }
+      const room = srv.core.room(opened.code)!
+      srv.core.sweep()
+      expect(srv.core.room(opened.code)).toBe(room) // HTTP reservation before the first connection is not a departure.
+      await a.session.join(opened.code)
+      if (kind === 'ranked' && phase === 'running') await b.session.join(opened.code)
+      await until(() => phase === 'running' ? a.screen() === 'match' : room.humans() === 1, 4000, 'the test queue phase')
+      if (kind === 'quick' && phase === 'running') expect(room.seats()).toBe(10)
+      expect((await a.online.browseRegion('test')).some((r) => r.code === opened.code)).toBe(true)
+      const close = vi.spyOn(room, 'close')
+      if (kind === 'ranked' && phase === 'running') {
+        b.session.leave()
+        await until(() => room.peers() === 1, 3000, 'one remaining human connection')
+        expect(srv.core.room(opened.code)).toBe(room)
+      }
+      // This path closes the transport without a leave message, exercising network-loss policy too.
+      if (kind === 'quick' && phase === 'running') a.session.openOffline()
+      else a.session.leave()
+      await until(() => srv.core.room(opened.code) === null, 3000, 'last-human queue removal')
+      expect(close).toHaveBeenCalledOnce()
+      expect(room.debug()).toMatchObject({ role: null, tick: -1 })
+      expect(srv.core.stats()).toMatchObject({ rooms: 0, connections: 0 })
+      expect((await a.online.browseRegion('test')).some((r) => r.code === opened.code)).toBe(false)
+    } finally { a.session.leave(); b.session.leave() }
+  }, 10000)
+
+  it('preserves an existing pending queue reservation until its arriving player joins', async () => {
+    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 60_000 } })
+    const a = headlessClient(base, { key: 'reserved-a', play: false })
+    const b = headlessClient(base, { key: 'reserved-b', play: false })
+    try {
+      const first = await a.online.quickPlay('test')
+      await a.session.join(first.code)
+      const pending = await b.online.quickPlay('test')
+      expect(pending).toMatchObject({ code: first.code, created: false })
+      a.session.leave()
+      await until(() => srv.core.stats().connections === 0, 3000, 'the first player to leave')
+      srv.core.sweep()
+      expect(srv.core.room(first.code)).not.toBeNull()
+      await b.session.join(pending.code)
+      expect(b.lobby().status).toBe('open')
+      b.session.leave()
+      await until(() => srv.core.room(first.code) === null, 3000, 'the final reserved player to leave')
+    } finally { a.session.leave(); b.session.leave() }
+  }, 10000)
+
+  it('keeps custom rooms on their existing empty-room lifetime', async () => {
+    const { base, srv } = await start({ emptyRoomMs: 60_000 })
+    const room = await srv.createRoom({ auto: true, autoStartMs: 100, bots: ['dummy'], settings: { shopSeconds: 10, lavaDps: 0, dmgMultiplier: 0 } })
+    const owner = headlessClient(base, { key: 'empty-custom', play: false })
+    try {
+      await owner.session.join(room.code)
+      await until(() => owner.screen() === 'match', 4000, 'the custom match to start')
+      owner.session.leave()
+      await until(() => srv.core.stats().connections === 0, 3000, 'the custom owner to leave')
+      srv.core.sweep()
+      expect(room.isQuick()).toBe(false)
+      expect(srv.core.room(room.code)).toBe(room)
+    } finally { owner.session.leave() }
+  }, 10000)
+
+  it('removes a departed queue room once its existing unclaimed reservation expires', async () => {
+    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 60_000 } })
+    const a = headlessClient(base, { key: 'expiry-a', play: false })
+    const reserved = headlessClient(base, { key: 'expiry-b', play: false })
+    try {
+      const first = await a.online.quickPlay('test')
+      await a.session.join(first.code)
+      expect((await reserved.online.quickPlay('test')).code).toBe(first.code)
+      a.session.leave()
+      await until(() => srv.core.stats().connections === 0, 3000, 'the final actual connection to close')
+      expect(srv.core.room(first.code)).not.toBeNull()
+      // Existing reservation lifetime is 15 sim seconds; the server clock runs at TIME_SCALE.
+      await new Promise((resolve) => setTimeout(resolve, 15_000 / TIME_SCALE))
+      srv.core.sweep()
+      expect(srv.core.room(first.code)).toBeNull()
+    } finally { a.session.leave(); reserved.session.leave() }
   }, 10000)
 })

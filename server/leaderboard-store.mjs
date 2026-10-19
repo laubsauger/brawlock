@@ -6,6 +6,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { addRecordedMatch, emptyTotals } from '../src/game/stats.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS matches (
@@ -32,6 +34,13 @@ CREATE INDEX IF NOT EXISTS players_rating ON players(rating DESC);
 CREATE TABLE IF NOT EXISTS rating_receipts (
   key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, verdict TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS player_public_ids (
+  device TEXT PRIMARY KEY REFERENCES players(device), public_id TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS player_details (
+  device TEXT PRIMARY KEY REFERENCES players(device), detail TEXT NOT NULL,
+  first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
+);
 `
 
 const player = (r) => ({
@@ -51,6 +60,7 @@ const player = (r) => ({
 
 const board = (r) => ({
   device: r.device,
+  publicId: r.public_id,
   name: r.name,
   tag: r.tag,
   rating: r.rating,
@@ -100,6 +110,20 @@ export function openLeaderboard(file) {
   const renamePlayer = db.prepare('UPDATE players SET name = ? WHERE device = ? AND name <> ?')
   const getReceipt = db.prepare('SELECT fingerprint, verdict FROM rating_receipts WHERE key = ?')
   const insReceipt = db.prepare('INSERT INTO rating_receipts (key, fingerprint, verdict) VALUES (?, ?, ?)')
+  const insPublicId = db.prepare('INSERT INTO player_public_ids (device, public_id) VALUES (?, ?) ON CONFLICT(device) DO NOTHING')
+  const getPublicDevice = db.prepare('SELECT device FROM player_public_ids WHERE public_id = ?')
+  const getDetails = db.prepare('SELECT detail, first_at, last_at FROM player_details WHERE device = ?')
+  const upDetails = db.prepare(`INSERT INTO player_details (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
+      first_at = MIN(player_details.first_at, excluded.first_at), last_at = MAX(player_details.last_at, excluded.last_at)`)
+
+  // Add opaque identities to legacy players without changing their results or
+  // rating. Old binaries ignore these additive tables and keep working.
+  const missingPublicIds = db.prepare('SELECT device FROM players WHERE device NOT IN (SELECT device FROM player_public_ids)')
+  function ensurePublicIds() {
+    for (const { device } of missingPublicIds.all()) insPublicId.run(device, randomUUID())
+  }
+  ensurePublicIds()
 
   function receipt(key, fingerprint) {
     const r = getReceipt.get(key)
@@ -115,6 +139,16 @@ export function openLeaderboard(file) {
     }
     for (const p of players) {
       upPlayer.run(p.device, p.name, p.tag, p.rating, p.matches, p.wins, p.roundsPlayed, p.roundsWon, p.kills, p.deaths, p.firstAt, p.lastAt)
+      insPublicId.run(p.device, randomUUID())
+    }
+    for (const r of results) {
+      if (!r.stats) continue
+      const previous = getDetails.get(r.device)
+      const detail = previous ? JSON.parse(previous.detail) : { matches: 0, seconds: 0, damage: 0, totals: emptyTotals(), spells: {}, hallOfFame: {} }
+      // The numeric match row is a public reference, never an internal receipt,
+      // room token, device ID or client profile ID.
+      addRecordedMatch(detail, r.stats, Math.round(m.ticks / 60), m.at, String(id))
+      upDetails.run(r.device, JSON.stringify(detail), m.at, m.at)
     }
   }
 
@@ -137,15 +171,15 @@ export function openLeaderboard(file) {
   // 'all': players by rating. 'week': players with results since ?, by rating gained then.
   // Region filter: devices with a result in that region (each server holds its own region).
   const allSql = (where) => `
-    SELECT p.device AS device, p.name AS name, p.tag AS tag, p.rating AS rating, p.rating - 1000 AS gain, p.matches, p.wins, p.rounds_played,
+    SELECT p.device AS device, ids.public_id, p.name AS name, p.tag AS tag, p.rating AS rating, p.rating - 1000 AS gain, p.matches, p.wins, p.rounds_played,
       p.rounds_won, p.kills, p.deaths, p.last_at
-    FROM players p
+    FROM players p JOIN player_public_ids ids ON ids.device = p.device
     WHERE p.matches > 0 ${where}`
   const weekSql = (where) => `
-    SELECT r.device AS device, p.name AS name, p.tag AS tag, p.rating AS rating, SUM(r.delta) AS gain, COUNT(*) AS matches, SUM(r.won) AS wins,
+    SELECT r.device AS device, ids.public_id, p.name AS name, p.tag AS tag, p.rating AS rating, SUM(r.delta) AS gain, COUNT(*) AS matches, SUM(r.won) AS wins,
       SUM(r.rounds_played) AS rounds_played, SUM(r.rounds_won) AS rounds_won, SUM(r.kills) AS kills,
       SUM(r.deaths) AS deaths, MAX(r.at) AS last_at
-    FROM results r JOIN players p ON p.device = r.device
+    FROM results r JOIN players p ON p.device = r.device JOIN player_public_ids ids ON ids.device = p.device
     WHERE r.at >= ? ${where}
     GROUP BY r.device`
   const order = (q) => (q.period === 'week' ? 'gain DESC, rating DESC, device' : 'rating DESC, rounds_won DESC, device')
@@ -201,16 +235,38 @@ export function openLeaderboard(file) {
     },
 
     top(q, limit) {
+      // A draining old process can still commit a legacy result during rollout.
+      ensurePublicIds()
       return stmt(`SELECT * FROM (${boardSql(q)}) ORDER BY ${order(q)} LIMIT ?`).all(...args(q), limit).map(board)
     },
 
     rank(q, device) {
+      ensurePublicIds()
       const r = stmt(`SELECT * FROM (SELECT b.*, ROW_NUMBER() OVER (ORDER BY ${order(q)}) AS rk FROM (${boardSql(q)}) b) WHERE device = ?`).get(...args(q), device)
       return r ? { rank: r.rk, row: board(r) } : null
     },
 
     recent(device, limit) {
       return stmt('SELECT * FROM results WHERE device = ? ORDER BY at DESC, match_id DESC LIMIT ?').all(device, limit).map(result)
+    },
+
+    ratingChanges(devices, since, until) {
+      const ids = [...new Set(devices)]
+      if (ids.length === 0) return new Map()
+      // Historical player rows need no inferred baseline: an empty rated-results window sums to zero.
+      const rows = stmt(`SELECT p.device, COALESCE(SUM(r.delta), 0) AS change
+        FROM players p LEFT JOIN results r ON r.device = p.device AND r.at >= ? AND r.at <= ?
+        WHERE p.device IN (${ids.map(() => '?').join(',')}) GROUP BY p.device`).all(since, until, ...ids)
+      return new Map(rows.map((row) => [row.device, row.change]))
+    },
+
+    publicDevice(publicId) {
+      return getPublicDevice.get(publicId)?.device ?? null
+    },
+
+    details(device) {
+      const row = getDetails.get(device)
+      return row ? { detail: JSON.parse(row.detail), firstAt: row.first_at, lastAt: row.last_at } : null
     },
 
     close() {

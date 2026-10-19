@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hashState, isLocationSafeAtLayer } from '../sim'
 import type { SimEvent, SimState } from '../sim/types'
-import { createMenuStage, MENU_LAYER } from './menuStage'
+import { createMenuStage, createMenuTableau, MENU_LAYER } from './menuStage'
 
 function watch(seconds: number, theme = 0, seed = 41) {
   const stage = createMenuStage(theme, seed)
@@ -100,5 +100,120 @@ describe('menu sparring stage', () => {
     expect(next.state.pawns[0].slots[0]).toBe('fireball')
     expect(next.state.settings.dmgMultiplier).toBe(0.35)
     expect(hashState(watch(35, 1, 19).last)).toBe(hashState(watch(35, 1, 19).last))
+  })
+})
+
+
+describe('menu coven rehearsal', () => {
+  it.each([0, 1, 2])('completes every cast with a safe visible flight and landing in theme %i', (theme) => {
+    const stage = createMenuTableau(theme, 41)
+    const started = new Map<number, { tick: number; duration: number }>()
+    const flights = new Map<number, { x: number; y: number; distance: number }>()
+    const performers = new Set<number>()
+    let releases = 0
+    let landings = 0
+    let quietTicks = 0
+    let peakActive = 0
+    const segmentDistance = (point: { x: number; y: number }, from: { x: number; y: number }, to: { x: number; y: number }) => {
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / (dx * dx + dy * dy)))
+      return Math.hypot(point.x - from.x - t * dx, point.y - from.y - t * dy)
+    }
+    for (let tick = 0; tick < 90 * 60; tick++) {
+      const { state, events } = stage.step()
+      expect(state.pawns).toHaveLength(10)
+      expect(state.phase).toBe('fight')
+      expect(state.arena).toMatchObject({ layer: MENU_LAYER, nextShrinkTick: -1, theme })
+      const active = state.projectiles.length + state.pawns.filter((pawn) => pawn.cast).length
+      peakActive = Math.max(peakActive, active)
+      if (active === 0) quietTicks++
+      for (const pawn of state.pawns) {
+        expect(pawn.alive).toBe(true)
+        expect(pawn.hp).toBe(pawn.maxHp)
+        expect(isLocationSafeAtLayer(MENU_LAYER, pawn.x, pawn.y)).toBe(true)
+      }
+      for (const event of events) {
+        expect(['castCancel', 'damage', 'death', 'arenaShrink', 'roundWin']).not.toContain(event.type)
+        if (event.type === 'castStart') {
+          expect(started.has(event.pawn)).toBe(false)
+          started.set(event.pawn, { tick: state.tick, duration: event.ticks })
+        } else if (event.type === 'cast') {
+          const start = started.get(event.pawn)!
+          expect(state.tick - start.tick).toBe(start.duration)
+          expect(start.duration).toBeGreaterThanOrEqual(36)
+          expect(start.duration).toBeLessThanOrEqual(48)
+          started.delete(event.pawn)
+          performers.add(event.pawn)
+          releases++
+          const caster = state.pawns.find((pawn) => pawn.id === event.pawn)!
+          const projectile = state.projectiles.find((p) => p.owner === caster.owner)!
+          expect(projectile).toBeDefined()
+          expect(events.some((e) => e.type === 'projectileSpawn' && e.id === projectile.id)).toBe(true)
+          const distance = Math.hypot(event.x - projectile.x, event.y - projectile.y)
+          expect(distance).toBeGreaterThan(450)
+          flights.set(projectile.id, { x: event.x, y: event.y, distance })
+          // A complete clear lane, rather than a shot into another model or scenery.
+          for (const pawn of state.pawns) if (pawn !== caster) {
+            expect(segmentDistance(pawn, caster, event)).toBeGreaterThan(90)
+          }
+          for (const obstacle of state.obstacles) {
+            expect(segmentDistance(obstacle, caster, event)).toBeGreaterThan(obstacle.radius + 30)
+          }
+        } else if (event.type === 'projectileHit') {
+          const flight = flights.get(event.id)!
+          expect(flight).toBeDefined()
+          expect(event.target).toBeNull()
+          expect(Math.hypot(event.x - flight.x, event.y - flight.y)).toBeLessThan(0.00001)
+          expect(isLocationSafeAtLayer(MENU_LAYER, event.x, event.y)).toBe(true)
+          flights.delete(event.id)
+          landings++
+        }
+      }
+      for (const projectile of state.projectiles) {
+        expect(isLocationSafeAtLayer(MENU_LAYER, projectile.x, projectile.y)).toBe(true)
+        const flight = flights.get(projectile.id)!
+        const distance = Math.hypot(flight.x - projectile.x, flight.y - projectile.y)
+        expect(distance).toBeLessThanOrEqual(flight.distance + 0.00001)
+        flight.distance = distance
+      }
+    }
+    expect(performers.size).toBe(10)
+    expect(peakActive).toBe(2)
+    expect(quietTicks / (90 * 60)).toBeGreaterThan(0.45)
+    expect(releases).toBeGreaterThanOrEqual(30)
+    expect(releases - landings).toBeLessThanOrEqual(2)
+    expect(flights.size).toBeLessThanOrEqual(2)
+  })
+
+  it('keeps snapshot ownership private and the repeated choreography deterministic', () => {
+    const a = createMenuTableau(1, 19)
+    const b = createMenuTableau(1, 19)
+    let frame = a.step()
+    b.step()
+    const original = JSON.stringify(frame)
+    const retained = frame
+    for (let tick = 0; tick < 70; tick++) {
+      frame = a.step()
+      b.step()
+    }
+    expect(frame.state.projectiles.length).toBeGreaterThan(0)
+    const inFlight = frame
+    const flightOriginal = JSON.stringify(inFlight)
+    for (let tick = 0; tick < 120; tick++) {
+      a.step()
+      b.step()
+    }
+    expect(JSON.stringify(retained)).toBe(original)
+    expect(JSON.stringify(inFlight)).toBe(flightOriginal)
+    inFlight.state.pawns[0].x = 99999
+    inFlight.state.projectiles[0].x = 99999
+    inFlight.events.length = 0
+    for (let tick = 0; tick < 1800; tick++) {
+      const left = a.step()
+      const right = b.step()
+      expect(hashState(left.state)).toBe(hashState(right.state))
+      expect(left.events).toEqual(right.events)
+    }
   })
 })

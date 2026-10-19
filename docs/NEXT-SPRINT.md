@@ -1,4 +1,4 @@
-# Next sprint: accounts and persistent progression
+# Next sprint: accounts, progression and visual finish
 
 These features are planned for the release after the current regional/chat update.
 
@@ -32,4 +32,24 @@ Show the earned amount and new balance after each match. Later premium outfits/p
 
 ## Ranked format moved into the current release
 
-The user selected the upcoming combined release for the shorter eight-player ranked format. It is implemented locally and documented in [RANKED-FORMAT.md](RANKED-FORMAT.md). This is no longer deferred to the accounts/currency sprint. Casual Quick Play and custom games retain their separate flexible formats.
+The user selected the upcoming combined release for the shorter eight-player ranked format. It shipped in release `a03358d76509` and is documented in [RANKED-FORMAT.md](RANKED-FORMAT.md). This is no longer deferred to the accounts/currency sprint. Casual Quick Play and custom games retain their separate flexible formats.
+
+## Tone mapping and color grading
+
+Review the final image for a stronger HDR-like feel: luminous spell and lava highlights, richer color separation, readable floor midtones and deeper shadows with visible detail. This is a visual finishing pass on the existing scenes, not a new rendering system or an assumption that players have HDR displays.
+
+Current baseline: ACES Filmic tone mapping at exposure 1.05 in `src/render/GpuCanvas.tsx`; quality-dependent bloom and hue-preserving HDR ceilings in `src/render/RenderLoop.tsx`. Tone mapping already exists. Inspect highlight compression, exposure, black levels and color grading together before choosing what is actually missing. Do not simply raise bloom or remove the ceilings that preserve spell colors.
+
+Compare a few restrained grades on fixed desktop captures of the arena, busy combat, menu and victory close-up. Preserve the warm lava/cool floor separation and player colors; keep the floor slightly brighter on average without washing out shadows or making effects white. Prefer adjustments fused into the existing output pass; add no expensive extra full-screen pass without a measured benefit.
+
+Acceptance: side-by-side captures show more depth and punch without crushed shadows, clipped colored highlights, hidden projectiles or tinted HUD/text. Check low, medium and high quality at the same resolution, including low's no-bloom path, and record GPU/frame-time differences against the current baseline. Deliver one coherent default look with the existing effects-intensity and accessibility controls respected. Actual HDR display output is a separate future decision.
+
+## Bots: same match in Node and in the browser
+
+Bots aim and plan with engine `Math.*` calls (`hypot`, `sin`, `cos`, `exp`, `atan`, `pow`, `asin`; about 65 call sites in `src/bots`). ECMAScript does not specify their results bit-exactly. The sim avoids this through `sim/math.ts`; the bots do not. This came up in the trailer work on 2026-10-19. The same seeded Uber-bot match, replayed in Node (vite-node) and in headless Chrome, drifted apart, usually 60 to 150 s in. For example, a Scourge knockout planned for `ffa8b` seed 11 at 107 s never happened in Chrome. Node runs are reproducible run to run.
+
+Live games are unaffected: only the authority runs bots, and it sends their inputs. Headless tuning, Elo calibration runs and planned showcase takes, though, cannot be trusted to match what a browser plays.
+
+Fix: route bot math through `sim/math.ts`. Add `asin` and a hypot equivalent there. Add a guard test, like the sim's rule, that rejects these `Math.*` calls in `src/bots`. Expect small behaviour shifts, so re-run `npm run bots:elo` and the ladder tests, and re-check `BOT_ELO`.
+
+Acceptance: a seeded 8-bot match produces identical state hashes in Node and in headless Chrome for 3 minutes.

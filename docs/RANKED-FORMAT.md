@@ -1,6 +1,6 @@
 # Ranked match format
 
-This format is part of the upcoming combined release. It is implemented locally; deployment remains on hold until the user confirms the parallel prediction/cast thread is finished.
+This format shipped in release `a03358d76509` on 2026-10-19. See the [release record](../deploy/releases/2026-10-19.md) for the matching client/server rollout.
 
 Ranked uses one locked preset: eight seats, Brutal bots filling spare seats, at least two distinct human identities, and a60-second lobby once the second human joins. Additional humans replace lobby bots; new ranked admission closes when the match starts. Casual Quick Play remains ten players, and custom games retain their existing configurable first-to rules.
 

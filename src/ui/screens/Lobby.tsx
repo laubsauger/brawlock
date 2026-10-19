@@ -298,6 +298,7 @@ function InviteCard({ code, url, host }: { code: string | null; url: string | nu
 
 export function Lobby() {
   const lobby = useGame((s) => s.lobby)
+  const betweenMatches = useGame((s) => s.result !== null)
   const [botLevel, setBotLevel] = useState<BotDifficulty>('medium')
   const encounters = useEncounters()
   const online = lobby.role !== 'offline'
@@ -321,18 +322,19 @@ export function Lobby() {
   const serverMs = room?.rttMs ?? liveMs ?? (regions.length === 1 ? regions[0].rttMs : null)
   // the hidden match scene warms up while the lobby is open (App's MatchLayer); Start waits for it, 6 s at most
   const warm = useMatchRenderReady(6000)
-  const canEdit = lobby.role !== 'client'
+  const canEdit = lobby.role !== 'client' && !lobby.ranked
   const humans = lobby.slots.filter((s) => s.kind === 'human').length
+  const automatic = (lobby.quick || lobby.ranked) && lobby.status === 'open' && !lobby.error
   const status = statusLine(lobby, humans)
   const full = lobby.slots.length >= MAX_PLAYERS
   const ready = lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
 
   return (
     <div className="screen-in flex h-full flex-col overflow-y-auto px-[max(16px,4vw)] py-[max(16px,3vh)] lg:overflow-hidden">
-      <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-end gap-4">
-          <h1 className="display text-6xl leading-none text-[#ffd890]">Lobby</h1>
-          <span className="chip mb-1.5">{lobby.ranked ? 'Ranked · Elo' : lobby.quick ? 'Quick play · Casual' : ROLE_LABEL[lobby.role]}</span>
+      <header className={`mb-4 flex flex-wrap items-end justify-between gap-3 ${lobby.ranked ? 'border-b border-[#bfc3d3]/30 pb-3' : ''}`}>
+        <div className="flex flex-wrap items-end gap-4">
+          <h1 className={`display text-6xl leading-none ${lobby.ranked ? 'text-[#e4ddf7]' : 'text-[#ffd890]'}`}>{lobby.ranked ? 'Ranked lobby' : 'Lobby'}</h1>
+          <span className="chip mb-1.5">{lobby.ranked ? 'Global Elo' : lobby.quick ? 'Quick play · Casual' : ROLE_LABEL[lobby.role]}</span>
           {transport && (
             <span
               className="chip mb-1.5 text-ash"
@@ -356,9 +358,27 @@ export function Lobby() {
         </div>
       </header>
 
+      {automatic && <section
+        className={`mb-4 shrink-0 rounded-lg border px-5 py-3 text-center ${lobby.ranked ? 'border-[#bfc3d3]/40 bg-[linear-gradient(110deg,rgba(68,48,74,.75),rgba(23,18,29,.94),rgba(77,35,44,.65))] shadow-[inset_0_1px_0_rgba(221,212,244,.12),0_0_24px_rgba(158,89,96,.08)]' : 'border-[#e7a656]/35 bg-[linear-gradient(110deg,rgba(68,40,15,.65),rgba(28,18,13,.94),rgba(68,40,15,.65))] shadow-[inset_0_1px_0_rgba(255,216,144,.12),0_0_24px_rgba(255,150,50,.06)]'}`}
+        aria-label="Automatic match start"
+        role="status"
+        aria-live="polite"
+        data-testid="lobby-auto-start"
+      >
+        <p className="text-[0.74rem] font-bold tracking-[0.18em] text-gold/80 uppercase">{lobby.ranked ? 'Ranked matchmaking' : betweenMatches ? 'Quick play · Next match' : 'Quick play'}</p>
+        <p className="mt-0.5 text-[clamp(1.5rem,2.6vw,2rem)] leading-tight font-semibold text-[#ffe0a6]">
+          {lobby.ranked && humans < 2 ? 'Waiting for one more player' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} between={betweenMatches} /> : 'Waiting for players to join…'}
+        </p>
+        <p className="mt-1 text-[0.95rem] text-[#e3c9a5]">
+          {lobby.ranked && humans < 2
+            ? `${humans} / 2 human players · The 60-second countdown begins when another player joins.`
+            : lobby.autoStart?.fill
+              ? 'Players can join while the lobby fills. Bots take the empty seats.'
+              : 'Starts automatically. More players can join before the countdown ends.'}
+        </p>
+      </section>}
       {lobby.ranked && <p className="mb-4 rounded border border-[#bfc3d3]/20 bg-black/25 px-4 py-2 text-sm text-[#e3d9ba]" data-testid="ranked-rules">
         8 players · 5 rounds · tied leaders fight a final brawl · Brutal bots fill empty seats.
-        <span className="ml-1 text-ash">Aim for 15–20 minutes; match length varies. Wait for 2 humans, then a 60s lobby.</span>
       </p>}
       <LobbyVote />
 
@@ -426,23 +446,23 @@ export function Lobby() {
                     {lobby.ranked ? 'Ranked lobbies are open while matchmaking; rules are locked' : lobby.quick ? 'Quick play games are always listed in Browse games' : transport === 'p2p' ? pcListingText(listing, !!lobby.public) : 'Anyone can find and join from Browse games'}
                   </span>
                 </span>
-                <Switch label="Listed publicly" checked={lobby.quick ? true : !!lobby.public} disabled={!!lobby.quick} onChange={(v) => session.setPublic(v)} />
+                <Switch label="Listed publicly" checked={lobby.quick || lobby.ranked ? true : !!lobby.public} disabled={!!lobby.quick || !!lobby.ranked} onChange={(v) => session.setPublic(v)} />
               </div>
             )}
-            <MatchOptions settings={lobby.settings} editable={canEdit} voting={lobby.role === 'host' && !lobby.quick && humans >= 2 && lobby.status === 'open'} activeVote={lobby.vote ?? null} />
+            <MatchOptions settings={lobby.settings} editable={canEdit} voting={canEdit && lobby.role === 'host' && !lobby.quick && humans >= 2 && lobby.status === 'open'} activeVote={lobby.vote ?? null} />
           </div>
         </section>
       </div>
 
       <footer className="mt-4 flex flex-wrap items-center justify-between gap-4">
-        <p
+        {(!automatic || lobby.notice) && <p
           className={`flex items-center gap-2.5 text-[1.08rem] font-semibold ${status.tone === 'error' ? 'text-[#ff9b8a]' : status.tone === 'ok' ? 'text-heal' : 'text-[#f0d9b8]'}`}
           role="status"
           aria-live="polite"
         >
           {status.tone === 'wait' && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-ember" aria-hidden />}
-          {lobby.quick && lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} /> : lobby.quick ? 'Waiting for players to join…' : status.text}
-        </p>
+          {status.text}
+        </p>}
         {lobby.role === 'host' && lobby.status === 'connecting' && <SlowHostHint />}
         <div className="flex gap-3">
           {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={() => hostGame()}>Try again</Button>}
@@ -469,7 +489,7 @@ export function Lobby() {
           ) : (
             lobby.status === 'open' &&
             !lobby.quick && (
-              <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
+              !lobby.ranked && <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
                 {localReady ? 'Not ready' : 'Ready'}
               </Button>
             )

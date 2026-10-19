@@ -201,6 +201,27 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('reports an active room only after hosting or accepted welcome, and clears it on leave', async () => {
+    const net = createMemoryNet(LINK)
+    const host = makePeer(net, 'Hosty', 'host-key')
+    const opening = host.session.openHost()
+    expect(host.session.isActive()).toBe(false)
+    await opening
+    expect(host.session.isActive()).toBe(true)
+    const client = makePeer(net, 'Clienta', 'client-key')
+    const joining = client.session.join(host.store.lobby.roomCode!)
+    expect(client.session.isActive()).toBe(false)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(client.session.isActive()).toBe(false)
+    await vi.advanceTimersByTimeAsync(300)
+    await joining
+    expect(client.session.isActive()).toBe(true)
+    client.session.leave()
+    expect(client.session.isActive()).toBe(false)
+    host.session.leave()
+    expect(host.session.isActive()).toBe(false)
+  })
+
   it('ignores forged sender fields and enforces chat limits on the host', async () => {
     const { net, host, client, code } = await hostAndClient()
     const joining = net.join(code)

@@ -1,5 +1,6 @@
 import type { Room } from '../src/net/dedicated'
 import type { LogFn, RoomSetup, ServerConfig, ServerCore } from '../src/net/server'
+import type { ServerPerfSampler } from './perf.mjs'
 
 export interface ServerOptions {
   port?: number
@@ -27,6 +28,8 @@ export interface ServerOptions {
   turnSecret?: string
   turnUrls?: string[]
   turnTtlSeconds?: number
+  /** Tests may inject a deterministic sampler; production uses cached one-second Node measurements. */
+  perf?: ServerPerfSampler
 }
 
 export interface DedicatedServer {

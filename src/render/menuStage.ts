@@ -1,5 +1,7 @@
 import { cloneState, createMatch, step as stepSim } from '../sim'
 import { DEFAULT_SETTINGS, OBSTACLE_RADII } from '../sim/config'
+import { spawnProjectile } from '../sim/projectiles'
+import { DT } from '../sim/types'
 import type { InputCommand, PlayerInput, PlayerSlot, SimEvent, SimState, Vec2 } from '../sim/types'
 import { layerRadius } from './arenaGeom'
 
@@ -107,9 +109,9 @@ export function createMenuStage(theme = Math.floor(Math.random() * 3), seed = 41
   }
 }
 
-/** A coven portrait, rather than a match: ten existing warlocks hold a quiet
- * ceremony on the arena rim. Cast states direct the existing rig and pooled
- * windup effects; no combat runs, so nothing fires into scenery or hurts a peer. */
+/** A rehearsed coven exercise. Cast/release/flight/impact use the same snapshot
+ * and event contracts as combat, without running AI, damage or match physics.
+ * Each ray ends in the clear floor inside the crescent, never in a peer or ruin. */
 export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 41): MenuStage {
   const out = { x: Math.cos(MENU_FOCUS_ANGLE), y: Math.sin(MENU_FOCUS_ANGLE) }
   const tangent = { x: -out.y, y: out.x }
@@ -118,12 +120,10 @@ export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 
     x: out.x * (centre + depth) + tangent.x * along,
     y: out.y * (centre + depth) + tangent.y * along,
   })
-  // A forward conductor, a staggered inner crescent, then the five outer
-  // witnesses. The gaps preserve hands/hood silhouettes instead of a flat wall.
-  const marks = [
-    [0, -250], [-215, -125], [215, -100], [-420, 35], [420, 65],
-    [-560, 230], [-290, 240], [0, 255], [285, 265], [550, 245],
-  ] as const
+  const target = at(0, -330)
+  // A shallow crescent leaves each performer's hands and entire firing lane
+  // visible. Its open side faces the camera; the practice floor is in front.
+  const angles = [-1.2, -0.94, -0.69, -0.44, -0.18, 0.18, 0.44, 0.69, 0.94, 1.2]
   const colors = [0xffb957, 0x4bdac9, 0xb98cff, 0xe66d52, 0x80bafa, 0xd1a367, 0x86b874, 0xd57fb4, 0x87c8d0, 0xd4bd8a]
   const names = ['Sunbinder', 'Tidecaller', 'Nightveil', 'Ashkeeper', 'Stormwatch', 'Runewarden', 'Mosscloak', 'Dusksinger', 'Frostseer', 'Dawnguard']
   const slots: PlayerSlot[] = names.map((name, id) => ({ id, name, color: colors[id], team: id, kind: 'bot' }))
@@ -135,9 +135,9 @@ export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 
   sim.events = []
   for (let i = 0; i < sim.pawns.length; i++) {
     const pawn = sim.pawns[i]
-    Object.assign(pawn, at(marks[i][0], marks[i][1]))
-    // Converging three-quarter stances face the audience, not one another.
-    pawn.facing = Math.atan2(-out.y * 1500 - tangent.y * marks[i][0] * 0.35, -out.x * 1500 - tangent.x * marks[i][0] * 0.35)
+    const radius = i % 2 ? 595 : 550
+    Object.assign(pawn, at(Math.sin(angles[i]) * radius, -330 + Math.cos(angles[i]) * radius))
+    pawn.facing = Math.atan2(target.y - pawn.y, target.x - pawn.x)
     pawn.modifiers = []
     pawn.invulnerable = false
     pawn.cast = null
@@ -147,41 +147,61 @@ export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 
     id: sim.nextEntityId++, ...at(side * 770, -25), radius: radii[index], hp: 400, variant: index,
   }))
 
-  // Only three channels can overlap. The conductor anchors the image; the
-  // two slower replies travel across the crescent, with long idle rests.
+  // A paired opening, then individual replies with breathing room. All ten
+  // release once per 31-second phrase; no charge is abandoned or held forever.
   const gestures = [
-    { player: 0, spell: 'gravity', start: 0, duration: 540 },
-    { player: 3, spell: 'meteor', start: 210, duration: 300 },
-    { player: 8, spell: 'shield', start: 420, duration: 240 },
-    { player: 2, spell: 'lightning', start: 810, duration: 300 },
-    { player: 6, spell: 'meteor', start: 1050, duration: 300 },
-    { player: 0, spell: 'gravity', start: 1170, duration: 450 },
-    { player: 4, spell: 'shield', start: 1470, duration: 240 },
+    { player: 0, spell: 'fireball', start: 24, duration: 42 },
+    { player: 9, spell: 'homing', start: 66, duration: 48 },
+    { player: 2, spell: 'homing', start: 210, duration: 42 },
+    { player: 7, spell: 'fireball', start: 390, duration: 36 },
+    { player: 4, spell: 'fireball', start: 570, duration: 42 },
+    { player: 5, spell: 'homing', start: 750, duration: 48 },
+    { player: 1, spell: 'fireball', start: 930, duration: 36 },
+    { player: 8, spell: 'homing', start: 1110, duration: 42 },
+    { player: 3, spell: 'homing', start: 1290, duration: 48 },
+    { player: 6, spell: 'fireball', start: 1470, duration: 36 },
   ] as const
-  const cycle = 1920
+  const cycle = 1860
   return {
-    focus: at(0, 30),
+    focus: at(0, -30),
     out,
     step() {
       sim.events.length = 0
+      // This is a straight rehearsed flight, not collision or combat simulation.
+      // Lifetime is the measured distance to the practice point, so the final
+      // step cannot overshoot it or leave an immortal projectile behind.
+      for (let i = sim.projectiles.length - 1; i >= 0; i--) {
+        const projectile = sim.projectiles[i]
+        const fraction = Math.min(1, projectile.ticksLeft)
+        projectile.x += projectile.vx * DT * fraction
+        projectile.y += projectile.vy * DT * fraction
+        projectile.ticksLeft -= 1
+        if (projectile.ticksLeft <= 0) {
+          sim.events.push({ type: 'projectileHit', id: projectile.id, spell: projectile.spell, x: projectile.x, y: projectile.y, target: null })
+          sim.projectiles.splice(i, 1)
+        }
+      }
       const moment = sim.tick % cycle
       for (const gesture of gestures) {
         const pawn = sim.pawns[gesture.player]
         const age = moment - gesture.start
         if (age === 0) {
-          pawn.cast = {
-            slot: 0, spell: gesture.spell, ticksLeft: gesture.duration,
-            x: pawn.x + Math.cos(pawn.facing) * 260,
-            y: pawn.y + Math.sin(pawn.facing) * 260, started: true,
-          }
+          pawn.cast = { slot: 0, spell: gesture.spell, ticksLeft: gesture.duration, ...target, started: true }
           sim.events.push({ type: 'castStart', pawn: pawn.id, spell: gesture.spell, ticks: gesture.duration })
-        } else if (age > 0 && age < gesture.duration && pawn.cast?.spell === gesture.spell) {
-          pawn.cast.ticksLeft = gesture.duration - age
+        } else if (age > 0 && age < gesture.duration) {
+          pawn.cast!.ticksLeft = gesture.duration - age
         } else if (age === gesture.duration) {
           pawn.cast = null
-          // A restrained hand/floor flourish, using the existing cast effect.
-          // No projectile, explosion, damage, or simulation command is created.
-          sim.events.push({ type: 'cast', pawn: pawn.id, spell: gesture.spell, x: pawn.x, y: pawn.y, level: 1 })
+          sim.events.push({ type: 'cast', pawn: pawn.id, spell: gesture.spell, ...target, level: 1 })
+          const dx = target.x - pawn.x
+          const dy = target.y - pawn.y
+          const distance = Math.hypot(dx, dy)
+          const speed = 500
+          const muzzle = 55
+          spawnProjectile(sim, pawn.owner, gesture.spell,
+            pawn.x + dx / distance * muzzle, pawn.y + dy / distance * muzzle,
+            dx / distance * speed, dy / distance * speed, 25,
+            { lifetime: (distance - muzzle) / speed, rangeMastery: false, level: 1, data: { target: -1 } })
         }
       }
       sim.tick++

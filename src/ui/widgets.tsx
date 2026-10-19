@@ -235,6 +235,7 @@ export function Modal({
   onClose,
   children,
   width = 'max-w-2xl',
+  className = '',
   footer,
   escDisabled = false,
 }: {
@@ -242,6 +243,8 @@ export function Modal({
   onClose: () => void
   children: ReactNode
   width?: string
+  /** Opt-in panel sizing; ordinary dialogs keep their content-based height. */
+  className?: string
   footer?: ReactNode
   /** e.g. while a key-capture field owns Esc */
   escDisabled?: boolean
@@ -270,7 +273,7 @@ export function Modal({
   }, [])
   return (
     <div className="scrim fade-in fixed inset-0 z-50 grid place-items-center p-4" onMouseDown={(e) => e.target === e.currentTarget && closeRef.current()}>
-      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`panel panel-solid pop-in flex max-h-[92vh] w-full flex-col outline-none ${width}`}>
+      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`panel panel-solid pop-in flex max-h-[92vh] w-full flex-col outline-none ${width} ${className}`}>
         <div className="flex items-center justify-between px-7 pt-6 pb-3">
           <h2 className="display text-4xl text-[#ffd890]">{title}</h2>
           <Button variant="ghost" size="sm" sound="back" onClick={onClose} aria-label="Close">

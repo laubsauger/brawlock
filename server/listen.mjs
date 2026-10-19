@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { openLeaderboard } from './leaderboard-store.mjs'
 import { remoteRatingAuthority } from './rating-client.mjs'
 import { iceCredentialEndpoint, turnCredentialIssuer } from './turn-credentials.mjs'
+import { createServerPerf } from './perf.mjs'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
@@ -140,11 +141,12 @@ export async function startServer(opts = {}) {
     minSeconds: config.leaderboardMinSeconds ?? DEFAULT_SERVER_CONFIG.leaderboardMinSeconds, clock,
   }) : undefined
   const privateAuthority = !authorityUrl && authorityToken ? authority : undefined
+  const perf = opts.perf ?? createServerPerf()
   const core = createServerCore(
     { ...DEFAULT_SERVER_CONFIG, ...config, build },
     {
       createMatch,
-      step,
+      step: perf.wrapStep(step),
       createBot,
       defaultSettings: DEFAULT_SETTINGS,
       // timeScale > 1 (tests): sim time runs faster than wall time; clients must use the same scale
@@ -204,7 +206,7 @@ export async function startServer(opts = {}) {
                 || Object.keys(body).some((k) => k !== 'device' && k !== 'name')) reply(400, { error: 'invalid display label' })
               else reply(200, { changed: await privateAuthority.rename(body.device, body.name) })
             } else if (path === '/internal/rating/read') {
-              if (!body || typeof body.path !== 'string' || body.path.length > 2048 || !/^\/(leaderboard(?:\?|$)|players\/[A-Za-z0-9_-]{8,64}$)/.test(body.path)
+              if (!body || typeof body.path !== 'string' || body.path.length > 2048 || !/^\/(leaderboard(?:\?|$)|players\/[A-Za-z0-9_-]{8,64}$|profiles\/[0-9a-f-]{36}$)/.test(body.path)
                 || Object.keys(body).length !== 1) reply(400, { error: 'invalid rating read' })
               else reply(200, await privateAuthority.read(body.path))
             } else reply(404, { error: 'not found' })
@@ -215,8 +217,9 @@ export async function startServer(opts = {}) {
       }
       const body = await readBody(req)
       const r = await core.http({ method: req.method ?? 'GET', path: req.url ?? '/', ip: ipOf(req), origin: req.headers.origin ?? null, body })
+      const health = req.method === 'GET' && (req.url ?? '').split('?')[0] === '/health' && r.status === 200
       res.writeHead(r.status, r.headers)
-      res.end(r.body)
+      res.end(health ? JSON.stringify({ ...JSON.parse(r.body), perf: perf.snapshot() }) : r.body)
     } catch (e) {
       log('error', 'http.error', { error: String(e) })
       res.writeHead(500, { 'content-type': 'application/json' })
@@ -240,10 +243,16 @@ export async function startServer(opts = {}) {
     socket.setNoDelay(true)
     core.attach(admission, wrapSocket(socket, log), ip)
   })
-  await new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(port, host, resolve)
-  })
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, host, resolve)
+    })
+  } catch (error) {
+    perf.close()
+    core.close()
+    throw error
+  }
   const sweeper = setInterval(() => { core.sweep(); ice.sweep() }, 5000)
   log('info', 'server.start', { port: server.address().port, host, build, region: config.region ?? '', ratings: authorityUrl ? 'remote-global' : authority ? 'local-global' : 'disabled' })
   return {
@@ -255,6 +264,7 @@ export async function startServer(opts = {}) {
     createRoom: (o) => core.createRoom(o),
     async close() {
       clearInterval(sweeper)
+      perf.close()
       core.close()
       for (const s of sockets) s.destroy()
       await new Promise((resolve) => server.close(resolve))

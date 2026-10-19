@@ -62,6 +62,47 @@ describe('known room rediscovery and routing', () => {
   })
 })
 
+describe('opaque public profile lookup', () => {
+  const publicId = '12345678-1234-4123-8123-123456789abc'
+  const profile = { found: true, publicId, matches: 4, detail: null,
+    coverage: { detailedMatches: 0, totalMatches: 4, firstDetailedAt: null, lastDetailedAt: null } }
+  it('uses only the requested public ID and distinguishes an unknown player from a bad response', async () => {
+    let body: unknown = profile
+    const fetch = vi.fn(async (url: string) => response(200, url.endsWith('/health')
+      ? { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-profile' } : body))
+    const online = new Online({ regions, build: 'dev-profile', fetch })
+    expect(await online.publicProfile('eu', publicId)).toMatchObject({ publicId, coverage: profile.coverage, detail: null, region: { id: 'eu' } })
+    expect(fetch.mock.calls.at(-1)?.[0]).toBe(`https://eu.test/profiles/${publicId}`)
+    body = { found: false }
+    expect(await online.publicProfile('eu', publicId)).toBeNull()
+    body = { ...profile, publicId: '23456789-1234-4123-8123-123456789abc' }
+    await expect(online.publicProfile('eu', publicId)).rejects.toThrow('different player profile')
+    body = { ...profile, publicId: undefined }
+    await expect(online.publicProfile('eu', publicId)).rejects.toThrow('invalid player profile data')
+    body = { ...profile, coverage: undefined }
+    await expect(online.publicProfile('eu', publicId)).rejects.toThrow('invalid player profile data')
+  })
+
+  it('refuses raw private IDs and short tags before making any request', async () => {
+    const fetch = vi.fn(async () => response(200, {}))
+    const online = new Online({ regions, build: 'dev-profile', fetch })
+    for (const id of ['device-private-000', 'abcde', '../players/device-private-000']) {
+      await expect(online.publicProfile('eu', id)).rejects.toThrow('public player ID is invalid')
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('reports missing public IDs as a board data error instead of silently disabling inspection', async () => {
+    let entries: unknown[] = [{ name: 'Old row without identity' }]
+    const fetch = vi.fn(async (url: string) => response(200, url.endsWith('/health')
+      ? { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-profile' } : { entries, you: null }))
+    const online = new Online({ regions, build: 'dev-profile', fetch })
+    await expect(online.leaderboard('eu', 'all')).rejects.toThrow('invalid leaderboard player data')
+    entries = [{ publicId }]
+    expect((await online.leaderboard('eu', 'all')).entries).toEqual(entries)
+  })
+})
+
 
 describe('authenticated relay configuration', () => {
   const credentials = () => ({ iceServers: [{ urls: 'stun:eu.test:3478' }, { urls: ['turn:eu.test:3478?transport=udp', 'turns:eu.test:5349?transport=tcp'], username: 'expires:user', credential: 'temporary-password' }], expiresAt: Date.now() + 3600_000 })

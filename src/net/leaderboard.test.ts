@@ -8,7 +8,7 @@ import type { MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState } from '..
 import { createMatch, DEFAULT_SETTINGS } from '../sim'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
-import { LB_K, LB_RATING_START, ServerMatchTracker, deviceTag, ineligible, rateMatch, settleMatch, type FinishedMatch, type PlayerRow } from './leaderboard'
+import { LB_K, LB_RATING_START, ServerMatchTracker, deviceTag, ineligible, rateMatch, settleMatch, type FinishedMatch, type PlayerRow, type PublicBoardRow } from './leaderboard'
 import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
 import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 
@@ -345,6 +345,51 @@ describe('one global authority and additive idempotency receipts', () => {
     match: play([slot(0, 'human'), slot(1, 'human')], { 0: 'dev-aaaaaaaa', 1: 'dev-cccccccc' }, [
       { deaths: [[1, 0]], winners: [0] },
     ]),
+  })
+
+  it('reports rolling seven-day net Elo from counted results across regions, not an inferred rating baseline', async () => {
+    const day = 24 * 3600 * 1000
+    let now = 100 * day
+    const since = now - 7 * day
+    const store = openLeaderboard(':memory:')
+    const authority = localRatingAuthority(store, { minSeconds: 1, clock: () => now })
+    try {
+      // A preserved legacy player without historical result rows has no known recent movement.
+      const legacy: PlayerRow = { device: 'dev-legacy00', name: 'Legacy', tag: deviceTag('dev-legacy00'), rating: 1450, matches: 1, wins: 1, roundsPlayed: 1, roundsWon: 1, kills: 0, deaths: 0, firstAt: 1, lastAt: 1 }
+      store.commit({ at: 1, region: 'us-west', room: 'ABCDE', ticks: 12000, rounds: 1, humans: 2, bots: 0 }, [], [legacy])
+      for (const [index, at, region] of [[0, since - 1, 'us-west'], [1, since, 'eu'], [2, now - day, 'us-west'], [3, now, 'eu'], [4, now + 1, 'eu']] as const) {
+        const request = { ...submission(`rolling-match-${index}`, region), at }
+        if (index === 2) {
+          request.match = play([slot(0, 'human'), slot(1, 'human')], { 0: 'dev-aaaaaaaa', 1: 'dev-cccccccc' }, [{ deaths: [[0, 1]], winners: [1] }])
+        }
+        expect(await authority.record(request)).toEqual({ status: 'rated' })
+      }
+      const expected = () => Math.round(store.recent('dev-aaaaaaaa', 100)
+        .filter((r) => r.at >= now - 7 * day && r.at <= now).reduce((sum, r) => sum + r.delta, 0))
+      const board = async () => (await authority.read('/leaderboard?period=all&device=dev-aaaaaaaa&region=eu')).body as { entries: PublicBoardRow[]; you: PublicBoardRow }
+      const first = await board()
+      expect(first.you.ratingChange7d).toBe(expected())
+      expect(first.you.ratingChange7d).not.toBe(first.you.gain)
+      expect(first.entries.find((r) => r.tag === deviceTag('dev-cccccccc'))?.ratingChange7d).toBe(-expected())
+      expect(first.entries.find((r) => r.name === 'Legacy')).toMatchObject({ rating: 1450, ratingChange7d: 0 })
+      expect((await authority.read('/players/dev-aaaaaaaa')).body).toMatchObject({ ratingChange7d: expected() })
+      expect(await authority.read('/leaderboard?period=all&device=dev-aaaaaaaa&region=us-west')).toEqual(await authority.read('/leaderboard?period=all&device=dev-aaaaaaaa&region=eu'))
+      expect(JSON.stringify(first)).not.toContain('dev-')
+
+      // Bot-only opposition never supplies an eligible result or contributes to this sum.
+      const solo = submission('rolling-solo-bot')
+      solo.at = now
+      solo.match = play([slot(0, 'human'), slot(1, 'bot')], { 0: 'dev-aaaaaaaa' }, [{ deaths: [[1, 0]], winners: [0] }])
+      expect(await authority.record(solo)).toEqual({ status: 'unrated', reason: 'fewer than 2 humans' })
+      expect((await board()).you).toEqual(first.you)
+
+      // Advancing one millisecond drops the old boundary result and admits the new one.
+      now += 1
+      expect((await board()).you.ratingChange7d).toBe(expected())
+      now += 8 * day
+      expect((await board()).entries.every((r) => r.ratingChange7d === 0)).toBe(true)
+      expect((await authority.read('/leaderboard?period=week')).body).toMatchObject({ entries: [], you: null })
+    } finally { authority.close!() }
   })
 
   it('preserves old rows, rates both regions on the same scale, and deduplicates concurrent retries through a restart', async () => {

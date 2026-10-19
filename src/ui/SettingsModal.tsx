@@ -316,7 +316,7 @@ export function SettingsModal() {
   }
 
   return (
-    <Modal title="Settings" width="max-w-4xl" onClose={close} escDisabled={capturing !== null}>
+    <Modal title="Settings" width="max-w-4xl" className="h-[min(760px,92dvh)]" onClose={close} escDisabled={capturing !== null}>
       <div ref={tabList} role="tablist" aria-label="Settings categories" className="sticky top-0 z-10 mb-5 flex flex-wrap gap-1 border-b border-[#b58b55]/20 bg-[#21150f] py-2">
         {SETTINGS_TABS.map(({ id, label }) => (
           <button
@@ -347,6 +347,12 @@ export function SettingsModal() {
         >
           {tab === id && id === 'gameplay' && (<>
             <Section title="Gameplay">
+              <Row
+                label="Move cancels cast"
+                hint={(s.moveCancelsCast ?? true) ? 'On: right-click during a cast cancels it' : 'Off: right-click during a cast queues the move until the spell goes off'}
+              >
+                <Switch label="Move cancels cast" checked={s.moveCancelsCast ?? true} onChange={(moveCancelsCast) => setSettings({ moveCancelsCast })} />
+              </Row>
               <Row label="Player name">
                 <input
                   className="field w-56"
@@ -388,12 +394,6 @@ export function SettingsModal() {
           </>)}
           {tab === id && id === 'controls' && (<>
             <Section title="Controls">
-              <Row
-                label="Move cancels cast"
-                hint={(s.moveCancelsCast ?? true) ? 'On: right-click during a cast cancels it, as in the original' : 'Off: right-click during a cast queues the move until the spell goes off'}
-              >
-                <Switch label="Move cancels cast" checked={s.moveCancelsCast ?? true} onChange={(moveCancelsCast) => setSettings({ moveCancelsCast })} />
-              </Row>
               <Keybinds capturing={capturing} onCapture={setCapturing} />
             </Section>
           </>)}
@@ -525,7 +525,7 @@ export function SettingsModal() {
               <Row label="Performance overlay" hint="Frame rate, frame time, GPU time and ping. Also F2">
                 <Switch label="Performance overlay" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />
               </Row>
-              <Row label="Net graph" hint="Ping, jitter and packet loss per connection over the last 30 seconds. Also F3">
+              <Row label="Net graph" hint="Ping, jitter, loss, local frame stalls and server load. Copy recent diagnostic samples. Also F3">
                 <Switch label="Net graph" checked={!!s.netGraph} onChange={(netGraph) => setSettings({ netGraph })} />
               </Row>
             </Section>

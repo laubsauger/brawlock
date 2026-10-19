@@ -81,9 +81,19 @@
         align-items: center;
         width: min(640px, calc(100vw - 32px));
         text-align: center;
+        transform: translateY(min(4vh, 36px));
       }
       /* Wordmark art over the live-text fallback: if the image fails, the text shows. */
-      .splash-mark { position: relative; display: grid; place-items: center; animation: splash-rise 900ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+      .splash-mark { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; width: 100%; animation: splash-rise 900ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+      .splash-mark::before {
+        content: '';
+        position: absolute;
+        inset: 8% 6% 0;
+        z-index: -1;
+        background: radial-gradient(ellipse, rgba(255, 164, 60, 0.2), rgba(240, 88, 18, 0.08) 48%, transparent 72%);
+        filter: blur(18px);
+        pointer-events: none;
+      }
       .splash-mark img {
         grid-area: 1 / 1;
         width: min(640px, 86vw);
@@ -125,16 +135,14 @@
         transform-origin: left center;
         transition: transform 420ms cubic-bezier(0.3, 0.8, 0.3, 1);
       }
-      .splash-stage, .splash-quip, .splash-foot { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.8); }
+      .splash-stage, .splash-foot { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.8); }
       .splash-stage { margin-top: 10px; font-size: 15px; font-weight: 600; color: #c9b39b; }
-      .splash-quip { min-height: 20px; margin-top: 4px; font-size: 14px; font-style: italic; color: #a39080; transition: opacity 260ms ease; }
-      .splash-quip.swap { opacity: 0; }
       .splash-foot { position: absolute; left: 0; right: 0; bottom: 20px; font-size: 14px; color: #a39080; text-align: center; }
       @keyframes splash-drift { from { transform: scale(1.08); } to { transform: scale(1); } }
       @keyframes splash-rise { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
       @media (prefers-reduced-motion: reduce) {
         .splash-art, .splash-mark { animation: none; }
-        .splash, .splash-art, .splash-bar i, .splash-quip { transition: none; }
+        .splash, .splash-art, .splash-bar i { transition: none; }
       }
     </style>
   </head>
@@ -151,40 +159,10 @@
         <div class="splash-progress" aria-live="polite">
           <div class="splash-bar" role="progressbar" aria-label="Loading"><i id="splash-fill"></i></div>
           <div id="splash-stage" class="splash-stage">Loading the game</div>
-          <div id="splash-quip" class="splash-quip">Stoking the caldera…</div>
         </div>
       </div>
-      <div class="splash-foot">Sound starts when you enter.</div>
       <noscript><div class="splash-foot" style="bottom: 44px; color: #ff9b8a">Brawlock needs JavaScript to open the arena.</div></noscript>
     </div>
-    <script>
-      // Flavor lines while the real stages load (cosmetic; stops once the splash is gone).
-      (function () {
-        var lines = [
-          'Stoking the caldera…',
-          'Counting the tiles that are left…',
-          'Warming the lava to a polite boil…',
-          'Polishing fireballs…',
-          'Teaching warlocks to swim. Failing…',
-          'Sweeping ash off the arena…',
-          'Reading the fine print on the pact…',
-          'Testing the knockback on a volunteer…',
-        ];
-        var el = document.getElementById('splash-quip');
-        var splash = document.getElementById('splash');
-        var i = Math.floor(Math.random() * lines.length);
-        if (el) el.textContent = lines[i];
-        var timer = setInterval(function () {
-          if (!el || !splash || splash.hidden || splash.dataset.mode !== 'loading') return clearInterval(timer);
-          el.classList.add('swap');
-          setTimeout(function () {
-            i = (i + 1) % lines.length;
-            el.textContent = lines[i];
-            el.classList.remove('swap');
-          }, 260);
-        }, 1900);
-      })();
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

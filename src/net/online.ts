@@ -20,7 +20,7 @@
 import { PROTOCOL_VERSION } from './protocol'
 import type { HostEndpoint, NetFactory, Transport } from './transport'
 import type { RoomSummary } from './dedicated'
-import type { Period, PublicBoardRow } from './leaderboard'
+import type { Period, PublicBoardRow, PublicProfileCoverage, PublicProfileDetail } from './leaderboard'
 import type { ListingInfo } from './listings'
 import type { BotDifficulty } from '../sim/types'
 import type { RoomRoute } from './rejoin'
@@ -35,6 +35,26 @@ const PROBE_MAX_AGE_MS = 2000
 /** routing (join lookup, room creation) trusts a probe this long */
 const ROUTE_TTL_UP_MS = 20_000
 const ROUTE_TTL_DOWN_MS = 8_000
+const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+function publicPlayer(value: unknown): boolean {
+  return !!value && typeof value === 'object' && 'publicId' in value
+    && typeof value.publicId === 'string' && PUBLIC_ID.test(value.publicId)
+}
+
+function profileBody(value: unknown): (Omit<ServerProfile, 'region'> & { found: true }) | null {
+  if (value === null || (!!value && typeof value === 'object' && 'found' in value && value.found === false)) return null
+  const body = value as Partial<ServerProfile> & { found?: unknown }
+  const coverage = body?.coverage
+  if (!publicPlayer(body) || body.found !== true || !coverage
+    || !Number.isSafeInteger(coverage.totalMatches) || coverage.totalMatches < 0
+    || !Number.isSafeInteger(coverage.detailedMatches) || coverage.detailedMatches < 0 || coverage.detailedMatches > coverage.totalMatches
+    || coverage.totalMatches !== body.matches
+    || (coverage.detailedMatches === 0 ? body.detail !== null : body.detail?.matches !== coverage.detailedMatches)) {
+    throw new ServerError('error', 'The server returned invalid player profile data.')
+  }
+  return body as Omit<ServerProfile, 'region'> & { found: true }
+}
 
 type FetchLike = (
   url: string,
@@ -98,6 +118,8 @@ export interface LeaderboardPage {
 export interface ServerProfile extends PublicBoardRow {
   region: RegionStatus
   firstAt: number
+  coverage: PublicProfileCoverage
+  detail: PublicProfileDetail | null
   /** latest counted matches, newest first */
   recent: { at: number; region: string; won: boolean; roundsPlayed: number; roundsWon: number; kills: number; deaths: number; delta: number; rating: number }[]
 }
@@ -399,15 +421,31 @@ export class Online {
     if (device) q.set('device', device)
     const body = (await this.read(r, `/leaderboard?${q}`)) as { entries?: unknown; you?: unknown } | null
     if (!body) throw new ServerError('error', `The ${r.label} server keeps no leaderboard.`)
-    return { region: this.copy(this.st.get(r.id)!), period, entries: Array.isArray(body.entries) ? (body.entries as PublicBoardRow[]) : [], you: (body.you as PublicBoardRow | null) ?? null }
+    if (!Array.isArray(body.entries) || body.entries.some((row) => !publicPlayer(row)) || (body.you !== null && !publicPlayer(body.you))) {
+      throw new ServerError('error', 'The server returned invalid leaderboard player data.')
+    }
+    return { region: this.copy(this.st.get(r.id)!), period, entries: body.entries as PublicBoardRow[], you: body.you as PublicBoardRow | null }
   }
 
   /** This device's profile on a region's server; null before its first counted match there. Throws ServerError. */
   async profile(regionId: string, device: string): Promise<ServerProfile | null> {
     const r = await this.usable(regionId)
-    const body = (await this.read(r, `/players/${encodeURIComponent(device)}`)) as (Omit<ServerProfile, 'region'> & { found?: boolean }) | null
-    if (!body || body.found !== true) return null
+    const body = profileBody(await this.read(r, `/players/${encodeURIComponent(device)}`))
+    if (!body) return null
     const { found: _, ...profile } = body
+    return { ...profile, region: this.copy(this.st.get(r.id)!) }
+  }
+
+  /** A leaderboard player's profile, addressed only by its opaque public ID. */
+  async publicProfile(regionId: string, publicId: string): Promise<ServerProfile | null> {
+    if (!PUBLIC_ID.test(publicId)) {
+      throw new ServerError('error', 'That public player ID is invalid.')
+    }
+    const r = await this.usable(regionId)
+    const body = profileBody(await this.read(r, `/profiles/${publicId}`))
+    if (!body) return null
+    const { found: _, ...profile } = body
+    if (profile.publicId !== publicId) throw new ServerError('error', 'The server returned a different player profile.')
     return { ...profile, region: this.copy(this.st.get(r.id)!) }
   }
 

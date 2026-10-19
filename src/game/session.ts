@@ -31,7 +31,7 @@ import { createSession, type MatchRecorder, type NetMode, type SessionApi } from
 import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
-import { getProfile, setPreferredColor } from './profile'
+import { getProfile, safeLocalStorage, setPreferredColor } from './profile'
 import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
@@ -50,6 +50,7 @@ export { PLAYER_COLORS, MAX_PLAYERS } from '../net/session'
 export { parseRoomCode, codeFromSearch, roomLink, CODE_LENGTH } from '../net/code'
 
 const CLIENT_KEY = 'brawlock.clientKey'
+let tabKey: string | null = null
 
 function randomKey(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -59,15 +60,16 @@ function randomKey(): string {
 
 /** Per tab (survives reloads): lets a reloaded client reclaim its pawn mid-match. */
 function clientKey(): string {
+  if (tabKey) return tabKey
   try {
     let k = sessionStorage.getItem(CLIENT_KEY)
     if (!k) {
       k = randomKey()
       sessionStorage.setItem(CLIENT_KEY, k)
     }
-    return k
+    return tabKey = k
   } catch {
-    return randomKey()
+    return tabKey = randomKey()
   }
 }
 
@@ -140,12 +142,16 @@ function createRecorder(): MatchRecorder {
   }
 }
 
+let sessionScreen: 'lobby' | 'match' | 'results' = 'lobby'
 const impl = createSession({
   ui: {
     lobby: () => useGame.getState().lobby,
     setLobby: (p) => useGame.getState().setLobby(p),
     screen: () => useGame.getState().screen,
-    setScreen: (s) => useGame.getState().setScreen(s),
+    setScreen: (s) => {
+      if (s === 'lobby' || s === 'match' || s === 'results') sessionScreen = s
+      useGame.getState().setScreen(s)
+    },
     setResult: (r) => useGame.getState().setResult(r),
     paused: () => useGame.getState().paused,
     onScreen: (cb) =>
@@ -228,12 +234,17 @@ export interface HostingApi {
   leaderboard(period: Period, region?: RegionChoice): Promise<LeaderboardPage>
   /** This device's public profile on a region's server; null before its first counted match. Throws ServerError. */
   serverProfile(region?: RegionChoice): Promise<ServerProfile | null>
+  /** An inspectable player profile addressed by its public ID, never its private device identity. */
+  publicProfile(publicId: string, region?: RegionChoice): Promise<ServerProfile | null>
 }
 
 const CANCELLED = 'Hosting was cancelled.'
 
 function hostFailed(mode: HostMode, reason: HostFailure, message: string, region: RegionStatus | null, other: { mode: HostMode; available: boolean; region: RegionStatus | null }): HostResult {
-  if (reason !== 'cancelled') useGame.getState().setLobby({ status: 'error', error: message })
+  if (reason !== 'cancelled') {
+    useGame.getState().setLobby({ status: 'error', error: message })
+    useGame.getState().setScreen('menu')
+  }
   return { ok: false, mode, reason, message, region, other }
 }
 
@@ -263,25 +274,74 @@ function opened(t: 'server' | 'p2p'): boolean {
 
 export type GameSession = Omit<SessionApi, 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join'> & HostingApi & {
   join(code: string, route?: RoomRoute): Promise<void>
+  /** Show this tab's accepted room again without matchmaking or reconnecting. */
+  resume(): boolean
 }
 
-async function joinRoom(code: string, route?: RoomRoute): Promise<void> {
-  if (blockUnsupportedPlay()) return
+interface Opening { kind: string; promise: Promise<HostResult> | null }
+let opening: Opening | null = null
+
+function cancelled(mode: HostMode): HostResult {
+  return { ok: false, mode, reason: 'cancelled', message: CANCELLED, region: null,
+    other: { mode: mode === 'server' ? 'p2p' : 'server', available: false, region: null } }
+}
+
+function resume(): boolean {
+  if (!impl.isActive()) return false
+  useGame.getState().setLobby({ status: 'open', error: null })
+  useGame.getState().setScreen(sessionScreen)
+  return true
+}
+
+/** Own the whole action, including region selection and its POST, before the first await. */
+function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) => Promise<HostResult>, rejoining = false): Promise<HostResult> {
+  if (opening) {
+    useGame.getState().setScreen('lobby')
+    return opening.kind === kind && opening.promise ? opening.promise : Promise.resolve(cancelled(mode))
+  }
+  if (resume()) return Promise.resolve(cancelled(mode))
+  if (useGame.getState().lobby.role === 'offline' && useGame.getState().lobby.status === 'open') impl.leave()
+  const attempt: Opening = { kind, promise: null }
+  opening = attempt
+  if (!rejoining) rejoin.dismiss()
+  const state = useGame.getState()
+  state.setLobby({ role: 'client', status: 'connecting', roomCode: null, joinUrl: null, localPlayer: -1,
+    slots: [], settings: null, ready: {}, pings: {}, public: false, quick: kind === 'quick' || kind === 'ranked', ranked: kind === 'ranked',
+    autoStart: null, waitingForRound: false, error: null, notice: kind === 'ranked' ? 'Finding a ranked lobby…' : kind === 'quick' ? 'Finding a game…' : 'Opening a room…' })
+  state.setScreen('lobby')
+  const current = () => opening === attempt
+  attempt.promise = run(current).finally(() => { if (current()) opening = null })
+  return attempt.promise
+}
+
+async function dialRoom(code: string, route: RoomRoute | undefined, current: () => boolean): Promise<void> {
   nextJoinRoute = route ?? null
   await impl.join(code)
-  nextJoinRoute = null
+  if (current()) nextJoinRoute = null
+}
+
+async function joinRoom(code: string, route?: RoomRoute, rejoining = false): Promise<void> {
+  if (blockUnsupportedPlay()) return
+  const mode = route?.kind === 'server' ? 'server' : 'p2p'
+  await openOnce(`join:${code}:${route?.kind ?? 'auto'}:${route?.kind === 'server' ? route.region : ''}`, mode, async (current) => {
+    await dialRoom(code, route, current)
+    if (!current()) return cancelled(mode)
+    if (useGame.getState().lobby.status === 'open') return { ok: true, mode: impl.transport() === 'server' ? 'server' : 'p2p', region: routed ? online.region(routed.id) : null }
+    return cancelled(mode) // The void join API reports failures through its existing lobby state.
+  }, rejoining)
 }
 
 /** Rediscovery is read-only; the player must explicitly click Rejoin. */
 export const rejoin = new RejoinController({
+  storage: safeLocalStorage(),
   identity: () => ({ profileId: getProfile().id, deviceId: getDeviceId() }),
   exists: async (target) => target.route.kind === 'server'
     ? online.roomExists(target.route.region, target.code)
     : (await online.browse()).some((room) => room.kind === 'p2p' && room.code === target.code),
   join: async (target) => {
-    await joinRoom(target.code, target.route)
+    await joinRoom(target.code, target.route, true)
     const lobby = useGame.getState().lobby
-    return { ok: lobby.status === 'open' && impl.transport() === target.route.kind, error: lobby.error ?? undefined }
+    return { ok: lobby.status === 'open' && lobby.roomCode === target.code && impl.transport() === target.route.kind && (target.route.kind !== 'server' || routed?.id === target.route.region), error: lobby.error ?? undefined }
   },
 })
 
@@ -297,80 +357,105 @@ export const session: GameSession = {
   sendChat: impl.sendChat,
   openOffline() {
     if (blockUnsupportedPlay()) return
+    if (resume()) return
+    opening = null
+    nextJoinRoute = null
     rejoin.dismiss()
     impl.openOffline()
   },
   async openHost() {
     if (blockUnsupportedPlay()) return unsupportedHost('p2p')
-    rejoin.dismiss()
-    await impl.openHost()
-    if (opened('p2p')) return { ok: true, mode: 'p2p', region: null }
-    const l = useGame.getState().lobby
-    if (l.status !== 'error') return hostFailed('p2p', 'cancelled', CANCELLED, null, await serverOption())
-    return hostFailed('p2p', 'unavailable', l.error ?? 'Could not host peer-to-peer.', null, await serverOption())
+    return openOnce('p2p', 'p2p', async (current) => {
+      await impl.openHost()
+      if (!current()) return cancelled('p2p')
+      if (opened('p2p')) return { ok: true, mode: 'p2p', region: null }
+      const l = useGame.getState().lobby
+      const other = await serverOption()
+      if (!current()) return cancelled('p2p')
+      if (l.status !== 'error') return hostFailed('p2p', 'cancelled', CANCELLED, null, other)
+      return hostFailed('p2p', 'unavailable', l.error ?? 'Could not host peer-to-peer.', null, other)
+    })
   },
   async openHostServer(choice) {
     if (blockUnsupportedPlay()) return unsupportedHost('server')
-    rejoin.dismiss()
-    const want = choice ?? useGame.getState().settings.serverRegion ?? 'auto'
-    if (!online.configured) return hostFailed('server', 'unavailable', 'This build has no game server.', null, P2P_OPTION)
-    const region = await online.choose(want)
-    if (!region) return hostFailed('server', 'unavailable', 'No game server is reachable right now.', null, P2P_OPTION)
-    let code: string
-    try {
-      code = await online.createRoom(region.id)
-    } catch (e) {
-      const reason = e instanceof ServerError ? e.reason : 'error'
-      return hostFailed('server', reason, e instanceof Error ? e.message : String(e), online.region(region.id), P2P_OPTION)
-    }
-    await joinRoom(code, { kind: 'server', region: region.id })
-    if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
-    const l = useGame.getState().lobby
-    if (l.status !== 'error') return hostFailed('server', 'cancelled', CANCELLED, online.region(region.id), P2P_OPTION)
-    return hostFailed('server', 'error', l.error ?? 'Could not join the game server room.', online.region(region.id), P2P_OPTION)
+    return openOnce('server', 'server', async (current) => {
+      const want = choice ?? useGame.getState().settings.serverRegion ?? 'auto'
+      if (!online.configured) return hostFailed('server', 'unavailable', 'This build has no game server.', null, P2P_OPTION)
+      const region = await online.choose(want)
+      if (!current()) return cancelled('server')
+      if (!region) return hostFailed('server', 'unavailable', 'No game server is reachable right now.', null, P2P_OPTION)
+      let code: string
+      try {
+        code = await online.createRoom(region.id)
+      } catch (e) {
+        if (!current()) return cancelled('server')
+        const reason = e instanceof ServerError ? e.reason : 'error'
+        return hostFailed('server', reason, e instanceof Error ? e.message : String(e), online.region(region.id), P2P_OPTION)
+      }
+      if (!current()) return cancelled('server')
+      await dialRoom(code, { kind: 'server', region: region.id }, current)
+      if (!current()) return cancelled('server')
+      if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+      const l = useGame.getState().lobby
+      if (l.status !== 'error') return hostFailed('server', 'cancelled', CANCELLED, online.region(region.id), P2P_OPTION)
+      return hostFailed('server', 'error', l.error ?? 'Could not join the game server room.', online.region(region.id), P2P_OPTION)
+    })
   },
   region() {
     return impl.transport() === 'server' && routed ? online.region(routed.id) : null
   },
   async quickPlay(opts = {}) {
     if (blockUnsupportedPlay()) return unsupportedHost('server')
-    rejoin.dismiss()
-    let region: RegionStatus
-    let code: string
-    try {
-      region = await serverRegion(opts.region)
-      code = (await online.quickPlay(region.id, opts.bots)).code
-    } catch (e) {
-      const reason = e instanceof ServerError ? e.reason : 'error'
-      return hostFailed('server', reason, e instanceof Error ? e.message : String(e), null, P2P_OPTION)
-    }
-    await joinRoom(code, { kind: 'server', region: region.id })
-    if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
-    const l = useGame.getState().lobby
-    if (l.status !== 'error') return hostFailed('server', 'cancelled', 'Quick play was cancelled.', online.region(region.id), P2P_OPTION)
-    return hostFailed('server', 'error', l.error ?? 'Could not join the quick-play room.', online.region(region.id), P2P_OPTION)
+    return openOnce('quick', 'server', async (current) => {
+      let region: RegionStatus
+      let code: string
+      try {
+        region = await serverRegion(opts.region)
+        if (!current()) return cancelled('server')
+        code = (await online.quickPlay(region.id, opts.bots)).code
+      } catch (e) {
+        if (!current()) return cancelled('server')
+        const reason = e instanceof ServerError ? e.reason : 'error'
+        return hostFailed('server', reason, e instanceof Error ? e.message : String(e), null, P2P_OPTION)
+      }
+      if (!current()) return cancelled('server')
+      await dialRoom(code, { kind: 'server', region: region.id }, current)
+      if (!current()) return cancelled('server')
+      if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+      const l = useGame.getState().lobby
+      if (l.status !== 'error') return hostFailed('server', 'cancelled', 'Quick play was cancelled.', online.region(region.id), P2P_OPTION)
+      return hostFailed('server', 'error', l.error ?? 'Could not join the quick-play room.', online.region(region.id), P2P_OPTION)
+    })
   },
   async rankedPlay(opts = {}) {
     if (blockUnsupportedPlay()) return unsupportedHost('server')
-    rejoin.dismiss()
-    let region: RegionStatus
-    let code: string
-    try {
-      region = await serverRegion(opts.region)
-      code = (await online.rankedPlay(region.id)).code
-    } catch (e) {
-      return hostFailed('server', e instanceof ServerError ? e.reason : 'error', e instanceof Error ? e.message : String(e), null, { mode: 'p2p', available: false, region: null })
-    }
-    await joinRoom(code, { kind: 'server', region: region.id })
-    if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
-    const l = useGame.getState().lobby
-    return hostFailed('server', l.status === 'error' ? 'error' : 'cancelled', l.error ?? 'Ranked matchmaking was cancelled.', online.region(region.id), { mode: 'p2p', available: false, region: null })
+    return openOnce('ranked', 'server', async (current) => {
+      let region: RegionStatus
+      let code: string
+      try {
+        region = await serverRegion(opts.region)
+        if (!current()) return cancelled('server')
+        code = (await online.rankedPlay(region.id)).code
+      } catch (e) {
+        if (!current()) return cancelled('server')
+        return hostFailed('server', e instanceof ServerError ? e.reason : 'error', e instanceof Error ? e.message : String(e), null, { mode: 'p2p', available: false, region: null })
+      }
+      if (!current()) return cancelled('server')
+      await dialRoom(code, { kind: 'server', region: region.id }, current)
+      if (!current()) return cancelled('server')
+      if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+      const l = useGame.getState().lobby
+      return hostFailed('server', l.status === 'error' ? 'error' : 'cancelled', l.error ?? 'Ranked matchmaking was cancelled.', online.region(region.id), { mode: 'p2p', available: false, region: null })
+    })
   },
   async leaderboard(period, choice) {
     return online.leaderboard((await serverRegion(choice)).id, period, getDeviceId())
   },
   async serverProfile(choice) {
     return online.profile((await serverRegion(choice)).id, getDeviceId())
+  },
+  async publicProfile(publicId, choice) {
+    return online.publicProfile((await serverRegion(choice)).id, publicId)
   },
   setPublic(value) {
     const l = useGame.getState().lobby
@@ -403,9 +488,10 @@ export const session: GameSession = {
     return { ...st, regionStatus: st.region ? online.region(st.region) : null }
   },
   join(code, route) {
-    rejoin.dismiss()
     return joinRoom(code, route)
   },
+  isActive: impl.isActive,
+  resume,
   setDisplayName: impl.setDisplayName,
   setPlayerColor(color) {
     setPreferredColor(color)
@@ -423,6 +509,8 @@ export const session: GameSession = {
   backToLobby: impl.backToLobby,
   setReady: impl.setReady,
   leave() {
+    opening = null
+    nextJoinRoute = null
     rejoin.dismiss()
     impl.leave()
   },

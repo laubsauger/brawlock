@@ -212,6 +212,8 @@ export interface SessionApi {
   onNetGrade(cb: (e: NetGradeEvent) => void): () => void
   /** How the current room runs: through a dedicated server or peer-to-peer; null offline / idle. */
   transport(): 'server' | 'p2p' | null
+  /** An accepted live network room; a pending dial and offline practice are not connections. */
+  isActive(): boolean
   /**
    * Server room: list it in the public room browser (true) or keep it to its code (false,
    * the default). The room owner only; ignored elsewhere.
@@ -2548,6 +2550,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (role === 'client') return link ? (serverRoom ? 'server' : 'p2p') : null
       if (role === 'host') return dedicated ? 'server' : 'p2p'
       return null
+    },
+
+    isActive() {
+      return role === 'host' ? endpoint !== null : role === 'client' && localPlayer >= 0 && link?.open === true
     },
 
     setPublic(value: boolean) {

@@ -4,6 +4,7 @@ import { useTick } from './lib/ticker'
 import { HISTORY, SAMPLE_MS, historyOf, useNet } from './lib/netmonitor'
 import { GRADE_COLOR, GRADE_LABEL, type PeerNet } from './lib/netstats'
 import { SignalBars } from './hud/ConnIndicator'
+import { ConnectionDiagnostics } from './ConnectionDiagnostics'
 
 /**
  * Net graph (Settings > Interface or F3), in the spirit of Dota's net_graph:
@@ -45,6 +46,7 @@ function NetGraphPanel() {
       {v.peers.map((p) => (
         <PeerRow key={p.playerId} peer={p} label={v.role === 'client' ? 'Host link' : name(p.playerId)} flagged={v.flagged.includes(p.playerId)} compact={v.peers.length > 2} />
       ))}
+      <ConnectionDiagnostics />
     </div>
   )
 }

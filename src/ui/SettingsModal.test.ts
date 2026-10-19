@@ -103,14 +103,16 @@ describe('tabbed settings', () => {
     for (const id of ['gameplay', 'controls', 'video', 'audio', 'interface']) {
       expect(html).toContain(`id="settings-panel-${id}" aria-labelledby="settings-tab-${id}"`)
     }
-    const uniqueControl: Record<string, string> = { gameplay: 'Player name', controls: 'Move cancels cast', video: 'Quality', audio: 'Master volume', interface: 'HUD layout' }
+    const uniqueControl: Record<string, string> = { gameplay: 'Player name', controls: 'Hotkey preset', video: 'Quality', audio: 'Master volume', interface: 'HUD layout' }
     for (const [id, label] of Object.entries(uniqueControl)) expect(html.includes(`aria-label="${label}"`)).toBe(id === tab)
   })
 
   it('preserves camera, identity and online settings in Gameplay', () => {
     model.settings = { ...model.settings, playerName: 'Ashbinder', cameraReach: 'far', edgePan: false, edgePanSpeed: 1.75, serverRegion: 'eu' }
     const html = markup()
-    for (const label of ['Player name', 'Camera reach', 'Edge pan', 'Edge pan speed', 'Game server region']) expect(html).toContain(`aria-label="${label}"`)
+    for (const label of ['Player name', 'Move cancels cast', 'Camera reach', 'Edge pan', 'Edge pan speed', 'Game server region']) expect(html).toContain(`aria-label="${label}"`)
+    expect(html).not.toContain('as in the original')
+    expect(markup('controls')).not.toContain('Move cancels cast')
     expect(html).toContain('value="Ashbinder"')
     expect(html).toMatch(/aria-pressed="true"[^>]*>Far</)
     expect(html).toContain('aria-checked="false" aria-label="Edge pan"')

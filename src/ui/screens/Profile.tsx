@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { getHallOfFame, getMatchHistory, type Career, type HallOfFameKey, type MatchRecord } from '../../game/stats'
+import { createPortal } from 'react-dom'
+import { getHallOfFame, getMatchHistory, recordedProfileStats, type Career, type CareerTotals, type Encounter, type HallOfFameKey, type MatchRecord, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
 import { getProfile } from '../../game/profile'
 import { Sigil } from '../icons'
 import { displayName } from '../data/catalog'
 import { percent, ratingTrend, seconds, tiles } from '../lib/statFormat'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useGame } from '../../game/store'
-import { Button, Kbd, Segmented } from '../widgets'
+import { Button, Kbd, Modal, Segmented } from '../widgets'
 import { online, session, type LeaderboardPage, type Period, type PublicBoardRow, type ServerProfile } from '../../game/session'
 import { hex } from '../lib/view'
 import { ago, duration, readCareer, readEncounterList, readHistory, readLeaderboard, useStats } from '../lib/stats'
@@ -280,7 +281,6 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
   const t = career?.totals
   if (!career || !t) return <Empty>Play a match and your career stats start here.</Empty>
   const ids = new Set(history.map((r) => r.id))
-  const lavaDeaths = t.deathsByCause.lava ?? 0
   return (
     <div className="flex flex-col gap-5">
       {trend.length >= 2 ? (
@@ -294,6 +294,18 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
       ) : (
         <p className="text-[0.9rem] text-ash">Your rating trend appears after two matches.</p>
       )}
+      <RecordedStatsGroups totals={t} kills={career.kills} damage={career.damage} spells={spells} spellCaption={spells.matches === 1 ? 'from your last match' : `from your last ${spells.matches} matches`} hall={hall} matchIds={ids} onOpenMatch={onOpenMatch} />
+    </div>
+  )
+}
+
+function RecordedStatsGroups({ totals: t, kills, damage, spells, spellCaption, hall, matchIds, onOpenMatch }: {
+  totals: CareerTotals; kills: number; damage: number
+  spells: { list: [string, [number, number]][]; matches: number }; spellCaption: string
+  hall: Career['hallOfFame']; matchIds?: ReadonlySet<string>; onOpenMatch?: (id: string) => void
+}) {
+  const lavaDeaths = t.deathsByCause.lava ?? 0
+  return <>
       <div className="grid gap-5 lg:grid-cols-2">
         <Group title="Movement">
           <Fact label="Walked" value={tiles(t.walked)} />
@@ -301,8 +313,8 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
           <Fact label="Teleported" value={tiles(t.teleported)} />
         </Group>
         <Group title="Combat">
-          <Fact label="Kills" value={career.kills.toLocaleString()} />
-          <Fact label="Damage dealt" value={Math.round(career.damage).toLocaleString()} />
+          <Fact label="Kills" value={kills.toLocaleString()} />
+          <Fact label="Damage dealt" value={Math.round(damage).toLocaleString()} />
           <Fact label="Damage taken" value={Math.round(t.damageTaken).toLocaleString()} />
           <Fact label="Knockbacks dealt" value={t.knockbacksDealt.toLocaleString()} />
           <Fact label="Knockbacks taken" value={t.knockbacksTaken.toLocaleString()} />
@@ -334,7 +346,7 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
         <section className="flex flex-col gap-2">
           <h3 className="section-title text-[1rem]">
             Spell by spell{' '}
-            <span className="ml-1 font-ui text-[0.8rem] font-medium tracking-normal text-ash">{spells.matches === 1 ? 'from your last match' : `from your last ${spells.matches} matches`}</span>
+            <span className="ml-1 font-ui text-[0.8rem] font-medium tracking-normal text-ash">{spellCaption}</span>
           </h3>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
             {spells.list.map(([id, [c, h]]) => (
@@ -358,7 +370,7 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
       <section className="flex flex-col gap-2">
         <h3 className="section-title text-[1rem]">Hall of Fame</h3>
         {Object.keys(hall).length === 0 ? (
-          <p className="text-[0.9rem] text-ash">Personal bests show up after your first detailed match.</p>
+          <p className="text-[0.9rem] text-ash">No personal bests in the recorded matches.</p>
         ) : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-1.5">
             {HALL.filter((h) => hall[h.key]).map((h) => {
@@ -369,7 +381,7 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
                     <span className="text-[0.8rem] font-semibold text-ash">{h.label}</span>
                     <span className="tabular text-[1.05rem] font-bold text-gold">{h.fmt(e.value)}</span>
                   </span>
-                  {ids.has(e.matchId) ? (
+                  {onOpenMatch && matchIds?.has(e.matchId) ? (
                     <button type="button" className="text-[0.8rem] text-[#ffcf9a] underline-offset-2 hover:underline" onClick={() => onOpenMatch(e.matchId)}>
                       {new Date(e.date).toLocaleDateString()}
                     </button>
@@ -382,16 +394,86 @@ function StatsTab({ career, onOpenMatch }: { career: Career | null; onOpenMatch:
           </ul>
         )}
       </section>
+  </>
+}
+
+/** The same counter definitions for covered server matches and retained local records. */
+export function DetailedProfileStats({ coverage, detail, source }: { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null; source: 'server' | 'device' }) {
+  const spells: { list: [string, [number, number]][]; matches: number } = {
+    list: detail ? Object.entries(detail.spells).filter(([, [casts]]) => casts > 0).sort((a, b) => b[1][0] - a[1][0]) : [],
+    matches: coverage.detailedMatches,
+  }
+  return <div className="flex flex-col gap-5" data-testid="recorded-profile-stats">
+    <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-sm">
+      <p className="font-semibold text-bone">{source === 'server' ? 'Recorded by the game server' : 'Recorded on this device'}</p>
+      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.</p>
+      <p className="mt-1 text-xs text-ash">{source === 'server'
+        ? 'Complete ranked matches played as a human from start to finish. These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
+        : 'Only retained match records are included, with details kept for the latest 30 matches on this device. These are observed match stats, including bot combat.'}</p>
     </div>
-  )
+    {!detail ? <p className="text-sm text-ash">No detailed stats are available in this coverage yet.</p> : <>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Tile label="Detailed matches" value={String(detail.matches)} />
+        <Tile label="Recorded match time" value={duration(detail.seconds)} />
+        <Tile label="Damage dealt" value={Math.round(detail.damage).toLocaleString()} />
+        <Tile label="Accuracy" value={percent(detail.totals.casts ? detail.totals.hits / detail.totals.casts : null)} />
+      </div>
+      <RecordedStatsGroups totals={detail.totals} kills={Object.values(detail.totals.killsByCause).reduce((a, b) => a + b, 0)} damage={detail.damage} spells={spells} spellCaption={`from ${detail.matches} recorded ${detail.matches === 1 ? 'match' : 'matches'}`} hall={detail.hallOfFame} />
+    </>}
+  </div>
+}
+
+function DeviceProfile({ player, onClose, encounter }: { player: { profileId: string; name: string; kind: 'human' | 'bot' }; onClose: () => void; encounter?: Encounter }) {
+  const history = useStats(readAllHistory)
+  const recorded = useMemo(() => recordedProfileStats(history, player.profileId), [history, player.profileId])
+  return createPortal(<Modal title={player.name} onClose={onClose} width="max-w-4xl" className="h-[min(760px,92dvh)]">
+    <p className="mb-4 text-sm text-ash">{encounter && <>Your head-to-head record: {encounter.wins} wins · {encounter.losses} losses · {encounter.games} encounters. </>}{player.kind === 'bot' ? 'Bots are grouped by difficulty. Matches with multiple bots in that group cannot be attributed to an individual and are omitted below.' : 'Local records are separate from a public ranked profile.'}</p>
+    <DetailedProfileStats {...recorded} source="device" />
+  </Modal>, document.body)
+}
+
+function PublicProfile({ publicId, name, onClose }: { publicId: string; name: string; onClose: () => void }) {
+  const [profile, setProfile] = useState<ServerProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    if (!publicId) {
+      setLoading(false)
+      setError('This leaderboard entry is missing its public profile ID. Refresh the leaderboard.')
+      return
+    }
+    void session.publicProfile(publicId).then((value) => {
+      if (!alive) return
+      setProfile(value)
+      setLoading(false)
+    }).catch((cause: unknown) => {
+      if (!alive) return
+      setError(cause instanceof Error ? cause.message : String(cause))
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [publicId])
+  return createPortal(<Modal title={profile ? `${profile.name}#${profile.tag}` : name} onClose={onClose} width="max-w-4xl" className="h-[min(760px,92dvh)]">
+    {error ? <p role="alert" className="text-[#ffb08a]">{error}</p> : loading ? <p role="status" className="text-ash">Loading public profile…</p> : !profile ? <p className="text-ash">This public profile is no longer available.</p> : <>
+      <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Ranked results">
+        <Tile label="Global Elo" value={String(profile.rating)} sub={`Rank #${profile.rank}`} />
+        <div className="well flex flex-col px-4 py-3"><span className="text-sm text-ash">Last 7 days</span><EloChange7d change={profile.ratingChange7d} /></div>
+        <Tile label="Ranked matches" value={String(profile.matches)} sub={`${profile.wins} wins`} />
+        <Tile label="Ranked K / D" value={`${profile.kills} / ${profile.deaths}`} sub="Bot combat excluded" />
+      </div>
+      {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} source="server" />}
+    </>}
+  </Modal>, document.body)
 }
 
 function Rivals() {
   const list = useStats(readEncounterList)
+  const [selected, setSelected] = useState<Encounter | null>(null)
   if (list.length === 0) return <Empty>Everyone you play against shows up here, with your record against them.</Empty>
   const sorted = [...list].sort((a, b) => b.lastSeen - a.lastSeen)
   return (
-    <table className="tabular w-full text-left text-[1.02rem]">
+    <><table className="tabular w-full text-left text-[1.02rem]">
       <thead className="text-sm text-ash">
         <tr>
           <th className="pb-2 font-semibold">Opponent</th>
@@ -410,7 +492,7 @@ function Rivals() {
             <td className="py-2">
               <span className="flex items-center gap-2.5">
                 <span className="h-3 w-3 rotate-45 rounded-[2px]" style={{ background: hex(e.lastColor) }} aria-hidden />
-                <span className="font-semibold">{e.lastName}</span>
+                <button type="button" className="rounded font-semibold text-left underline-offset-2 hover:text-gold hover:underline focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setSelected(e)} aria-label={`View recorded stats for ${e.lastName}`}>{e.lastName}</button>
                 {e.kind === 'bot' && <span className="chip">Bot, {e.difficulty ?? 'medium'}</span>}
               </span>
             </td>
@@ -425,11 +507,13 @@ function Rivals() {
         ))}
       </tbody>
     </table>
+    {selected && <DeviceProfile player={{ profileId: selected.profileId, name: selected.lastName, kind: selected.kind }} encounter={selected} onClose={() => setSelected(null)} />}</>
   )
 }
 
 function LocalBoard() {
   const rows = useStats(readLeaderboard)
+  const [selected, setSelected] = useState<(typeof rows)[number] | null>(null)
   return (
     <div>
       <p className="mb-3 text-[0.98rem] text-ash">
@@ -456,7 +540,7 @@ function LocalBoard() {
                 <td className="py-2">
                   <span className="flex items-center gap-2.5">
                     <span className="h-3 w-3 rotate-45 rounded-[2px]" style={{ background: hex(r.color) }} aria-hidden />
-                    <span className="font-semibold">{r.name}</span>
+                    <button type="button" className="rounded text-left font-semibold underline-offset-2 hover:text-gold hover:underline focus-visible:outline-2 focus-visible:outline-gold" aria-label={`View recorded stats for ${r.name}`} onClick={() => setSelected(r)}>{r.name}</button>
                     {r.self && <span className="chip text-gold">You</span>}
                     {r.kind === 'bot' && <span className="chip">Bot</span>}
                   </span>
@@ -470,6 +554,7 @@ function LocalBoard() {
           </tbody>
         </table>
       )}
+      {selected && <DeviceProfile player={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }
@@ -486,18 +571,28 @@ function NameTag({ name, tag }: { name: string; tag: string }) {
 
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(Math.round(n))}`
 
-function BoardRowView({ r, you, period }: { r: PublicBoardRow; you: boolean; period: Period }) {
+/** Counted global Elo movement, measured over a rolling seven-day window. */
+export function EloChange7d({ change }: { change: number }) {
+  const value = change === 0 ? '0' : signed(change)
+  return <span
+    className={`whitespace-nowrap text-[0.76rem] font-semibold ${change > 0 ? 'text-heal' : change < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`}
+    title="Net Elo change over the last 7 days"
+    aria-label={`${value} Elo over the last 7 days`}
+  >{value} <span className="text-[0.68rem] font-normal opacity-75">7d</span></span>
+}
+
+function BoardRowView({ r, you, period, onOpen }: { r: PublicBoardRow; you: boolean; period: Period; onOpen: (row: PublicBoardRow) => void }) {
   return (
     <tr className={`border-t border-[rgba(255,170,100,0.08)] ${you ? 'bg-[rgba(255,180,80,0.1)]' : ''}`} data-you={you || undefined}>
       <td className="py-2 font-bold text-ash">{r.rank}</td>
       <td className="py-2">
         <span className="flex items-center gap-2">
-          <NameTag name={r.name} tag={r.tag} />
+          <button type="button" className="rounded text-left underline-offset-2 hover:text-gold hover:underline focus-visible:outline-2 focus-visible:outline-gold" onClick={() => onOpen(r)} aria-label={`View public profile for ${r.name}#${r.tag}`}><NameTag name={r.name} tag={r.tag} /></button>
           {you && <span className="chip text-gold">You</span>}
         </span>
       </td>
-      <td className="py-2 text-right text-[1.12rem] font-bold text-gold">{r.rating}</td>
-      <td className={`py-2 text-right ${r.gain > 0 ? 'text-heal' : r.gain < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`} title={period === 'week' ? 'Rating gained this week' : 'Above or below the starting rating'}>
+      <td className="py-2 text-right"><span className="inline-flex items-baseline justify-end gap-2"><span className="text-[1.12rem] font-bold text-gold">{r.rating}</span><EloChange7d change={r.ratingChange7d} /></span></td>
+      <td className={`py-2 text-right ${r.gain > 0 ? 'text-heal' : r.gain < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`} title={period === 'week' ? 'Rating gained over the last 7 days' : 'Above or below the starting rating'}>
         {signed(r.gain)}
       </td>
       <td className="py-2 text-right">{r.matches}</td>
@@ -514,6 +609,7 @@ function GlobalBoard() {
   const [period, setPeriod] = useState<Period>('all')
   const [page, setPage] = useState<LeaderboardPage | null>(null)
   const [profile, setProfile] = useState<ServerProfile | null>(null)
+  const [selected, setSelected] = useState<PublicBoardRow | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
@@ -532,7 +628,7 @@ function GlobalBoard() {
     }
   }, [period])
   const you = page?.you ?? null
-  const isYou = (r: PublicBoardRow) => !!you && r.rank === you.rank && r.name === you.name && r.tag === you.tag
+  const isYou = (r: PublicBoardRow) => !!you && r.publicId === you.publicId
   const youListed = !!you && !!page?.entries.some(isYou)
   return (
     <div className="flex flex-col gap-3" data-testid="global-board">
@@ -543,7 +639,7 @@ function GlobalBoard() {
           value={period}
           options={[
             { value: 'all', label: 'All time' },
-            { value: 'week', label: 'This week' },
+            { value: 'week', label: 'Last 7 days' },
           ]}
           onChange={setPeriod}
         />
@@ -556,7 +652,7 @@ function GlobalBoard() {
           </span>
           <span className="flex flex-col">
             <span className="text-[0.8rem] font-semibold text-ash">Rating</span>
-            <span className="tabular text-[1.3rem] font-bold text-gold">{profile.rating}</span>
+            <span className="inline-flex items-baseline gap-2"><span className="tabular text-[1.3rem] font-bold text-gold">{profile.rating}</span><EloChange7d change={profile.ratingChange7d} /></span>
           </span>
           <span className="flex flex-col">
             <span className="text-[0.8rem] font-semibold text-ash">Rank</span>
@@ -588,7 +684,7 @@ function GlobalBoard() {
       ) : !page ? (
         <Empty>Loading the leaderboard…</Empty>
       ) : page.entries.length === 0 ? (
-        <Empty>{period === 'week' ? 'Nobody has a counted game this week yet.' : 'No counted games yet. Play a game on our servers with a friend.'}</Empty>
+        <Empty>{period === 'week' ? 'Nobody has a counted game in the last 7 days yet.' : 'No counted games yet. Play a game on our servers with a friend.'}</Empty>
       ) : (
         <table className="tabular w-full text-left text-[1.02rem]">
           <thead className="text-sm text-ash">
@@ -596,7 +692,7 @@ function GlobalBoard() {
               <th className="w-12 pb-2 font-semibold">#</th>
               <th className="pb-2 font-semibold">Player</th>
               <th className="pb-2 text-right font-semibold">Rating</th>
-              <th className="pb-2 text-right font-semibold">{period === 'week' ? 'This week' : 'Gain'}</th>
+              <th className="pb-2 text-right font-semibold">{period === 'week' ? 'Last 7 days' : 'Gain'}</th>
               <th className="pb-2 text-right font-semibold">Matches</th>
               <th className="pb-2 text-right font-semibold">Wins</th>
               <th className="pb-2 text-right font-semibold">K / D</th>
@@ -604,7 +700,7 @@ function GlobalBoard() {
           </thead>
           <tbody>
             {page.entries.map((r) => (
-              <BoardRowView key={`${r.rank}:${r.name}:${r.tag}`} r={r} you={isYou(r)} period={period} />
+              <BoardRowView key={r.publicId} r={r} you={isYou(r)} period={period} onOpen={setSelected} />
             ))}
             {you && !youListed && (
               <>
@@ -613,12 +709,13 @@ function GlobalBoard() {
                     ⋯
                   </td>
                 </tr>
-                <BoardRowView r={you} you period={period} />
+                <BoardRowView r={you} you period={period} onOpen={setSelected} />
               </>
             )}
           </tbody>
         </table>
       )}
+      {selected && <PublicProfile key={selected.publicId} publicId={selected.publicId} name={selected.name} onClose={() => setSelected(null)} />}
     </div>
   )
 }
@@ -690,26 +787,27 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
         </Button>
       </header>
 
-      {tab !== 'replays' && tab !== 'board' && <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-        <Tile label="Matches" value={String(c?.games ?? 0)} />
-        <Tile label="Wins" value={String(c?.wins ?? 0)} sub={c ? `${pct(c.wins, c.games)} win rate` : undefined} />
-        <Tile label="Kills / deaths" value={kd} sub={c ? `${c.kills} / ${c.deaths}` : undefined} />
-        <Tile label="Damage dealt" value={c ? Math.round(c.damage).toLocaleString() : '0'} />
-        <Tile label="Win streak" value={String(c?.winStreak ?? 0)} sub={c ? `best ${c.bestWinStreak}` : undefined} />
-        <Tile label="Time in the arena" value={c ? duration(c.seconds) : '0:00'} sub={c ? `${c.rounds} rounds` : undefined} />
-        <Tile label="Against players" value={c ? `${c.vsHumans.wins}–${c.vsHumans.games - c.vsHumans.wins}` : '–'} sub={c ? pct(c.vsHumans.wins, c.vsHumans.games) : undefined} />
-        <Tile label="Against bots" value={c ? `${c.vsBots.wins}–${c.vsBots.games - c.vsBots.wins}` : '–'} sub={c ? pct(c.vsBots.wins, c.vsBots.games) : undefined} />
-      </div>}
-
-      <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5">
-        <div className="mb-3 flex flex-wrap gap-1" role="tablist">
+      <section data-testid="profile-panel" className="panel panel-solid flex min-h-0 flex-1 flex-col p-5">
+        <div className="mb-3 flex flex-wrap gap-1" role="tablist" aria-label="Profile sections">
           {tabs.map((t) => (
-            <button key={t.id} type="button" role="tab" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+            <button key={t.id} id={`profile-tab-${t.id}`} type="button" role="tab" aria-controls="profile-content" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
             </button>
           ))}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        {/* The rotated 9px title marker and its 6px glow need 8px of paint room
+            inside this scrollport; equal padding keeps the content aligned. */}
+        <div id="profile-content" role="tabpanel" aria-labelledby={`profile-tab-${tab}`} className="-ml-2 min-h-0 flex-1 overflow-y-auto pl-2 pr-1">
+          {(tab === 'matches' || tab === 'stats') && <div role="group" aria-label="Career summary" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+            <Tile label="Matches" value={String(c?.games ?? 0)} />
+            <Tile label="Wins" value={String(c?.wins ?? 0)} sub={c ? `${pct(c.wins, c.games)} win rate` : undefined} />
+            <Tile label="Kills / deaths" value={kd} sub={c ? `${c.kills} / ${c.deaths}` : undefined} />
+            <Tile label="Damage dealt" value={c ? Math.round(c.damage).toLocaleString() : '0'} />
+            <Tile label="Win streak" value={String(c?.winStreak ?? 0)} sub={c ? `best ${c.bestWinStreak}` : undefined} />
+            <Tile label="Time in the arena" value={c ? duration(c.seconds) : '0:00'} sub={c ? `${c.rounds} rounds` : undefined} />
+            <Tile label="Against players" value={c ? `${c.vsHumans.wins}–${c.vsHumans.games - c.vsHumans.wins}` : '–'} sub={c ? pct(c.vsHumans.wins, c.vsHumans.games) : undefined} />
+            <Tile label="Against bots" value={c ? `${c.vsBots.wins}–${c.vsBots.games - c.vsBots.wins}` : '–'} sub={c ? pct(c.vsBots.wins, c.vsBots.games) : undefined} />
+          </div>}
           {tab === 'matches' && <Matches openId={openMatch} onOpen={setOpenMatch} />}
           {tab === 'stats' && (
             <StatsTab

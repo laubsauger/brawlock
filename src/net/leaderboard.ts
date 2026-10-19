@@ -20,6 +20,7 @@
  * turns that into rating changes. Storage is server/leaderboard-store.mjs (node:sqlite).
  */
 import type { MatchResult } from '../game/store'
+import { MatchTracker, type PlayerMatchStats, type RecordedProfileCoverage, type RecordedProfileDetail } from '../game/stats'
 import { hashString } from '../sim/snapshot'
 import { TICK_HZ, type GameMode, type MatchSettings, type PlayerId, type PlayerSlot, type SimEvent, type SimState, type TeamMode } from '../sim/types'
 import type { MatchRecorder } from './session'
@@ -45,6 +46,9 @@ export interface SeatStats {
   deaths: number
   /** among the match's winners */
   won: boolean
+  /** All combat (bots included), only when a human controlled this seat for the complete match.
+   * Absent on legacy submissions, late joins and any bot-controlled interval. */
+  stats?: PlayerMatchStats
 }
 
 /** One round: its human players ranked, best first (a group shares a place). */
@@ -154,6 +158,10 @@ export class ServerMatchTracker implements MatchRecorder {
   /** The extra final rates only its contenders; benched seats keep their five-round totals. */
   private roundParticipants: Set<PlayerId> | null = null
   private active = false
+  /** Same bounded counters as local profiles; no history or per-tick snapshots. */
+  private details: MatchTracker | null = null
+  private detailedSeats = new Set<PlayerId>()
+  private observedDetails = false
 
   constructor(
     private readonly onDone: (m: FinishedMatch, result: MatchResult) => void | Promise<void>,
@@ -174,17 +182,24 @@ export class ServerMatchTracker implements MatchRecorder {
     this.ranked = []
     this.roundParticipants = null
     this.settings = info.settings
+    this.details = info.settings.rankedRounds === 5 ? new MatchTracker({ ...info, localPlayer: -1 }) : null
+    this.detailedSeats.clear()
+    this.observedDetails = false
     this.bots = info.slots.filter((s) => s.kind === 'bot').length
     for (const s of info.slots) {
       const device = info.devices?.[s.id]
       if (s.kind !== 'human' || !device) continue
       this.seats.set(s.id, { player: s.id, device, name: s.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false })
+      this.detailedSeats.add(s.id)
     }
     this.active = true
   }
 
   control(player: PlayerId, by: 'human' | 'bot'): void {
-    if (by === 'bot') this.botted.add(player)
+    if (by === 'bot') {
+      this.botted.add(player)
+      this.detailedSeats.delete(player)
+    }
     else this.botted.delete(player)
   }
 
@@ -200,6 +215,10 @@ export class ServerMatchTracker implements MatchRecorder {
 
   observe(state: SimState, events: readonly SimEvent[]): void {
     if (!this.active) return
+    if (this.details) {
+      this.details.observe(state, events)
+      this.observedDetails = true
+    }
     // The final roster is selected during round 5's ending. That scoring round still
     // belongs to everyone; membership applies only once the extra fight has started.
     this.roundParticipants = state.rankedFinal && state.round > (this.settings?.rankedRounds ?? 0)
@@ -268,13 +287,17 @@ export class ServerMatchTracker implements MatchRecorder {
       teamMode: this.settings.teamMode,
       gameMode: this.settings.gameMode,
       bots: this.bots,
-      seats: [...this.seats.values()].map((s) => ({ ...s })),
+      seats: [...this.seats.values()].map((s) => ({ ...s,
+        ...(this.details && this.observedDetails && this.detailedSeats.has(s.player) ? { stats: this.details.statsOf(s.player) } : {}),
+      })),
       ranked: this.ranked,
     }, result)
   }
 
   abort(): void {
     this.active = false
+    this.details = null
+    this.detailedSeats.clear()
   }
 }
 
@@ -315,11 +338,14 @@ export interface ResultRow {
   /** rating change and rating after */
   delta: number
   rating: number
+  /** Optional additive detailed counters; never reconstructed for old results. */
+  stats?: PlayerMatchStats
 }
 
 /** One line of the board as stored (device included: never sent out). */
 export interface BoardRow {
   device: string
+  publicId: string
   name: string
   tag: string
   rating: number
@@ -355,15 +381,24 @@ export interface LeaderboardStore {
   rank(q: BoardQuery, device: string): { rank: number; row: BoardRow } | null
   /** latest results of a device, newest first */
   recent(device: string, limit: number): ResultRow[]
+  /** Net rated Elo changes in an inclusive timestamp window, including zero for stored players without results. */
+  ratingChanges(devices: string[], since: number, until: number): Map<string, number>
+  /** Persistent opaque public identity; the private device id stays server-side. */
+  publicDevice(publicId: string): string | null
+  details(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
   close(): void
 }
 
 /** A board line as the API sends it: no device id. */
 export interface PublicBoardRow {
+  /** Stored random UUID, unrelated to a private device/profile id or display tag. */
+  publicId: string
   rank: number
   name: string
   tag: string
   rating: number
+  /** Net Elo change from counted matches in the rolling seven days ending at this response. */
+  ratingChange7d: number
   gain: number
   matches: number
   wins: number
@@ -374,12 +409,14 @@ export interface PublicBoardRow {
   lastAt: number
 }
 
-export function publicRow(rank: number, r: BoardRow): PublicBoardRow {
+export function publicRow(rank: number, r: BoardRow, ratingChange7d: number): PublicBoardRow {
   return {
+    publicId: r.publicId,
     rank,
     name: r.name,
     tag: r.tag,
     rating: Math.round(r.rating),
+    ratingChange7d: Math.round(ratingChange7d),
     gain: Math.round(r.gain),
     matches: r.matches,
     wins: r.wins,
@@ -390,6 +427,11 @@ export function publicRow(rank: number, r: BoardRow): PublicBoardRow {
     lastAt: r.lastAt,
   }
 }
+
+/** Complete recorded ranked matches only, including combat against bots.
+ * Legacy results and interrupted/late-joined human seats remain outside this coverage. */
+export type PublicProfileDetail = RecordedProfileDetail
+export type PublicProfileCoverage = RecordedProfileCoverage
 
 /**
  * Turn an eligible match into the rows to store. `now`: ms since epoch. Returns null
@@ -415,7 +457,9 @@ export function settleMatch(
     const d = delta.get(s.device) ?? 0
     const before = current.get(s.device)
     const rating = (before?.rating ?? LB_RATING_START) + d
-    results.push({ device: s.device, name: s.name, at: now, region, won: s.won, roundsPlayed: s.roundsPlayed, roundsWon: s.roundsWon, kills: s.kills, deaths: s.deaths, delta: d, rating })
+    results.push({ device: s.device, name: s.name, at: now, region, won: s.won, roundsPlayed: s.roundsPlayed, roundsWon: s.roundsWon, kills: s.kills, deaths: s.deaths, delta: d, rating,
+      ...(s.stats ? { stats: s.stats } : {}),
+    })
     players.push({
       device: s.device,
       name: s.name,

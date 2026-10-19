@@ -1106,7 +1106,12 @@ export function onStatsChange(cb: () => void): () => void {
 // Recording
 // ---------------------------------------------------------------------------
 
-function addTotals(t: CareerTotals, s: PlayerMatchStats): void {
+/** Fresh counters for observed detailed matches; absence of coverage stays separate. */
+export function emptyTotals(): CareerTotals {
+  return cleanTotals({})
+}
+
+export function addTotals(t: CareerTotals, s: PlayerMatchStats): void {
   t.walked += s.walked
   t.pushed += s.pushed
   t.teleported += s.teleported
@@ -1136,7 +1141,7 @@ function addTotals(t: CareerTotals, s: PlayerMatchStats): void {
 }
 
 /** Personal-best candidates of one match (only values > 0 compete). */
-export function hallOfFameValues(me: Participant): Partial<Record<HallOfFameKey, number>> {
+export function hallOfFameValues(me: Pick<Participant, 'stats'>): Partial<Record<HallOfFameKey, number>> {
   const s = me.stats
   if (!s) return {}
   const acc = accuracy(s, SNIPER_MIN_CASTS)
@@ -1154,6 +1159,58 @@ export function hallOfFameValues(me: Participant): Partial<Record<HallOfFameKey,
     mostReflects: s.shieldReflects,
     longestAlive: s.aliveSec,
   }
+}
+
+export interface RecordedProfileDetail {
+  matches: number
+  seconds: number
+  damage: number
+  totals: CareerTotals
+  spells: Record<string, [number, number]>
+  hallOfFame: Career['hallOfFame']
+}
+
+export interface RecordedProfileCoverage {
+  detailedMatches: number
+  totalMatches: number
+  firstDetailedAt: number | null
+  lastDetailedAt: number | null
+}
+
+/** Fold one covered match; callers own identity, eligibility and duplicate protection. */
+export function addRecordedMatch(detail: RecordedProfileDetail, stats: PlayerMatchStats, seconds: number, date: number, matchId: string): void {
+  detail.matches++
+  detail.seconds += seconds
+  detail.damage += stats.damageDealt
+  addTotals(detail.totals, stats)
+  for (const [id, [casts, hits]] of Object.entries(stats.spells)) {
+    const previous = detail.spells[id] ?? [0, 0]
+    detail.spells[id] = [previous[0] + casts, previous[1] + hits]
+  }
+  for (const [key, value] of Object.entries(hallOfFameValues({ stats })) as [HallOfFameKey, number][]) {
+    const previous = detail.hallOfFame[key]
+    if (value > 0 && (!previous || value > previous.value || (value === previous.value && date < previous.date))) detail.hallOfFame[key] = { value, date, matchId }
+  }
+}
+
+/** Only this device's retained, identified match records; never inferred from names. */
+export function recordedProfileStats(records: readonly MatchRecord[], profileId: string): { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null } {
+  const coverage: RecordedProfileCoverage = { detailedMatches: 0, totalMatches: 0, firstDetailedAt: null, lastDetailedAt: null }
+  const detail: RecordedProfileDetail = { matches: 0, seconds: 0, damage: 0, totals: emptyTotals(), spells: {}, hallOfFame: {} }
+  if (!profileId) return { coverage, detail: null }
+  for (const record of [...records].sort((a, b) => a.date - b.date)) {
+    const owners = record.participants.filter((p) => p.profileId === profileId && hasProfileIdentity(p))
+    // A duplicated identity cannot be attributed to one participant safely.
+    if (owners.length !== 1) continue
+    coverage.totalMatches++
+    const owner = owners[0]
+    if (!owner.stats) continue
+    coverage.detailedMatches++
+    coverage.firstDetailedAt ??= record.date
+    coverage.lastDetailedAt = record.date
+    addRecordedMatch(detail, owner.stats, record.durationSec, record.date, record.id)
+  }
+  return { coverage, detail: detail.matches ? detail : null }
 }
 
 /** Fold one finished match into history, ratings, career and encounters. */

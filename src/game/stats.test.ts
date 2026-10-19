@@ -13,6 +13,9 @@ import {
   profileIdOf,
   recordMatch,
   updateProfileNames,
+  emptyTotals,
+  addRecordedMatch,
+  recordedProfileStats,
 } from './stats'
 
 function memKV(init: Record<string, string> = {}): KV & { data: Record<string, string> } {
@@ -103,6 +106,63 @@ function playMatch(
   ])
   return t.finish({ winners, slots, scores, rounds: 3, ticks: 60 * 90 }, date)
 }
+
+describe('retained rival details', () => {
+  const record = (date: number, player = 1, name = 'Alice') => playMatch(
+    [slot(0, 'You', ME), slot(player, name, ALICE)], [player],
+    [score(0, 0, 0, 1), score(player, 3, 1, 0)], [[player, 0]], [[player, 0, date === 2000 ? 70 : 80]], date,
+  )
+
+  it('uses stable identity across names/seats and keeps missing detailed coverage separate', () => {
+    const first = record(2000)
+    Object.assign(first.participants[1].stats!, { goldEarned: 9, goldSpent: 4, walked: 192, spells: { fireball: [5, 2], teleport: [3, 0] } })
+    const second = record(3000, 2, 'Renamed Alice')
+    Object.assign(second.participants[1].stats!, { goldEarned: 11, goldSpent: 7, walked: 384, spells: { fireball: [4, 1], teleport: [7, 0] } })
+    const legacy = record(1000)
+    delete legacy.participants[1].stats
+    const other = record(4000)
+    other.participants[1].profileId = BOB // The same name must not merge identities.
+    const records = [other, second, legacy, first]
+    const before = JSON.stringify(records)
+    const result = recordedProfileStats(records, ALICE)
+    expect(result.coverage).toEqual({ detailedMatches: 2, totalMatches: 3, firstDetailedAt: 2000, lastDetailedAt: 3000 })
+    expect(result.detail).toMatchObject({ matches: 2, seconds: 180, damage: 150, totals: { goldEarned: 20, goldSpent: 11, walked: 576, casts: 9, hits: 3 }, spells: { fireball: [9, 3], teleport: [10, 0] } })
+    expect(result.detail!.hallOfFame.mostDamage).toEqual({ value: 80, date: 3000, matchId: second.id })
+    expect(JSON.stringify(records)).toBe(before)
+  })
+
+  it('does not fabricate zero-valued detail for a legacy-only or unknown rival', () => {
+    const legacy = record(1000)
+    delete legacy.participants[1].stats
+    expect(recordedProfileStats([legacy], ALICE)).toEqual({ coverage: { detailedMatches: 0, totalMatches: 1, firstDetailedAt: null, lastDetailedAt: null }, detail: null })
+    expect(recordedProfileStats([legacy], '')).toEqual({ coverage: { detailedMatches: 0, totalMatches: 0, firstDetailedAt: null, lastDetailedAt: null }, detail: null })
+  })
+
+  it('refuses ambiguous duplicated participant identity and gives each accumulator fresh maps', () => {
+    const ambiguous = record(1000)
+    ambiguous.participants[0].profileId = ALICE
+    expect(recordedProfileStats([ambiguous], ALICE).detail).toBeNull()
+    const a = emptyTotals(), b = emptyTotals()
+    a.killsByCause.lava = 2
+    expect(b.killsByCause).toEqual({})
+    expect(b.goldSpent).toBe(0)
+  })
+
+  it('keeps the earlier personal best when equally strong matches arrive out of order', () => {
+    const newer = record(4000), earlier = record(3000)
+    const detail = recordedProfileStats([newer], ALICE).detail!
+    addRecordedMatch(detail, earlier.participants[1].stats!, earlier.durationSec, earlier.date, earlier.id)
+    expect(detail.matches).toBe(2)
+    expect(detail.damage).toBe(160)
+    expect(detail.hallOfFame.mostDamage).toEqual({ value: 80, date: 3000, matchId: earlier.id })
+  })
+
+  it('omits ambiguous difficulty-grouped bots instead of attributing one bot’s stats to the group', () => {
+    const grouped = record(1000)
+    for (const participant of grouped.participants) Object.assign(participant, { kind: 'bot', profileId: 'bot:brutal' })
+    expect(recordedProfileStats([grouped], 'bot:brutal')).toEqual({ coverage: { detailedMatches: 0, totalMatches: 0, firstDetailedAt: null, lastDetailedAt: null }, detail: null })
+  })
+})
 
 describe('elo', () => {
   it('is the classic zero-sum update in a 1v1', () => {

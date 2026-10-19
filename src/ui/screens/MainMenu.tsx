@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
 import { Button, Kbd, Modal } from '../widgets'
@@ -19,6 +19,8 @@ import { Profile } from './Profile'
 import { tutorial } from '../lib/onboarding'
 import { quickPlayAvailability } from '../lib/quickPlay'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
+import { usePolled } from '../lib/ticker'
+import { RejoinPrompt } from './RejoinPrompt'
 
 function MenuEntry({
   title,
@@ -30,7 +32,6 @@ function MenuEntry({
   disabled,
   hint,
   testId,
-  badge,
   ranked,
 }: {
   title: string
@@ -42,7 +43,6 @@ function MenuEntry({
   disabled?: boolean
   hint?: string
   testId?: string
-  badge?: ReactNode
   ranked?: boolean
 }) {
   return (
@@ -61,7 +61,6 @@ function MenuEntry({
         <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#c8c9d8]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
         {note && <span className="font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
-      {badge && <span className="queue-region absolute top-3 right-3 max-w-[45%] overflow-hidden rounded border border-white/10 bg-black/20 px-1.5 py-1 text-[0.6rem] sm:text-[0.72rem]">{badge}</span>}
     </Button>
   )
 }
@@ -78,12 +77,13 @@ function regionText(r: RegionStatus): string {
  */
 function QueueEntries() {
   const playSupported = usePlaySupported()
+  const setSettings = useGame((s) => s.setSettings)
   const statuses = useRegions(5000)
   const choice = useRegionChoice()
   const region = pickRegion(statuses, choice)
   const problem = regionProblem(region)
   const regionId = region?.state === 'up' ? region.id : null
-  const [availability, setAvailability] = useState<{ region: string; casual: string; ranked: string } | null>(null)
+  const [availability, setAvailability] = useState<{ region: string; casual: string } | null>(null)
   useEffect(() => {
     if (!regionId) return
     let live = true
@@ -93,14 +93,12 @@ function QueueEntries() {
       busy = true
       try {
         const rooms = await online.browseRegion(regionId)
-        const ranked = rooms.filter((room) => room.kind === 'server' && room.ranked && room.phase === 'lobby' && (room.joinable ?? 0) > 0).length
         if (live) setAvailability({
           region: regionId,
           casual: quickPlayAvailability(rooms, regionId),
-          ranked: ranked ? `${ranked} ranked ${ranked === 1 ? 'lobby' : 'lobbies'} · find an opponent` : 'Find an opponent',
         })
       } catch {
-        if (live) setAvailability({ region: regionId, casual: 'Open-game count unavailable', ranked: 'Ranked lobby count unavailable' })
+        if (live) setAvailability({ region: regionId, casual: 'Open-game count unavailable' })
       } finally { busy = false }
     }
     void refresh()
@@ -108,14 +106,22 @@ function QueueEntries() {
     return () => { live = false; window.clearInterval(timer) }
   }, [regionId])
   const known = regionId && availability?.region === regionId ? availability : null
-  const badge = region ? <RegionPing s={region} withName /> : 'Checking region…'
   return <>
+    <div data-testid="queue-region" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded border border-white/10 bg-[#140e0b]/85 px-3 py-2 text-sm">
+      <label className="flex min-w-0 flex-1 items-center gap-2 text-ash">
+        <span>Region</span>
+        <select aria-label="Game region" className="field min-w-0 flex-1 py-1 text-sm" value={choice} onChange={(event) => setSettings({ serverRegion: event.target.value })}>
+          <option value="auto">Auto · lowest ping</option>
+          {statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+        </select>
+      </label>
+      {region ? <RegionPing s={region} withName={choice === 'auto'} /> : <span className="text-ash">Checking region…</span>}
+    </div>
     <MenuEntry
       primary
       title="Quick play"
       sub={<span className="font-semibold text-[#ffe1a6]">{known?.casual ?? 'Checking open games…'}</span>}
       note="Casual · no Elo · 10 players · Brutal bots"
-      badge={badge}
       disabled={!playSupported || !!problem}
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join an open game in ${region?.label}, or create a public game with bots filling empty seats`}
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
@@ -125,11 +131,9 @@ function QueueEntries() {
       primary
       ranked
       title="Ranked"
-      sub="8 players · 5 rounds · final if tied"
-      note={<><span>{known?.ranked ?? 'Find an opponent'}</span><span>Elo · 2 humans · Brutal bots · 15–20m target</span></>}
-      badge={badge}
+      sub="8 players · 5 rounds"
       disabled={!playSupported || !!problem}
-      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Find a ranked opponent in ${region?.label}. Eight players, five rounds; tied leaders fight a final. Wait for two humans, then a 60-second lobby; Brutal bots fill empty seats. Aim for 15–20 minutes; match length varies.`}
+      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Find a ranked opponent in ${region?.label}. Eight players, five rounds; tied leaders fight a final. Wait for two humans, then a 60-second lobby; Brutal bots fill empty seats.`}
       onClick={() => isPlaySupported() && region && rankedPlay(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
@@ -226,30 +230,10 @@ function JoinRow({ onClose }: { onClose: () => void }) {
   )
 }
 
-function RejoinNotice() {
-  const playSupported = usePlaySupported()
-  const room = useSyncExternalStore(rejoin.subscribe, rejoin.get, () => null)
-  if (!room) return null
-  const busy = room.status === 'checking' || room.status === 'joining'
-  const label = room.status === 'checking' ? 'Checking…' : room.status === 'joining' ? 'Joining…' : room.status === 'unavailable' ? 'Check again' : 'Join'
-  return <section className="mt-4 rounded border border-gold/30 bg-[#1c140e]/95 px-3 py-2.5" aria-label="Rejoin your game" data-testid="rejoin-game">
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <h2 className="font-semibold text-[#ffe0a9]">Rejoin your game</h2>
-        <span className="text-xs text-ash">{room.code} · {room.kind === 'server' ? 'Game server' : 'Player hosted'}</span>
-      </div>
-      <div className="flex gap-1.5">
-        <Button size="sm" variant="primary" disabled={!playSupported || busy} title={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (!isPlaySupported()) return; if (room.status === 'available') void rejoin.join(); else void rejoin.refresh() }}>{label}</Button>
-        <Button size="sm" variant="ghost" disabled={room.status === 'joining'} onClick={rejoin.dismiss}>Dismiss</Button>
-      </div>
-    </div>
-    <p className="mt-1.5 text-xs leading-snug text-ash">{playSupported ? 'Return to the same room. If a round is underway, you may watch until the next round.' : PLAY_REQUIREMENT}</p>
-    {room.error && <p className="mt-1 text-xs leading-snug text-[#ffb08a]" role="status">{room.error}</p>}
-  </section>
-}
-
 export function MainMenu() {
+  useEffect(() => { rejoin.restore() }, [])
   const playSupported = usePlaySupported()
+  const activeRoom = usePolled(() => session.isActive(), String, 4)
   const name = useGame((s) => s.settings.playerName)
   const gpu = useGame((s) => s.gpu)
   const muted = useGame((s) => s.settings.muted)
@@ -311,16 +295,16 @@ export function MainMenu() {
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
       <div className="relative my-auto flex w-full max-w-[460px] shrink-0 flex-col">
         <Wordmark />
-        <p data-testid="play-requirement" className={`mt-2 text-sm leading-snug ${playSupported ? 'text-ash' : 'rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-[#f3d3a1]'}`}>{playSupported ? 'Play with a mouse and keyboard' : PLAY_REQUIREMENT}</p>
+        {!playSupported && <p data-testid="play-requirement" className="mt-2 rounded border border-gold/30 bg-[#17100c]/95 px-3 py-2 text-sm leading-snug text-[#f3d3a1]">{PLAY_REQUIREMENT}</p>}
         {/* the tagline makes room on short screens (1280x720 with the game-server options) */}
         <p className="menu-tagline hud-text-shadow mt-[min(1rem,2vh)] mb-[min(1.75rem,3vh)] max-w-sm text-[1.18rem] leading-snug font-medium text-[#f7e9d4] [@media(max-height:780px)]:hidden">Knock rival warlocks into the lava. Last one standing takes the round.</p>
 
-        <RejoinNotice />
+        {activeRoom ? <Button variant="primary" className="mt-4 w-full" data-testid="return-active-room" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : 'Resume your active lobby or match'} onClick={() => { if (isPlaySupported()) session.resume() }}>Return to your game</Button> : <RejoinPrompt />}
 
         {error && (
           <div role="alert" className="pop-in mb-5 flex items-start gap-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-3">
             <div className="flex flex-1 flex-col items-start gap-2">
-              {online.configured && hostResult && !hostResult.ok ? (
+              {online.configured && hostResult && !hostResult.ok && hostResult.reason !== 'cancelled' ? (
                 <>
                   <p className="text-[1rem] leading-snug font-semibold text-[#ffd3c9]">
                     {hostAction === 'quick' ? "Couldn't join quick play." : hostAction === 'ranked' ? "Couldn't join ranked." : hostResult.mode === 'p2p' ? "Couldn't host from your PC." : "Couldn't host on the game server."}

@@ -8,16 +8,20 @@ const f = vi.hoisted(() => ({
   requests: [] as { url: string; method: string; body?: string }[],
   directory: [] as Record<string, unknown>[],
   preferred: vi.fn(), peerJoin: vi.fn(), serverJoin: vi.fn(),
+  storage: new Map<string, string>(),
   impl: {
     openOffline: vi.fn(), openHost: vi.fn(), join: vi.fn(), leave: vi.fn(),
     transport: (): 'server' | 'p2p' | null => f.transport,
+    isActive: () => f.transport !== null,
     joinableSeats: () => 9,
     setDisplayName: vi.fn(), setPlayerColor: vi.fn(), startLobbyVote: vi.fn(), castLobbyVote: vi.fn(),
   },
 }))
 vi.mock('../audio', () => ({ audio: { playEvents: vi.fn() } }))
 vi.mock('./input', () => ({ input: { drain: () => [] } }))
-vi.mock('./profile', async (original) => ({ ...await original<typeof import('./profile')>(), getProfile: () => f.profile, setPreferredColor: f.preferred }))
+vi.mock('./profile', async (original) => ({ ...await original<typeof import('./profile')>(), getProfile: () => f.profile, setPreferredColor: f.preferred,
+  safeLocalStorage: () => ({ getItem: (key: string) => f.storage.get(key) ?? null, setItem: (key: string, value: string) => { f.storage.set(key, value) } }),
+}))
 vi.mock('./device', () => ({ getDeviceId: () => 'stable-device' }))
 vi.mock('../net/session', async (original) => ({
   ...await original<typeof import('../net/session')>(),
@@ -66,10 +70,17 @@ import { online, rejoin, session } from './session'
 import { DEFAULT_SETTINGS } from '../sim/config'
 
 const ownSlot = (color = 0x2fd6c8) => ({ id: 0, kind: 'human' as const, name: 'Mira', profileId: f.profile.id, team: 0, color })
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
 
 beforeEach(async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }))
   vi.useFakeTimers()
+  vi.clearAllMocks()
   rejoin.dismiss()
   f.transport = null
   f.requests.length = 0
@@ -89,6 +100,7 @@ beforeEach(async () => {
   f.impl.leave.mockImplementation(() => {
     f.transport = null
     f.deps!.ui.setLobby({ role: 'offline', status: 'idle', roomCode: null, slots: [], error: null })
+    f.deps!.ui.setScreen('menu')
   })
   await online.probe(0)
 })
@@ -98,9 +110,156 @@ afterEach(async () => {
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('browser session listing and reconnect wiring', () => {
+  it('uses one queue request and dial for repeated clicks while matchmaking is opening', async () => {
+    const pending = deferred<{ code: string; created: boolean }>()
+    const post = vi.spyOn(online, 'quickPlay').mockReturnValue(pending.promise)
+    const first = session.quickPlay({ region: 'test' })
+    const second = session.quickPlay({ region: 'test' })
+    await vi.advanceTimersByTimeAsync(0)
+    const requestsBeforeResponse = post.mock.calls.length
+    pending.resolve({ code: 'ABCDE', created: true })
+    await Promise.all([first, second])
+    expect(requestsBeforeResponse).toBe(1)
+    expect(f.impl.join).toHaveBeenCalledOnce()
+  })
+
+  it('cancels pending queue ownership on Leave and never joins a late-created room', async () => {
+    const pending = deferred<{ code: string; created: boolean }>()
+    vi.spyOn(online, 'quickPlay').mockReturnValue(pending.promise)
+    const opening = session.quickPlay({ region: 'test' })
+    await vi.advanceTimersByTimeAsync(0)
+    session.leave()
+    pending.resolve({ code: 'ABCDE', created: true })
+    expect(await opening).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(f.impl.join).not.toHaveBeenCalled()
+    expect(useGame.getState().screen).toBe('menu')
+    expect(useGame.getState().lobby.roomCode).toBeNull()
+  })
+
+  it('keeps a valid current room when another join is requested from the menu', async () => {
+    await session.openHost()
+    const slots = useGame.getState().lobby.slots
+    useGame.getState().setScreen('menu')
+    await session.join('BCDEF', { kind: 'p2p' })
+    expect(f.impl.join).not.toHaveBeenCalled()
+    expect(session.transport()).toBe('p2p')
+    expect(useGame.getState().lobby).toMatchObject({ roomCode: 'ABCDE', status: 'open', slots })
+    expect(useGame.getState().screen).toBe('lobby')
+  })
+
+  it('does not let an abandoned HTTP failure corrupt a new valid session', async () => {
+    const pending = deferred<{ code: string; created: boolean }>()
+    vi.spyOn(online, 'quickPlay').mockReturnValue(pending.promise)
+    const opening = session.quickPlay({ region: 'test' })
+    await vi.advanceTimersByTimeAsync(0)
+    session.leave()
+    expect(await session.openHost()).toMatchObject({ ok: true, mode: 'p2p' })
+    pending.reject(new Error('old queue failed'))
+    expect(await opening).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(useGame.getState().lobby).toMatchObject({ roomCode: 'ABCDE', status: 'open', error: null })
+    expect(useGame.getState().screen).toBe('lobby')
+  })
+
+  it('keeps its private reconnect key stable in a tab even when session storage is unavailable', () => {
+    const first = f.deps!.clientKey()
+    expect(f.deps!.clientKey()).toBe(first)
+  })
+
+  it.each(['lobby', 'match', 'results'] as const)('resumes the accepted %s route without a dial and stops advertising it after Leave', async (screen) => {
+    await session.openHost()
+    f.deps!.ui.setScreen(screen)
+    useGame.getState().setScreen('menu')
+    expect(session.isActive()).toBe(true)
+    expect(session.resume()).toBe(true)
+    expect(useGame.getState().screen).toBe(screen)
+    expect(f.impl.join).not.toHaveBeenCalled()
+    session.leave()
+    expect(session.isActive()).toBe(false)
+    expect(session.resume()).toBe(false)
+  })
+
+  it('returns to its valid room before any new host or queue POST, including a stale UI error', async () => {
+    await session.openHost()
+    const quick = vi.spyOn(online, 'quickPlay')
+    const ranked = vi.spyOn(online, 'rankedPlay')
+    const create = vi.spyOn(online, 'createRoom')
+    useGame.getState().setLobby({ status: 'error', error: 'old attempt failed' })
+    useGame.getState().setScreen('menu')
+    await session.quickPlay()
+    await session.rankedPlay()
+    await session.openHostServer()
+    await session.openHost()
+    expect(quick).not.toHaveBeenCalled()
+    expect(ranked).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(f.impl.openHost).toHaveBeenCalledOnce()
+    expect(useGame.getState().lobby).toMatchObject({ status: 'open', error: null, roomCode: 'ABCDE' })
+  })
+
+  it('invalidates region selection before the queue POST and lets a fresh retry succeed', async () => {
+    const pending = deferred<ReturnType<typeof online.region>>()
+    const region = online.region('test')
+    const choose = vi.spyOn(online, 'choose').mockReturnValueOnce(pending.promise)
+    const post = vi.spyOn(online, 'quickPlay').mockResolvedValue({ code: 'ABCDE', created: true })
+    const opening = session.quickPlay()
+    expect(useGame.getState().screen).toBe('lobby')
+    expect(useGame.getState().lobby.status).toBe('connecting')
+    session.leave()
+    pending.resolve(region)
+    expect(await opening).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(post).not.toHaveBeenCalled()
+    choose.mockRestore()
+    expect(await session.quickPlay()).toMatchObject({ ok: true })
+    expect(post).toHaveBeenCalledOnce()
+  })
+
+  it('unlocks matchmaking after a real failed request so retry can join', async () => {
+    const post = vi.spyOn(online, 'quickPlay').mockRejectedValueOnce(new Error('queue unreachable'))
+      .mockResolvedValue({ code: 'ABCDE', created: true })
+    expect(await session.quickPlay()).toMatchObject({ ok: false, reason: 'error' })
+    expect(useGame.getState().screen).toBe('menu')
+    expect(await session.quickPlay()).toMatchObject({ ok: true })
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(f.impl.join).toHaveBeenCalledOnce()
+  })
+
+  it.each(['server', 'ranked'] as const)('coalesces repeated %s creation before its HTTP response', async (kind) => {
+    const created = deferred<string>()
+    const queued = deferred<{ code: string; created: boolean }>()
+    const create = vi.spyOn(online, 'createRoom').mockReturnValue(created.promise)
+    const ranked = vi.spyOn(online, 'rankedPlay').mockReturnValue(queued.promise)
+    const begin = () => kind === 'server' ? session.openHostServer('test') : session.rankedPlay({ region: 'test' })
+    const first = begin()
+    const second = begin()
+    await vi.advanceTimersByTimeAsync(0)
+    const posts = kind === 'server' ? create.mock.calls.length : ranked.mock.calls.length
+    created.resolve('ABCDE')
+    queued.resolve({ code: 'ABCDE', created: true })
+    await Promise.all([first, second])
+    expect(posts).toBe(1)
+    expect(f.impl.join).toHaveBeenCalledOnce()
+  })
+
+  it('does not let a different entry action steal an in-flight queue attempt', async () => {
+    const pending = deferred<{ code: string; created: boolean }>()
+    const quick = vi.spyOn(online, 'quickPlay').mockReturnValue(pending.promise)
+    const ranked = vi.spyOn(online, 'rankedPlay')
+    const first = session.quickPlay()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await session.rankedPlay()).toMatchObject({ ok: false, reason: 'cancelled' })
+    await session.join('BCDEF', { kind: 'p2p' })
+    expect(ranked).not.toHaveBeenCalled()
+    expect(f.impl.join).not.toHaveBeenCalled()
+    pending.resolve({ code: 'ABCDE', created: true })
+    expect(await first).toMatchObject({ ok: true })
+    expect(quick).toHaveBeenCalledOnce()
+    expect(f.impl.join).toHaveBeenCalledExactlyOnceWith('ABCDE')
+  })
+
   it('blocks touch-only offline, hosting, queue and invite entry before creating or dialing rooms', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }))
     f.impl.openOffline.mockClear()
@@ -159,6 +318,49 @@ describe('browser session listing and reconnect wiring', () => {
     session.leave()
     useGame.getState().setLobby({ status: 'error', error: 'Later error' })
     expect(rejoin.get()).toBeNull()
+  })
+
+  it('preserves the remembered target when a real reconnect dial fails, allows explicit retry, and clears it on Leave', async () => {
+    await session.join('ABCDE', { kind: 'server', region: 'test' })
+    expect([...f.storage.values()].some((raw) => raw.includes('ABCDE'))).toBe(true)
+    f.transport = null
+    useGame.getState().setLobby({ role: 'offline', status: 'error', error: 'Lost connection', roomCode: null })
+    await rejoin.refresh()
+    f.impl.join.mockImplementationOnce(async () => {
+      useGame.getState().setLobby({ status: 'error', error: 'The original connection is still closing.' })
+      useGame.getState().setScreen('menu')
+    })
+    await rejoin.join()
+    expect(rejoin.get()).toMatchObject({ code: 'ABCDE', status: 'available', error: 'The original connection is still closing.' })
+    expect([...f.storage.values()].some((raw) => raw.includes('ABCDE'))).toBe(true)
+    await rejoin.join()
+    expect(rejoin.get()).toBeNull()
+    expect(f.serverJoin).toHaveBeenCalledTimes(2)
+    expect(f.peerJoin).not.toHaveBeenCalled()
+    session.leave()
+    expect([...f.storage.values()].every((raw) => raw === '')).toBe(true)
+    expect(rejoin.get()).toBeNull()
+  })
+
+  it('rediscovery stays on the remembered server when the preferred region changes and never creates a replacement game', async () => {
+    await session.join('ABCDE', { kind: 'server', region: 'test' })
+    f.transport = null
+    useGame.getState().setLobby({ role: 'offline', status: 'error', error: 'Lost connection', roomCode: null })
+    useGame.getState().setSettings({ serverRegion: 'another-region' })
+    const exists = vi.spyOn(online, 'roomExists').mockResolvedValue(false)
+    const quick = vi.spyOn(online, 'quickPlay')
+    const create = vi.spyOn(online, 'createRoom')
+    const ranked = vi.spyOn(online, 'rankedPlay')
+    await rejoin.refresh()
+    await rejoin.join()
+    expect(exists).toHaveBeenCalledExactlyOnceWith('test', 'ABCDE')
+    expect(rejoin.get()).toMatchObject({ kind: 'server', status: 'unavailable', error: expect.stringContaining('ended') })
+    expect(f.serverJoin).toHaveBeenCalledTimes(1)
+    expect(f.peerJoin).not.toHaveBeenCalled()
+    expect(quick).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(ranked).not.toHaveBeenCalled()
+    useGame.getState().setSettings({ serverRegion: 'auto' })
   })
 
   it('persists explicit color preferences without overwriting them with assigned lobby colors', async () => {

@@ -18,6 +18,7 @@
  *   GET  /leaderboard?period=all|week&region=&device=  {period, region, entries, you}
  *   GET  /players/:device  {found: true, ...} a device's public profile (rating, rank, totals,
  *                       recent matches), or {found: false} before its first counted match
+ *   GET  /profiles/:publicId same public profile, using a stored opaque ID from the board
  * WebSocket: /ws?room=CODE joins that room (session protocol, ws.ts). The first connected
  * human owns the room (lobby controls via `ctl`). A room nobody is connected to closes
  * after emptyRoomMs. IPs are only logged as salted hashes.
@@ -27,7 +28,7 @@ import { newRoomCode, parseRoomCode } from './code'
 import { createRoom, type QuickPlayPolicy, type Room, type RoomDeps, type RoomSummary } from './dedicated'
 import { LISTING_HEARTBEAT_MS, LISTING_TTL_MS, ListingDirectory } from './listings'
 import { LB_MIN_SECONDS, type FinishedMatch } from './leaderboard'
-import { localRatingAuthority, type RatingAuthority, type RatingReceiptStore } from './ratingAuthority'
+import { localRatingAuthority, PUBLIC_PLAYER_ID, type RatingAuthority, type RatingReceiptStore } from './ratingAuthority'
 import { MAX_PLAYERS } from './session'
 import { PROTOCOL_VERSION, encode } from './protocol'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
@@ -147,6 +148,10 @@ interface Entry {
   emptySince: number
   /** quick-play seats handed out, by expiry (server clock) */
   reserved: number[]
+  /** Never close a freshly reserved queue room before its first accepted human arrives. */
+  hadHuman: boolean
+  /** Accepted sockets include a pending hello, so a newcomer in flight is not evicted. */
+  connections: number
 }
 
 export interface ServerCore {
@@ -249,7 +254,7 @@ export function createServerCore(
       },
       deps,
     )
-    rooms.set(code, { room, created: deps.now(), emptySince: deps.now(), reserved: [] })
+    rooms.set(code, { room, created: deps.now(), emptySince: deps.now(), reserved: [], hadHuman: false, connections: 0 })
     log('info', 'room.created', { room: code, rooms: rooms.size, ...(setup.quick ? { quick: true } : {}) })
     return room
   }
@@ -271,6 +276,20 @@ export function createServerCore(
     const now = deps.now()
     e.reserved = e.reserved.filter((t) => t > now)
     return e.reserved.length
+  }
+
+  function closeRoom(code: string, e: Entry): void {
+    if (rooms.get(code) !== e) return
+    // Remove the entry first: closing transports can synchronously run their release callbacks.
+    rooms.delete(code)
+    e.reserved = []
+    listCache = null
+    e.room.close()
+    log('info', 'room.closed', { room: code, reason: 'empty', rooms: rooms.size })
+  }
+
+  function closeEmptyQueue(code: string, e: Entry): void {
+    if (e.hadHuman && e.room.isQuick() && e.connections === 0 && e.room.peers() === 0 && reservedNow(e) === 0) closeRoom(code, e)
   }
 
   /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
@@ -421,13 +440,16 @@ export function createServerCore(
         log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
         return json(201, { code, created: true, region: cfg.region }, req.origin)
       }
-      if ((parts[0] === 'leaderboard' && parts.length === 1) || (parts[0] === 'players' && parts.length === 2)) {
+      if ((parts[0] === 'leaderboard' && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 2)) {
         if (req.method !== 'GET') return json(405, { error: 'method not allowed' }, req.origin)
         if (!authority) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
         if (!boardLimit.take(req.ip, deps.now())) {
           log('warn', 'leaderboard.limited', { ip: tag(req.ip) })
           return json(429, { error: 'Too many requests, try again in a minute.' }, req.origin)
         }
+        // Reject invalid IDs locally too: the regional authority RPC deliberately
+        // whitelists canonical public paths, so bad input must not become a 503.
+        if (parts[0] === 'profiles' && !PUBLIC_PLAYER_ID.test(parts[1])) return json(400, { error: 'bad public player id' }, req.origin)
         try {
           const r = await authority.read(req.path)
           return json(r.status, r.body, req.origin)
@@ -488,6 +510,7 @@ export function createServerCore(
         return
       }
       connections++
+      e.connections++
       conns.set(ip, (conns.get(ip) ?? 0) + 1)
       const msgs = new TokenBucket(cfg.msgsPerSec * 2, cfg.msgsPerSec, deps.now())
       const bytes = new TokenBucket(cfg.bytesPerSec * 2, cfg.bytesPerSec, deps.now())
@@ -496,6 +519,7 @@ export function createServerCore(
         if (done) return
         done = true
         connections--
+        e.connections--
         const n = (conns.get(ip) ?? 1) - 1
         if (n > 0) conns.set(ip, n)
         else conns.delete(ip)
@@ -514,18 +538,22 @@ export function createServerCore(
               return
             }
             cb(t)
+            if (e.room.humans() > 0) e.hadHuman = true
+            closeEmptyQueue(admission.code, e)
           })
         },
         onClose(cb) {
           socket.onClose(() => {
             release()
             cb()
+            closeEmptyQueue(admission.code, e)
           })
         },
       }
       if (reservedNow(e) > 0) e.reserved.shift()
       log('info', 'ws.join', { room: admission.code, ip: tag(ip) })
       e.room.accept(new SocketTransport(limited))
+      if (e.room.humans() > 0) e.hadHuman = true
     },
 
     async createRoom(opts = {}) {
@@ -542,15 +570,16 @@ export function createServerCore(
     sweep() {
       const now = deps.now()
       for (const [code, e] of rooms) {
+        closeEmptyQueue(code, e)
+        if (rooms.get(code) !== e) continue
         if (e.room.peers() > 0) {
           e.emptySince = -1
           continue
         }
+        if (reservedNow(e) > 0) continue
         if (e.emptySince < 0) e.emptySince = now
         else if (now - e.emptySince >= cfg.emptyRoomMs) {
-          e.room.close()
-          rooms.delete(code)
-          log('info', 'room.closed', { room: code, reason: 'empty', rooms: rooms.size })
+          closeRoom(code, e)
         }
       }
       createLimit.sweep(now)
