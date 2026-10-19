@@ -8,7 +8,7 @@ import { leaveToMenu, playBotPractice } from '../flow'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { music, sfx } from '../lib/sound'
 import { Button, Kbd } from '../widgets'
-import { ItemRow, SpellRow } from './SpellBar'
+import { InnateRow, ItemRow, SpellRow } from './SpellBar'
 
 const TITLES: Record<PracticeStep, string> = {
   move: 'Walk to the gold ring', fireball: 'Hit the training dummy', shop: 'Buy your escape spell',
@@ -56,6 +56,6 @@ export function PracticeHud() {
       <Button size="sm" variant="ghost" className="w-full" sound="back" onClick={leaveToMenu}>{view.step === 'complete' ? 'Back to menu' : 'Leave practice'}</Button>
       <p className="mt-2 text-[0.7rem] text-ash/80">Offline · no stakes · short practice cooldowns · Esc to pause</p>
     </section>
-    <div className="absolute right-0 bottom-0 left-0 flex justify-center"><div className="hud-scale"><div className="hud-plate hud-bottom"><SpellRow /><ItemRow /></div></div></div>
+    <div className="absolute right-0 bottom-0 left-0 flex justify-center"><div className="hud-scale"><div className="hud-plate hud-bottom"><InnateRow /><SpellRow /><ItemRow /></div></div></div>
   </div>
 }

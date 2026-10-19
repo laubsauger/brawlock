@@ -7,7 +7,7 @@ import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, KillCallout, Killfeed } from './Announce'
-import { ItemRow, SpellRow } from './SpellBar'
+import { InnateRow, ItemRow, SpellRow } from './SpellBar'
 import { ShrinkWarning, TopCenter, FinalBrawlStatus, displayRound, roundLabel } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { InspectCard, SpectateChip } from './Inspect'
@@ -352,6 +352,7 @@ export function Hud() {
         <div className="hud-scale relative">
           <ProtectChip />
           <div className="hud-plate hud-bottom" data-layout={hudLayout}>
+            <InnateRow />
             <SpellRow />
             <ItemRow />
             <div className="hotbar-gold">

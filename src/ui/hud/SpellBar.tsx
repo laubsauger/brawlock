@@ -11,6 +11,12 @@ import { abilityCardProps } from './AbilityCard'
 
 export const SPELL_SLOTS = 6
 export const ITEM_SLOTS = 6
+/**
+ * Fireball and Scourge: every warlock starts with them and the sim keeps them in the first two
+ * item slots (sim/config FIREBALL_SLOT, SCOURGE_SLOT). The bar draws them first, at spell
+ * size, so it reads Q W | E R T D F G | items with the default keys.
+ */
+const INNATE = [SPELL_SLOTS, SPELL_SLOTS + 1] as const
 
 interface SlotInfo {
   spell: SpellId | null
@@ -28,7 +34,7 @@ function readSlots(): SlotInfo[] {
 
 const slotsKey = (s: SlotInfo[]) => s.map((x) => `${x.spell ?? '-'}:${x.level}`).join('|')
 
-function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLabel: string }) {
+function Slot({ index, info, keyLabel, innate = false }: { index: number; info: SlotInfo; keyLabel: string; innate?: boolean }) {
   const root = useRef<HTMLDivElement>(null)
   const text = useRef<HTMLDivElement>(null)
   const sweep = useRef<HTMLDivElement>(null)
@@ -92,7 +98,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
   return (
     <div
       ref={root}
-      className={`slot interactive ${isItem ? 'item' : ''}`}
+      className={`slot interactive ${isItem && !innate ? 'item' : ''} ${innate ? 'innate' : ''}`}
       data-empty={!info.spell}
       data-passive={passive}
       {...slotDragProps(index, !!info.spell)}
@@ -108,7 +114,7 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
     >
       {info.spell && (
         <div className="icon">
-          <Sigil id={info.spell} size={isItem ? 31 : 42} />
+          <Sigil id={info.spell} size={isItem && !innate ? 31 : 42} />
         </div>
       )}
       <div ref={sweep} className="cd" />
@@ -121,6 +127,19 @@ function Slot({ index, info, keyLabel }: { index: number; info: SlotInfo; keyLab
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Fireball and Scourge, left of the spell columns, with a faint gilded underline. */
+export function InnateRow() {
+  const slots = usePolled(readSlots, slotsKey, 6)
+  const binds = useBinds()
+  return (
+    <div className="innate-row" aria-label="Innate abilities" title="Innate: every warlock has these from the start">
+      {INNATE.map((i) => (
+        <Slot key={i} index={i} info={slots[i]} keyLabel={slotKeyLabel(binds, i)} innate />
+      ))}
     </div>
   )
 }
@@ -142,9 +161,10 @@ export function ItemRow() {
   const binds = useBinds()
   return (
     <div className="item-row" aria-label="Items">
-      {slots.slice(SPELL_SLOTS).map((info, i) => (
-        <Slot key={i} index={SPELL_SLOTS + i} info={info} keyLabel={slotKeyLabel(binds, SPELL_SLOTS + i)} />
-      ))}
+      {slots.slice(SPELL_SLOTS + INNATE.length).map((info, i) => {
+        const index = SPELL_SLOTS + INNATE.length + i
+        return <Slot key={index} index={index} info={info} keyLabel={slotKeyLabel(binds, index)} />
+      })}
     </div>
   )
 }

@@ -817,8 +817,17 @@
   .kb-frame[data-hot="true"] { box-shadow: inset 0 0 0 1px rgba(255, 80, 40, 0.7), 0 0 14px rgba(255, 60, 20, 0.5); }
 
   /* Spell slots */
-  .spell-row, .item-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .innate-row, .spell-row, .item-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .item-row { padding-left: 10px; border-left: 1px solid rgba(255, 170, 100, 0.16); }
+  /* innate Fireball + Scourge: their own group left of the spells, a faint gilded
+     underline and warmer rims hint that every warlock is born with them */
+  .innate-row { position: relative; padding-right: 10px; margin-right: 6px; border-right: 1px solid rgba(255, 170, 100, 0.16); }
+  .innate-row::after {
+    content: ''; position: absolute; left: 4px; right: 14px; bottom: -4px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 205, 130, 0.55), transparent);
+    pointer-events: none;
+  }
+  .slot.innate { box-shadow: inset 0 0 0 1px rgba(255, 196, 120, 0.38), 0 4px 14px rgba(0, 0, 0, 0.5); }
   .hotbar-gold { flex-shrink: 0; min-width: 52px; padding-left: 8px; border-left: 1px solid rgba(255, 170, 100, 0.16); }
   .slot {
     position: relative;
