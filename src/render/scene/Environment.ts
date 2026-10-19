@@ -22,7 +22,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { S } from '../coords'
 import type { Node } from 'three/webgpu'
 import { loadSurface, type SurfaceMaps } from './textures'
-import { asF, gamePos, type WorldCtx } from './world'
+import { asF, gamePos, staticInstancedMesh, type WorldCtx } from './world'
 
 /**
  * The caldera around the platform, so the arena reads as a place instead of
@@ -188,7 +188,7 @@ export class Environment {
     const tp = new THREE.Vector3()
     places.forEach((list, k) => {
       if (list.length === 0) return
-      const mesh = new THREE.InstancedMesh(rockGeos[k], rockMat, list.length)
+      const mesh = staticInstancedMesh(rockGeos[k], rockMat, list.length)
       list.forEach((p, i) => {
         e.set(0, p.rot, 0)
         q.setFromEuler(e)
@@ -207,7 +207,7 @@ export class Environment {
     if (crystals.length > 0) {
       const cg = crystalGeometry()
       this.disposables.push(cg)
-      const mesh = new THREE.InstancedMesh(cg, crystalMat, crystals.length)
+      const mesh = staticInstancedMesh(cg, crystalMat, crystals.length)
       crystals.forEach((c, i) => {
         e.set(c.rx, c.ry, c.rz)
         q.setFromEuler(e)

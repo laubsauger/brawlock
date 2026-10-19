@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu'
 import {
   abs,
+  ceil,
   Fn,
   If,
   Loop,
@@ -14,6 +15,7 @@ import {
   dot,
   exp,
   fwidth,
+  int,
   normalMap,
   float,
   length,
@@ -22,7 +24,6 @@ import {
   mix,
   normalGeometry,
   positionGeometry,
-  positionLocal,
   positionWorld,
   rotate,
   saturate,
@@ -42,7 +43,7 @@ import { GRID_MAX, TILE_SIZE, arenaTiles, cellIndex, clampLayer, tileExists } fr
 import { S } from '../coords'
 import { tweaks } from '../tweaks'
 import { THEME_DIRS, loadSurface, type SurfaceMaps } from './textures'
-import { buildTileGeometry } from './tileGeometry'
+import { TILE_GROUP_SIDE, TILE_GROUP_TOP, buildTileGeometry } from './tileGeometry'
 import { asV4, gamePos, type WorldCtx } from './world'
 import { TILE_GAP } from '../scale'
 
@@ -99,14 +100,21 @@ function seedOf(gx: number, gy: number): number {
 }
 
 interface MaskMesh {
-  mesh: THREE.InstancedMesh
+  mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial[]>
   attr: THREE.InstancedBufferAttribute
+  /** per-tile centre (world x, z) */
+  offset: THREE.InstancedBufferAttribute
 }
 
 /**
- * Instanced tile platform. One InstancedMesh per rounded-corner mask (at most
+ * Instanced tile platform. One instanced mesh per rounded-corner mask (at most
  * 16, usually ~9 with instances); a removed tile keeps its slot with a
  * `removedAt` stamp and sinks red-hot into the lava in the shader.
+ *
+ * Tiles only translate, so the centre is a per-instance attribute instead of
+ * an InstancedMesh matrix: three keeps small instance-matrix arrays in a
+ * per-object uniform buffer and re-uploads all of it every frame (441 slots x
+ * 64 B per draw group), while an attribute uploads only when the layout changes.
  */
 export class Arena {
   readonly group = new THREE.Group()
@@ -120,14 +128,14 @@ export class Arena {
   private uRough = uniform(0.8)
   /** calm floor albedo lift for the current theme (fragment only) */
   private uLift = uniform(1)
-  private material: THREE.MeshStandardNodeMaterial
+  /** by tile draw group: [tops + chamfers, walls] (tileGeometry TILE_GROUP_*) */
+  private materials: THREE.MeshStandardNodeMaterial[]
   private meshes = new Map<number, MaskMesh>()
   private tiles = new Map<number, TileEntry>()
   private sinking: TileEntry[] = []
   private layer = -1
   private theme = -1
   private dirty = false
-  private tmpM = new THREE.Matrix4()
   /** authored PBR maps for the current theme, null = procedural */
   /**
    * Authored texture sets per theme (null until loaded / absent). The textured
@@ -143,7 +151,7 @@ export class Arena {
 
   constructor(private ctx: WorldCtx) {
     this.group.name = 'Arena'
-    this.material = this.buildMaterial()
+    this.materials = this.buildMaterials()
     this.setTheme(0)
     this.loadAllThemes()
   }
@@ -195,11 +203,18 @@ export class Arena {
   private disposed = false
 
   private rebuildMaterial(): void {
-    const old = this.material
+    const old = this.materials
     this.texNodes = []
-    this.material = this.buildMaterial()
-    for (const m of this.meshes.values()) m.mesh.material = this.material
-    old.dispose()
+    this.materials = this.buildMaterials()
+    for (const m of this.meshes.values()) m.mesh.material = this.materials
+    for (const m of old) m.dispose()
+  }
+
+  private buildMaterials(): THREE.MeshStandardNodeMaterial[] {
+    const out: THREE.MeshStandardNodeMaterial[] = []
+    out[TILE_GROUP_TOP] = this.buildMaterial('top')
+    out[TILE_GROUP_SIDE] = this.buildMaterial('side')
+    return out
   }
 
   /**
@@ -290,18 +305,23 @@ export class Arena {
   private meshFor(mask: number): MaskMesh {
     let m = this.meshes.get(mask)
     if (m) return m
-    const geo = buildTileGeometry(mask)
+    const tile = buildTileGeometry(mask)
+    const geo = new THREE.InstancedBufferGeometry().copy(tile as THREE.InstancedBufferGeometry)
+    tile.dispose()
     const attr = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
     attr.setUsage(THREE.StaticDrawUsage)
     geo.setAttribute('aTile', attr)
-    const mesh = new THREE.InstancedMesh(geo, this.material, CAPACITY)
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+    const offset = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 2), 2)
+    offset.setUsage(THREE.StaticDrawUsage)
+    geo.setAttribute('aTileXZ', offset)
+    geo.instanceCount = 0
+    const mesh = new THREE.Mesh(geo, this.materials)
     mesh.frustumCulled = false
     mesh.receiveShadow = this.ctx.tier.shadowMap > 0
-    mesh.count = 0
+    mesh.visible = false
     mesh.name = `tiles-m${mask}`
     this.group.add(mesh)
-    m = { mesh, attr }
+    m = { mesh, attr, offset }
     this.meshes.set(mask, m)
     return m
   }
@@ -309,14 +329,14 @@ export class Arena {
   private rebuild(): void {
     this.dirty = false
     const counts = new Map<number, number>()
-    for (const m of this.meshes.values()) m.mesh.count = 0
     const put = (e: TileEntry) => {
       const mm = this.meshFor(e.mask)
       const i = counts.get(e.mask) ?? 0
       if (i >= CAPACITY) return
       counts.set(e.mask, i + 1)
-      this.tmpM.makeTranslation(e.gx * TILE_SIZE * S, 0, -e.gy * TILE_SIZE * S)
-      mm.mesh.setMatrixAt(i, this.tmpM)
+      const o = mm.offset.array as Float32Array
+      o[i * 2] = e.gx * TILE_SIZE * S
+      o[i * 2 + 1] = -e.gy * TILE_SIZE * S
       const a = mm.attr.array as Float32Array
       a[i * 4] = e.seed
       a[i * 4 + 1] = e.removedAt
@@ -327,15 +347,20 @@ export class Arena {
     for (const e of this.sinking) put(e)
     for (const [mask, mm] of this.meshes) {
       const n = counts.get(mask) ?? 0
-      mm.mesh.count = n
+      mm.mesh.geometry.instanceCount = n
       mm.mesh.visible = n > 0
-      mm.mesh.instanceMatrix.needsUpdate = true
+      mm.offset.needsUpdate = true
       mm.attr.needsUpdate = true
     }
   }
 
-  private buildMaterial(): THREE.MeshStandardNodeMaterial {
+  /**
+   * One tile shader per draw group. A wall pixel never samples the top maps
+   * and a top pixel never the wall maps (both were sampled and mixed before).
+   */
+  private buildMaterial(face: 'top' | 'side'): THREE.MeshStandardNodeMaterial {
     const { uTime: t, noise, field, glow } = this.ctx
+    const wall = face === 'side'
     const aTile = asV4(attribute('aTile', 'vec4'))
     const seed = aTile.x
     const removedAt = aTile.y
@@ -353,7 +378,8 @@ export class Arena {
     const back = float(1).sub(riseT)
     // ease-out with a small overshoot
     const rise = back.mul(back).mul(back).mul(-170).add(sin(riseT.mul(Math.PI)).mul(6))
-    const centre = positionLocal.sub(positionGeometry)
+    const tileXZ = attribute('aTileXZ', 'vec2') as unknown as Node<'vec2'>
+    const centre = vec3(tileXZ.x, 0, tileXZ.y)
     const sh = this.uShock
     // (the round-start wave no longer lifts tiles: it exposed bright wall strips)
     const lift = rise.sub(sink)
@@ -371,9 +397,9 @@ export class Arena {
     const gp = gamePos()
     const lp = positionGeometry.xz.div(TILE_SIZE * 0.5 * S)
     const ny = normalGeometry.y
-    const isTop = step(0.9, ny)
-    const isBevel = step(0.3, ny).mul(float(1).sub(isTop))
-    const isSide = float(1).sub(step(0.3, ny))
+    const isTop = wall ? float(0) : step(0.9, ny)
+    const isBevel = wall ? float(0) : step(0.3, ny).mul(float(1).sub(isTop))
+    const isSide = float(wall ? 1 : 0)
     const h = positionWorld.y.div(S)
     const edge = max(abs(lp.x), abs(lp.y))
 
@@ -519,7 +545,7 @@ export class Arena {
     const sinkTint = vec3(0.28, 0.17, 0.14)
 
     const m = new THREE.MeshStandardNodeMaterial()
-    m.name = 'Tiles'
+    m.name = wall ? 'TilesWall' : 'Tiles'
     m.positionNode = positionNode
 
     const mode = tweaks.tileMaterial
@@ -543,7 +569,7 @@ export class Arena {
       // height map (authored height, else albedo luminance as a stand-in)
       let uvTopP: Node<'vec2'> = uvTop
       this.builtLumHeight = maps.top.height === null
-      if (this.ctx.tier.ao) {
+      if (this.ctx.tier.ao && !wall) {
         const V = cameraPosition.sub(positionWorld).normalize()
         // world -> game (y flipped) -> per-tile rotated uv axes
         const vg = vec2(V.x, V.z.negate())
@@ -553,9 +579,9 @@ export class Arena {
       }
       // POM only on the flat tops: on the 45 degree bevel the horizontal-surface
       // march stretched and darkened the albedo (the dark band under the rim)
-      const uvT = mix(mix(uvTop, uvTopP, isTop), uvSide, isSide)
-      let alb: Node<'vec3'> = mix(tex('top.albedo', uvT).rgb, tex('side.albedo', uvT).rgb, isSide)
-      let orm: Node<'vec3'> = mix(tex('top.orm', uvT).rgb, tex('side.orm', uvT).rgb, isSide)
+      const uvT = wall ? uvSide : mix(uvTop, uvTopP, isTop)
+      let alb: Node<'vec3'> = tex(wall ? 'side.albedo' : 'top.albedo', uvT).rgb
+      let orm: Node<'vec3'> = tex(wall ? 'side.orm' : 'top.orm', uvT).rgb
       let tint: Node<'float'> = n.r.mul(0.3).add(0.85)
       if (calm) {
         // flatten the authored flagstone pattern: blend each texel toward its
@@ -563,10 +589,9 @@ export class Arena {
         // mottling instead of a sub-grid of small stones
         // (1024 px spans two tiles: mip 7 = 128 px texels, about the size of
         // the authored sub-stones, so they average out)
-        const meanTop = tex('top.albedo', uvT).level(float(7)).rgb
-        const meanSide = tex('side.albedo', uvT).level(float(6)).rgb
-        alb = mix(mix(meanTop, meanSide, isSide), alb, mix(float(0.3), float(0.65), isSide))
-        const aoMean = mix(tex('top.orm', uvT).level(float(7)).r, tex('side.orm', uvT).level(float(6)).r, isSide)
+        const mean = wall ? tex('side.albedo', uvT).level(float(6)).rgb : tex('top.albedo', uvT).level(float(7)).rgb
+        alb = mix(mean, alb, float(wall ? 0.65 : 0.3))
+        const aoMean = wall ? tex('side.orm', uvT).level(float(6)).r : tex('top.orm', uvT).level(float(7)).r
         orm = vec3(mix(aoMean, orm.r, 0.25), orm.g, orm.b)
         // per-tile variation: small, plus slow platform-wide patches
         tint = float(1).add(n.r.sub(0.5).mul(0.07)).add(nMacro.g.sub(0.5).mul(0.16))
@@ -578,12 +603,15 @@ export class Arena {
       m.colorNode = mix(col, col.mul(sinkTint), sinkDark)
       // the top maps are sampled in a per-tile rotated frame: rotate the
       // tangent-space normal back by -rot so it agrees with the mesh uv frame
-      const nTop = tex('top.normal', uvT).xyz.mul(2).sub(1)
-      const nTopR = vec3(nTop.x.mul(cs).add(nTop.y.mul(sn)), nTop.y.mul(cs).sub(nTop.x.mul(sn)), nTop.z)
-      const nSide = tex('side.normal', uvT).xyz.mul(2).sub(1)
-      const nTS = mix(nTopR, nSide, isSide).mul(0.5).add(0.5)
+      let nT: Node<'vec3'>
+      if (wall) nT = tex('side.normal', uvT).xyz.mul(2).sub(1)
+      else {
+        const nTop = tex('top.normal', uvT).xyz.mul(2).sub(1)
+        nT = vec3(nTop.x.mul(cs).add(nTop.y.mul(sn)), nTop.y.mul(cs).sub(nTop.x.mul(sn)), nTop.z)
+      }
+      const nTS = nT.mul(0.5).add(0.5)
       // calm relief: tops at ~40 % of the authored strength, walls a bit more
-      const nScale = calm ? mix(float(0.14), float(0.6), isSide) : mix(float(0.45), float(0.8), isSide)
+      const nScale = float(calm ? (wall ? 0.6 : 0.14) : wall ? 0.8 : 0.45)
       m.normalNode = calm ? calmBevel(normalMap(nTS, vec2(nScale, nScale)), isBevel) : normalMap(nTS, vec2(nScale, nScale))
       // never mirror-smooth: low-roughness texels made tile-sized moon hotspots
       // matte basalt; only genuinely glossy texels (wet / obsidian) stay shiny
@@ -613,17 +641,25 @@ export class Arena {
       m.mesh.geometry.dispose()
       m.mesh.dispose()
     }
-    this.material.dispose()
+    for (const m of this.materials) m.dispose()
   }
 }
 
 /**
- * Parallax occlusion mapping: march `steps` layers along the tangent-space
- * view direction (uv units per unit depth = viewUv), then interpolate between
- * the last two layers. Gradients are taken outside the loop (textureGrad), so
- * the loop is valid non-uniform control flow in WGSL.
+ * Parallax occlusion mapping: march layers along the tangent-space view
+ * direction (uv units per unit depth = viewUv), then interpolate between the
+ * last two layers. Gradients are taken outside the loop (textureGrad), so the
+ * loop is valid non-uniform control flow in WGSL.
+ *
+ * The layer count follows the deepest shift this pixel can show: about two
+ * layers per screen pixel of shift, POM_MIN_STEPS..maxSteps. At gameplay zoom
+ * the whole relief moves the texture by about a pixel, and 3 layers give the
+ * same image as 8 (pixel diff at the noise floor); close cameras still march
+ * all 8.
  */
-function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, sampleH: (u: Node<'vec2'>) => ReturnType<typeof texture>, luminance: boolean, scale: number, steps: number): Node<'vec2'> {
+const POM_MIN_STEPS = 3
+
+function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, sampleH: (u: Node<'vec2'>) => ReturnType<typeof texture>, luminance: boolean, scale: number, maxSteps: number): Node<'vec2'> {
   const gx = dFdx(uv0)
   const gy = dFdy(uv0)
   const depthAt = (u: Node<'vec2'>) => {
@@ -632,12 +668,15 @@ function pomUv(uv0: Node<'vec2'>, viewUv: Node<'vec2'>, sampleH: (u: Node<'vec2'
     return float(1).sub(h)
   }
   return Fn(() => {
-    const layer = float(1 / steps)
-    const delta = viewUv.mul(scale / steps)
+    // full-depth shift in pixels: uv shift over the uv footprint of one pixel
+    const shiftPx = length(viewUv).mul(scale).div(max(max(length(gx), length(gy)), 1e-7))
+    const steps = clamp(ceil(shiftPx.mul(2)), POM_MIN_STEPS, maxSteps).toVar()
+    const layer = float(1).div(steps)
+    const delta = viewUv.mul(scale).div(steps)
     const uvc = uv0.toVar()
     const depth = float(0).toVar()
     const d = depthAt(uv0).toVar()
-    Loop(steps, () => {
+    Loop({ start: int(0), end: int(steps), type: 'int', condition: '<' }, () => {
       If(depth.lessThan(d), () => {
         uvc.subAssign(delta)
         depth.addAssign(layer)

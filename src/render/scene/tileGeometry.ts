@@ -41,11 +41,20 @@ function outline(half: number, radius: number, mask: number): [number, number][]
   return pts
 }
 
+/**
+ * Draw groups (material index): tops + chamfers, then the walls. The tile
+ * shader samples one authored texture set per group instead of both per pixel.
+ */
+export const TILE_GROUP_TOP = 0
+export const TILE_GROUP_SIDE = 1
+
 export function buildTileGeometry(mask: number): THREE.BufferGeometry {
   const outer = outline(HALF, RADIUS, mask)
   const inner = outline(HALF - BEVEL, RADIUS - BEVEL, mask)
-  const pos: number[] = []
-  const nrm: number[] = []
+  const topPos: number[] = []
+  const topNrm: number[] = []
+  const sidePos: number[] = []
+  const sideNrm: number[] = []
   const top = TILE_TOP_H
   const bevelY = TILE_TOP_H - BEVEL
   const bottom = TILE_BOTTOM_H
@@ -58,7 +67,9 @@ export function buildTileGeometry(mask: number): THREE.BufferGeometry {
   const n = new THREE.Vector3()
 
   // game (u, v, h) -> three local (u, h, -v) in world scale
-  const tri = (p0: number[], p1: number[], p2: number[], normal: THREE.Vector3) => {
+  const tri = (p0: number[], p1: number[], p2: number[], normal: THREE.Vector3, wall = false) => {
+    const pos = wall ? sidePos : topPos
+    const nrm = wall ? sideNrm : topNrm
     a.set(p0[0] * S, p0[2] * S, -p0[1] * S)
     b.set(p1[0] * S, p1[2] * S, -p1[1] * S)
     c.set(p2[0] * S, p2[2] * S, -p2[1] * S)
@@ -99,9 +110,11 @@ export function buildTileGeometry(mask: number): THREE.BufferGeometry {
     tri([i0[0], i0[1], top], [o0[0], o0[1], bevelY], [o1[0], o1[1], bevelY], bevN)
     tri([i0[0], i0[1], top], [o1[0], o1[1], bevelY], [i1[0], i1[1], top], bevN)
     // side wall
-    tri([o0[0], o0[1], bevelY], [o0[0], o0[1], bottom], [o1[0], o1[1], bottom], sideN)
-    tri([o0[0], o0[1], bevelY], [o1[0], o1[1], bottom], [o1[0], o1[1], bevelY], sideN)
+    tri([o0[0], o0[1], bevelY], [o0[0], o0[1], bottom], [o1[0], o1[1], bottom], sideN, true)
+    tri([o0[0], o0[1], bevelY], [o1[0], o1[1], bottom], [o1[0], o1[1], bevelY], sideN, true)
   }
+  const pos = topPos.concat(sidePos)
+  const nrm = topNrm.concat(sideNrm)
 
   // uv matching the shader's world-planar mapping (before the per-tile
   // rotation): tops/bevels (x, -z) / 192, walls (x - z, y) / 192. The
@@ -119,6 +132,8 @@ export function buildTileGeometry(mask: number): THREE.BufferGeometry {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  g.addGroup(0, topPos.length / 3, TILE_GROUP_TOP)
+  g.addGroup(topPos.length / 3, sidePos.length / 3, TILE_GROUP_SIDE)
   g.computeBoundingSphere()
   return g
 }

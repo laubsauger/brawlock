@@ -22,6 +22,25 @@ export const asV4 = (n: unknown) => n as Node<'vec4'>
 export const asV3 = (n: unknown) => n as Node<'vec3'>
 export const asF = (n: unknown) => n as Node<'float'>
 
+/**
+ * Smallest InstancedMesh capacity whose matrix array exceeds WebGPU's default
+ * 64 KiB uniform-buffer limit (the renderer requests no higher limit).
+ */
+export const STATIC_INSTANCE_CAPACITY = 65536 / 64 + 1
+
+/**
+ * InstancedMesh for matrices set once. three keeps an instance-matrix array
+ * that fits the uniform limit in a per-object uniform buffer and re-uploads
+ * all of it every frame and every pass, moving or not; above the limit the
+ * matrices live in a vertex attribute uploaded only on change. The padded
+ * capacity picks that path; `count` stays the real instance count.
+ */
+export function staticInstancedMesh(geometry: THREE.BufferGeometry, material: THREE.Material, count: number): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(count, STATIC_INSTANCE_CAPACITY))
+  mesh.count = count
+  return mesh
+}
+
 /** Fragment/vertex world position in game units (x, y). */
 export const gamePos = (): Node<'vec2'> => vec2(positionWorld.x, positionWorld.z.negate()).div(S)
 

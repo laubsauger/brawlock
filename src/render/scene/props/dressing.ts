@@ -32,7 +32,7 @@ import { layerRadius } from '../../arenaGeom'
 import { S } from '../../coords'
 import { getNoiseTexture } from '../noiseTexture'
 import { loadSurface, type SurfaceMaps } from '../textures'
-import type { WorldCtx } from '../world'
+import { staticInstancedMesh, type WorldCtx } from '../world'
 import { MAT_STONE, Part, lathe, mergeParts, polyAngles, polyRadius, rock, shard, superRadius, sweep, uniformAngles } from './geo'
 import { fbm3, rng } from './rng'
 
@@ -598,7 +598,7 @@ function sectorize(sources: THREE.Object3D[], stone: THREE.Material, crystal: TH
     }
     const transforms = crystals[sector]
     if (transforms.length && crystalGeometry) {
-      const mesh = new THREE.InstancedMesh(crystalGeometry, crystal, transforms.length)
+      const mesh = staticInstancedMesh(crystalGeometry, crystal, transforms.length)
       transforms.forEach((transform, index) => mesh.setMatrixAt(index, transform))
       mesh.computeBoundingBox()
       mesh.computeBoundingSphere()
