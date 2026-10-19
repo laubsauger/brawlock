@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { Fn, Loop, cameraWorldMatrix, cos, dot, float, max, mix, positionGeometry, positionWorld, sin, smoothstep, texture, uniform, uniformArray, varying, vec2, vec3, vec4 } from 'three/tsl'
+import { Fn, Loop, cameraWorldMatrix, cos, dot, float, int, max, mix, positionGeometry, positionWorld, sin, smoothstep, texture, uniform, uniformArray, varying, vec2, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { SDF_EXTENT, SDF_RANGE, SDF_RES, writeArenaSdf } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H } from '../coords'
@@ -60,6 +60,8 @@ export class GlowLights {
   readonly col: THREE.Vector4[] = []
   readonly posNode
   readonly colNode
+  /** lights in use this frame: the shader loop stops there (unused slots add exactly 0) */
+  readonly countNode = uniform(0, 'int')
   private n = 0
 
   constructor() {
@@ -85,6 +87,7 @@ export class GlowLights {
 
   end(): void {
     for (let i = this.n; i < GLOW_N; i++) this.pos[i].w = 0
+    this.countNode.value = this.n
     // budget: stacked lights (many simultaneous blasts) are scaled down together
     let sum = 0
     for (let i = 0; i < this.n; i++) sum += this.pos[i].w * Math.max(this.col[i].x, this.col[i].y, this.col[i].z)
@@ -98,9 +101,10 @@ export class GlowLights {
   at(p: Node<'vec2'>): Node<'vec3'> {
     const posNode = this.posNode
     const colNode = this.colNode
+    const count = this.countNode
     return Fn(() => {
       const acc = vec3(0).toVar()
-      Loop(GLOW_N, ({ i }) => {
+      Loop({ start: int(0), end: count, type: 'int', condition: '<' }, ({ i }) => {
         const L = asV4(posNode.element(i))
         const d = p.sub(L.xy)
         const f = max(float(0), float(1).sub(dot(d, d).div(L.z.mul(L.z))))
