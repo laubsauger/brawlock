@@ -18,6 +18,8 @@ export interface TextSocket {
   onClose(cb: () => void): void
   /** bytes queued for sending (TCP backlog), when known */
   bufferedAmount?(): number
+  /** Trusted regional revocation is moving this controller, rather than an ordinary disconnect. */
+  transferring?(): boolean
 }
 
 /** grace period for queued frames (leave, kick) before a local close */
@@ -30,6 +32,8 @@ const CONGESTED_BYTES = 256 * 1024
 const CONNECT_TIMEOUT_MS = 8000
 
 export class SocketTransport extends BaseTransport {
+  transferring = false
+  prepareHandoff(): void { this.transferring = true }
   constructor(private readonly socket: TextSocket, readonly account?: VerifiedAccount | null) {
     super()
     // TCP: there is no unordered channel to probe for

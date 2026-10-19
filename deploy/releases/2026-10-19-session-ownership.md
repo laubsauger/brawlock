@@ -5,6 +5,7 @@ Prepared 2026-10-19 for the shared US account authority, US West and Europe game
 ## Changes
 
 - Account/device ownership covers every game mode, including guests, local bots/practice, P2P and dedicated games. Explicit **Use here** stops the old owner before admitting the new one. Regional connection binding and conservative expiry prevent a copied permission or unreachable owner from creating two active sessions. Account-enabled local games need the shared service too.
+- Explicit handoffs retain a sole player's queue room and active match through the existing bounded connection reservation; regular last-human departures still close automatic rooms promptly.
 - Ranked waiting reservations are distinct from started matches, so an unstarted queue is not offered as a game to rejoin. Device reservations, controller-fenced disconnects and generation cleanup remain authoritative across regions.
 - First-game onboarding offers a skippable guided lesson using actual movement, Fireball, a Teleport shop purchase/cast and a lava knockout. The lesson creates no match record, Elo or cosmetic reward.
 - Browse includes round, phase and elapsed match time for dedicated and publicly listed P2P games. Player-hosted progress refreshes about every ten seconds.

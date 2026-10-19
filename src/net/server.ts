@@ -264,6 +264,7 @@ export function createServerCore(
         ranked: setup.ranked === true,
         requireRankedAccount: !!deps.accounts,
         public: setup.public,
+        hasPendingConnections: () => { const entry = rooms.get(code); return !!entry && reservedNow(entry) > 0 },
         elo: { enabled: !!authority && setup.ranked === true, minSeconds: cfg.leaderboardMinSeconds },
         onMatchStart: (info) => {
           if (setup.ranked && deps.accounts) deps.accounts.started(code, info.slots.filter((slot) => slot.kind === 'human').map((slot) => {
@@ -684,6 +685,7 @@ export function createServerCore(
       const msgs = new TokenBucket(cfg.msgsPerSec * 2, cfg.msgsPerSec, deps.now())
       const bytes = new TokenBucket(cfg.bytesPerSec * 2, cfg.bytesPerSec, deps.now())
       let done = false
+      let transport: SocketTransport | null = null
       const release = () => {
         if (done) return
         done = true
@@ -720,6 +722,8 @@ export function createServerCore(
         },
         onClose(cb) {
           socket.onClose(() => {
+            // Reuse the existing bounded connection reservation, only for an explicit handoff.
+            if (!done && (transport?.transferring || socket.transferring?.())) e.reserved.push(deps.now() + RESERVE_MS)
             release()
             cb()
             closeEmptyQueue(admission.code, e)
@@ -728,7 +732,8 @@ export function createServerCore(
       }
       if (reservedNow(e) > 0) e.reserved.shift()
       log('info', 'ws.join', { room: admission.code, ip: tag(ip) })
-      e.room.accept(new SocketTransport(limited, account))
+      transport = new SocketTransport(limited, account)
+      e.room.accept(transport)
       if (e.room.humans() > 0) e.hadHuman = true
     },
 

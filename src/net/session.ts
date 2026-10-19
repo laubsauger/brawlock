@@ -209,7 +209,7 @@ export interface SessionApi {
   setReady(ready: boolean): void
   /** Room-wide reliable chat. Only the host supplies sender identity. */
   sendChat(text: string): ChatSendResult
-  leave(): void
+  leave(transfer?: boolean): void
   /** Link monitor rows, refreshed every STATS_MS (netstats.ts). null when not hosting or joined. */
   netStats(): NetStatsView | null
   /** Fires when a link's grade changes (with hysteresis). Returns unsubscribe. */
@@ -934,6 +934,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
     }
     else if (m.t === 'leave') {
+      if (m.transfer === true) p.t.prepareHandoff?.()
       p.t.close()
       peerGone(p, 'left')
     }
@@ -2589,9 +2590,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       return 'sent'
     },
 
-    leave() {
+    leave(transfer = false) {
       if (role === 'host') broadcast({ t: 'leave' })
-      else if (role === 'client') link?.sendReliable(encode({ t: 'leave' }))
+      else if (role === 'client') link?.sendReliable(encode({ t: 'leave', ...(transfer ? { transfer: true } : {}) }))
       teardown()
       slots = []
       ui.setResult(null)

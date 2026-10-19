@@ -565,8 +565,8 @@ export const session: GameSession = {
 }
 
 connectPlayControl({
-  lost(message) {
-    stopPractice(); opening = null; nextJoinRoute = null; impl.leave()
+  lost(message, transfer) {
+    stopPractice(); opening = null; nextJoinRoute = null; impl.leave(transfer)
     useGame.getState().setLobby({ status: 'error', error: message })
   },
   async resume(target) {

@@ -362,9 +362,10 @@ export async function startServer(opts = {}) {
         const started = performance.now()
         const permission = await accounts.attachPlay(hello.playToken, admission.code, account?.id ?? null)
         let deadline = started + permission.expiresAt - permission.serverTime - 1000
-        let checking = false, closed = false, nextCheck = 0
-        const moved = () => {
+        let checking = false, closed = false, nextCheck = 0, transferring = false
+        const moved = (transfer = false) => {
           if (closed) return
+          transferring = transfer
           textSocket.send(JSON.stringify({ t: 'kick', reason: 'Your game was moved to another tab or device.' }))
           textSocket.close()
         }
@@ -377,7 +378,7 @@ export async function startServer(opts = {}) {
           nextCheck = at + 5000
           try {
             const next = await accounts.checkPlay(hello.playToken, permission.connection)
-            if (!next.ok) moved()
+            if (!next.ok) moved(next.transferring === true)
             else deadline = at + next.expiresAt - next.serverTime - 1000
           } catch { if (performance.now() >= deadline) moved() }
           finally { checking = false }
@@ -387,6 +388,7 @@ export async function startServer(opts = {}) {
         if (done) { clearInterval(check); accounts.detachPlay(permission.connection); return }
         const controlled = {
           ...textSocket,
+          transferring: () => transferring,
           onText(callback) { textSocket.onText((message) => { if (performance.now() >= deadline) moved(); else if (!closed) callback(message) }) },
           onClose(callback) { textSocket.onClose(() => { permissionClosed(); callback() }) },
         }

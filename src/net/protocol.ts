@@ -157,7 +157,7 @@ export type Msg =
   | { t: 'screen'; screen: 'lobby' }
   | { t: 'notice'; text: string }
   | { t: 'kick'; reason: string }
-  | { t: 'leave' }
+  | { t: 'leave'; transfer?: boolean }
   | { t: 'error'; message: string }
 
 const TYPES = new Set<Msg['t']>([

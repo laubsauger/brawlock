@@ -161,7 +161,7 @@ async function fixture({ both = false, autoStart = false } = {}) {
       random: Math.random, joinUrl: (code) => code, clientKey: () => overrides.key ?? 'forged-client-key',
       device: () => overrides.device ?? 'forged-private-device', build: 'dev-account-tcp',
     })
-    const controlledSession = { ...session, leave() { session.leave(); return releasePermission() } }
+    const controlledSession = { ...session, leave(transfer = false) { session.leave(transfer); return releasePermission() } }
     cleanup.push(async () => { await controlledSession.leave() })
     return { session: controlledSession, lobby: () => lobby, screen: () => screen, state: () => state, play: () => permission }
   }
@@ -181,6 +181,35 @@ async function fixture({ both = false, autoStart = false } = {}) {
 }
 
 describe('account-ranked production TCP boundary', () => {
+  it.each(['leave', 'revoke'] as const)('preserves the sole casual player’s running match during a %s handoff, then closes on a normal departure', async (method) => {
+    const f = await fixture()
+    const room = await f.us.srv.createRoom({ quick: 'brutal', autoStartMs: 100, settings: { winScore: 50, shopSeconds: 0.1 } })
+    const device = 'solo-transfer-browser', profileId = 'solo-transfer-profile'
+    const first = f.client(f.us, async () => null, { device, profileId, key: 'solo-first-controller' })
+    await first.session.join(room.code)
+    await until(() => first.screen() === 'match', 'solo casual match start')
+    const seat = first.lobby().localPlayer
+    if (method === 'leave') await first.session.leave(true)
+    else {
+      await f.playRequest(new Headers(), { action: 'takeover', device, controller: 'solo-second-controller', id: first.play()!.id })
+      await until(() => first.lobby().status === 'error', 'sole controller revocation', 8000)
+    }
+    await until(() => room.peers() === 0, 'old controller detached')
+    // Cross the room's own empty-match check; pending handoffs must not reset the match.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    expect(f.us.srv.core.room(room.code)).toBe(room)
+    expect(room.screen()).toBe('match')
+    const second = f.client(f.us, async () => null, { device, profileId, key: 'solo-second-controller' })
+    await second.session.join(room.code)
+    expect(second.lobby().status, second.lobby().error ?? '').toBe('open')
+    expect(second.screen()).toBe('match')
+    expect(second.lobby().localPlayer).toBe(seat)
+    expect(room.peers()).toBe(1)
+    await second.session.leave()
+    await until(() => f.us.srv.core.room(room.code) === null, 'ordinary last-human departure cleanup')
+    f.safeLogs()
+  }, 15_000)
+
   it('never offers an unstarted ranked lobby as a game to rejoin and removes it when its only player leaves', async () => {
     const f = await fixture(), ann = await f.player('queue-leave@example.com', 'CinderFox')
     const queued = await f.us.queue(await ann.ticket())

@@ -15,7 +15,7 @@ export interface PlayControlDeps {
   every(fn: () => void, ms: number): unknown
   cancel(timer: unknown): void
   delay(ms: number): Promise<void>
-  lost(message: string): void
+  lost(message: string, transfer: boolean): void
   conflict(value: PlayConflict | null): void
   resume(target: PlayTarget): Promise<unknown>
 }
@@ -87,7 +87,7 @@ export class PlayControl {
 
   private watch() {
     const epoch = this.epoch
-    this.unlisten = this.deps.listen(() => this.lose('Your game was moved to another tab or device.'))
+    this.unlisten = this.deps.listen(() => this.lose('Your game was moved to another tab or device.', true))
     if (this.deps.enabled) this.timer = this.deps.every(() => { void this.renew().catch(() => { if (epoch === this.epoch) this.lose('The game service is unreachable. Reconnect from the menu.') }) }, 10000)
   }
 
@@ -99,7 +99,7 @@ export class PlayControl {
     this.renewal = (async () => {
       const reply = await this.deps.request({ action: 'heartbeat', token: lease.token, target })
       if (epoch !== this.epoch) return
-      if (!reply.ok) { this.lose('Your game was moved to another tab or device.'); return }
+      if (!reply.ok) { this.lose('Your game was moved to another tab or device.', true); return }
       this.accept(reply, started)
     })()
     try { await this.renewal } finally { this.renewal = null }
@@ -131,10 +131,10 @@ export class PlayControl {
     }
   }
 
-  private lose(message: string) {
+  private lose(message: string, transfer = false) {
     if (!this.releaseLock || this.losing) return
     this.losing = true
-    try { this.deps.lost(message) } // Stop clocks and connections synchronously, before releasing permission.
+    try { this.deps.lost(message, transfer) } // Stop clocks and connections synchronously, before releasing permission.
     finally { void this.release().catch(() => {}); this.losing = false } // Failed acknowledgement stays reserved until expiry.
   }
 

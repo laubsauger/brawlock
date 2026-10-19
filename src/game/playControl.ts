@@ -8,7 +8,7 @@ const enabled = import.meta.env.VITE_ACCOUNTS_ENABLED === 'true'
 const TARGET_KEY = 'brawlock.active-game.v1'
 let channel: BroadcastChannel | null = null
 const messages = () => channel ??= new BroadcastChannel('brawlock.game-control.v1')
-let lost: (message: string) => void = () => { throw new Error('Game control is not connected to the session.') }
+let lost: (message: string, transfer: boolean) => void = () => { throw new Error('Game control is not connected to the session.') }
 let resume: (target: PlayTarget) => Promise<unknown> = async () => { throw new Error('Game resume is not connected to the session.') }
 
 export function connectPlayControl(handlers: { lost: typeof lost; resume: typeof resume }) { lost = handlers.lost; resume = handlers.resume }
@@ -59,7 +59,7 @@ export const playControl = new PlayControl({
   },
   cancel: (timer) => (timer as () => void)(),
   delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  lost: (message) => lost(message), conflict: (conflict) => usePlayControl.setState({ conflict }), resume: (target) => resume(target),
+  lost: (message, transfer) => lost(message, transfer), conflict: (conflict) => usePlayControl.setState({ conflict }), resume: (target) => resume(target),
 })
 
 if (typeof window !== 'undefined') window.addEventListener('pagehide', () => { void playControl.release().catch(() => {}) })

@@ -21,7 +21,7 @@ export class RankedConflictError extends Error {
 }
 export interface RankedAccountAuthority {
   attachPlay(token: string, room: string, accountId: string | null): Promise<{ connection: string; id: string; expiresAt: number; serverTime: number }>
-  checkPlay(token: string, connection: string): Promise<{ ok: boolean; expiresAt?: number; serverTime?: number }>
+  checkPlay(token: string, connection: string): Promise<{ ok: boolean; transferring?: boolean; expiresAt?: number; serverTime?: number }>
   detachPlay(connection: string): void
   pending?(): { rewards: number; releases: number }
   names(accountIds: string[]): Promise<Map<string, string>>

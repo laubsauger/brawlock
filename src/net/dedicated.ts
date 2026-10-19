@@ -56,6 +56,8 @@ export interface RoomOptions {
   onMatchStart?: MatchRecorder['start']
   onMatchAbort?: () => void
   onMatchJoin?: (device: string) => void
+  /** Pending connection reservations keep a transferring player's active match intact. */
+  hasPendingConnections?: () => boolean
   /** Explicit server rating policy; absent when the caller supplies no policy. */
   elo?: { enabled: boolean; minSeconds: number }
   /** self-running rooms: at least this many complete rounds of a whole idle match before a human goes back to the menu (0: never; default IDLE_ROUNDS) */
@@ -361,7 +363,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   const empty = setInterval(() => {
     if (closed) return
     const d = session.debug()
-    if (screen === 'match' && d.peers === 0) {
+    if (screen === 'match' && d.peers === 0 && !opts.hasPendingConnections?.()) {
       log(`room ${opts.code}: empty, back to the lobby`)
       session.backToLobby()
       return

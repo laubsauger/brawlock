@@ -10,7 +10,7 @@ export function createPlayControl(db: unknown, opts?: { now?: () => number }): {
   takeover(actor: PlayActor, id: string): { ok: true }
   release(token: string): void
   attach(token: string, region: string, instance: string, room: string, accountId: string | null): { ok: true; connection: string } & PlayClock
-  check(token: string, connection: string): ({ ok: true } & PlayClock) | { ok: false }
+  check(token: string, connection: string): ({ ok: true } & PlayClock) | { ok: false; transferring: boolean }
   detach(region: string, instance: string, connection: string): void
   register(region: string, instance: string): void
 }

@@ -31,6 +31,8 @@ export interface Transport {
   onClose(cb: (reason: string) => void): () => void
   /** Close locally. Queued reliable messages get a short grace period to flush. */
   close(): void
+  /** Dedicated transport: preserve the destination briefly before an explicit controller transfer. */
+  prepareHandoff?(): void
   /** Smoothed round trip on the unreliable path, ms. 0 until the first pong. */
   readonly rtt: number
   /** Latest RTT sample, ms. 0 until the first pong. */

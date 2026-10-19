@@ -108,7 +108,7 @@ export function createPlayControl(db, { now = Date.now } = {}) {
     },
     check(token, connection) {
       const row = owned(token)
-      if (!valid(row) || attached.get(row.id)?.connection_id !== connection) return { ok: false }
+      if (!valid(row) || attached.get(row.id)?.connection_id !== connection) return { ok: false, transferring: row?.revoked === 1 && attached.get(row.id)?.connection_id === connection }
       return { ok: true, ...clock(row) }
     },
     detach(region, instance, connection) {
