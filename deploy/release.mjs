@@ -11,7 +11,7 @@ import { releaseMetadata } from '../scripts/release-version.mjs'
 import { releaseTag, tagReceipt } from './release-tags.mjs'
 
 const toolDir = dirname(fileURLToPath(import.meta.url))
-const usage = 'node deploy/release.mjs --revision SHA [--apply] [--resume JOURNAL_DIRECTORY] [--config FILE] [--admission]'
+const usage = 'node deploy/release.mjs --revision SHA [--apply] [--resume JOURNAL_DIRECTORY] [--config FILE] [--admission] [--skip-tests]'
 const fail = (message) => { throw new Error(message) }
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'))
@@ -19,7 +19,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex')
 const hash = (file) => sha256(readFileSync(file))
 
 export function parseOptions(args) {
-  const result = { apply: false, admission: false, revision: '', config: join(toolDir, 'release.config.json'), resume: null }
+  const result = { apply: false, admission: false, skipTests: false, revision: '', config: join(toolDir, 'release.config.json'), resume: null }
   const seen = new Set()
   while (args.length) {
     const flag = args.shift()
@@ -27,6 +27,8 @@ export function parseOptions(args) {
     seen.add(flag)
     if (flag === '--apply') result.apply = true
     else if (flag === '--admission') result.admission = true
+    // skips only the full vitest suite (release-tool tests, typecheck and builds still run)
+    else if (flag === '--skip-tests') result.skipTests = true
     else if (['--revision', '--config', '--resume'].includes(flag) && args.length) result[flag.slice(2)] = args.shift()
     else fail(usage)
   }
@@ -209,7 +211,7 @@ export async function main(args = process.argv.slice(2)) {
   }
   const authority = config.regions.find((r) => r.globalAuthority)
   const ordered = [authority, ...config.regions.filter((r) => r !== authority)]
-  const plan = [ 'archive approved source; npm ci; serial regression tests; typecheck; client/game/account builds',
+  const plan = [ `archive approved source; npm ci; ${opts.skipTests ? 'release-tool tests (full suite skipped: --skip-tests)' : 'serial regression tests'}; typecheck; client/game/account builds`,
     'monitor existing exact-SHA Pages workflow and download its matching first-party artifact',
     'inspect prepared runtimes and stage the matching website', 'drain all regions; wait for complete matches and all deliveries',
     'stop game processes and account authority; save private consistent backups',
@@ -219,7 +221,7 @@ export async function main(args = process.argv.slice(2)) {
     `publish immutable ${release.tag} source tag after successful proof (metadata-only retry on failure)` ]
   if (!opts.apply) {
     console.log(JSON.stringify({ mode: 'plan', revision, ...release, regions: ordered.map(({ id, host, origin, globalAuthority }) => ({ id, host, origin, globalAuthority })), stages: plan,
-      resume: opts.resume ? resolve(opts.resume) : null, admission: opts.admission, blockers: opts.resume ? [] : blockers, note: 'No builds, network calls, remote changes or workflow dispatch. A new apply additionally verifies the live origin/main tip and SSH keys, and requires an existing exact-SHA Pages run. Resume uses its frozen approved revision.' }, null, 2))
+      resume: opts.resume ? resolve(opts.resume) : null, admission: opts.admission, skipTests: opts.skipTests, blockers: opts.resume ? [] : blockers, note: 'No builds, network calls, remote changes or workflow dispatch. A new apply additionally verifies the live origin/main tip and SSH keys, and requires an existing exact-SHA Pages run. Resume uses its frozen approved revision.' }, null, 2))
     return
   }
   const unlock = await acquireFleetLock(config.appOrigin)
@@ -230,8 +232,8 @@ export async function main(args = process.argv.slice(2)) {
   const dir = realpathSync(requestedDir)
   const stateFile = join(dir, 'journal.json')
   const toolHash = sha256([fileURLToPath(import.meta.url), join(toolDir, 'release-remote.cjs'), join(toolDir, 'release-tags.mjs'), join(toolDir, '../scripts/release-version.mjs')].map((file) => readFileSync(file).toString()).join('\n'))
-  const state = opts.resume ? readJson(stateFile) : { v: 1, revision, toolHash, configHash: sha256(JSON.stringify(config)), releaseId: `${new Date().toISOString().replace(/[-:.]/g, '')}-${revision.slice(0, 12)}`, admission: opts.admission, steps: {} }
-  if (state.v !== 1 || state.revision !== revision || state.toolHash !== toolHash || state.configHash !== sha256(JSON.stringify(config)) || state.admission !== opts.admission) fail('Resume journal/revision/tool/config/admission mismatch')
+  const state = opts.resume ? readJson(stateFile) : { v: 1, revision, toolHash, configHash: sha256(JSON.stringify(config)), releaseId: `${new Date().toISOString().replace(/[-:.]/g, '')}-${revision.slice(0, 12)}`, admission: opts.admission, skipTests: opts.skipTests, steps: {} }
+  if (state.v !== 1 || state.revision !== revision || state.toolHash !== toolHash || state.configHash !== sha256(JSON.stringify(config)) || state.admission !== opts.admission || (state.skipTests ?? false) !== opts.skipTests) fail('Resume journal/revision/tool/config/admission/skip-tests mismatch')
   if (lstatSync(dir).isSymbolicLink() || (lstatSync(dir).mode & 0o777) !== 0o700) fail('Release journal directory must have mode 0700')
   mkdirSync(join(dir, 'logs'), { recursive: true, mode: 0o700 })
   const publishTag = async () => {
@@ -255,7 +257,7 @@ export async function main(args = process.argv.slice(2)) {
   const persist = () => save(stateFile, state)
   persist()
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
-  const resumeArgs = [process.execPath, fileURLToPath(import.meta.url), '--revision', revision, '--apply', '--resume', dir, '--config', resolve(opts.config), ...(opts.admission ? ['--admission'] : [])]
+  const resumeArgs = [process.execPath, fileURLToPath(import.meta.url), '--revision', revision, '--apply', '--resume', dir, '--config', resolve(opts.config), ...(opts.admission ? ['--admission'] : []), ...(opts.skipTests ? ['--skip-tests'] : [])]
   console.log(`Release journal: ${dir}\nResume: ${resumeArgs.map(quote).join(' ')}`)
   await releaseTag({ repository: config.github.repository, tag: release.tag, revision }, (cmd, args) => command(cmd, args, { cwd: repo, logDir: join(dir, 'logs') }))
   const source = join(dir, 'source'), build = revision.slice(0, 12), packageDir = join(dir, 'deploy-package')
@@ -319,7 +321,7 @@ export async function main(args = process.argv.slice(2)) {
       workflowMatchesConfig(readFileSync(join(source, '.github/workflows/deploy.yml'), 'utf8'), config)
       await run('npm', ['ci'])
       await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs'])
-      await run('npm', ['test', '--', '--maxWorkers=1'])
+      if (!state.skipTests) await run('npm', ['test', '--', '--maxWorkers=1'])
       await run('npm', ['run', 'typecheck'])
       await run('npm', ['run', 'build', '--', '--base=/'])
       await run('npm', ['run', 'server:build'])
@@ -461,7 +463,7 @@ export async function main(args = process.argv.slice(2)) {
       return value
     }),
     stage('receipt', () => {
-      const receipt = { revision, build, ...release, net: state.steps.build.net, protocol: state.steps.build.protocol, completedAt: new Date().toISOString(), pages: state.steps['pages-artifact'].url,
+      const receipt = { revision, build, ...release, ...(state.skipTests ? { testsSkipped: true } : {}), net: state.steps.build.net, protocol: state.steps.build.protocol, completedAt: new Date().toISOString(), pages: state.steps['pages-artifact'].url,
         hashes: { game: state.steps.build.gameHash, accounts: state.steps.build.accountsHash }, regions: ordered.map((r) => ({ id: r.id, origin: r.origin, backup: state.steps[`backup:${r.id}`].directory })), proof: state.steps['final-proof'] }
       save(join(dir, 'receipt.json'), receipt)
       return { file: join(dir, 'receipt.json'), revision, build, net: receipt.net }

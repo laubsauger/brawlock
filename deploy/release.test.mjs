@@ -101,6 +101,9 @@ test('explicit apply; strict options/config and workflow fleet binding', () => {
   assert.equal(parseOptions(['--revision', 'abcdef0', '--apply']).apply, true)
   assert.throws(() => parseOptions(['--revision', 'main', '--apply']))
   assert.throws(() => parseOptions(['--revision', 'abcdef0', '--apply', '--apply']))
+  // the full suite runs unless explicitly skipped
+  assert.equal(parseOptions(['--revision', 'abcdef0', '--apply']).skipTests, false)
+  assert.equal(parseOptions(['--revision', 'abcdef0', '--apply', '--skip-tests']).skipTests, true)
   assert.equal(validateConfig(config), config)
   assert.throws(() => validateConfig({ ...config, appOrigin: 'https://brawlock.osc.link/other' }))
   const workflow = readFileSync(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8')
