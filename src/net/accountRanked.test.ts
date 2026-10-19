@@ -308,6 +308,7 @@ describe('account-ranked production TCP boundary', () => {
     const ordinary = f.client(f.us, async () => null, { profileId: 'guest-public-id', device: 'guest-device-id' })
     await ordinary.session.join(casual.code)
     expect(ordinary.lobby().status).toBe('open')
+    await until(() => ordinary.lobby().slots.some((s) => s.kind === 'human'), 'the guest lobby snapshot')
     expect(ordinary.lobby().slots.find((s) => s.kind === 'human')?.name).toMatch(/^Guest ForgedClient/)
     ordinary.session.setDisplayName('CinderFox')
     await until(() => ordinary.lobby().slots.some((s) => s.name === 'Guest CinderFox'), 'guest rename keeps its guest identity')
