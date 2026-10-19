@@ -69,7 +69,8 @@ export const VOICES: Record<SfxId, VoiceSpec> = {
   scourgeBlast: { max: 3, level: 1.0, bus: 'sfx' },
   teleportOut: { max: 3, level: 1.1, bus: 'sfx' },
   teleportIn: { max: 3, level: 1.0, bus: 'sfx' },
-  lavaSizzle: { max: 1, level: 1.2, bus: 'sfx', minGap: 0.22 },
+  // entry accent and a rare reminder: the steady burn is the ambience's (setBurning)
+  lavaSizzle: { max: 1, level: 0.85, bus: 'sfx', minGap: 1.6 },
   death: { max: 2, level: 1.0, bus: 'sfx' },
   // Personal reward stays dry and audible under announcer ducking; multikills share a bounded punch.
   killConfirm: { max: 3, level: 0.95, bus: 'ui', minGap: 0.06 },
@@ -520,10 +521,13 @@ export class AudioEngine {
     const me = listener.state?.pawns.find((p) => p.owner === listener.localPlayer)
     if (!me || !me.alive) {
       amb.setEdge(0, 0)
+      amb.setBurning(false)
       return
     }
-    const e = edgeProximity(me.x, me.y, (x, y) => isLocationSafeAtLayer(arena.layer, x, y))
+    const safe = (x: number, y: number) => isLocationSafeAtLayer(arena.layer, x, y)
+    const e = edgeProximity(me.x, me.y, safe)
     amb.setEdge(e.proximity, e.pan)
+    amb.setBurning(!safe(me.x, me.y))
   }
 
   /**

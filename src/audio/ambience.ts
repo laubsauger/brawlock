@@ -2,7 +2,7 @@
  * Lava ambience under the music (procedural; recordings may layer on later):
  * - match: a low magma rumble, a breathing hiss, sparse crackle and bubbles plopping at
  *   random, plus an edge sizzle that swells and pans toward the lava as the local pawn
- *   nears the edge (setEdge);
+ *   nears the edge (setEdge), and a steady burn while it stands in lava (setBurning);
  * - menu: the same caldera from further away: darker, fewer bubbles, no edge layer.
  * Cheap: four continuous noise sources and a handful of short bubble voices per second.
  */
@@ -14,6 +14,8 @@ export type AmbienceKind = 'menu' | 'match'
 
 /** edge sizzle at the lava's edge, relative to the bed: a warning you hear */
 const EDGE_BOOST = 1.8
+/** steady burn while the local pawn stands in lava, relative to the bed */
+const BURN_LEVEL = 1.3
 
 interface AmbDef {
   level: number
@@ -41,6 +43,8 @@ export class AmbienceLayer {
   private readonly sources: AudioScheduledSourceNode[] = []
   private readonly edgeGain: GainNode | null = null
   private readonly edgePan: StereoPannerNode | null = null
+  private readonly burnGain: GainNode | null = null
+  private burning = false
   private nextBubble: number
   private stopAt = Infinity
   private readonly rumbleGain: GainNode
@@ -92,6 +96,14 @@ export class AmbienceLayer {
       const sizzle = loop(synth.banks.white, 'highpass', 3500, 0.7, 0.35, this.edgeGain)
       this.lfo(7, 0.15, sizzle.g.gain, t)
       loop(synth.banks.crackle, 'bandpass', 3000, 0.9, 0.9, this.edgeGain)
+      // burn: one continuous fry (was a one-shot sizzle re-fired ~4x a second)
+      this.burnGain = ctx.createGain()
+      this.burnGain.gain.value = 0
+      this.burnGain.connect(this.out)
+      loop(synth.banks.white, 'highpass', 5000, 0.6, 0.3, this.burnGain)
+      const sear = loop(synth.banks.crackle, 'bandpass', 1800, 0.8, 0.8, this.burnGain)
+      this.lfo(0.7, 0.2, sear.g.gain, t)
+      loop(synth.banks.pink, 'lowpass', 700, 0.7, 0.45, this.burnGain)
     }
     this.nextBubble = t + 0.2
   }
@@ -168,6 +180,16 @@ export class AmbienceLayer {
     const k = Math.max(0, Math.min(1, proximity))
     this.edgeGain.gain.setTargetAtTime(k * k * EDGE_BOOST, now, 0.12)
     this.edgePan.pan.setTargetAtTime(Math.max(-0.8, Math.min(0.8, pan)), now, 0.12)
+  }
+
+  /** Local pawn in lava: the burn swells in fast and lets go over ~0.6 s. */
+  setBurning(on: boolean): void {
+    if (!this.burnGain || on === this.burning) return
+    this.burning = on
+    const now = this.synth.ctx.currentTime
+    this.burnGain.gain.cancelScheduledValues(now)
+    this.burnGain.gain.setValueAtTime(this.burnGain.gain.value, now)
+    this.burnGain.gain.setTargetAtTime(on ? BURN_LEVEL : 0, now, on ? 0.04 : 0.2)
   }
 
   /** Schedule bubbles up to `until` (context time). */
