@@ -2,7 +2,7 @@
 
 This is the provider-console setup for the account slice in [ACCOUNTS.md](ACCOUNTS.md). The user approved the main game/auth origin `https://brawlock.osc.link`. These instructions do not deploy the account service or switch the live website.
 
-Current progress, 2026-10-19: the Google web client is created, its downloaded JSON has been validated, and its secret/configuration are installed privately on the US account authority. The service and same-origin website/proxy still need the coordinated account rollout before a real login can be tested. Do not recreate the client or rotate its secret for an ordinary application update.
+Current progress, 2026-10-19: the Google web client, account service and same-origin website/proxy are deployed, and a real login has been confirmed by the user. The static `about.html`, `privacy.html`, `terms.html`, their shared stylesheet and the supplied ownership-verification file are live in the existing first-party web release `38a2f766fb5b`. HTTP/crawler checks confirmed exact built contents, including the Google file. The documents work without JavaScript and make no external requests. Menu, sign-in-dialog and Credits links are implemented locally for the next client release. Public pages and the Google file are retained by future first-party packages. Google Console ownership/branding approval is a separate operator step; uploading the verification file or a successful login does not establish that approval. Do not recreate the client or rotate its secret for an ordinary application update.
 
 ## 1. Select a project
 
@@ -14,9 +14,21 @@ Open [Google Auth Platform](https://console.cloud.google.com/auth/overview) with
 
 Set the app name to **Brawlock**. Choose a support email that the operator can monitor and provide the requested developer contact email. Choose **External** for the audience so players outside a Google Workspace organization can sign in. Complete Google's requested consent/confirmation fields and create the configuration.
 
-For initial testing, keep the app in its testing state. On **Audience**, add the operator and collaborator as test users if the console requires a test-user list. Public launch is a later step after domain, home page and privacy information are ready.
+On **Audience**, choose **External** and publish the application when ready. Google's documented exception for basic sign-in scopes (`openid email profile`) means players do not need to be on the test-user list even while the application is in Testing. Additional API scopes remove that exception. Publishing the audience and verifying/publishing the application's branding are separate steps.
 
-On **Branding**, the home page will be `https://brawlock.osc.link`. Authorized domains use the registered domain **osc.link**, not a URL or the `brawlock` subdomain. Google's production brand verification can require proof of domain ownership through Search Console and a genuine privacy policy on the verified domain. Do not invent a policy URL or publish an inaccurate policy just to pass the form. An app logo is optional for the initial test setup.
+On **Branding**, configure three distinct, public URLs:
+
+| Google field | URL |
+|---|---|
+| Application homepage | `https://brawlock.osc.link/about.html` |
+| Privacy policy | `https://brawlock.osc.link/privacy.html` |
+| Terms of service | `https://brawlock.osc.link/terms.html` |
+
+These are static documents without JavaScript, account checks, a canvas or the game's boot flow. The homepage describes Brawlock, its operator and sign-in use, links both policies and opens the game at its existing root URL. The policies identify **Promp' Industries** and the operator-supplied public contact **stayprompin@gmail.com**. Verify that the live documents match current practices whenever those change.
+
+Authorized domains use the registered domain **osc.link**, not a URL or the `brawlock` subdomain. Google requires the verified owner to be associated with the OAuth project as an owner/editor. A domain that resolves and has HTTPS is not by itself proof of Google Search Console ownership.
+
+The operator supplied the Search Console HTML verification file `googlec523c567482e96c5.html`. Its exact content is retained in `public/` and copied into first-party packages; `deploy/web.sh` permits it. It must remain publicly accessible at `https://brawlock.osc.link/googlec523c567482e96c5.html`, including after future releases. Uploading the file does not click Search Console's **Verify** button or prove Google's approval. Complete that step using the Google account associated with the OAuth project. The reported Google branding error instructs waiting 24 hours after ownership verification before retrying. Do not remove the file after success. If Google still requires ownership of the registered parent domain, verify the Domain property `osc.link` with the specific DNS record Search Console supplies; do not invent a verification token.
 
 ## 3. Create the web client
 

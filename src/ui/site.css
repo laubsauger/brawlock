@@ -1,0 +1,31 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; color: #ecdcc5; background: #100d0b; line-height: 1.7; }
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(ellipse at 50% 0, #382319 0, transparent 55%); }
+a { color: #f2c58d; text-underline-offset: .2em; }
+a:hover { color: #fff0d7; }
+a:focus-visible { outline: 2px solid #ffc77d; outline-offset: 4px; border-radius: 2px; }
+.skip { position: absolute; left: 16px; top: -80px; background: #17110d; padding: 8px; }
+.skip:focus { top: 8px; }
+.site { width: min(920px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0; }
+header, footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; }
+header { border-bottom: 1px solid #79522e; padding-bottom: 20px; }
+.brand { font-family: Georgia, serif; font-weight: 700; font-size: 1.65rem; letter-spacing: .06em; text-decoration: none; color: #ffdaa5; }
+nav { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+nav a { display: inline-flex; align-items: center; min-height: 44px; }
+nav [aria-current=page] { color: #fff1dd; text-decoration-thickness: 2px; }
+main { padding: 32px 0; }
+article { max-width: 760px; }
+h1, h2 { color: #ffdaa5; font-family: Georgia, serif; line-height: 1.2; }
+h1 { font-size: clamp(2rem, 6vw, 3.3rem); margin: 0 0 16px; }
+h2 { font-size: 1.4rem; margin: 32px 0 12px; }
+p, ul { margin: 12px 0; }
+li + li { margin-top: 8px; }
+ul { padding-left: 24px; }
+.muted { color: #bda994; }
+.intro { font-size: 1.2rem; max-width: 650px; }
+.action { display: inline-block; padding: 10px 24px; border: 1px solid #d39550; border-radius: 3px; background: #392318; color: #ffe4bb; font-weight: 700; text-decoration: none; margin: 12px 0; }
+.action:hover { background: #52301d; }
+.note { border-left: 2px solid #b47a40; padding-left: 20px; }
+footer { border-top: 1px solid #79522e; padding-top: 20px; font-size: .9rem; color: #bda994; }
+footer a, .contact { overflow-wrap: anywhere; }
+@media (max-width: 480px) { .site { width: calc(100% - 32px); padding-top: 16px; } nav { gap: 2px 16px; } main { padding-top: 24px; } }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Routine releases only. No provisioning, source publication, history reset or rollback.
+// Routine releases and verified source tags. No provisioning, branch publication, history reset or rollback.
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { releaseMetadata } from '../scripts/release-version.mjs'
+import { releaseTag, tagReceipt } from './release-tags.mjs'
 
 const toolDir = dirname(fileURLToPath(import.meta.url))
 const usage = 'node deploy/release.mjs --revision SHA [--apply] [--resume JOURNAL_DIRECTORY] [--config FILE] [--admission]'
@@ -190,11 +192,12 @@ export async function main(args = process.argv.slice(2)) {
   }
   const repo = await command('git', ['rev-parse', '--show-toplevel'])
   const revision = await command('git', ['rev-parse', '--verify', `${opts.revision}^{commit}`], { cwd: repo })
+  const release = releaseMetadata(JSON.parse(await command('git', ['show', `${revision}:package.json`], { cwd: repo })))
   const head = await command('git', ['rev-parse', 'HEAD'], { cwd: repo })
   const blockers = []
   if (revision !== head) blockers.push('The requested revision must be the current HEAD; no checkout/reset is performed')
   if (await command('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repo })) blockers.push('Tracked changes are present; review and commit them before a release')
-  const required = ['deploy/release.mjs', 'deploy/release.test.mjs', 'deploy/release-remote.cjs', 'deploy/release.config.json', 'scripts/release/verify-fleet.mjs', 'deploy/deploy.sh', 'deploy/accounts.sh', 'deploy/web.sh', 'deploy/maintenance.sh']
+  const required = ['deploy/release.mjs', 'deploy/release.test.mjs', 'deploy/release-tags.mjs', 'scripts/release-version.mjs', 'deploy/release-remote.cjs', 'deploy/release.config.json', 'scripts/release/verify-fleet.mjs', 'deploy/deploy.sh', 'deploy/accounts.sh', 'deploy/web.sh', 'deploy/maintenance.sh']
   const tracked = (await command('git', ['ls-files', '--', ...required], { cwd: repo })).split('\n')
   if (required.some((file) => !tracked.includes(file))) blockers.push('The orchestrator and every deployment helper must already be committed in the approved revision')
   const remote = await command('git', ['remote', 'get-url', 'origin'], { cwd: repo })
@@ -212,9 +215,10 @@ export async function main(args = process.argv.slice(2)) {
     'stop game processes and account authority; save private consistent backups',
     'deploy changed account bundle; deploy and verify global authority game then other regions',
     'verify hashes, protocol, shared leaderboard and matching Pages media; activate first-party website',
-    'verify app/media versions; reopen regions; final fleet verification; write receipt' ]
+    'verify app/media versions; reopen regions; final fleet verification; write receipt',
+    `publish immutable ${release.tag} source tag after successful proof (metadata-only retry on failure)` ]
   if (!opts.apply) {
-    console.log(JSON.stringify({ mode: 'plan', revision, regions: ordered.map(({ id, host, origin, globalAuthority }) => ({ id, host, origin, globalAuthority })), stages: plan,
+    console.log(JSON.stringify({ mode: 'plan', revision, ...release, regions: ordered.map(({ id, host, origin, globalAuthority }) => ({ id, host, origin, globalAuthority })), stages: plan,
       resume: opts.resume ? resolve(opts.resume) : null, admission: opts.admission, blockers: opts.resume ? [] : blockers, note: 'No builds, network calls, remote changes or workflow dispatch. A new apply additionally verifies the live origin/main tip and SSH keys, and requires an existing exact-SHA Pages run. Resume uses its frozen approved revision.' }, null, 2))
     return
   }
@@ -225,23 +229,37 @@ export async function main(args = process.argv.slice(2)) {
   if (lstatSync(requestedDir).isSymbolicLink()) fail('Release journal directory must not be a symlink')
   const dir = realpathSync(requestedDir)
   const stateFile = join(dir, 'journal.json')
-  const toolHash = sha256(readFileSync(fileURLToPath(import.meta.url)) + readFileSync(join(toolDir, 'release-remote.cjs')).toString())
+  const toolHash = sha256([fileURLToPath(import.meta.url), join(toolDir, 'release-remote.cjs'), join(toolDir, 'release-tags.mjs'), join(toolDir, '../scripts/release-version.mjs')].map((file) => readFileSync(file).toString()).join('\n'))
   const state = opts.resume ? readJson(stateFile) : { v: 1, revision, toolHash, configHash: sha256(JSON.stringify(config)), releaseId: `${new Date().toISOString().replace(/[-:.]/g, '')}-${revision.slice(0, 12)}`, admission: opts.admission, steps: {} }
   if (state.v !== 1 || state.revision !== revision || state.toolHash !== toolHash || state.configHash !== sha256(JSON.stringify(config)) || state.admission !== opts.admission) fail('Resume journal/revision/tool/config/admission mismatch')
   if (lstatSync(dir).isSymbolicLink() || (lstatSync(dir).mode & 0o777) !== 0o700) fail('Release journal directory must have mode 0700')
+  mkdirSync(join(dir, 'logs'), { recursive: true, mode: 0o700 })
+  const publishTag = async () => {
+    const receiptFile = join(dir, 'receipt.json')
+    const receipt = readJson(receiptFile)
+    if (receipt.revision !== revision || Object.keys(release).some((key) => receipt[key] !== release[key])) fail('Release receipt version/revision mismatch')
+    try {
+      receipt.tagPublication = await tagReceipt(receipt, config.github.repository, (cmd, args) => command(cmd, args, { cwd: repo, logDir: join(dir, 'logs') }))
+      save(receiptFile, receipt)
+    } catch (error) {
+      throw new Error(`Deployment is verified and regions are open; release tag publication failed. Resume this journal to retry publication only. ${error.message}`)
+    }
+  }
   if (state.steps.receipt && !state.error) {
     const receipt = readJson(join(dir, 'receipt.json'))
     if (receipt.revision !== revision || receipt.net !== state.steps.build.net) fail('Completed release receipt does not match its journal')
-    console.log(JSON.stringify({ ok: true, alreadyCompleted: true, receipt: join(dir, 'receipt.json'), revision, note: 'Retained original release evidence; no new deployment or verification was performed.' }))
+    await publishTag()
+    console.log(JSON.stringify({ ok: true, alreadyCompleted: true, receipt: join(dir, 'receipt.json'), revision, ...release, note: 'Retained original deployment evidence and confirmed its immutable tag; no new deployment or fleet verification was performed.' }))
     return
   }
-  mkdirSync(join(dir, 'logs'), { recursive: true, mode: 0o700 })
   const persist = () => save(stateFile, state)
   persist()
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
   const resumeArgs = [process.execPath, fileURLToPath(import.meta.url), '--revision', revision, '--apply', '--resume', dir, '--config', resolve(opts.config), ...(opts.admission ? ['--admission'] : [])]
   console.log(`Release journal: ${dir}\nResume: ${resumeArgs.map(quote).join(' ')}`)
+  await releaseTag({ repository: config.github.repository, tag: release.tag, revision }, (cmd, args) => command(cmd, args, { cwd: repo, logDir: join(dir, 'logs') }))
   const source = join(dir, 'source'), build = revision.slice(0, 12), packageDir = join(dir, 'deploy-package')
+  const publicVersionMatches = (value) => value.build === build && Object.keys(release).every((key) => value[key] === release[key])
   const gitDir = join(dir, 'git-metadata')
   const env = { GIT_DIR: gitDir, GIT_WORK_TREE: source, GIT_INDEX_FILE: join(dir, 'git-index'), GITHUB_SHA: revision, GITHUB_REPOSITORY: config.github.repository,
     VITE_GAME_SERVERS: JSON.stringify(config.regions.map((r) => ({ id: r.id, label: r.label, url: r.origin.replace(/^https:/, 'wss:') }))), VITE_ACCOUNTS_ENABLED: 'true', VITE_ASSET_BASE_URL: config.mediaOrigin,
@@ -310,9 +328,11 @@ export async function main(args = process.argv.slice(2)) {
       rmSync(packaged, { recursive: true, force: true })
       await run(process.execPath, ['scripts/package-client.mjs', 'dist', packaged])
       const version = readJson(join(source, 'dist-server/version.json'))
+      const clientVersion = readJson(join(source, 'dist/version.json'))
+      if (Object.keys(release).some((key) => version[key] !== release[key] || clientVersion[key] !== release[key])) fail('Client/server semantic release metadata mismatch')
       const protocol = /export const PROTOCOL_VERSION = (\d+)/.exec(readFileSync(join(source, 'src/net/protocol.ts'), 'utf8'))
       if (version.commit !== build || !/^[a-f0-9]{12}$/.test(version.net) || !protocol || readJson(join(source, 'dist/version.json')).build !== build) fail('Frozen build version/protocol mismatch')
-      return { net: version.net, protocol: Number(protocol[1]), gameHash: hash(join(source, 'dist-server/server.mjs')), accountsHash: hash(join(source, 'dist-accounts/accounts.mjs')) }
+      return { ...release, net: version.net, protocol: Number(protocol[1]), gameHash: hash(join(source, 'dist-server/server.mjs')), accountsHash: hash(join(source, 'dist-accounts/accounts.mjs')) }
     }),
     stage('pages-artifact', async () => {
       const base = ['--repo', config.github.repository]
@@ -330,7 +350,8 @@ export async function main(args = process.argv.slice(2)) {
       }, 'exact-SHA Pages publication', 20 * 60 * 1000)
       rmSync(packageDir, { recursive: true, force: true }); mkdirSync(packageDir)
       await run('gh', ['run', 'download', String(existing.databaseId), ...base, '--name', config.github.artifact, '--dir', join(packageDir, 'web')])
-      if (readJson(join(packageDir, 'web/version.json')).build !== build) fail('Downloaded workflow artifact build mismatch')
+      const downloadedVersion = readJson(join(packageDir, 'web/version.json'))
+      if (!publicVersionMatches(downloadedVersion)) fail('Downloaded workflow artifact build/version mismatch')
       cpSync(join(dir, 'local-package/hosting.json'), join(packageDir, 'hosting.json'))
       const files = manifest(join(packageDir, 'web'))
       if (Object.values(files).length === 0) fail('Empty workflow artifact')
@@ -399,6 +420,7 @@ export async function main(args = process.argv.slice(2)) {
       if (!(before.game.status === 'online' && before.game.hash === state.steps.build.gameHash && before.game.version.commit === build && before.game.version.net === state.steps.build.net)) await helper('deploy.sh', region)
       const value = await remoteOp(region, 'inspect')
       if (value.game.hash !== state.steps.build.gameHash || value.game.version.commit !== build || value.game.version.net !== state.steps.build.net || value.game.status !== 'online'
+        || Object.keys(release).some((key) => value.game.version[key] !== release[key])
         || region.accounts && (value.accounts.hash !== state.steps.build.accountsHash || value.accounts.status !== 'online')) fail('Deployed application hash/version/status mismatch')
       const publicHealth = await requestJson(`${region.origin}/health`)
       if (publicHealth.build !== state.steps.build.net || publicHealth.protocol !== state.steps.build.protocol || publicHealth.region !== region.id || publicHealth.maintenance?.draining !== true) fail('Updated region identity/version/drain mismatch')
@@ -413,7 +435,7 @@ export async function main(args = process.argv.slice(2)) {
         if (boards.some((board) => !Array.isArray(board.entries) || board.period !== 'all' || board.region !== '')) fail('Invalid shared leaderboard response')
         return boards.every((board) => JSON.stringify(board) === JSON.stringify(boards[0]))
       }, 'one identical global leaderboard through every region', 60000)
-      await poll(async () => (await requestJson(`${config.mediaOrigin}version.json`)).build === build, 'matching Pages media version', 180000)
+      await poll(async () => publicVersionMatches(await requestJson(`${config.mediaOrigin}version.json`)), 'matching Pages media version', 180000)
       return true
     }),
     stage('activate-web', async () => {
@@ -423,7 +445,7 @@ export async function main(args = process.argv.slice(2)) {
       return true
     }),
     stage('public-versions', async () => {
-      await poll(async () => (await requestJson(`${config.appOrigin}/version.json`)).build === build && (await requestJson(`${config.mediaOrigin}version.json`)).build === build, 'matching first-party app and Pages versions', 180000)
+      await poll(async () => publicVersionMatches(await requestJson(`${config.appOrigin}/version.json`)) && publicVersionMatches(await requestJson(`${config.mediaOrigin}version.json`)), 'matching first-party app and Pages versions', 180000)
       return true
     }),
     ...ordered.map((region) => stage(`reopen:${region.id}`, async () => {
@@ -439,7 +461,7 @@ export async function main(args = process.argv.slice(2)) {
       return value
     }),
     stage('receipt', () => {
-      const receipt = { revision, build, net: state.steps.build.net, protocol: state.steps.build.protocol, completedAt: new Date().toISOString(), pages: state.steps['pages-artifact'].url,
+      const receipt = { revision, build, ...release, net: state.steps.build.net, protocol: state.steps.build.protocol, completedAt: new Date().toISOString(), pages: state.steps['pages-artifact'].url,
         hashes: { game: state.steps.build.gameHash, accounts: state.steps.build.accountsHash }, regions: ordered.map((r) => ({ id: r.id, origin: r.origin, backup: state.steps[`backup:${r.id}`].directory })), proof: state.steps['final-proof'] }
       save(join(dir, 'receipt.json'), receipt)
       return { file: join(dir, 'receipt.json'), revision, build, net: receipt.net }
@@ -452,7 +474,8 @@ export async function main(args = process.argv.slice(2)) {
       try { await maintenance(region, 'drain') } catch { console.error(`${region.id}: could not contact maintenance; a stopped service retains its persistent drain state`) }
     }
   })
-  console.log(JSON.stringify({ ok: true, receipt: state.steps.receipt.file, revision, build, net: state.steps.receipt.net }))
+  await publishTag()
+  console.log(JSON.stringify({ ok: true, receipt: state.steps.receipt.file, revision, build, ...release, net: state.steps.receipt.net }))
   } finally { await unlock() }
 }
 

@@ -26,6 +26,7 @@ import { useAccount } from '../../game/accountState'
 import { loadProgression } from '../../game/progression'
 import { EmberMark } from './Collection'
 import { accountReturn } from '../../game/accountReturn'
+import { ReleaseStamp } from '../ReleaseStamp'
 
 const Account = lazy(() => import('./Account').then((module) => ({ default: module.Account })))
 const Collection = lazy(() => import('./Collection').then((module) => ({ default: module.Collection })))
@@ -354,14 +355,18 @@ export function MainMenu() {
   return (
     <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
       <div className="menu-identity z-10 flex flex-wrap items-center justify-end gap-2" aria-label="Player and account">
-      <button type="button" data-testid="player-profile" className="menu-profile flex items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={`Edit player name and color: ${name}`}>
-        <span className="text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
-        <span className="max-w-40 truncate font-semibold">{name}</span>
-        <span className="text-ash"><MenuGlyph kind="edit" size={13} /></span>
+      <button type="button" data-testid="player-profile" className="menu-profile flex min-w-0 items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-left text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}, ${account.email}` : `Edit player name and color: ${name}`} title={account ? `Signed in as ${account.email}` : undefined}>
+        <span className="shrink-0 text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
+        <span className="flex min-w-0 flex-col">
+          <span className="max-w-40 truncate font-semibold">{name}</span>
+          {account && <span className="menu-account-email truncate text-xs text-ash">{account.email}</span>}
+          {account && !account.profile && <span className="text-xs text-gold">Finish setup</span>}
+        </span>
+        <span className="shrink-0 text-ash"><MenuGlyph kind="edit" size={13} /></span>
       </button>
       {rating && <button type="button" className="rounded border border-[#aaa9c8]/30 bg-[#140e0b]/90 px-3 py-2 text-sm font-semibold text-[#e3d9ba] hover:border-gold/60" onClick={() => setProfileTab('board')} title="Open the global Elo leaderboard" data-testid="profile-elo">{Math.round(rating.rating)} Elo · #{rating.rank}</button>}
       {accountsEnabled && <>
-        <Button variant="ghost" size="sm" className="menu-account min-w-0" title={account ? `Signed in as ${account.email}` : 'Sign in to your account'} onClick={openAccount}><span className="flex min-w-0 items-center gap-2"><span className="btn-label shrink-0">{account ? account.profile ? 'Account' : 'Finish setup' : 'Sign in'}</span>{account && <span className="menu-account-email truncate font-ui text-xs font-normal tracking-normal text-ash">{account.email}</span>}</span></Button>
+        {!account && <Button variant="ghost" size="sm" title="Sign in to your account" onClick={openAccount}>Sign in</Button>}
         {account && <Button variant="ghost" size="sm" data-testid="open-collection" title={emberProblem ?? 'Your permanent cosmetic collection'} onClick={() => setCollectionOpen(true)}><span className="flex items-center gap-1.5"><EmberMark size={16} /><span className="tabular">{emberBalance !== null ? `${emberBalance.toLocaleString()} · Collection` : 'Collection'}</span></span></Button>}
       </>}
       </div>
@@ -427,11 +432,16 @@ export function MainMenu() {
           ) : gpu === 'webgpu' ? (
             <span className="chip">WebGPU</span>
           ) : null}
-          <span>Pre-alpha build</span>
+            <ReleaseStamp />
           </div>
         </div>
-        <span className="flex items-center gap-1">
-          <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <nav className="flex flex-wrap items-center gap-1" aria-label="Information and policies">
+            <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
+            <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy (opens in a new tab)">Privacy Policy</a>
+            <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" aria-label="Terms of Service (opens in a new tab)">Terms of Service</a>
+          </nav>
+          <span className="flex flex-wrap items-center gap-1">
           <button
             type="button"
             className="flex items-center gap-2 rounded px-2 py-1 text-[#cdb8a4] hover:text-bone focus-visible:outline-2 focus-visible:outline-gold"
@@ -449,7 +459,8 @@ export function MainMenu() {
           >
             {muted ? 'Sound off' : 'Sound on'} <Kbd>M</Kbd>
           </button>
-        </span>
+          </span>
+        </div>
       </footer>
       {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
       {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}

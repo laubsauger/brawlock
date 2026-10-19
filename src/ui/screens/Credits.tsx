@@ -125,6 +125,11 @@ export function Credits() {
                 A non-commercial fan project. Not affiliated with or endorsed by Blizzard Entertainment or Valve. Warcraft is a trademark of Blizzard
                 Entertainment; Dota 2 is a trademark of Valve Corporation.
               </p>
+              <p>Operated by Promp' Industries. <a className="text-bone underline underline-offset-2" href="mailto:stayprompin@gmail.com">stayprompin@gmail.com</a></p>
+              <p className="flex flex-wrap gap-x-4 gap-y-2">
+                <a className="text-bone underline underline-offset-2" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy Policy<span className="sr-only"> (opens in a new tab)</span></a>
+                <a className="text-bone underline underline-offset-2" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer">Terms of Service<span className="sr-only"> (opens in a new tab)</span></a>
+              </p>
             </Block>
           </div>
         </div>

@@ -58,6 +58,7 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
           })}>Sign in with a passkey</Button>
         </div>
         <p className="text-xs leading-relaxed text-ash">First time? Use a sign-in provider, then add a passkey to your account. Your email stays private.</p>
+        <p className="text-xs leading-relaxed text-ash">Read our <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" className="text-bone underline underline-offset-2">Privacy Policy<span className="sr-only"> (opens in a new tab)</span></a> and <a href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" className="text-bone underline underline-offset-2">Terms of Service<span className="sr-only"> (opens in a new tab)</span></a>.</p>
       </> : <>
         <p className="min-w-0 text-sm text-ash">Signed in as <span className="break-all font-semibold text-bone">{player.email}</span></p>
         <form className="flex flex-col gap-4" onSubmit={(event) => {

@@ -5,6 +5,7 @@ import { build } from 'esbuild'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { netId } from './net-id.mjs'
+import { readReleaseMetadata } from './release-version.mjs'
 
 const root = process.cwd()
 const release = process.argv.includes('--dev') ? `dev-${netId(root)}` : netId(root)
@@ -25,5 +26,5 @@ await build({
   define: { __NET_ID__: JSON.stringify(release), __RELEASE_COMMIT__: JSON.stringify(commit === 'unknown' ? null : commit), 'import.meta.env.DEV': 'false' },
   logLevel: 'warning',
 })
-writeFileSync('dist-server/version.json', JSON.stringify({ net: release, commit, built: new Date().toISOString() }) + '\n')
+writeFileSync('dist-server/version.json', JSON.stringify({ net: release, commit, ...readReleaseMetadata(root), built: new Date().toISOString() }) + '\n')
 console.log(`dist-server/server.mjs (net ${release}, commit ${commit})`)

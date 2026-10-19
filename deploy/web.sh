@@ -15,7 +15,7 @@ const [dir,expected]=process.argv.slice(2)
 const hosting=JSON.parse(readFileSync(join(dir,'hosting.json'),'utf8'))
 const version=JSON.parse(readFileSync(join(dir,'web/version.json'),'utf8'))
 if(hosting.build!==expected || version.build!==expected || hosting.appOrigin!=='https://brawlock.osc.link') throw new Error('Package/version mismatch')
-const allowed=new Set(['index.html','sounds.html','version.json','assets','brand'])
+const allowed=new Set(['index.html','sounds.html','about.html','privacy.html','terms.html','googlec523c567482e96c5.html','version.json','assets','brand'])
 if(readdirSync(join(dir,'web')).some(name=>!allowed.has(name))) throw new Error('Unexpected first-party content')
 NODE
 release="/var/www/brawlock/releases/$expected"

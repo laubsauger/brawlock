@@ -15,6 +15,7 @@ import { Loadout } from './Inspect'
 import { canInspect, inspectStore, isSpectating } from '../../game/inspect'
 import { sfx } from '../lib/sound'
 import type { AbilityStatContext } from '../data/abilityStats'
+import { ReleaseStamp } from '../ReleaseStamp'
 
 /* ------------------------------------------------------------------------
  * Character sheet (C / K): live stats from the local PawnState and score.
@@ -391,6 +392,7 @@ export function EscMenu() {
             </Button>
           </>
         )}
+        <div className="mt-1 text-center"><ReleaseStamp /></div>
       </div>
     </div>
   )

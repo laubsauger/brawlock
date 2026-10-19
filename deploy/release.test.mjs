@@ -6,10 +6,83 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { acquireFleetLock, assertStopSafety, command, parseOptions, runStages, validateConfig, workflowMatchesConfig } from './release.mjs'
+import { releaseMetadata, readReleaseMetadata } from '../scripts/release-version.mjs'
+import { releaseTag, tagReceipt } from './release-tags.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./release.config.json', import.meta.url), 'utf8'))
 const temp = () => mkdtempSync(join(tmpdir(), 'brawlock-release-test-'))
 const quiet = () => {}
+
+test('release metadata is explicit, valid SemVer and a real calendar date', () => {
+  const expected = { version: '0.1.0-alpha.1', releaseDate: '2026-10-19', tag: 'v0.1.0-alpha.1' }
+  assert.deepEqual(releaseMetadata(expected), expected)
+  assert.equal(releaseMetadata({ version: '1.2.3-rc.2+build.01', releaseDate: '2024-02-29' }).tag, 'v1.2.3-rc.2+build.01')
+  for (const version of ['v1.0.0', '01.0.0', '1.0', '1.0.0-alpha.01', '1.0.0-']) {
+    assert.throws(() => releaseMetadata({ ...expected, version }), /semantic version/)
+  }
+  for (const releaseDate of [undefined, '2026-02-29', '2026-04-31', '2026-1-19', 'today']) {
+    assert.throws(() => releaseMetadata({ ...expected, releaseDate }), /real YYYY-MM-DD/)
+  }
+  const pkg = readReleaseMetadata(resolve('.'))
+  const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+  assert.equal(pkg.version, lock.version)
+  assert.equal(pkg.version, lock.packages[''].version)
+})
+
+const tagIdentity = { repository: 'laubsauger/brawlock', tag: 'v0.1.0-alpha.1', revision: 'a'.repeat(40) }
+const tagRef = (sha = tagIdentity.revision, type = 'commit') => ({ ref: `refs/tags/${tagIdentity.tag}`, object: { sha, type } })
+
+test('tag preflight distinguishes an absent exact tag from prefix matches, conflicts and API failures', async () => {
+  const calls = []
+  const run = async (cmd, args) => { calls.push([cmd, ...args]); return JSON.stringify([{ ...tagRef(), ref: `refs/tags/${tagIdentity.tag}0` }]) }
+  assert.equal((await releaseTag(tagIdentity, run)).published, false)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], 'gh')
+  await assert.rejects(releaseTag(tagIdentity, async () => JSON.stringify([tagRef('b'.repeat(40))])), /different revision/)
+  await assert.rejects(releaseTag(tagIdentity, async () => { throw new Error('API unavailable') }), /API unavailable/)
+  await assert.rejects(releaseTag(tagIdentity, async () => '{}'), /Invalid GitHub tag response/)
+})
+
+test('tag publication creates only an absent immutable ref and is idempotent on retry', async () => {
+  const calls = []
+  let exists = false
+  const run = async (cmd, args) => {
+    calls.push([cmd, ...args])
+    if (args.includes('POST')) { exists = true; return JSON.stringify(tagRef()) }
+    return JSON.stringify(exists ? [tagRef()] : [])
+  }
+  assert.equal((await releaseTag({ ...tagIdentity, publish: true }, run)).published, true)
+  assert.equal((await releaseTag({ ...tagIdentity, publish: true }, run)).published, true)
+  assert.equal(calls.filter((call) => call.includes('POST')).length, 1)
+  assert.ok(calls.every((call) => !call.includes('PATCH') && !call.includes('DELETE')))
+  assert.ok(calls[1].includes(`sha=${tagIdentity.revision}`))
+})
+
+test('annotated release tags resolve to their commit before checking version reuse', async () => {
+  const calls = []
+  const result = await releaseTag(tagIdentity, async (_cmd, args) => {
+    calls.push(args)
+    return JSON.stringify(args[1].includes('/commits/') ? { sha: tagIdentity.revision } : [tagRef('b'.repeat(40), 'tag')])
+  })
+  assert.equal(result.published, true)
+  assert.equal(calls.length, 2)
+})
+
+test('only completed fleet receipts can publish; publication failure preserves proof for metadata-only retry', async () => {
+  const receipt = { ...tagIdentity, version: '0.1.0-alpha.1', releaseDate: '2026-10-19', proof: { ok: true, regions: [{ draining: false }] } }
+  let calls = 0
+  const run = async () => { calls++; throw new Error('API unavailable') }
+  for (const proof of [undefined, { ok: false }, { ok: true, regions: [] }, { ok: true, regions: [{ draining: true }] }]) {
+    await assert.rejects(tagReceipt({ ...receipt, proof }, tagIdentity.repository, run), /completed, reopened/)
+  }
+  assert.equal(calls, 0)
+  const original = structuredClone(receipt)
+  await assert.rejects(tagReceipt(receipt, tagIdentity.repository, run), /API unavailable/)
+  assert.deepEqual(receipt, original)
+  const result = await tagReceipt(receipt, tagIdentity.repository, async () => JSON.stringify([tagRef()]))
+  assert.equal(result.published, true)
+  assert.deepEqual(receipt, original)
+})
 
 test('fleet verification CLI runs through a symlink instead of silently returning success', () => {
   const dir = temp()

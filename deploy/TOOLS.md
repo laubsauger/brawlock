@@ -64,18 +64,35 @@ Add `--admission` only when each region is empty and accepting games. It require
 
 ## One-command routine release
 
+### Version and release date
+
+The first labeled release is `v0.1.0-alpha.1`. `package.json` supplies its SemVer `version` and explicit UTC `releaseDate` (`YYYY-MM-DD`); keep the lockfile version in sync. The menu footer and in-match pause menu show that version and date. Local development adds a `dev` suffix. The client/server `version.json`, hosting manifest and fleet receipt carry the same metadata alongside the existing source SHA and network compatibility ID.
+
+Before preparing each subsequent deployment, advance the prerelease and set its date:
+
+```sh
+npm version prerelease --preid=alpha --no-git-tag-version
+npm pkg set releaseDate="$(date -u +%F)"
+```
+
+These commands edit package metadata without committing or creating a tag. Review and publish the approved source through the normal release process. Use `alpha.2`, `alpha.3`, etc. for subsequent pre-alpha releases; move to a new minor/patch version deliberately when that change is useful. Rebuilding or resuming the same release retains its version/date.
+
+Apply checks the remote `vVERSION` tag before any maintenance. It refuses a tag pointing to different code. After reopening and successful final fleet proof, it creates that immutable Git tag on the verified source revision through authenticated `gh`; it never moves/deletes an existing tag or creates a GitHub Release. The receipt records tag publication and its source link. `gh` therefore needs permission to create repository refs. If publication fails, the deployed games remain open and the receipt survives: resume the same journal to retry only tag publication. A new version is required for different code, even on the same date.
+
+### Execute and resume
+
 ```sh
 node deploy/release.mjs --revision FULL_APPROVED_SHA
 node deploy/release.mjs --revision FULL_APPROVED_SHA --apply
 ```
 
-The first command prints the plan and blockers without building or networking. A new apply requires a clean tracked tree, committed deployment tools, that exact HEAD already at the live `origin/main` tip, Node 22+, npm, Git, tar, SSH/rsync and authenticated `gh`. Existing SSH host keys must be verified; unknown keys fail closed. No command commits, pushes, checks out, resets, provisions hosts or resets history. The non-secret fleet configuration is [release.config.json](release.config.json); its region/media/account build settings must match the approved Pages workflow.
+The first command prints the plan and blockers without building or networking. A new apply requires a clean tracked tree, committed deployment tools, that exact HEAD already at the live `origin/main` tip, Node 22+, npm, Git, tar, SSH/rsync and authenticated `gh`. Existing SSH host keys must be verified; unknown keys fail closed. The tool never commits, pushes branches, checks out, resets, provisions hosts or resets history; its only source-publication action is the verified deployment tag. The non-secret fleet configuration is [release.config.json](release.config.json); its region/media/account build settings must match the approved Pages workflow.
 
 On 2026-10-19, both existing regional keys were verified in the operator's normal `~/.ssh/known_hosts`; EU's already-verified session entry was moved into that durable store. Strict noninteractive SSH succeeds for both hosts without a temporary wrapper or trust-file path. A different operator/new host must establish its own verified trust first.
 
 Apply archives the revision, installs dependencies independently in that snapshot, runs serial tests and all builds, and monitors the existing exact-SHA Pages workflow. It uses that workflow's first-party artifact, stages it, drains both regions, waits for complete matches/deliveries, stops only Brawlock processes, and takes private consistent game/account backups. It updates the account bundle only when changed, deploys the global game authority before other regions, checks hashes/versions/shared ratings, activates the website and reopens regions. The final check is read-only unless `--admission` is explicitly added (Node 24.11+, empty regions only).
 
-Each phase is journaled in the printed private directory; retain it through the release. Resume an interrupted release with the same arguments and `--resume /ABSOLUTE/JOURNAL_DIRECTORY`. Its frozen Git metadata preserves the approved revision even if the working checkout advances; tool/config hashes must still match. Existing owned staging uploads and verified backups are reused without overwriting another release. A kernel-owned loopback lock prevents simultaneous releases and disappears on process exit, including a crash. Failures keep reachable regions drained and never automatically roll back or reopen them. Check the reported error/private logs, resolve its cause, then resume. Successful runs write `receipt.json` with source, artifact hashes, workflow, backups and final proof.
+Each phase is journaled in the printed private directory; retain it through the release. Resume an interrupted release with the same arguments and `--resume /ABSOLUTE/JOURNAL_DIRECTORY`. Its frozen Git metadata preserves the approved revision even if the working checkout advances; tool/config hashes must still match. Existing owned staging uploads and verified backups are reused without overwriting another release. A kernel-owned loopback lock prevents simultaneous releases and disappears on process exit, including a crash. Deployment-stage failures keep reachable regions drained and never automatically roll back or reopen them; post-proof tag-publication failures leave them open. Check the reported error/private logs, resolve its cause, then resume. Successful runs write `receipt.json` with version/date, source tag, artifact hashes, workflow, backups and final proof.
 
 `release-remote.cjs` contains the shared targeted SSH operations; no temporary remote script from a past session is needed. Run the orchestration regression tests with `node --test --test-concurrency=1 deploy/release.test.mjs` (uses local subprocesses and loopback only).
 
