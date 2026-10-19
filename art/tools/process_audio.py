@@ -56,7 +56,18 @@ PLAN = {
   'hit_b':        ('f9a080d7', 0.0, 0.48, 'shot', '', (-1, 0.08)),
   'thud_a':       ('65a5a67e', 0.0, 0.55, 'shot', '', (-1, 0.1)),
   'thud_b':       ('d19dc776', 0.0, 0.42, 'shot', '', (-1, 0.08)),
+  # warlock death voices (trims from the 2026-10-19 death voice audition, D01/D02)
+  'death_cry_a':  ('4d506ee0', 0.025, 1.35, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.12)),
+  'death_cry_b':  ('e46f2779', 0.005, 1.4, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.12)),
+  'death_cry_c':  ('d94d4a88', 0.005, 0.95, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.12)),
+  'death_cry_d':  ('e0639382', 0.96, 1.5, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.35)),
+  'death_grunt_a':('62fda412', 0.325, 0.45, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
+  'death_grunt_b':('1be3ef8d', 0.315, 0.4, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
+  'death_grunt_c':('758b5863', 0.345, 0.4, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
 }
+# ONLY=name,name encodes just those (new assets without re-encoding the rest)
+if os.environ.get('ONLY'):
+  PLAN = {k: v for k, v in PLAN.items() if k in os.environ['ONLY'].split(',')}
 def run(args):
   r = subprocess.run(['ffmpeg', '-hide_banner', '-nostats', '-y', *args], capture_output=True, text=True)
   if r.returncode: raise RuntimeError(r.stderr[-800:])

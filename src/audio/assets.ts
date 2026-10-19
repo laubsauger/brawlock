@@ -72,6 +72,13 @@ export const AUDIO_CREDITS: readonly AudioCredit[] = [
   { title: 'Energy impact 1', creator: 'ihitokage', license: 'CC0', url: 'https://freesound.org/people/ihitokage/sounds/413219' },
   { title: 'Sci-Fi Impact', creator: 'Kierham', license: 'CC0', url: 'https://freesound.org/people/Kierham/sounds/646831' },
   { title: 'Cinematic Impact Boom Metalic', creator: 'EminYILDIRIM', license: 'CC0', url: 'https://freesound.org/people/EminYILDIRIM/sounds/535413' },
+  { title: 'Male Death 1', creator: 'scorpion67890', license: 'CC0', url: 'https://freesound.org/people/scorpion67890/sounds/396798' },
+  { title: 'Male Death 3', creator: 'scorpion67890', license: 'CC0', url: 'https://freesound.org/people/scorpion67890/sounds/396800' },
+  { title: 'Male Death Scream A', creator: 'areischen', license: 'CC0', url: 'https://freesound.org/people/areischen/sounds/432057' },
+  { title: 'Male Death Scream', creator: 'Thanra', license: 'CC0', url: 'https://freesound.org/people/Thanra/sounds/178313' },
+  { title: 'Male Grunt 5 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621357' },
+  { title: 'Male Grunt 7 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621353' },
+  { title: 'Male Grunt 3 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621355' },
 ]
 
 export const AUDIO_ASSETS = {
@@ -147,6 +154,13 @@ export const AUDIO_ASSETS = {
   'announcer/arena_rampage': { loop: false, duration: 1.093, credit: 45 },
   'announcer/arena_unstoppable': { loop: false, duration: 1.08, credit: 45 },
   'announcer/arena_godlike': { loop: false, duration: 0.925, credit: 45 },
+  death_cry_a: { loop: false, duration: 1.357, credit: 49 },
+  death_cry_b: { loop: false, duration: 1.407, credit: 50 },
+  death_cry_c: { loop: false, duration: 0.957, credit: 51 },
+  death_cry_d: { loop: false, duration: 1.506, credit: 52 },
+  death_grunt_a: { loop: false, duration: 0.457, credit: 53 },
+  death_grunt_b: { loop: false, duration: 0.406, credit: 54 },
+  death_grunt_c: { loop: false, duration: 0.406, credit: 55 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

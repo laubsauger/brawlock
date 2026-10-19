@@ -141,10 +141,13 @@ export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
   fade: { layers: [{ assets: ['cloth_flap', 'swish'], gain: 0.08, rate: [0.9, 1.05] }], synth: 0.8, trim: 0.77 },
   death: {
     layers: [
-      { assets: ['thud_a'], gain: 1.4, rate: [0.75, 0.85] },
-      { assets: ['fire_burst'], gain: 0.5, rate: [0.7, 0.8], at: 0.05 },
-      { assets: ['coal_crackle'], gain: 0.48, slice: [0.6, 0.8], at: 0.15 },
+      // the warlock's death cry leads (one of seven, slightly varied in pitch); the body
+      // impact and burn sit under it
+      { assets: ['death_cry_a', 'death_cry_b', 'death_cry_c', 'death_cry_d', 'death_grunt_a', 'death_grunt_b', 'death_grunt_c'], gain: 1.15, rate: [0.94, 1.06] },
+      { assets: ['thud_a'], gain: 0.9, rate: [0.75, 0.85] },
+      { assets: ['fire_burst'], gain: 0.32, rate: [0.7, 0.8], at: 0.05 },
+      { assets: ['coal_crackle'], gain: 0.3, slice: [0.6, 0.8], at: 0.15 },
     ],
-    trim: 0.77,
+    trim: 0.9,
   },
 }
