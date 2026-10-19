@@ -89,10 +89,10 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   quickplaysPerMin: 20,
   boardReadsPerMin: 60,
   // Queue economy: a broader opening kit, then enough shared income for a purchase each round.
-  // Casual games are short: first to 3 round wins (ranked plays its fixed rounds), against
-  // Medium bots (Brutal made casual tables too punishing; ranked keeps Brutal).
+  // Casual games are short: first to 3 round wins (ranked plays its fixed rounds). The table
+  // is Hard bots with one Brutal and one Medium for variety (ranked keeps all Brutal).
   quickplay: {
-    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'medium',
+    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   ranked: {
@@ -262,7 +262,8 @@ export function createServerCore(
         settings: setup.quick ? { botsReplaceLeavers: true, ...defaults.settings, ...policy.settings, ...setup.settings } : setup.settings,
         autoStartMs: setup.autoStartMs,
         rematchMs: setup.rematchMs,
-        ...(setup.quick ? { quick: { ...policy, bots: setup.quick } } : {}),
+        // the mix belongs to the default table; a player's explicit level fills the table alone
+        ...(setup.quick ? { quick: { ...policy, bots: setup.quick, mix: setup.quick === policy.bots ? policy.mix : undefined } } : {}),
         ranked: setup.ranked === true,
         requireRankedAccount: !!deps.accounts,
         public: setup.public,

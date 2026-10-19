@@ -83,6 +83,8 @@ export interface QuickPlayPolicy {
   /** bots top the table up to this many players when fewer humans are in */
   fill: number
   bots: BotDifficulty
+  /** the table's first bots, one each, before the rest use `bots` (default table only) */
+  mix?: readonly BotDifficulty[]
   /** minimum humans before any countdown can start; casual quick play defaults to one */
   minHumans?: number
 }
@@ -368,7 +370,19 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     const want = Math.max(0, Math.min(quick.fill, MAX_PLAYERS) - humans())
     const bots = lobby.slots.filter((s) => s.kind === 'bot')
     for (const b of bots.slice(want)) session.removeSlot(b.id)
-    if (add) for (let i = bots.length; i < want; i++) session.addBot(quick.bots)
+    if (!add) return
+    // the mix seats first (one each), the rest use the table's level; trimming above removes
+    // the newest bots first, so the mix stays seated longest
+    const have = new Map<BotDifficulty, number>()
+    for (const b of bots.slice(0, want)) if (b.difficulty) have.set(b.difficulty, (have.get(b.difficulty) ?? 0) + 1)
+    for (let i = bots.length; i < want; i++) {
+      const pick = (quick.mix ?? []).find((d) => {
+        const need = (quick.mix ?? []).filter((x) => x === d).length
+        return (have.get(d) ?? 0) < need
+      }) ?? quick.bots
+      have.set(pick, (have.get(pick) ?? 0) + 1)
+      session.addBot(pick)
+    }
   }
 
   const idleRounds = quick || opts.auto ? (opts.idleRounds ?? IDLE_ROUNDS) : 0
