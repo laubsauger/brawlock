@@ -1018,7 +1018,7 @@ describe('ranked queue over real TCP', () => {
     } finally { a.session.leave(); b.session.leave(); c.session.leave() }
   }, 20000)
 
-  it('reviews results, returns to a prefilled lobby, and requires two humans for a fresh match', async () => {
+  it('reviews results until Ready, returns to a prefilled lobby, and requires two humans for a fresh match', async () => {
     const dir = tempDir('brawlock-ranked-rematch-')
     dirs.push(dir)
     const { base, http, srv } = await start({
@@ -1040,7 +1040,11 @@ describe('ranked queue over real TCP', () => {
       await until(() => a.screen() === 'results' && a.results.length === 1, 60000, 'ranked result review')
       expect(room.screen()).toBe('results')
       expect(a.lobby().autoStart).toBeNull()
-      await until(() => a.screen() === 'lobby' && room.screen() === 'lobby', 3000, 'ranked returns to lobby after review')
+      // the result stays up (past the old nextMs) until the player is ready for the next queue
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      expect(a.screen()).toBe('results')
+      a.session.setReady(true)
+      await until(() => a.screen() === 'lobby' && room.screen() === 'lobby', 3000, 'ranked returns to lobby once ready')
       expect(room.summary()).toMatchObject({ humans: 1, bots: 7, ranked: true, joinable: 7 })
       expect(a.lobby().autoStart).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 500))

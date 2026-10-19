@@ -75,7 +75,7 @@ export interface QuickPlayPolicy {
   fillMs: number
   /** two or more humans: the match starts after this long */
   startMs: number
-  /** ranked results: back to the lobby after this long (casual results wait for Ready) */
+  /** unused since results wait for Ready (kept for configs that still set it) */
   nextMs: number
   /** casual results: after the first Ready, the others get this long (default READY_GRACE_MS) */
   readyGraceMs?: number
@@ -310,17 +310,29 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     const n = humans()
     if (opts.ranked && screen === 'results') {
       if (quickAt !== null) setQuickTimer(null, false)
-      if (n === 0) {
+      // Like casual: the result stays up until players press Ready (all ready: back to the
+      // ranked lobby, the queue for the next game; after the first Ready the rest get the grace).
+      const ready = readyHumans()
+      const clear = () => {
         if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
         rankedLobbyTimer = null
+        session.setRoom({ auto: null })
+      }
+      if (n === 0 || ready === 0) {
+        clear()
         return
       }
-      // Keep the result visible before returning to a fresh lobby countdown.
-      // Never return synchronously: finishMatch broadcasts end after setScreen.
-      if (rankedLobbyTimer === null) rankedLobbyTimer = setTimeout(() => {
-        rankedLobbyTimer = null
-        if (!closed && screen === 'results') session.backToLobby()
-      }, quick.nextMs / timeScale())
+      const delay = ready >= n ? 0 : (quick.readyGraceMs ?? READY_GRACE_MS)
+      if (ready >= n) clear()
+      if (rankedLobbyTimer === null) {
+        // Never return synchronously: finishMatch broadcasts end after setScreen.
+        rankedLobbyTimer = setTimeout(() => {
+          rankedLobbyTimer = null
+          session.setRoom({ auto: null })
+          if (!closed && screen === 'results') session.backToLobby()
+        }, Math.max(1, delay) / timeScale())
+        if (delay > 0) session.setRoom({ auto: { inMs: delay, fill: false } })
+      }
       return
     }
     // Ranked players can see the full bot table while waiting for another human.
