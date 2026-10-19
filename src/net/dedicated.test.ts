@@ -720,6 +720,18 @@ describe('public rooms and quick play (M4.3)', () => {
     for (const c of [a, b]) c.session.leave()
   }, 120000)
 
+  /** Why: results wait for Ready forever; an abandoned tab must not keep a room (and its seat) open for days. */
+  it('quick play: a results screen nobody readied on closes the room after the idle time', async () => {
+    const { base, srv } = await start(quick({ fill: 3, fillMs: 500, resultsIdleMs: 4000, settings: { ...FAST, winScore: 1 } }))
+    const a = headlessClient(base, { key: 'qz1', device: 'device-qz-1', play: true })
+    const r = await a.online.quickPlay('test')
+    await a.session.join(r.code)
+    await until(() => a.screen() === 'results', 60000, 'the match to end')
+    await until(() => a.screen() === 'menu', 4000 / 4 + 4000, 'back to the menu after the results idle time')
+    expect(a.lobby().error).toMatch(/results stayed open/)
+    await until(() => !srv.core.room(r.code) || srv.core.room(r.code)!.humans() === 0, 3000, 'the room emptied')
+  }, 90000)
+
   /** Why: New game from a results screen must find another room, not the one the player left. */
   it('quick play: exclude never returns the room being left', async () => {
     const { base } = await start(quick({ startMs: 60000, fillMs: 60000 }))

@@ -1,6 +1,20 @@
 # Release status and next sprint
 
-Release **`38a2f766fb5b`** is deployed, 2026-10-19. The commit is pushed, [Pages publication succeeded](https://github.com/laubsauger/brawlock/actions/runs/39255949401), and both regional game bundles match network ID `6680ad54ec7e`, protocol 8. US West and Europe are open; the shared account authority runs schema 6. See [the combined rollout receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md).
+Release **`v0.1.0-alpha.4`** (`6a11220942bc`) is deployed, 2026-10-19: network ID `56a431840cc0`, protocol 8, US West and Europe open. Each labeled release is tagged on GitHub and its receipt kept under ignored `artifacts/live-release/<build>/`. The release tool now asks for an explicit go per release (see [TOOLS.md](../deploy/TOOLS.md#one-command-routine-release); `--skip-tests` exists for a revision whose suite already passed).
+
+## Shipped in alpha.2 – alpha.4 (2026-10-19)
+
+- **Bots:** every bot of a lobby has its own seed again (the session and the bot both mixed the player id in and cancelled out: identical builds and personas); bots no longer see windwalking enemies.
+- **Match start:** pillars and pawn markers warm in the lobby (79 → 6 pipelines and ~290 → 18 ms of node builds after warm-up); arena shader and upload fixes raised full-app fps 20–55 % at the same image.
+- **Post-game:** results never move a player without their own Ready (casual and ranked), with New game (another room) and Leave; ranked lobby Ready cuts the countdown to 5 s; casual quick play is first to 3.
+- **Ranked Elo:** rated per match by the result (winners, then round wins; survival only splits ties), K 40. The four matches recorded under the old per-round rule were recomputed (backup kept next to `leaderboard.sqlite`).
+- **Presentation:** death cries, a steady lava burn sound, big kill callouts for everyone, Fireball/Scourge leading the spell bar, a compact results chat, full standings and rewards in match history; bets close when two warlocks remain.
+
+**Committed, not yet released:** casual tables of Hard bots with one Brutal and one Medium; bots go after warlocks that stand still.
+
+## Earlier: release `38a2f766fb5b`
+
+The first combined rollout (accounts, Embers, maintenance) is recorded in [its receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md); the sections below describe what it introduced.
 
 [The main game](https://brawlock.osc.link/) now serves the root-path client and matching version. Its public provider configuration advertises Google; anonymous `/api/account` correctly returns 401. Heavy media remains on GitHub Pages. The explicitly authorized old-rating/history and regional-outbox season reset is complete, preserving the new account records and credentials. There is no separate legacy ladder or device-rating import.
 
@@ -32,7 +46,7 @@ Bot transcendental math now uses deterministic `sim/math.ts`, guarded against en
 
 Persistent authenticated regional drain blocks new rooms, reservations, listings and rematches while existing players finish their whole current match and reconnect to their own seats. This includes casual/custom matches and ranked final brawls; there is no forced shutdown timer or silent region migration. Readiness accounts for match settlement, rating/Embers outboxes and pending account releases. See [MAINTENANCE.md](MAINTENANCE.md).
 
-The current frozen release passed **1,480 tests across 145 files**, 20 release/analytics checks, all builds and live guest admission/cleanup in both regions. The final guided-practice and maintenance desktop checks passed. Earlier Node/Chrome parity, grade/cosmetic rendering and production bot-fight proofs remain recorded with their original release; the human account flows listed above remain unverified.
+That frozen release passed **1,480 tests across 145 files**, 20 release/analytics checks, all builds and live guest admission/cleanup in both regions. The final guided-practice and maintenance desktop checks passed. Earlier Node/Chrome parity, grade/cosmetic rendering and production bot-fight proofs remain recorded with their original release; the human account flows listed above remain unverified.
 
 The [one-command release automation](../deploy/TOOLS.md#one-command-routine-release) completed this live fleet rollout: frozen source, coordinated drains, stopped backups, additive migration, exact-revision publication and guest proof. Its canonical-path resume recovered a macOS verifier-path issue without replacing backups or relabeling source. The operator follow-up makes paths canonical by default; ten release regressions and eleven analytics checks pass. This tool is the routine release entry point.
 

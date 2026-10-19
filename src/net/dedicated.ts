@@ -65,6 +65,8 @@ export interface RoomOptions {
   elo?: { enabled: boolean; minSeconds: number }
   /** self-running rooms: at least this many complete rounds of a whole idle match before a human goes back to the menu (0: never; default IDLE_ROUNDS) */
   idleRounds?: number
+  /** self-running rooms: a results screen nobody readied on closes after this long (default RESULTS_IDLE_MS) */
+  resultsIdleMs?: number
   /** a connected device's display label, including lobby changes before the next match */
   onName?: (device: string, name: string) => void
   requireRankedAccount?: boolean
@@ -83,6 +85,8 @@ export interface QuickPlayPolicy {
   /** bots top the table up to this many players when fewer humans are in */
   fill: number
   bots: BotDifficulty
+  /** results nobody readied on close after this long (default RESULTS_IDLE_MS) */
+  resultsIdleMs?: number
   /** the table's first bots, one each, before the rest use `bots` (default table only) */
   mix?: readonly BotDifficulty[]
   /** minimum humans before any countdown can start; casual quick play defaults to one */
@@ -159,6 +163,9 @@ const IDLE_ROUNDS = 3
 /** a quick or ranked lobby where every human pressed Ready starts this soon */
 const READY_START_MS = 5_000
 const IDLE_REASON = 'You were away for a whole game, so you left the room. Join again any time.'
+/** results wait for Ready; a room left on its results this long closes (an abandoned tab, nobody playing) */
+const RESULTS_IDLE_MS = 30 * 60_000
+const RESULTS_IDLE_REASON = 'The results stayed open for a long time, so you left the room. Join again any time.'
 
 export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Room> {
   const log = opts.log ?? (() => {})
@@ -175,6 +182,8 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     ready: {},
   }
   let screen: Screen = 'menu'
+  /** when the room entered its results screen (null: elsewhere) */
+  let resultsSince: number | null = null
   let progress: RoomProgress | null = null
   const results: MatchResult[] = []
   let accept: ((t: Transport) => void) | null = null
@@ -213,6 +222,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       },
       screen: () => screen,
       setScreen: (s) => {
+        if (s !== screen) resultsSince = s === 'results' ? deps.now() : null
         screen = s
         schedule()
       },
@@ -386,10 +396,18 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   }
 
   const idleRounds = quick || opts.auto ? (opts.idleRounds ?? IDLE_ROUNDS) : 0
+  const resultsIdleMs = quick || opts.auto ? (quick?.resultsIdleMs ?? opts.resultsIdleMs ?? RESULTS_IDLE_MS) : 0
 
   // a match nobody watches anymore goes back to the lobby; between matches, idle humans go back to the menu
   const empty = setInterval(() => {
     if (closed) return
+    if (resultsIdleMs > 0 && screen === 'results' && resultsSince !== null && deps.now() - resultsSince >= resultsIdleMs) {
+      const left = lobby.slots.filter((s) => s.kind === 'human').map((s) => s.id)
+      resultsSince = null
+      if (left.length) log(`room ${opts.code}: results open ${Math.round(resultsIdleMs / 60_000)} min, ${left.length} human(s) back to the menu`)
+      for (const id of left) session.dropIdle(id, RESULTS_IDLE_REASON)
+      return
+    }
     const d = session.debug()
     if (screen === 'match' && d.peers === 0 && !opts.hasPendingConnections?.()) {
       log(`room ${opts.code}: empty, back to the lobby`)
