@@ -18,6 +18,9 @@ const f = vi.hoisted(() => ({
   },
 }))
 vi.mock('./playControl', () => ({ connectPlayControl: vi.fn(), playControl: { acquire: vi.fn(async () => true), release: vi.fn(async () => {}), valid: () => true, update: vi.fn(async () => {}), token: () => 'p'.repeat(43) } }))
+// This suite isolates entry coordination; account admission has real-TCP coverage.
+// Supply a signed-in proof when the frozen release enables production account flags.
+vi.mock('./account', () => ({ getAdmissionToken: vi.fn(async () => 'unit-account-proof'), saveAccountColor: vi.fn(async () => {}) }))
 vi.mock('../audio', () => ({ audio: { playEvents: vi.fn() } }))
 vi.mock('./input', () => ({ input: { drain: () => [] } }))
 vi.mock('./profile', async (original) => ({ ...await original<typeof import('./profile')>(), getProfile: () => f.profile, setPreferredColor: f.preferred,

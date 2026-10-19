@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 describe('ability clip index', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.resetModules()
   })
 
@@ -26,8 +27,13 @@ describe('ability clip index', () => {
     expect(m.hasClip('fireball')).toBe(false)
   })
 
-  it('builds asset paths under the app base (Pages serves under /brawlock/)', async () => {
+  it.each([
+    { app: '/brawlock/', media: undefined, expected: '/brawlock/media/abilities/meteor.webp' },
+    { app: '/', media: 'https://laubsauger.github.io/brawlock/', expected: 'https://laubsauger.github.io/brawlock/media/abilities/meteor.webp' },
+  ])('uses the configured media origin with app base $app', async ({ app, media, expected }) => {
+    vi.stubEnv('BASE_URL', app)
+    vi.stubEnv('VITE_ASSET_BASE_URL', media)
     const m = await import('./abilityMedia')
-    expect(m.posterUrl('meteor')).toBe(`${import.meta.env.BASE_URL}media/abilities/meteor.webp`)
+    expect(m.posterUrl('meteor')).toBe(expected)
   })
 })
