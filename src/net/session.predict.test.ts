@@ -9,7 +9,7 @@ import { createBot } from '../bots'
 import { FIREBALL_SLOT, cloneState, createMatch, hashState, step } from '../sim'
 import { killPawn } from '../sim/combat'
 import { startRound } from '../sim/mode'
-import { ROUND_END_SECONDS, ticks } from '../sim/config'
+import { ticks } from '../sim/config'
 import type { InputCommand, MatchSettings, PlayerId, PlayerInput, SimEvent, SimState, SpellId } from '../sim/types'
 import type { Bot } from '../bots'
 import { codeFromSearch, roomLink } from './code'
@@ -275,7 +275,6 @@ describe('spectator wagers over the confirmed input stream', () => {
   it('settles duplicate dead-player wagers once at 160 ms RTT with 10% loss and rejects next-round stale resends', async () => {
     const shopSeconds = 0.5
     const roundWinTick = ticks(4)
-    const roundTwoKnockoutTick = roundWinTick + ticks(ROUND_END_SECONDS + shopSeconds + 0.5)
     const bettingMatch: SessionDeps['createMatch'] = (settings, slots, seed) => {
       const state = createMatch({ ...settings, shopSeconds, roundGold: 0, winGold: 0, killGold: 0 }, slots, seed)
       startRound(state)
@@ -284,9 +283,14 @@ describe('spectator wagers over the confirmed input stream', () => {
     }
     const scriptedStep: SessionDeps['step'] = (state, inputs) => {
       // Identical authoritative/predicted fixture events; all economic transitions use real sim code.
-      // 4 and the bystander 5 fall together (bets need 3+ warlocks alive when placed)
-      if (state.round === 1 && state.tick === roundWinTick) for (const id of [4, 5]) killPawn(state, pawnOf(state, id), 3, 'fireball')
-      if (state.round === 2 && state.tick === roundTwoKnockoutTick) {
+      // Driven by state, never by wall time (the session clock is real time even with fake
+      // timers, so a loaded machine shifted fixed ticks): round one ends once all three bets are
+      // in, with 4 and the bystander 5 falling together (bets need 3+ warlocks alive); round two
+      // knocks out the bettors as its fight starts.
+      if (state.round === 1 && state.phase === 'fight' && state.tick >= roundWinTick && state.betting.bets.length >= 3 && pawnOf(state, 4).alive) {
+        for (const id of [4, 5]) killPawn(state, pawnOf(state, id), 3, 'fireball')
+      }
+      if (state.round === 2 && state.phase === 'fight' && pawnOf(state, 0).alive) {
         for (const id of [0, 1, 2]) killPawn(state, pawnOf(state, id), 3, 'fireball')
       }
       step(state, inputs)
@@ -295,7 +299,9 @@ describe('spectator wagers over the confirmed input stream', () => {
     const r = await room({ latencyMs: 72, jitterMs: 16, loss: 0.1, seed: 18 }, 5, opts, opts)
     const peers = [r.host, ...r.clients]
     try {
-      const startedAt = performance.now()
+      const advanceUntil = async (done: () => boolean, capMs: number) => {
+        for (let t = 0; t < capMs && !done(); t += 100) await vi.advanceTimersByTimeAsync(100)
+      }
       r.host.session.startMatch()
       await vi.advanceTimersByTimeAsync(700)
       const bettors = peers.slice(0, 3)
@@ -304,12 +310,12 @@ describe('spectator wagers over the confirmed input stream', () => {
         peer.issue(wager)
         peer.issue(wager)
       })
-      await vi.advanceTimersByTimeAsync(2500)
+      await advanceUntil(() => (r.host.auth.at(-1)?.betting.bets.length ?? 0) >= 3, 10000)
       const accepted = r.host.auth.at(-1)!
       expect(accepted.betting.bets.map((bet) => bet.player)).toEqual([0, 1, 2])
       expect(accepted.scores.slice(0, 3).map((s) => s.gold)).toEqual([29, 29, 29])
-      // Include the configured celebration pause, then allow confirmed delivery of round two's deaths.
-      await vi.advanceTimersByTimeAsync((roundTwoKnockoutTick + ticks(0.5)) * DT - (performance.now() - startedAt))
+      // Through the celebration pause and the shop, until round two's knockouts are confirmed.
+      await advanceUntil(() => { const s = r.host.auth.at(-1)!; return s.round === 2 && !pawnOf(s, 1).alive }, 30000)
       const settled = r.host.auth.at(-1)!
       expect(settled.round).toBe(2)
       expect(settled.betting.lastSettlement).toMatchObject({

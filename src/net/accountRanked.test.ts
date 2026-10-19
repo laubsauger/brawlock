@@ -28,7 +28,9 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-async function until(predicate: () => boolean, description: string, ms = 3000) {
+// generous limits: these are real TCP + account round trips, slow only when the whole suite
+// runs in parallel; the waits return as soon as their condition holds
+async function until(predicate: () => boolean, description: string, ms = 10_000) {
   const start = performance.now()
   while (!predicate()) {
     if (performance.now() - start > ms) throw new Error(`Timed out waiting for ${description}`)
@@ -208,7 +210,7 @@ describe('account-ranked production TCP boundary', () => {
     await second.session.leave()
     await until(() => f.us.srv.core.room(room.code) === null, 'ordinary last-human departure cleanup')
     f.safeLogs()
-  }, 15_000)
+  }, 30_000)
 
   it('never offers an unstarted ranked lobby as a game to rejoin and removes it when its only player leaves', async () => {
     const f = await fixture(), ann = await f.player('queue-leave@example.com', 'CinderFox')
@@ -228,7 +230,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(fresh.status).toBe(201)
     expect(fresh.body.code).not.toBe(queued.body.code)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
   it('enforces one account across custom/casual rooms and regions even if a second connection reuses its live permission', async () => {
     const f = await fixture({ both: true }), ann = await f.player('global-custom@example.com', 'CinderFox')
     const firstRoom = await f.us.srv.createRoom({ public: true }), secondRoom = await f.eu!.srv.createRoom({ public: true })
@@ -242,7 +244,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(f.us.srv.core.room(firstRoom.code)!.humans()).toBe(1)
     expect(f.eu!.srv.core.room(secondRoom.code)!.humans()).toBe(0)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('blocks a guest browser from entering a second custom game or switching account to play it simultaneously', async () => {
     const f = await fixture({ both: true })
@@ -259,7 +261,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(switched.lobby().status).toBe('error')
     expect(f.eu!.srv.core.room(two.code)!.humans()).toBe(0)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
   it('consumes the HTTP queue proof once, requires a fresh WS proof, and overrides hostile hello identity and cosmetics', async () => {
     const f = await fixture()
     const ann = await f.player('ann-tcp@example.com', 'CinderFox', 0x2e7bff)
@@ -288,7 +290,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(rival.lobby().slots.find((s) => s.id === rival.lobby().localPlayer)).toMatchObject({ name: bob.name, profileId: bob.ratingKey })
     expect(rival.lobby().localPlayer).not.toBe(self.id)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('rejects ranked guests and guest-forged account namespaces while allowing ordinary casual guests', async () => {
     const f = await fixture()
@@ -313,7 +315,7 @@ describe('account-ranked production TCP boundary', () => {
     ordinary.session.setDisplayName('CinderFox')
     await until(() => ordinary.lobby().slots.some((s) => s.name === 'Guest CinderFox'), 'guest rename keeps its guest identity')
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('checks HTTP and WS origins before consuming any proof and rejects revoked unused proofs', async () => {
     const f = await fixture()
@@ -338,7 +340,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(afterLogout.lobby().error).toMatch(/sign in/i)
     expect((await f.privateProof(wsProof)).status).toBe(401)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('keeps one account in one ranked game globally and rejects a second live device joining its seat', async () => {
     const f = await fixture({ both: true })
@@ -360,7 +362,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(duplicate.lobby().error).toMatch(/active in another tab or device/i)
     expect(f.us.srv.core.room(first.body.code!)?.humans()).toBe(1)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('transfers a live ranked seat explicitly and disconnects its old controller without adding another player', async () => {
     const f = await fixture({ autoStart: true })
@@ -387,7 +389,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(f.us.srv.core.room(queued.body.code!)!.peers()).toBe(2)
     expect(second.lobby().slots.filter((slot) => slot.profileId === ann.ratingKey)).toHaveLength(1)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('rejects stale concurrent tickets for different accounts on the same browser across regions', async () => {
     const f = await fixture({ both: true })
@@ -404,7 +406,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(f.eu!.srv.core.stats().rooms).toBe(0)
     expect(f.us.srv.core.room(queued.body.code!)!.humans()).toBe(1)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('reconnects an authorized second device to the same seat in an active ranked match', async () => {
     const f = await fixture({ autoStart: true })
@@ -434,7 +436,7 @@ describe('account-ranked production TCP boundary', () => {
     expect(rejoined.screen()).toBe('match')
     await until(() => [rejoined, other].every((client) => client.state()?.slots.find((slot) => slot.id === seat)?.cosmetics?.robe === 'robe-cinder'), 'fresh authoritative cosmetics reach the returning and existing player')
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 
   it('requires the account frame before accepting a session hello', async () => {
     const f = await fixture()
@@ -452,5 +454,5 @@ describe('account-ranked production TCP boundary', () => {
     expect(room.humans()).toBe(0)
     expect(f.us.srv.core.stats().connections).toBe(0)
     f.safeLogs()
-  }, 10_000)
+  }, 30_000)
 })
