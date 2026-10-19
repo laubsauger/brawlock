@@ -20,6 +20,8 @@ export interface TextSocket {
   bufferedAmount?(): number
   /** Trusted regional revocation is moving this controller, rather than an ordinary disconnect. */
   transferring?(): boolean
+  /** Reserve the destination before removing its sole peer; socket close is asynchronous. */
+  holdForHandoff?(): void
 }
 
 /** grace period for queued frames (leave, kick) before a local close */
@@ -33,7 +35,7 @@ const CONNECT_TIMEOUT_MS = 8000
 
 export class SocketTransport extends BaseTransport {
   transferring = false
-  prepareHandoff(): void { this.transferring = true }
+  prepareHandoff(): void { this.transferring = true; this.socket.holdForHandoff?.() }
   constructor(private readonly socket: TextSocket, readonly account?: VerifiedAccount | null) {
     super()
     // TCP: there is no unordered channel to probe for

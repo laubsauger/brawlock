@@ -686,6 +686,12 @@ export function createServerCore(
       const bytes = new TokenBucket(cfg.bytesPerSec * 2, cfg.bytesPerSec, deps.now())
       let done = false
       let transport: SocketTransport | null = null
+      let handoffHeld = false
+      const holdForHandoff = () => {
+        if (done || handoffHeld) return
+        handoffHeld = true
+        e.reserved.push(deps.now() + RESERVE_MS)
+      }
       const release = () => {
         if (done) return
         done = true
@@ -703,6 +709,7 @@ export function createServerCore(
       }
       // per-connection limits: a flooding client is cut off, its seat falls to the room's leave rules
       const limited: TextSocket = {
+        holdForHandoff,
         send: (t) => socket.send(t),
         close: () => socket.close(),
         bufferedAmount: socket.bufferedAmount ? () => socket.bufferedAmount!() : undefined,
@@ -723,7 +730,7 @@ export function createServerCore(
         onClose(cb) {
           socket.onClose(() => {
             // Reuse the existing bounded connection reservation, only for an explicit handoff.
-            if (!done && (transport?.transferring || socket.transferring?.())) e.reserved.push(deps.now() + RESERVE_MS)
+            if (transport?.transferring || socket.transferring?.()) holdForHandoff()
             release()
             cb()
             closeEmptyQueue(admission.code, e)
