@@ -693,12 +693,11 @@ describe('public rooms and quick play (M4.3)', () => {
 
   /**
    * Why: players were pulled into the next game seconds after a match, before they could read
-   * the results. Casual quick play now waits on the results screen until players press Ready:
-   * all ready starts at once, and once someone is ready the rest get a grace period so one idle
-   * stranger cannot hold the room.
+   * the results. Post-game never assumes anyone wants another game: the room only moves on once
+   * every human pressed Ready (whoever does not want to wait takes New game: another room).
    */
-  it('quick play: the next match waits for Ready, then gives the rest a grace period', async () => {
-    const { base } = await start(quick({ fill: 3, fillMs: 500, nextMs: 1000, readyGraceMs: 6000, settings: { ...FAST, winScore: 1 } }))
+  it('quick play: the next match waits until every player pressed Ready', async () => {
+    const { base } = await start(quick({ fill: 3, fillMs: 500, nextMs: 1000, settings: { ...FAST, winScore: 1 } }))
     const a = headlessClient(base, { key: 'qr1', device: 'device-qr-1', play: true })
     const b = headlessClient(base, { key: 'qr2', device: 'device-qr-2', play: true })
     const r = await a.online.quickPlay('test')
@@ -710,11 +709,27 @@ describe('public rooms and quick play (M4.3)', () => {
     await new Promise((r) => setTimeout(r, 3000))
     expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
     a.session.setReady(true)
-    await until(() => a.lobby().autoStart != null, 3000, 'the grace countdown')
-    expect(b.screen()).toBe('results')
-    await until(() => a.screen() === 'match' && b.screen() === 'match', 8000, 'the next match after the grace period')
+    // one ready player never drags the other along
+    await new Promise((r) => setTimeout(r, 3000))
+    expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
+    b.session.setReady(true)
+    await until(() => a.screen() === 'match' && b.screen() === 'match', 8000, 'the next match once both are ready')
     for (const c of [a, b]) c.session.leave()
   }, 120000)
+
+  /** Why: New game from a results screen must find another room, not the one the player left. */
+  it('quick play: exclude never returns the room being left', async () => {
+    const { base } = await start(quick({ startMs: 60000, fillMs: 60000 }))
+    const a = headlessClient(base, { key: 'qx1', device: 'device-qx-1', play: false })
+    const first = await a.online.quickPlay('test')
+    await a.session.join(first.code)
+    const other = headlessClient(base, { key: 'qx2', device: 'device-qx-2', play: false })
+    expect((await other.online.quickPlay('test')).code).toBe(first.code)
+    const fresh = await other.online.quickPlay('test', undefined, first.code)
+    expect(fresh.code).not.toBe(first.code)
+    expect(fresh.created).toBe(true)
+    a.session.leave()
+  }, 30000)
 
   /** Why: a quick-play room enforces its configured human cap; the next player gets a new room, and a full-room link is refused. */
   it('quick play respects its configured room cap; the next player gets a new room', async () => {
@@ -1017,6 +1032,28 @@ describe('ranked queue over real TCP', () => {
       expect(next.code).not.toBe(first.code)
     } finally { a.session.leave(); b.session.leave(); c.session.leave() }
   }, 20000)
+
+  /** Why: a ranked lobby counts down 60 s for latecomers; players who are all ready should not have to sit it out. */
+  it('every player Ready in the ranked lobby cuts the countdown to a few seconds', async () => {
+    const dir = tempDir('brawlock-ranked-ready-')
+    dirs.push(dir)
+    const { base, http } = await start({
+      ranked: { ...DEFAULT_SERVER_CONFIG.ranked, startMs: 60000, settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, rankedRounds: 0, winScore: 1 } },
+    }, 'dev-server', { dataDir: dir })
+    const a = headlessClient(base, { key: 'ranked-ready-a', device: 'ranked-ready-device-a', play: false })
+    const b = headlessClient(base, { key: 'ranked-ready-b', device: 'ranked-ready-device-b', play: false })
+    try {
+      const opened = await queue(http)
+      await a.session.join(opened.code)
+      await b.session.join(opened.code)
+      await until(() => a.lobby().autoStart != null, 3000, 'the ranked countdown')
+      a.session.setReady(true)
+      await new Promise((r) => setTimeout(r, 1500))
+      expect(a.screen()).toBe('lobby')
+      b.session.setReady(true)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 9000, 'the match a few seconds after both are ready')
+    } finally { a.session.leave(); b.session.leave() }
+  }, 30000)
 
   it('reviews results until Ready, returns to a prefilled lobby, and requires two humans for a fresh match', async () => {
     const dir = tempDir('brawlock-ranked-rematch-')

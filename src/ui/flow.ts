@@ -117,6 +117,25 @@ export function quickPlay(region: string): void {
   })
 }
 
+/**
+ * New game from a results screen: leave this room for a fresh one of the same kind (casual never
+ * returns to the room being left; ranked never offers a room on its results screen).
+ */
+export function newGame(): void {
+  const lobby = useGame.getState().lobby
+  const region = useGame.getState().settings.serverRegion
+  if (!allowPlay()) return
+  clearPendingRoom()
+  session.leave()
+  if (lobby.ranked) {
+    rankedPlay(region)
+    return
+  }
+  lastAction = 'quick'
+  setLastHost(null)
+  void session.quickPlay({ region, exclude: lobby.roomCode ?? undefined }).then(setLastHost)
+}
+
 /** Ranked keeps its fixed rules and waits for an opponent after the first-play guide. */
 export function rankedPlay(region: string): void {
   if (!allowPlay()) return

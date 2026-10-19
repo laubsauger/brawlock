@@ -492,12 +492,16 @@ export function Lobby() {
               )}
             </Button>
           ) : (
-            lobby.status === 'open' &&
-            !lobby.quick && (
-              !lobby.ranked && <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
+            lobby.status === 'open' && (lobby.ranked ? (
+              // ranked queue: everyone ready cuts the countdown to a few seconds
+              <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} title="When every player is ready, the match starts in 5 seconds" data-testid="ranked-lobby-ready">
+                {localReady ? 'Not ready' : 'Ready to start'}
+              </Button>
+            ) : !lobby.quick && (
+              <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
                 {localReady ? 'Not ready' : 'Ready'}
               </Button>
-            )
+            ))
           )}
         </div>
       </footer>

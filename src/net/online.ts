@@ -395,19 +395,24 @@ export class Online {
   }
 
   /** Quick play on a region: the code of an open quick-play room there (or a new one). Throws ServerError. */
-  async quickPlay(regionId: string, bots?: BotDifficulty): Promise<{ code: string; created: boolean }> {
-    return this.queue(regionId, 'quickplay', bots)
+  /** `exclude`: a room code never to return (New game from that room's results). */
+  async quickPlay(regionId: string, bots?: BotDifficulty, exclude?: string): Promise<{ code: string; created: boolean }> {
+    return this.queue(regionId, 'quickplay', bots, undefined, exclude)
   }
 
   async rankedPlay(regionId: string, accountToken?: string): Promise<{ code: string; created: boolean }> {
     return this.queue(regionId, 'ranked', undefined, accountToken)
   }
 
-  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty, accountToken?: string): Promise<{ code: string; created: boolean }> {
+  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty, accountToken?: string, exclude?: string): Promise<{ code: string; created: boolean }> {
     const r = await this.usable(regionId)
+    const params = new URLSearchParams()
+    if (bots) params.set('bots', bots)
+    if (exclude) params.set('exclude', exclude)
+    const query = params.size ? `?${params}` : ''
     let res
     try {
-      res = await this.fetch(`${httpBase(r.url)}/${kind}${bots ? `?bots=${encodeURIComponent(bots)}` : ''}`, { method: 'POST', ...(accountToken ? { body: JSON.stringify({ accountToken }) } : {}), signal: timeout(REQUEST_TIMEOUT_MS) })
+      res = await this.fetch(`${httpBase(r.url)}/${kind}${query}`, { method: 'POST', ...(accountToken ? { body: JSON.stringify({ accountToken }) } : {}), signal: timeout(REQUEST_TIMEOUT_MS) })
     } catch {
       this.markDown(r.id)
       throw new ServerError('unavailable', `Could not reach the ${r.label} server.`)

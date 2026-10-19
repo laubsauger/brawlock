@@ -12,9 +12,10 @@
  * - one human: the match starts after fillMs
  * - arrivals reserve bot seats during a match and start playing next round;
  *   between matches they can also take free seats
- * - results: nothing starts by itself. The next match starts once every human pressed Ready;
- *   after the first Ready the rest get READY_GRACE_MS (a stranger who walked away cannot hold
- *   the room). Nobody ready: the room waits as long as they like (no match runs meanwhile).
+ * - results: nothing moves by itself. The room goes on (casual: next match; ranked: back to its
+ *   lobby) only once every human pressed Ready; nobody is ever pulled into a game they did not
+ *   ready for. Players who do not want to wait take New game (another room) or leave.
+ * - lobby: everyone Ready (and enough humans) cuts the countdown to READY_START_MS.
  * Ranked quick rooms prefill bots, require minHumans, and return to a fresh lobby
  * countdown between matches. A lone ranked player never starts against only bots.
  * Always: a match nobody is connected to goes back to the lobby.
@@ -77,8 +78,6 @@ export interface QuickPlayPolicy {
   startMs: number
   /** unused since results wait for Ready (kept for configs that still set it) */
   nextMs: number
-  /** casual results: after the first Ready, the others get this long (default READY_GRACE_MS) */
-  readyGraceMs?: number
   /** humans per room, at most (quick play sends no more; MAX_PLAYERS caps it too) */
   seats: number
   /** bots top the table up to this many players when fewer humans are in */
@@ -155,8 +154,8 @@ const REMATCH_MS = 6000
 const EMPTY_CHECK_MS = 1000
 /** a whole match without touching anything, and never fewer rounds than this */
 const IDLE_ROUNDS = 3
-/** casual results: once someone pressed Ready, the others get this long to join them */
-const READY_GRACE_MS = 60_000
+/** a quick or ranked lobby where every human pressed Ready starts this soon */
+const READY_START_MS = 5_000
 const IDLE_REASON = 'You were away for a whole game, so you left the room. Join again any time.'
 
 export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Room> {
@@ -310,29 +309,18 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     const n = humans()
     if (opts.ranked && screen === 'results') {
       if (quickAt !== null) setQuickTimer(null, false)
-      // Like casual: the result stays up until players press Ready (all ready: back to the
-      // ranked lobby, the queue for the next game; after the first Ready the rest get the grace).
-      const ready = readyHumans()
-      const clear = () => {
+      // The result stays up until every human pressed Ready; then back to the ranked lobby,
+      // the queue for the next game.
+      if (n === 0 || readyHumans() < n) {
         if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
         rankedLobbyTimer = null
-        session.setRoom({ auto: null })
-      }
-      if (n === 0 || ready === 0) {
-        clear()
         return
       }
-      const delay = ready >= n ? 0 : (quick.readyGraceMs ?? READY_GRACE_MS)
-      if (ready >= n) clear()
-      if (rankedLobbyTimer === null) {
-        // Never return synchronously: finishMatch broadcasts end after setScreen.
-        rankedLobbyTimer = setTimeout(() => {
-          rankedLobbyTimer = null
-          session.setRoom({ auto: null })
-          if (!closed && screen === 'results') session.backToLobby()
-        }, Math.max(1, delay) / timeScale())
-        if (delay > 0) session.setRoom({ auto: { inMs: delay, fill: false } })
-      }
+      // Never return synchronously: finishMatch broadcasts end after setScreen.
+      if (rankedLobbyTimer === null) rankedLobbyTimer = setTimeout(() => {
+        rankedLobbyTimer = null
+        if (!closed && screen === 'results') session.backToLobby()
+      }, 1)
       return
     }
     // Ranked players can see the full bot table while waiting for another human.
@@ -351,12 +339,13 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         const at = now + quick.startMs
         if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null && !quickFill ? Math.min(quickAt, at) : at, false)
       } else if (quickAt === null) setQuickTimer(now + quick.fillMs, true)
+      // everyone ready: no need to sit out the rest of the countdown
+      const soon = now + READY_START_MS
+      if (readyHumans() >= n && quickAt !== null && quickAt > soon) setQuickTimer(soon, quickFill)
     } else if (screen === 'results') {
-      const ready = readyHumans()
-      if (ready === 0) {
-        if (quickAt !== null) setQuickTimer(null, false)
-      } else if (ready >= n) setQuickTimer(now, false)
-      else if (quickAt === null) setQuickTimer(now + (quick.readyGraceMs ?? READY_GRACE_MS), false)
+      // the next match only once every human pressed Ready
+      if (readyHumans() >= n) setQuickTimer(now, false)
+      else if (quickAt !== null) setQuickTimer(null, false)
     } else if (quickAt !== null && screen === 'match') setQuickTimer(null, false)
   }
 

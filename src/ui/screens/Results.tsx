@@ -4,13 +4,12 @@ import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
 import { Button, Crown, Kbd } from '../widgets'
-import { backToLobby, leaveToMenu, rematch, setReady } from '../flow'
+import { backToLobby, leaveToMenu, newGame, rematch, setReady } from '../flow'
 import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
 import { isTypingTarget } from '../lib/keys'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useReplayIds, watchReplay } from '../lib/replays'
-import { AutoStart } from './Lobby'
 import { accountsEnabled } from '../../game/account'
 import { Collection, MatchEmbers } from './Collection'
 
@@ -82,7 +81,6 @@ export function Results() {
   // quick play: no host. Casual waits for Ready on this screen; ranked returns to its lobby by itself.
   const quick = useGame((s) => !!s.lobby.quick)
   const ranked = useGame((s) => !!s.lobby.ranked)
-  const autoStart = useGame((s) => s.lobby.autoStart ?? null)
   const maintenance = useGame((s) => s.lobby.maintenance ?? null)
   const isHost = role !== 'client'
   const rec = useMemo(() => (result ? recordFor(result) : null), [result])
@@ -277,6 +275,11 @@ export function Results() {
             <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus data-testid="quick-ready">
               {localReady ? 'Not ready' : ranked ? 'Ready for the next ranked game' : 'Ready for the next match'} {!localReady && <Kbd>Enter</Kbd>}
             </Button>
+            {humans.length > 1 && (
+              <Button size="lg" onClick={newGame} title={ranked ? 'Leave this room and queue for another ranked game' : 'Leave this room for another casual game'} data-testid="new-game">
+                New game
+              </Button>
+            )}
             {rec && replayIds.has(rec.id) && (
               <Button size="lg" onClick={() => void watchReplay(rec.id)}>
                 Watch replay
@@ -288,7 +291,9 @@ export function Results() {
           </div>
           <p className="text-[0.98rem] text-ash" aria-live="polite" data-testid="quick-ready-status">
             {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}
-            {autoStart ? <AutoStart at={autoStart.at} fill={autoStart.fill} between /> : localReady ? (ranked ? 'Back to the ranked lobby when everyone is ready.' : 'Starting when everyone is ready.') : ranked ? 'Take your time: the ranked lobby opens when you are ready.' : 'Take your time: the next match starts when you are ready.'}
+            {localReady
+              ? ranked ? 'Back to the ranked lobby when everyone is ready.' : 'Starting when everyone is ready.'
+              : 'Take your time: nothing starts until you press Ready.'}
           </p>
         </div>
       ) : (

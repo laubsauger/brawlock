@@ -373,12 +373,12 @@ export function createServerCore(
   }
 
   /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
-  function openQuickRoom(ranked = false): Entry | null {
+  function openQuickRoom(ranked = false, exclude: string | null = null): Entry | null {
     let best: Entry | null = null
     let bestN = -1
     for (const e of rooms.values()) {
       const r = e.room
-      if (!r.isPublic()) continue
+      if (!r.isPublic() || r.code === exclude) continue
       if (r.isRanked() !== ranked) continue
       const phase = r.screen()
       if (ranked && phase !== 'lobby') continue
@@ -518,7 +518,8 @@ export function createServerCore(
           }
         }
         if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
-        const open = openQuickRoom(ranked)
+        // New game from a results screen: never back into the room the player just left
+        const open = openQuickRoom(ranked, url.searchParams.get('exclude'))
         if (open) {
           if (ranked && deps.accounts && req.account) {
             const claimed = await deps.accounts.claim(req.account.id, open.room.code, req.account.connection)
