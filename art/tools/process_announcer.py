@@ -15,6 +15,7 @@ PACKS = {
   2: ['round_one', 'round_two', 'round_three', 'round_four', 'round_five', 'round_six', 'round_seven', 'round_eight',
       'round_nine', 'fight', 'final_round', 'match_point', 'round_won', 'draw', 'victory', 'defeat', 'arena_shrinks',
       'shutdown', 'revenge', 'denied', 'close_call', 'last_standing', 'ace'],
+  3: ['hurry_up'],
 }
 ASSETS_TS = os.path.join(ROOT, 'src/audio/assets.ts')
 # every announcer line shares the ElevenLabs credit entry

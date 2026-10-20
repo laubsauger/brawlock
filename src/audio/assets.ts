@@ -186,6 +186,7 @@ export const AUDIO_ASSETS = {
   'announcer/maverick_close_call': { loop: false, duration: 1.226, credit: 45 },
   'announcer/maverick_last_standing': { loop: false, duration: 1.995, credit: 45 },
   'announcer/maverick_ace': { loop: false, duration: 1.066, credit: 45 },
+  'announcer/maverick_hurry_up': { loop: false, duration: 1.043, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

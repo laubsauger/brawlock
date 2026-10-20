@@ -51,6 +51,8 @@ export const LINES = [
   ['close_call', 'Close Call!', 2],
   ['last_standing', 'Last Warlock Standing!', 2],
   ['ace', 'Ace!', 2],
+  // pack 3: the last few tiles
+  ['hurry_up', 'Hurry Up!', 3],
 ]
 
 function apiKey() {

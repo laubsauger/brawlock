@@ -333,6 +333,20 @@ describe('announcer: the arena', () => {
     expect(lines(out).filter((l) => l === 'arena_shrinks')).toHaveLength(1)
   })
 
+  it('Hurry Up! when a shrink leaves the last few tiles, once per round', () => {
+    const shrink = (layer: number): SimEvent => ({ type: 'arenaShrink', layer })
+    const out = play(quick(), [
+      [1, [fightStart], view()],
+      [11, [shrink(6)], view()], // the match's first shrink: The Arena Shrinks!
+      [21, [shrink(5)], view()], // 13 tiles left: not yet
+      [31, [shrink(4)], view()], // 9 tiles: hurry
+      [41, [shrink(3)], view()], // already called this round
+      [60, [fightStart], view()],
+      [70, [shrink(4)], view()], // a new round may hurry again
+    ], -1)
+    expect(lines(out).filter((l) => l === 'arena_shrinks' || l === 'hurry_up')).toEqual(['arena_shrinks', 'hurry_up', 'hurry_up'])
+  })
+
   it('a new match calls the first shrink again', () => {
     const shrink: SimEvent = { type: 'arenaShrink', layer: 14 }
     const a = quick()

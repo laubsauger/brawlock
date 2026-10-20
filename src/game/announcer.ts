@@ -23,6 +23,7 @@
  *   (local player -1) hears neither.
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
  *   repeat it seconds into each fight; later shrinks are heard (rumble) and seen (sinking tiles).
+ * - "Hurry Up!": the shrink that leaves HURRY_TILES tiles or fewer, once per round, for everyone.
  *
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
@@ -39,6 +40,7 @@
  * other line older than STALE_AFTER is dropped rather than played late.
  */
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
+import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
 import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isTeleportSave, slideDecay, slideSnapshot, type SlideSnapshot } from './teleportSave'
@@ -77,6 +79,7 @@ export type AnnouncerLine =
   | 'victory'
   | 'defeat'
   | 'arena_shrinks'
+  | 'hurry_up'
   | 'shutdown'
   | 'revenge'
   | 'denied'
@@ -114,6 +117,7 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   victory: 'Victory!',
   defeat: 'Defeat!',
   arena_shrinks: 'The Arena Shrinks!',
+  hurry_up: 'Hurry Up!',
   shutdown: 'Shutdown!',
   revenge: 'Revenge!',
   denied: 'Denied!',
@@ -243,10 +247,14 @@ export class KillTally {
   }
 }
 
+/** "Hurry Up!" once a shrink leaves this many tiles or fewer (layer 4: the last 3x3 block). */
+export const HURRY_TILES = 9
+
 /** Per-round bookkeeping, reset when a fight starts. */
 interface RoundMemory {
   /** occasional lines started per credited player */
   occasional: Map<PlayerId, number>
+  hurryCalled: boolean
   closeCallDone: boolean
   /** a close call waiting to be confirmed: the hit's time */
   closeCallAt: number | null
@@ -262,6 +270,7 @@ interface RoundMemory {
 function newRound(): RoundMemory {
   return {
     occasional: new Map(),
+    hurryCalled: false,
     closeCallDone: false,
     closeCallAt: null,
     starters: 0,
@@ -350,6 +359,9 @@ export class Announcer {
           if (!this.shrinkCalled) {
             this.shrinkCalled = true
             this.push({ line: 'arena_shrinks', kind: 'arena', player: -1, count: 1, at: now })
+          } else if (!this.round.hurryCalled && tileCount(e.layer) <= HURRY_TILES) {
+            this.round.hurryCalled = true
+            this.push({ line: 'hurry_up', kind: 'arena', player: -1, count: 1, at: now })
           }
           break
         case 'roundWin':
