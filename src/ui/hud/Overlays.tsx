@@ -17,7 +17,6 @@ import { canInspect, inspectStore, isSpectating } from '../../game/inspect'
 import { sfx } from '../lib/sound'
 import type { AbilityStatContext } from '../data/abilityStats'
 import { ReleaseStamp } from '../ReleaseStamp'
-import { ReleaseNotesButton } from '../ReleaseNotes'
 
 /* ------------------------------------------------------------------------
  * Character sheet (C / K): live stats from the local PawnState and score.
@@ -382,7 +381,6 @@ export function EscMenu() {
               Resume <Kbd>Esc</Kbd>
             </Button>
             <Button onClick={() => toggle('settingsOpen', true)}>Settings</Button>
-            <ReleaseNotesButton compact />
             <FeedbackButton />
             {!offline && <Button onClick={() => {
               toggle('paused', false)

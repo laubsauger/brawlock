@@ -1,6 +1,6 @@
 # Contact and private feedback
 
-Players can open **Contact & feedback** from the main menu, lobby, pause menu, results, stats, replay controls, and shared dialog headers (including Settings and Wardrobe). Public contact: **Promp' Industries**, **stayprompin@gmail.com**. Social links are not guessed; add only confirmed channel URLs.
+Players can open **Feedback** from the main menu, lobby, pause menu, results, stats, replay controls, and shared dialog headers (including Settings and Wardrobe). Public contact: **Promp' Industries**, **stayprompin@gmail.com**. Social links are not guessed; add only confirmed channel URLs.
 
 Reports support guests and accounts. Opening the form freezes the context and captures the visible game scene plus UI before the dialog appears. Players can preview or exclude the attachment, choose bug/feedback, write a message, and optionally supply a reply email. Sending is explicit. Successful submissions display a durable reference; an identical retry reuses its UUID. Closing before submitting sends nothing.
 
