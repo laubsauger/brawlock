@@ -25,6 +25,10 @@ import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { createMemoryNet } from './memory'
 import { Lister, p2pListingTarget } from './lister'
 import { validMatchHistory } from './matchHistory'
+import type { ChatLine } from './chat'
+
+/** what people said: the room's join / leave lines left out */
+const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
@@ -169,8 +173,8 @@ describe('dedicated server (M4.1)', () => {
       await until(() => owner.lobby().slots.length === 2, 3000, 'chat members seated')
       expect(owner.session.sendChat('Hello everyone')).toBe('sent')
       expect(friend.session.sendChat('Ready 🔥')).toBe('sent')
-      await until(() => friend.lobby().chat?.length === 2, 3000, 'reliable room chat')
-      expect(friend.lobby().chat).toEqual(owner.lobby().chat)
+      await until(() => said(friend.lobby().chat)?.length === 2, 3000, 'reliable room chat')
+      expect(said(friend.lobby().chat)).toEqual(said(owner.lobby().chat))
       owner.session.addBot('dummy')
       owner.session.updateSettings({ shopSeconds: 0.1 })
       await until(() => owner.lobby().slots.length === 3 && owner.lobby().settings?.shopSeconds === 0.1, 3000, 'the bot seat')
@@ -179,11 +183,11 @@ describe('dedicated server (M4.1)', () => {
       const fightTick = owner.shown()!.tick
       await until(() => srv.core.room(code)!.debug().tick >= fightTick, 5000, 'confirmed combat')
       await late.session.join(code)
-      await until(() => !!late.lobby().waitingForRound && late.lobby().chat?.length === 2, 3000, 'waiting member receives history')
+      await until(() => !!late.lobby().waitingForRound && said(late.lobby().chat)?.length === 2, 3000, 'waiting member receives history')
       expect(late.session.sendChat('Watching until next round')).toBe('sent')
-      await until(() => owner.lobby().chat?.length === 3, 3000, 'waiting spectator chat')
-      expect(owner.lobby().chat?.at(-1)).toMatchObject({ name: 'Late guest', text: 'Watching until next round' })
-      expect(late.lobby().chat).toEqual(owner.lobby().chat)
+      await until(() => said(owner.lobby().chat)?.length === 3, 3000, 'waiting spectator chat')
+      expect(said(owner.lobby().chat)?.at(-1)).toMatchObject({ name: 'Late guest', text: 'Watching until next round' })
+      expect(said(late.lobby().chat)).toEqual(said(owner.lobby().chat))
     } finally { owner.session.leave(); friend.session.leave(); late.session.leave() }
   }, 15000)
 

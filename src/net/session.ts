@@ -758,6 +758,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (toClients && role === 'host') broadcast({ t: 'notice', text })
   }
 
+  /** Joins, leaves and disconnects: a notice for everyone and a line in the room chat's history. */
+  function rosterNotice(text: string): void {
+    showNotice(text, true)
+    const line: ChatLine = { id: ++chatId, player: -1, name: '', color: 0, text, system: true }
+    appendChat(line)
+    broadcast({ t: 'chat', line })
+  }
+
   function appendChat(line: ChatLine): void {
     if (chat.length && line.id <= chat[chat.length - 1].id) return
     chat = [...chat, line].slice(-CHAT_HISTORY_LIMIT)
@@ -1063,7 +1071,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       p.t.sendReliable(encode({ t: 'chatlog', lines: chat }))
       p.t.sendReliable(encode(lobbyMsg()))
       if (match) sendStart(p, match)
-      showNotice(`${p.name} reconnected`, true)
+      rosterNotice(`${p.name} reconnected`)
       return
     }
 
@@ -1102,7 +1110,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     publishLobby()
     // During combat a bot keeps playing its current round; its seat is reserved.
     if (match) sendStart(p, match)
-    showNotice(match?.waiting.has(slot.id) ? `${p.name} is waiting to join next round` : `${p.name} joined`, true)
+    rosterNotice(match?.waiting.has(slot.id) ? `${p.name} is waiting to join next round` : `${p.name} joined`)
   }
 
   function activateSeat(m: HostMatch, slot: PlayerSlot, device = slotDevices.get(slot.id)): void {
@@ -1129,7 +1137,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       activateSeat(m, slots.find((s) => s.id === id)!)
       sendStart(p, m)
       p.keyframe = true
-      showNotice(`${p.name} joined the arena`, true)
+      rosterNotice(`${p.name} joined the arena`)
     }
   }
 
@@ -1284,7 +1292,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       slotKeys.delete(id)
       slotDevices.delete(id)
       publishLobby()
-      showNotice(`${p.name} ${why === 'disconnected' ? 'disconnected' : 'left'} while waiting`, true)
+      rosterNotice(`${p.name} ${why === 'disconnected' ? 'disconnected' : 'left'} while waiting`)
     } else if (m && m.humans.has(id)) {
       // B21-style: keep the pawn (and the slot) so the player can come back
       if (m.endAt < 0) rec?.control?.(id, 'bot')
@@ -1299,7 +1307,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           text += ', a bot took over'
         }
       }
-      showNotice(text, true)
+      rosterNotice(text)
       // the room owner may have changed
       if (dedicated) publishLobby()
     } else {
@@ -1307,7 +1315,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       slotKeys.delete(id)
       slotDevices.delete(id)
       publishLobby()
-      showNotice(`${p.name} ${why === 'idle' ? 'was idle and left' : 'left'}`, true)
+      rosterNotice(`${p.name} ${why === 'idle' ? 'was idle and left' : 'left'}`)
     }
   }
 

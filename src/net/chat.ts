@@ -8,6 +8,8 @@ export interface ChatLine {
   name: string
   color: number
   text: string
+  /** a room event (join, leave, disconnect) from the host; no sender (player -1, empty name) */
+  system?: true
 }
 
 export type ChatSendResult = 'sent' | 'invalid' | 'limited' | 'unavailable'
@@ -22,6 +24,10 @@ export function chatText(value: unknown): string | null {
 export function readChatLine(value: unknown): ChatLine | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const v = value as Record<string, unknown>
+  if (v.system === true) {
+    const text = Number.isSafeInteger(v.id) && (v.id as number) >= 1 ? chatText(v.text) : null
+    return text ? { id: v.id as number, player: -1, name: '', color: 0, text, system: true } : null
+  }
   if (!Number.isSafeInteger(v.id) || (v.id as number) < 1 || !Number.isInteger(v.player) || (v.player as number) < 0 || (v.player as number) >= 10) return null
   if (typeof v.name !== 'string' || !v.name.trim() || v.name.length > 32) return null
   if (!Number.isInteger(v.color) || (v.color as number) < 0 || (v.color as number) > 0xffffff) return null

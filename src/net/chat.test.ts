@@ -14,6 +14,10 @@ describe('room chat validation', () => {
     expect(readChatLine({ ...line, device: 'private', other: 10 })).toEqual(line)
     for (const patch of [{ id: 0 }, { id: 1.5 }, { player: -1 }, { player: 10 }, { color: -1 }, { color: 0x1000000 }, { name: '' }, { name: 'a'.repeat(33) }, { text: [] }]) expect(readChatLine({ ...line, ...patch })).toBeNull()
   })
+  it('reads room event lines without a sender, and never lets one carry a name', () => {
+    expect(readChatLine({ id: 3, system: true, text: 'Ash left', player: 4, name: 'Spoof', color: 1 })).toEqual({ id: 3, player: -1, name: '', color: 0, text: 'Ash left', system: true })
+    for (const patch of [{ id: 0 }, { text: '' }, { text: 7 }]) expect(readChatLine({ id: 3, system: true, text: 'Ash left', ...patch })).toBeNull()
+  })
   it('roundtrips each reliable chat message through the shared protocol', () => {
     for (const msg of [{ t: 'say', text: line.text }, { t: 'chat', line }, { t: 'chatlog', lines: [line] }] as const) expect(decode(encode(msg as Parameters<typeof encode>[0]))).toEqual(msg)
   })

@@ -48,6 +48,7 @@ function senderColor(color: number): string {
 }
 
 export function ChatMessage({ line }: { line: ChatLine }) {
+  if (line.system) return <li className="break-words text-sm italic leading-snug text-ash [overflow-wrap:anywhere]" data-chat-system>{line.text}</li>
   return (
     <li className="break-words text-sm leading-snug [overflow-wrap:anywhere]">
       <b style={{ color: senderColor(line.color) }}>{line.name}</b><span className="text-ash">: </span><span className="text-bone">{line.text}</span>
