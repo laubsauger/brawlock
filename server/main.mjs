@@ -7,7 +7,7 @@
 //   --data / DATA_DIR ('')          leaderboard.sqlite goes here ('' = no leaderboard)
 //   --quick-seats / QUICKPLAY_SEATS (10)   humans per quick-play room, at most
 //   --quick-fill / QUICKPLAY_BOT_FILL (10) bots top a quick-play table up to this many players
-//   --quick-bots / QUICKPLAY_BOTS (brutal) default bot difficulty of quick play
+//   --quick-bots / QUICKPLAY_BOTS (hard)   default bot difficulty of quick play
 //   --trust-proxy / TRUST_PROXY=1   (client IP from X-Forwarded-For, nginx on this host)
 //   --demo CODE --bots hard,medium  a room that starts itself with these bots (local play)
 //   --page URL                      the client page for the printed join link

@@ -438,6 +438,28 @@
       align-self: end;
       height: min(440px, 55vh);
     }
+    /* lobby: no side strip. The chat is a short, wide panel under the Warlocks column and the
+       footer (status, Start match) shares that band on the right */
+    .room-chat-layout[data-chat-docked][data-screen="lobby"] {
+      --lobby-chat-h: clamp(180px, 24vh, 250px);
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .room-chat-layout[data-chat-docked][data-screen="lobby"] .room-chat-dock {
+      position: absolute;
+      left: 0;
+      bottom: 24px;
+      /* the Warlocks column: 1.05fr of the 1.05fr / 1fr panel grid with its 16px gap */
+      width: calc((100% - 16px) * 1.05 / 2.05);
+      height: var(--lobby-chat-h);
+    }
+    .room-chat-layout[data-chat-docked][data-screen="lobby"] .lobby-screen > footer {
+      min-height: var(--lobby-chat-h);
+      margin-left: calc((100% - 16px) * 1.05 / 2.05 + 16px);
+      /* over the footer's own centring and padding utilities (they sit in a later layer) */
+      align-items: flex-end !important;
+      align-content: flex-end;
+      padding: 0 !important;
+    }
   }
 
   /* Main menu entries: large, left aligned, title over a quiet subtitle */
