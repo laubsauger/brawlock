@@ -51,6 +51,7 @@ import type { AccountGame } from '../net/accounts'
 import { playControl, connectPlayControl } from './playControl'
 import type { PlayTarget } from '../net/playControl'
 import { roomProgress, type RoomProgress } from '../net/roomProgress'
+import { trackEvent, type MatchAnalyticsMode } from '../lib/analytics'
 
 export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
@@ -109,10 +110,16 @@ function netMode(): NetMode {
 /** Feeds game/stats.ts (one tracker per match) and game/replay (the local replay), both recorded at game over. */
 function createRecorder(): MatchRecorder {
   let tracker: MatchTracker | null = null
+  let analyticsMode: MatchAnalyticsMode | null = null
   const replay = createReplayHook(__NET_ID__)
   return {
     start: (info) => {
       const lobby = useGame.getState().lobby
+      analyticsMode = info.localPlayer < 0 ? null : lobby.role === 'offline' ? 'offline' : lobby.ranked ? 'ranked' : lobby.quick ? 'casual' : 'custom'
+      if (analyticsMode) {
+        trackEvent('match_start', { mode: analyticsMode,
+          transport: lobby.role === 'offline' ? 'offline' : impl.transport()!, players: info.slots.filter((slot) => slot.kind === 'human').length, bots: info.slots.filter((slot) => slot.kind === 'bot').length })
+      }
       tracker = new MatchTracker({ ...info, queue: lobby.role === 'offline' ? 'offline' : lobby.ranked ? 'ranked' : lobby.quick ? 'casual' : 'custom' })
       replay.start(info)
     },
@@ -124,11 +131,15 @@ function createRecorder(): MatchRecorder {
     finish: (result) => {
       const rec = tracker ? tracker.finish(result) : null
       if (rec) recordMatch(rec, getProfile().id)
+      if (rec && analyticsMode && rec.outcome !== 'spectator') trackEvent('match_complete', { mode: analyticsMode, outcome: rec.outcome, rounds: rec.rounds, duration_seconds: Math.round(rec.durationSec) })
       replay.finish(rec?.id ?? null, result.winners)
       tracker = null
+      analyticsMode = null
     },
     abort: () => {
+      if (tracker && analyticsMode) trackEvent('match_exit', { mode: analyticsMode })
       tracker = null
+      analyticsMode = null
       replay.abort()
     },
   }

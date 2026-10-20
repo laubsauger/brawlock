@@ -15,6 +15,23 @@ function storage(saved: Record<string, unknown> | null) {
 beforeEach(() => vi.resetModules())
 afterEach(() => vi.unstubAllGlobals())
 
+describe('optional analytics preference', () => {
+  it.each([undefined, 'true', 1, {}])('never treats malformed or missing consent as approval: %j', async (analyticsConsent) => {
+    storage({ settingsVersion: 2, analyticsConsent })
+    const { useGame } = await import('./store')
+    expect(useGame.getState().settings.analyticsConsent).toBeNull()
+  })
+
+  it.each([true, false])('persists and restores an explicit choice: %s', async (analyticsConsent) => {
+    storage(null)
+    const { useGame } = await import('./store')
+    useGame.getState().setSettings({ analyticsConsent })
+    vi.resetModules()
+    const { useGame: reloaded } = await import('./store')
+    expect(reloaded.getState().settings.analyticsConsent).toBe(analyticsConsent)
+  })
+})
+
 describe('music volume preferences', () => {
   it.each([null, { settingsVersion: 2, playerName: 'Existing player' }])('uses the louder default when no music preference is saved: %j', async (saved) => {
     storage(saved)

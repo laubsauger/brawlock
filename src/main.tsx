@@ -1,3 +1,4 @@
+import { installAnalytics } from './lib/analytics'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
@@ -10,6 +11,7 @@ import { installStaleBuildRecovery } from './lib/staleBuild'
 
 installCursors()
 installStaleBuildRecovery()
+installAnalytics()
 // fetch the PeerJS chunk while this build's files still exist on the server,
 // so joining after a later deploy never requests a deleted chunk
 const warmPeer = () => void import('./net/peer').then((m) => m.loadPeer()).catch(() => {})

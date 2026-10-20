@@ -12,6 +12,7 @@ import { InspectCard } from '../hud/Inspect'
 import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
 import { TopCenter } from '../hud/TopBar'
 import { exitReplay, exportReplay } from '../lib/replays'
+import { FeedbackButton } from '../FeedbackButton'
 import { isTypingTarget } from '../lib/keys'
 import { useTick } from '../lib/ticker'
 import { slotColor, slotGlyph, slotName } from '../lib/view'
@@ -222,11 +223,12 @@ export function Replay() {
     >
       {/* top: replay tag and exit (left), score plate (centre), kill feed (right) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
-        <div className="pointer-events-auto flex items-center gap-1.5">
+        <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5">
           <span className="replay-tag" aria-label="Replay">
             <i aria-hidden />
             Replay
           </span>
+          <FeedbackButton compact />
           <Button size="sm" variant="ghost" sound="back" onClick={exitReplay}>
             Exit <Kbd>Esc</Kbd>
           </Button>

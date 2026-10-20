@@ -3,6 +3,7 @@
  * internal.
  */
 export { GpuCanvas } from './GpuCanvas'
+export { captureRenderCanvas, canCaptureRenderCanvas } from './capture'
 export { MatchView, isMatchRenderReady, type MatchViewProps } from './MatchView'
 export { MenuBackdrop } from './MenuBackdrop'
 export { toWorld, toGame, S as RENDER_SCALE, TILE_TOP_H, LAVA_H } from './coords'

@@ -7,6 +7,7 @@ import { tutorial } from './lib/onboarding'
 import { guidedPractice } from './flow'
 import { Button, Kbd, Modal } from './widgets'
 import { PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
+import { trackEvent } from '../lib/analytics'
 
 const LESSONS = [
   { clip: 'fireball', title: 'Push them into the lava', text: 'Hits push rivals back. More accumulated knockback means a harder push. Be the last warlock standing.', short: 'Push' },
@@ -18,17 +19,26 @@ const LESSONS = [
 function Preview({ id }: { id: string }) {
   const box = useRef<HTMLDivElement>(null)
   const [playing, setPlaying] = useState(() => !reducedMotion() && !saveData())
+  const manual = useRef(false)
+  const reported = useRef(false)
   useEffect(() => {
     if (!box.current || !playing) return
-    showClip(box.current, id, () => setPlaying(false))
-    return () => stopClip()
+    const element = box.current
+    const onPlaying = () => {
+      if (reported.current) return
+      reported.current = true
+      trackEvent('how_to_play_clip_start', { lesson: id, playback: manual.current ? 'manual' : 'autoplay' })
+    }
+    element.addEventListener('playing', onPlaying, true)
+    showClip(element, id, () => setPlaying(false))
+    return () => { element.removeEventListener('playing', onPlaying, true); stopClip() }
   }, [id, playing])
   return (
     <div className="relative">
       <div ref={box} className="ability-media tutorial-preview">
         <img src={posterUrl(id)} width={300} height={169} alt="" />
       </div>
-      <button type="button" className="absolute right-2 bottom-2 rounded border border-white/15 bg-black/75 px-2 py-1 text-xs text-bone hover:bg-black focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setPlaying((p) => !p)} aria-pressed={playing}>
+      <button type="button" className="absolute right-2 bottom-2 rounded border border-white/15 bg-black/75 px-2 py-1 text-xs text-bone hover:bg-black focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { manual.current = true; setPlaying((p) => !p) }} aria-pressed={playing}>
         {playing ? 'Pause clip' : 'Play clip'}
       </button>
     </div>
@@ -49,6 +59,12 @@ function Guide({ label }: { label: string | null }) {
   const binds = useBinds()
   const lesson = LESSONS[index]
   const last = index === LESSONS.length - 1
+  const reportedLesson = useRef<string | null>(null)
+  useEffect(() => {
+    if (reportedLesson.current === lesson.clip) return
+    reportedLesson.current = lesson.clip
+    trackEvent('how_to_play_lesson_view', { lesson: lesson.clip, entry_point: label ? 'first_play' : 'menu' })
+  }, [lesson.clip, label])
   useEffect(() => {
     const dialog = content.current?.closest<HTMLElement>('[role="dialog"]')
     if (!dialog) return
@@ -69,7 +85,7 @@ function Guide({ label }: { label: string | null }) {
     return () => dialog.removeEventListener('keydown', onKey)
   }, [])
   return (
-    <Modal title="How to play" onClose={tutorial.dismiss} width="max-w-2xl" footer={
+    <Modal title="How to play" onClose={() => tutorial.dismiss()} width="max-w-2xl" footer={
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <Button size="sm" variant="ghost" disabled={!!label && !playSupported} title={label && !playSupported ? PLAY_REQUIREMENT : undefined} onClick={tutorial.continue}>{label ? 'Skip & continue' : 'Back to menu'}</Button>
         <div className="flex items-center gap-2">

@@ -14,6 +14,7 @@ import { tutorial } from './lib/onboarding'
 import { clearPendingRoom, rememberPendingRoom } from '../lib/pendingRoom'
 import { isPlaySupported, PLAY_REQUIREMENT } from './lib/playAccess'
 import type { AccountGame } from '../net/accounts'
+import { trackEvent } from '../lib/analytics'
 
 /** Reject before onboarding or reserving a matchmaking seat. Browsing stays available. */
 function allowPlay(): boolean {
@@ -45,7 +46,8 @@ export function playOffline(): void {
 /** Choosing the lesson cancels the intercepted play action; it never queues first. */
 export function guidedPractice(): void {
   if (!allowPlay()) return
-  tutorial.dismiss()
+  trackEvent('guided_practice_click', { entry_point: tutorial.get()?.label ? 'first_play' : 'menu' })
+  tutorial.dismiss('practice')
   closeOverlays()
   session.openPractice()
 }

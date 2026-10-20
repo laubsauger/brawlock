@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type Rea
 import { hoverSfx, sfx } from './lib/sound'
 import type { UiSound } from '../audio'
 import { GRADE_BARS, GRADE_COLOR, peerTitle, type PeerNet } from './lib/netstats'
+import { FeedbackButton } from './FeedbackButton'
 
 type Variant = 'default' | 'primary' | 'danger' | 'ghost'
 type Size = 'sm' | 'md' | 'lg'
@@ -238,6 +239,7 @@ export function Modal({
   className = '',
   footer,
   escDisabled = false,
+  help = true,
 }: {
   title: string
   onClose: () => void
@@ -248,6 +250,7 @@ export function Modal({
   footer?: ReactNode
   /** e.g. while a key-capture field owns Esc */
   escDisabled?: boolean
+  help?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
@@ -258,8 +261,17 @@ export function Modal({
     const prev = document.activeElement as HTMLElement | null
     if (!ref.current?.contains(document.activeElement)) ref.current?.focus()
     const onKey = (e: KeyboardEvent) => {
+      // A feedback dialog can sit above another menu; only the front dialog owns keys.
+      if ([...document.querySelectorAll('[role="dialog"]')].at(-1) !== ref.current) return
+      if (e.key === 'Tab') {
+        const focusable = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex="0"]') ?? [])].filter((node) => node.getClientRects().length > 0)
+        const first = focusable[0], last = focusable.at(-1)
+        if (!first) { e.preventDefault(); ref.current?.focus() }
+        else if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last?.focus() }
+        else if (!e.shiftKey && (document.activeElement === last || document.activeElement === ref.current)) { e.preventDefault(); first.focus() }
+      }
       if (e.key === 'Escape' && !escOff.current) {
-        e.stopPropagation()
+        e.stopImmediatePropagation()
         e.preventDefault()
         sfx('back')
         closeRef.current()
@@ -274,11 +286,14 @@ export function Modal({
   return (
     <div className="scrim pointer-events-auto fade-in fixed inset-0 z-50 grid place-items-center p-4" onMouseDown={(e) => e.target === e.currentTarget && closeRef.current()}>
       <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`panel panel-solid pop-in flex max-h-[92vh] w-full flex-col outline-none ${width} ${className}`}>
-        <div className="flex items-center justify-between px-7 pt-6 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-7 pt-6 pb-3">
           <h2 className="display text-4xl text-[#ffd890]">{title}</h2>
-          <Button variant="ghost" size="sm" sound="back" onClick={onClose} aria-label="Close">
-            Close <Kbd>Esc</Kbd>
-          </Button>
+          <div className="flex items-center gap-1">
+            {help && <FeedbackButton compact />}
+            <Button variant="ghost" size="sm" sound="back" onClick={onClose} aria-label="Close">
+              Close <Kbd>Esc</Kbd>
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-6">{children}</div>
         {footer && <div className="border-t border-[rgba(255,170,100,0.12)] px-7 py-4">{footer}</div>}

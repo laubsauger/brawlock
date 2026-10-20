@@ -28,7 +28,9 @@ import { RoomChatLayout } from './ui/hud/Chat'
 import { useOnlinePresence } from './ui/lib/presence'
 import { RankedControlPrompt } from './ui/screens/RankedControlPrompt'
 import { PlayControlPrompt } from './ui/screens/PlayControlPrompt'
+import { AnalyticsConsent } from './ui/AnalyticsConsent'
 import { ReleaseNotesDialog } from './ui/ReleaseNotes'
+import { FeedbackDialog } from './ui/Feedback'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -213,6 +215,7 @@ export default function App() {
       <MatchLayer />
       <ActiveRoomStatus />
       <ReleaseNotesDialog />
+      <FeedbackDialog />
       <div className="relative min-h-0 flex-1">
       <RoomChatLayout screen={screen}>
         {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
@@ -228,6 +231,7 @@ export default function App() {
         <Tutorial />
         <RankedControlPrompt />
         <PlayControlPrompt />
+        <AnalyticsConsent />
         <SplashScreen />
         <Toasts />
         <PerfHud />

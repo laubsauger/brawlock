@@ -1,3 +1,4 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { getHallOfFame, getMatchHistory, recordedProfileStats, type Career, type CareerTotals, type Encounter, type HallOfFameKey, type MatchRecord, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
@@ -866,9 +867,12 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
         </div>
-        <Button sound="back" onClick={onBack}>
-          Back <Kbd>Esc</Kbd>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <FeedbackButton />
+          <Button sound="back" onClick={onBack}>
+            Back <Kbd>Esc</Kbd>
+          </Button>
+        </div>
       </header>
 
       <section data-testid="profile-panel" className="panel panel-solid flex min-h-0 flex-1 flex-col p-5">

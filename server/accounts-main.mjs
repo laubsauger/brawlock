@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { toNodeHandler } from 'better-auth/node'
 import { openAccounts } from './accounts.mjs'
+import { openFeedback } from './feedback.mjs'
 
 process.umask(0o077)
 
@@ -23,17 +24,31 @@ for (const provider of ['google', 'discord', 'microsoft']) {
   providers[provider] = { clientId, clientSecret: readFileSync(secretFile, 'utf8').trim() }
 }
 const origin = required('AUTH_ORIGIN')
+const dataDir = required('AUTH_DATA_DIR')
+const regionsToken = readFileSync(required('AUTH_REGIONS_TOKEN_FILE'), 'utf8').trim()
 const accounts = await openAccounts({
-  file: join(required('AUTH_DATA_DIR'), 'accounts.sqlite'), origin,
+  file: join(dataDir, 'accounts.sqlite'), origin,
   secret: readFileSync(required('AUTH_SECRET_FILE'), 'utf8').trim(), providers,
-  regionsToken: readFileSync(required('AUTH_REGIONS_TOKEN_FILE'), 'utf8').trim(),
+  regionsToken,
   migrate: process.argv.includes('--migrate'),
 })
 if (process.argv.includes('--migrate')) {
   accounts.close()
   console.log('Account schema is ready.')
 } else {
-  const handle = toNodeHandler(async (request) => accounts.handler(request))
+  const feedback = openFeedback(join(dataDir, 'feedback.sqlite'), {
+    origin, token: regionsToken,
+    getAccount: async (request) => {
+      if (!request.headers.has('cookie')) return null
+      const session = await accounts.auth.api.getSession({ headers: request.headers })
+      return session ? { id: session.user.id } : null
+    },
+  })
+  const handle = toNodeHandler(async (request) => {
+    const path = new URL(request.url).pathname
+    return path === '/api/feedback' || path === '/internal/feedback' || path.startsWith('/internal/feedback/')
+      ? feedback.handler(request) : accounts.handler(request)
+  })
   const server = http.createServer(async (req, res) => {
     // Only nginx may set forwarding headers; never use a browser-supplied auth IP.
     req.headers['x-brawlock-client-ip'] = process.env.TRUST_PROXY === '1'
@@ -41,10 +56,11 @@ if (process.argv.includes('--migrate')) {
     // Better Auth has its own parser; bound the stream before handing it over.
     const chunks = []
     let bytes = 0
+    const limit = req.url?.split('?')[0] === '/api/feedback' ? 512 * 1024 : 32 * 1024
     try {
       for await (const chunk of req.iterator({ destroyOnReturn: false })) {
         bytes += chunk.length
-        if (bytes > 32 * 1024) {
+        if (bytes > limit) {
           res.writeHead(413, { 'content-type': 'application/json', 'cache-control': 'no-store' })
           res.end('{"error":"Request is too large."}')
           req.resume()
@@ -69,7 +85,7 @@ if (process.argv.includes('--migrate')) {
   const stop = () => {
     if (stopping) return
     stopping = true
-    server.close(() => { accounts.close(); process.exit(0) })
+    server.close(() => { feedback.close(); accounts.close(); process.exit(0) })
   }
   process.on('SIGTERM', stop)
   process.on('SIGINT', stop)

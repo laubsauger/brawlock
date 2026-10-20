@@ -1,3 +1,4 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
@@ -285,6 +286,7 @@ export function Results() {
                 Watch replay
               </Button>
             )}
+            <FeedbackButton />
             <Button variant="ghost" sound="back" onClick={leaveToMenu}>
               Leave
             </Button>
@@ -315,6 +317,7 @@ export function Results() {
             Watch replay
           </Button>
         )}
+        <FeedbackButton />
         <Button variant="ghost" sound="back" onClick={leaveToMenu}>
           Leave
         </Button>

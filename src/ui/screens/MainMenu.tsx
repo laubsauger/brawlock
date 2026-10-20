@@ -1,3 +1,4 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
@@ -25,7 +26,7 @@ import { RejoinPrompt } from './RejoinPrompt'
 import { accountsEnabled, refreshAccount } from '../../game/account'
 import { useAccount } from '../../game/accountState'
 import { loadProgression } from '../../game/progression'
-import { EmberMark } from './Collection'
+import { MenuPlayerCard, type MenuRatingState } from './MenuPlayerCard'
 import { accountReturn } from '../../game/accountReturn'
 import { ReleaseStamp } from '../ReleaseStamp'
 
@@ -249,6 +250,7 @@ export function MainMenu() {
   const guestName = useGame((s) => s.settings.playerName)
   const account = useAccount((s) => s.player)
   const accountError = useAccount((s) => s.error)
+  const accountLoaded = useAccount((s) => s.loaded)
   const name = account?.profile?.name ?? guestName
   const gpu = useGame((s) => s.gpu)
   const muted = useGame((s) => s.settings.muted)
@@ -273,6 +275,7 @@ export function MainMenu() {
   const [accountBusy, setAccountBusy] = useState(false)
   const [draftColor, setDraftColor] = useState(() => getProfile().color)
   const [rating, setRating] = useState<ServerProfile | null>(null)
+  const [ratingState, setRatingState] = useState<MenuRatingState>(online.configured ? 'loading' : 'disabled')
   useEffect(() => {
     setEmberBalance(null); setEmberProblem(null)
     if (!accountsEnabled || !account || collectionOpen) return
@@ -285,7 +288,13 @@ export function MainMenu() {
   useEffect(() => {
     if (!online.configured) return
     let alive = true
-    void session.serverProfile().then((profile) => { if (alive) setRating(profile) }).catch(() => { if (alive) setRating(null) })
+    setRating(null)
+    setRatingState('loading')
+    void session.serverProfile().then((profile) => {
+      if (alive) { setRating(profile); setRatingState('ready') }
+    }).catch(() => {
+      if (alive) { setRating(null); setRatingState('error') }
+    })
     return () => { alive = false }
   }, [name, account?.id])
   useEffect(() => {
@@ -355,21 +364,13 @@ export function MainMenu() {
 
   return (
     <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
-      <div className="menu-identity z-10 flex flex-wrap items-center justify-end gap-2" aria-label="Player and account">
-      <button type="button" data-testid="player-profile" className="menu-profile flex min-w-0 items-center gap-3 rounded border border-[#b58b55]/30 bg-[#140e0b]/80 px-3 py-2 text-left text-bone hover:border-gold/60 focus-visible:outline-2 focus-visible:outline-gold" onClick={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }} aria-label={account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}, ${account.email}` : `Edit player name and color: ${name}`} title={account ? `Signed in as ${account.email}` : undefined}>
-        <span className="shrink-0 text-[#e6b675]"><MenuGlyph kind="profile" size={21} /></span>
-        <span className="flex min-w-0 flex-col">
-          <span className="max-w-40 truncate font-semibold">{name}</span>
-          {account && <span className="menu-account-email truncate text-xs text-ash">{account.email}</span>}
-          {account && !account.profile && <span className="text-xs text-gold">Finish setup</span>}
-        </span>
-        <span className="shrink-0 text-ash"><MenuGlyph kind="edit" size={13} /></span>
-      </button>
-      {rating && <button type="button" className="rounded border border-[#aaa9c8]/30 bg-[#140e0b]/90 px-3 py-2 text-sm font-semibold text-[#e3d9ba] hover:border-gold/60" onClick={() => setProfileTab('board')} title="Open the global Elo leaderboard" data-testid="profile-elo">{Math.round(rating.rating)} Elo · #{rating.rank}</button>}
-      {accountsEnabled && <>
-        {!account && <Button variant="ghost" size="sm" title="Sign in to your account" onClick={openAccount}>Sign in</Button>}
-        {account && <Button variant="ghost" size="sm" data-testid="open-collection" title={emberProblem ?? 'Your permanent cosmetic collection'} onClick={() => setCollectionOpen(true)}><span className="flex items-center gap-1.5"><EmberMark size={16} /><span className="tabular">{emberBalance !== null ? `${emberBalance.toLocaleString()} · Collection` : 'Collection'}</span></span></Button>}
-      </>}
+      <div className="menu-identity z-10">
+        <MenuPlayerCard name={name} account={account} accountsEnabled={accountsEnabled} accountLoaded={accountLoaded}
+          accountError={accountError} accountBusy={accountBusy} rating={rating} ratingState={ratingState}
+          emberBalance={emberBalance} emberProblem={emberProblem}
+          onProfile={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }}
+          onSignIn={openAccount} onLeaderboard={() => setProfileTab('board')} onCollection={() => setCollectionOpen(true)}
+          onRetryAccount={() => { setAccountBusy(true); void refreshAccount().catch(() => {}).finally(() => setAccountBusy(false)) }} />
       </div>
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
@@ -381,7 +382,6 @@ export function MainMenu() {
 
         {activeRoom ? <Button variant="primary" className="mt-4 w-full" data-testid="return-active-room" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : 'Resume your active lobby or match'} onClick={() => { if (isPlaySupported()) session.resume() }}>Return to your game</Button> : <RejoinPrompt />}
         {!activeRoom && account?.game && <Button variant="primary" className="mt-3 w-full" data-testid="rejoin-account-game" disabled={!playSupported} onClick={() => { if (isPlaySupported() && account.game) void session.join(account.game.room, { kind: 'server', region: account.game.region }) }}>Rejoin your ranked game</Button>}
-        {accountError && <div role="alert" className="mt-3 rounded border border-red-400/30 bg-[#321717] p-3 text-sm text-red-200">{accountError}<Button size="sm" variant="ghost" disabled={accountBusy} onClick={() => { setAccountBusy(true); void refreshAccount().catch(() => {}).finally(() => setAccountBusy(false)) }}>Retry account</Button></div>}
 
         {error && (
           <div role="alert" className="pop-in mb-5 flex items-start gap-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-3">
@@ -440,6 +440,7 @@ export function MainMenu() {
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <nav className="flex flex-wrap items-center gap-1" aria-label="Information and policies">
+            <FeedbackButton />
             <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
             <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy (opens in a new tab)">Privacy Policy</a>
             <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" aria-label="Terms of Service (opens in a new tab)">Terms of Service</a>

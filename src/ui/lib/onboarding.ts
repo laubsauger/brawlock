@@ -1,5 +1,6 @@
 import { getCareer } from '../../game/stats'
 import { useGame } from '../../game/store'
+import { trackEvent } from '../../lib/analytics'
 
 /** Stable public snapshot; the pending session action stays private. */
 export interface TutorialIntent {
@@ -29,6 +30,7 @@ function clear(): PlayIntent | null {
 }
 
 function show(intent: PlayIntent | null): void {
+  trackEvent('how_to_play_view', { entry_point: intent ? 'first_play' : 'menu' })
   const previous = pending
   pending = intent
   publish({ label: intent?.label ?? null })
@@ -63,13 +65,15 @@ export const tutorial = {
 
   continue(): void {
     if (!snapshot) return
+    trackEvent('how_to_play_exit', { choice: 'continue', entry_point: snapshot.label ? 'first_play' : 'menu' })
     const intent = clear()
     useGame.getState().setSettings({ tutorialSeen: true })
     intent?.run()
   },
 
-  dismiss(): void {
+  dismiss(choice: 'close' | 'practice' = 'close'): void {
     if (!snapshot) return
+    trackEvent('how_to_play_exit', { choice, entry_point: snapshot.label ? 'first_play' : 'menu' })
     const intent = clear()
     useGame.getState().setSettings({ tutorialSeen: true })
     intent?.cancel?.()

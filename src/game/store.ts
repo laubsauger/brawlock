@@ -77,6 +77,8 @@ export interface Settings {
   showHints: boolean
   /** the first-play guide was completed or dismissed */
   tutorialSeen: boolean
+  /** Optional Google Analytics; null means no choice yet. */
+  analyticsConsent: boolean | null
   /** a move during a cast windup cancels the cast (original / Dota); off: the move waits for the spell */
   moveCancelsCast: boolean
   /** settings migrations already applied (see migrateSettings) */
@@ -201,6 +203,7 @@ const defaultSettings: Settings = {
   netGraph: false,
   showHints: true,
   tutorialSeen: false,
+  analyticsConsent: null,
   moveCancelsCast: true,
   settingsVersion: 2,
   colorblindPalette: false,
@@ -217,6 +220,7 @@ const isEmpty = (o: object | undefined) => !o || Object.keys(o).length === 0
  */
 export function migrateSettings(saved: Partial<Settings>): Settings {
   const s = { ...defaultSettings, ...saved, settingsVersion: saved.settingsVersion ?? 1 }
+  s.analyticsConsent = typeof saved.analyticsConsent === 'boolean' ? saved.analyticsConsent : null
   if (s.settingsVersion < 2) {
     if (s.keyPreset === 'dota' && isEmpty(s.keybinds) && isEmpty(s.keybindsAlt)) s.keyPreset = 'brawlock'
     s.settingsVersion = 2

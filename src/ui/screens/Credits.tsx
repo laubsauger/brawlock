@@ -1,3 +1,4 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { useEffect, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Button, Kbd } from '../widgets'
@@ -45,11 +46,14 @@ export function Credits() {
 
   return (
     <div className="screen-in mx-auto flex h-full w-full max-w-[1280px] flex-col px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mb-6 flex items-end justify-between gap-4">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <h1 className="display text-6xl leading-none text-[#ffd890]">Credits</h1>
-        <Button sound="back" onClick={() => setScreen('menu')}>
-          Back <Kbd>Esc</Kbd>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <FeedbackButton />
+          <Button sound="back" onClick={() => setScreen('menu')}>
+            Back <Kbd>Esc</Kbd>
+          </Button>
+        </div>
       </header>
       <div className="panel min-h-0 flex-1 overflow-y-auto p-8">
         <div className="grid grid-cols-1 gap-x-12 lg:grid-cols-2 xl:grid-cols-3">

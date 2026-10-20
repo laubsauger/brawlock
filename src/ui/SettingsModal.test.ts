@@ -184,6 +184,7 @@ describe('tabbed settings', () => {
     markup('controls')
     const addEventListener = vi.fn()
     vi.stubGlobal('window', { addEventListener, removeEventListener: vi.fn() })
+    vi.stubGlobal('document', { querySelectorAll: () => [{ getAttribute: () => 'Settings' }] })
     const cleanup = model.captureEffect!()
     const event = { code, preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn() }
     addEventListener.mock.calls[0][1](event)

@@ -38,6 +38,7 @@ import { getNoiseTexture } from './scene/noiseTexture'
 import * as frameCull from './frameCull'
 import { perfMark, perfProbe, renderStats } from './stats'
 import { gradeSceneColor } from './colorGrade'
+import { registerRenderCapture } from './capture'
 
 /** HDR ceilings (linear, max channel). Scene: before bloom/composite (bloom
  * still gets bright cores). Final: before tone mapping. Low: no bloom, so
@@ -206,6 +207,28 @@ export function RenderLoop({
     frameCull.adoptScene(scene)
     return () => frameCull.releaseScene(scene)
   }, [scene])
+
+  useEffect(() => registerRenderCapture(gl.domElement, () => {
+    // Repaint the current world/camera, without stepping the simulation or
+    // advancing effect uniforms. This also works when rendering is idle or
+    // capped, and preserves the complete postprocessed appearance.
+    frameCull.beginFrame(scene)
+    try {
+      pipeline.render()
+    } finally {
+      frameCull.endFrame()
+    }
+    // WebGL can discard its drawing buffer after composition. Copy during
+    // this same task; encoding can happen later from the detached 2D canvas.
+    const snapshot = document.createElement('canvas')
+    snapshot.width = gl.domElement.width
+    snapshot.height = gl.domElement.height
+    if (snapshot.width === 0 || snapshot.height === 0) throw new Error('The rendered canvas has no pixels to capture.')
+    const context = snapshot.getContext('2d')
+    if (!context) throw new Error('A 2D canvas is required to capture the rendered scene.')
+    context.drawImage(gl.domElement, 0, 0)
+    return snapshot
+  }), [gl, pipeline, scene])
 
   // real GPU cost: render N frames back to back, wait for the queue to drain
   useEffect(() => {

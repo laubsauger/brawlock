@@ -11,6 +11,7 @@ import { chooseName } from './lib/name'
 import { online } from '../game/session'
 import { pickRegion, useRegionChoice, useRegions } from './lib/servers'
 import { RegionPing } from './RegionPing'
+import { analyticsAvailable } from '../lib/analytics'
 
 const FPS_CAPS = [
   { value: '0', label: 'Off' },
@@ -92,6 +93,7 @@ function Keybinds({ capturing, onCapture }: { capturing: KeyCapture | null; onCa
     if (!capturing) return
     const { action, which } = capturing
     const onKey = (e: KeyboardEvent) => {
+      if ([...document.querySelectorAll('[role="dialog"]')].at(-1)?.getAttribute('aria-label') !== 'Settings') return
       e.preventDefault()
       e.stopPropagation()
       e.stopImmediatePropagation()
@@ -500,6 +502,9 @@ export function SettingsModal() {
           </>)}
           {tab === id && id === 'interface' && (<>
             <Section title="Interface">
+              {analyticsAvailable && <Row label="Google Analytics" hint="Optional visit, campaign and gameplay measurement. No player names, emails or chat are sent.">
+                <Switch label="Google Analytics" checked={s.analyticsConsent === true} onChange={(analyticsConsent) => setSettings({ analyticsConsent })} />
+              </Row>}
               <Row label="HUD layout" hint={s.hudLayout === 'right' ? 'Spells and items sit in the bottom-right corner; the center stays clear' : 'Spells and items centered along the bottom'}>
                 <Segmented
                   label="HUD layout"

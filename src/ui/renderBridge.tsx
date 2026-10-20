@@ -128,6 +128,11 @@ export function renderPerf(): RenderPerf | null {
   return mod?.renderStats ?? null
 }
 
+export function captureRendererCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  if (!mod) throw new Error('The scene renderer is not ready for a screenshot.')
+  return mod.captureRenderCanvas(canvas)
+}
+
 /** Keeps a crashing 3D layer from taking the UI with it. */
 class RenderBoundary extends Component<{ children: ReactNode; name: string }, { failed: boolean }> {
   state = { failed: false }

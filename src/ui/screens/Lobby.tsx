@@ -1,8 +1,9 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { useEffect, useRef, useState } from 'react'
 import { BOT_DIFFICULTIES, useGame, type LobbyView } from '../../game/store'
 import { MAX_PLAYERS, session } from '../../game/session'
 import type { BotDifficulty, PlayerSlot, TeamMode } from '../../sim/types'
-import { Button, Crown, PingBars, Switch } from '../widgets'
+import { Button, Crown, Modal, PingBars, Switch } from '../widgets'
 import { hostGame, hostOnServer, leaveToMenu, setReady, startMatch } from '../flow'
 import { online } from '../../game/session'
 import { pickRegion, regionProblem, regionStatus, useRegionChoice, useRegions } from '../lib/servers'
@@ -133,6 +134,7 @@ function PlayerCard({
   unstable,
   ready,
   h2h,
+  onColor,
 }: {
   slot: PlayerSlot
   isLocal: boolean
@@ -147,6 +149,7 @@ function PlayerCard({
   unstable?: boolean
   ready: boolean
   h2h: ReturnType<typeof headToHead>
+  onColor?: () => void
 }) {
   // lobby: team colours only in fixed teams (shuffle deals teams per round)
   const cb = useGame((s) => s.settings.colorblindPalette ?? false)
@@ -155,26 +158,25 @@ function PlayerCard({
   const glyph = playerGlyph(slot, shown, cb)
   return (
     <li
-      className="card-in relative flex flex-wrap items-center gap-3 rounded-lg px-3 py-2.5"
+      className="lobby-player card-in relative flex items-center rounded-lg"
       style={{ background: `linear-gradient(90deg, ${color}1f, rgba(0,0,0,.22) 45%)`, boxShadow: `inset 3px 0 0 ${color}, inset 0 0 0 1px rgba(255,170,100,.08)` }}
     >
-      <span
-        className="h-10 w-10 shrink-0 rotate-45 rounded-[5px]"
-        style={{ background: `linear-gradient(135deg, ${color}, ${color}77)`, boxShadow: `0 0 16px ${color}66, inset 0 0 0 1px rgba(255,255,255,.3)` }}
-        aria-hidden
-      />
-      <div className="min-w-24 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[1.15rem] font-bold">
+      {onColor ? <button type="button" className="lobby-player-color shrink-0 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold" onClick={onColor} aria-label="Change your color" title="Change your color">
+        <span className="lobby-player-gem" style={{ background: `linear-gradient(135deg, ${color}, ${color}77)` }} aria-hidden />
+        <span className="text-[0.65rem] leading-none text-gold">Color</span>
+      </button> : <span className="lobby-player-color shrink-0" aria-hidden><span className="lobby-player-gem" style={{ background: `linear-gradient(135deg, ${color}, ${color}77)` }} /></span>}
+      <div className="min-w-0 flex-1">
+        <div className="lobby-player-name flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate font-bold" title={slot.name}>
             {glyph && <span className="mr-1.5" style={{ color }} aria-hidden>{glyph}</span>}
             {slot.name}
           </span>
           {isHost && <Crown />}
           {isLocal && <span className="chip text-gold">You</span>}
           {ready && <span className="chip pop-in bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}
-          {unstable && slot.kind === 'human' && <span className="chip pop-in bg-[rgba(255,110,60,0.14)] text-[#ffb08a]">Unstable connection</span>}
+          {unstable && slot.kind === 'human' && <span title="Unstable connection" className="chip pop-in bg-[rgba(255,110,60,0.14)] text-[#ffb08a]">Unstable</span>}
         </div>
-        <div className="flex items-center gap-3 text-sm text-ash">
+        <div className="lobby-player-detail flex items-center gap-3 text-ash">
           <span>{slot.kind === 'bot' ? `Bot, ${DIFFICULTY_LABEL[slot.difficulty ?? 'medium'].toLowerCase()}` : 'Human'}</span>
           {teamMode !== 'teams' && <span className="hidden sm:inline">{teamText(teamMode, slot.team)}</span>}
           {!isLocal && h2h && (
@@ -191,7 +193,7 @@ function PlayerCard({
       {teamMode === 'teams' &&
         (canEdit ? (
           <select
-            className="field w-28"
+            className="field lobby-player-select"
             aria-label={`Team for ${slot.name}`}
             value={slot.team}
             onChange={(e) => {
@@ -211,7 +213,7 @@ function PlayerCard({
 
       {slot.kind === 'bot' && canEdit && (
         <select
-          className="field w-28"
+          className="field lobby-player-select"
           aria-label={`Difficulty for ${slot.name}`}
           title={difficultyTip(slot.difficulty ?? 'medium')}
           value={slot.difficulty ?? 'medium'}
@@ -261,14 +263,14 @@ function InviteCard({ code, url, host }: { code: string | null; url: string | nu
   const [copied, copy] = useCopy()
   const link = url ?? (code ? roomLink(window.location.href, code) : null)
   return (
-    <div className="mb-6">
-      <h3 className="section-title mb-2">Room code</h3>
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex gap-1.5" aria-label={code ? `Room code ${code.split('').join(' ')}` : 'Creating a room code'}>
+    <div className="mb-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="section-title">Room code</h3>
+        <div className="flex gap-1" aria-label={code ? `Room code ${code.split('').join(' ')}` : 'Creating a room code'}>
           {(code ?? '·····').split('').map((ch, i) => (
             <span
               key={i}
-              className="grid h-12 w-10 place-items-center rounded-md text-[1.8rem] font-bold text-[#fff1d6] sm:h-14 sm:w-12 sm:text-[2.1rem]"
+              className="grid h-10 w-8 place-items-center rounded text-[1.5rem] font-bold text-[#fff1d6]"
               style={{ background: 'linear-gradient(180deg,#2c1d14,#160e0a)', boxShadow: 'inset 0 0 0 1px rgba(255,170,100,.3), 0 0 18px rgba(255,110,30,.15)' }}
               aria-hidden
             >
@@ -276,7 +278,7 @@ function InviteCard({ code, url, host }: { code: string | null; url: string | nu
             </span>
           ))}
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={!code} sound={null} onClick={() => copy('code', code)}>
             {copied === 'code' ? 'Code copied' : 'Copy code'}
           </Button>
@@ -285,7 +287,7 @@ function InviteCard({ code, url, host }: { code: string | null; url: string | nu
           </Button>
         </div>
       </div>
-      <p className="mt-2 text-sm text-ash" aria-live="polite">
+      <p className="mt-2 text-xs text-ash" aria-live="polite">
         {copied === 'fail'
           ? 'The browser blocked copying. Read the code out instead.'
           : host
@@ -300,6 +302,7 @@ export function Lobby() {
   const lobby = useGame((s) => s.lobby)
   const betweenMatches = useGame((s) => s.result !== null)
   const [botLevel, setBotLevel] = useState<BotDifficulty>('medium')
+  const [colorOpen, setColorOpen] = useState(false)
   const encounters = useEncounters()
   const online = lobby.role !== 'offline'
   const localReady = !!lobby.ready?.[lobby.localPlayer]
@@ -331,9 +334,9 @@ export function Lobby() {
 
   return (
     <div className="lobby-screen screen-in">
-      <header className={`mb-4 flex flex-wrap items-end justify-between gap-3 ${lobby.ranked ? 'border-b border-[#bfc3d3]/30 pb-3' : ''}`}>
+      <header className={`lobby-header flex flex-wrap items-end justify-between gap-3 ${lobby.ranked ? 'border-b border-[#bfc3d3]/30 pb-3' : ''}`}>
         <div className="flex flex-wrap items-end gap-4">
-          <h1 className={`display text-6xl leading-none ${lobby.ranked ? 'text-[#e4ddf7]' : 'text-[#ffd890]'}`}>{lobby.ranked ? 'Ranked lobby' : 'Lobby'}</h1>
+          <h1 className={`lobby-title display leading-none ${lobby.ranked ? 'text-[#e4ddf7]' : 'text-[#ffd890]'}`}>{lobby.ranked ? 'Ranked lobby' : 'Lobby'}</h1>
           <span className="chip mb-1.5">{lobby.ranked ? 'Global Elo' : lobby.quick ? 'Casual' : ROLE_LABEL[lobby.role]}</span>
           {transport && (
             <span
@@ -351,30 +354,32 @@ export function Lobby() {
             </span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {online && lobby.status === 'open' && <Button sound="back" onClick={() => useGame.getState().setScreen('menu')} title="Browse menus and stats while staying in this lobby" data-testid="lobby-browse-menu">
             Menu
           </Button>}
           <Button variant="danger" sound="back" onClick={leaveToMenu}>
             Leave lobby
           </Button>
+          <FeedbackButton compact />
         </div>
       </header>
 
-      {lobby.maintenance && <section role="status" data-testid="lobby-maintenance" className="mb-4 rounded-lg border border-gold/40 bg-[#281d13] px-5 py-4 text-center">
+      <div className="lobby-notices">
+      {lobby.maintenance && <section role="status" data-testid="lobby-maintenance" className="rounded-lg border border-gold/40 bg-[#281d13] px-5 py-4 text-center">
         <h2 className="text-xl font-semibold text-gold">Region updating</h2>
         <p className="mt-1 text-sm text-bone">{lobby.maintenance}</p>
         <Button className="mt-3" onClick={leaveToMenu}>Choose another region</Button>
       </section>}
       {automatic && <section
-        className={`mb-4 shrink-0 rounded-lg border px-5 py-3 text-center ${lobby.ranked ? 'border-[#bfc3d3]/40 bg-[linear-gradient(110deg,rgba(68,48,74,.75),rgba(23,18,29,.94),rgba(77,35,44,.65))] shadow-[inset_0_1px_0_rgba(221,212,244,.12),0_0_24px_rgba(158,89,96,.08)]' : 'border-[#e7a656]/35 bg-[linear-gradient(110deg,rgba(68,40,15,.65),rgba(28,18,13,.94),rgba(68,40,15,.65))] shadow-[inset_0_1px_0_rgba(255,216,144,.12),0_0_24px_rgba(255,150,50,.06)]'}`}
+        className={`lobby-auto-status shrink-0 rounded-lg border text-center ${lobby.ranked ? 'border-[#bfc3d3]/40 bg-[linear-gradient(110deg,rgba(68,48,74,.75),rgba(23,18,29,.94),rgba(77,35,44,.65))] shadow-[inset_0_1px_0_rgba(221,212,244,.12),0_0_24px_rgba(158,89,96,.08)]' : 'border-[#e7a656]/35 bg-[linear-gradient(110deg,rgba(68,40,15,.65),rgba(28,18,13,.94),rgba(68,40,15,.65))] shadow-[inset_0_1px_0_rgba(255,216,144,.12),0_0_24px_rgba(255,150,50,.06)]'}`}
         aria-label="Automatic match start"
         role="status"
         aria-live="polite"
         data-testid="lobby-auto-start"
       >
         <p className="text-[0.74rem] font-bold tracking-[0.18em] text-gold/80 uppercase">{lobby.ranked ? 'Ranked matchmaking' : betweenMatches ? 'Casual · Next match' : 'Casual matchmaking'}</p>
-        <p className="mt-0.5 text-[clamp(1.5rem,2.6vw,2rem)] leading-tight font-semibold text-[#ffe0a6]">
+        <p className="lobby-auto-title mt-0.5 leading-tight font-semibold text-[#ffe0a6]">
           {lobby.ranked && humans < 2 ? 'Waiting for one more player' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} between={betweenMatches} /> : 'Waiting for players to join…'}
         </p>
         <p className="mt-1 text-[0.95rem] text-[#e3c9a5]">
@@ -385,20 +390,21 @@ export function Lobby() {
               : 'Starts automatically. More players can join before the countdown ends.'}
         </p>
       </section>}
-      {lobby.ranked && <p className="mb-4 rounded border border-[#bfc3d3]/20 bg-black/25 px-4 py-2 text-sm text-[#e3d9ba]" data-testid="ranked-rules">
+      {lobby.ranked && <p className="rounded border border-[#bfc3d3]/20 bg-black/25 px-4 py-2 text-sm text-[#e3d9ba]" data-testid="ranked-rules">
         8 players · 5 rounds · tied leaders fight a final brawl · Brutal bots fill empty seats.
       </p>}
       <LobbyVote />
+      </div>
 
-      <div className="grid shrink-0 grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-        <section className="panel flex min-h-80 min-w-0 max-h-[70vh] flex-col p-4 sm:p-5 lg:min-h-0 lg:max-h-none" aria-label="Players">
+      <div className="lobby-panels">
+        <section className="panel lobby-roster" aria-label="Players">
           <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="section-title text-[1.9rem]">Warlocks</h2>
+            <h2 className="section-title lobby-roster-title">Warlocks</h2>
             <span className="tabular text-ash">
               {lobby.slots.length} / {lobby.ranked ? 8 : MAX_PLAYERS}
             </span>
           </div>
-          <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1" aria-label="Warlock roster">
+          <ul className="lobby-roster-list flex min-h-0 flex-1 flex-col overflow-y-auto pr-1" aria-label="Warlock roster">
             {lobby.slots.map((s) => (
               <PlayerCard
                 key={s.id}
@@ -413,15 +419,13 @@ export function Lobby() {
                 unstable={links.flagged.includes(s.id)}
                 ready={!!lobby.ready?.[s.id]}
                 h2h={headToHead(encounters, s)}
+                onColor={s.id === localSlot?.id ? () => setColorOpen(true) : undefined}
               />
             ))}
             {lobby.slots.length === 0 && <li className="py-6 text-ash">{lobby.status === 'error' ? 'No players.' : 'Setting up the lobby…'}</li>}
           </ul>
-          {localSlot && <div className="mt-4 border-t border-[rgba(255,170,100,0.1)] pt-3">
-            <PlayerColorPicker local={localSlot} slots={lobby.slots} editable={lobby.status === 'open'} />
-          </div>}
           {canEdit && (
-            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[rgba(255,170,100,0.1)] pt-4">
+            <div className="lobby-bot-controls flex flex-wrap items-center gap-2 border-t border-[rgba(255,170,100,0.1)]">
               <select
                 className="field w-32"
                 aria-label="New bot difficulty"
@@ -443,11 +447,11 @@ export function Lobby() {
           )}
         </section>
 
-        <section className="panel flex min-h-0 min-w-0 max-h-[70vh] flex-col p-4 sm:p-5 lg:max-h-none" aria-label="Match options">
+        <section className="panel lobby-options" aria-label="Match options">
           <div className="-ml-2 min-h-0 flex-1 overflow-y-auto pl-2 pr-2">
             {(lobby.role === 'host' || (lobby.role === 'client' && lobby.roomCode)) && <InviteCard code={lobby.roomCode} url={lobby.joinUrl} host={lobby.role === 'host'} />}
             {((transport === 'server' && (lobby.quick || lobby.role === 'host')) || (transport === 'p2p' && lobby.role === 'host' && regions.length > 0)) && (
-              <div className="mb-6 flex items-center justify-between gap-4 rounded-lg bg-[rgba(0,0,0,0.25)] px-4 py-3">
+              <div className="mb-3 flex items-center justify-between gap-4 rounded-lg bg-[rgba(0,0,0,0.25)] px-3 py-2">
                 <span className="flex flex-col">
                   <span className="font-semibold">Listed publicly</span>
                   <span className="text-[0.88rem] text-ash">
@@ -462,7 +466,7 @@ export function Lobby() {
         </section>
       </div>
 
-      <footer className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-4 pr-8 pb-8">
+      <footer className="lobby-footer flex shrink-0 flex-wrap items-center justify-between gap-4">
         {(!automatic || lobby.notice) && <p
           className={`flex items-center gap-2.5 text-[1.08rem] font-semibold ${status.tone === 'error' ? 'text-[#ff9b8a]' : status.tone === 'ok' ? 'text-heal' : 'text-[#f0d9b8]'}`}
           role="status"
@@ -472,7 +476,7 @@ export function Lobby() {
           {status.text}
         </p>}
         {lobby.role === 'host' && lobby.status === 'connecting' && <SlowHostHint />}
-        <div className="flex gap-3">
+        <div className="ml-auto flex gap-3">
           {lobby.status === 'error' && lobby.role === 'host' && <Button onClick={() => hostGame()}>Try again</Button>}
           {canEdit ? (
             <Button
@@ -508,6 +512,7 @@ export function Lobby() {
           )}
         </div>
       </footer>
+      {colorOpen && localSlot && <Modal title="Your color" width="max-w-md" onClose={() => setColorOpen(false)}><PlayerColorPicker local={localSlot} slots={lobby.slots} editable={lobby.status === 'open'} /></Modal>}
     </div>
   )
 }

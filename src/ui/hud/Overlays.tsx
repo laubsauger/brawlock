@@ -1,3 +1,4 @@
+import { FeedbackButton } from '../FeedbackButton'
 import { useRef, useState, type ReactNode } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
@@ -357,7 +358,7 @@ export function EscMenu() {
   const offline = role === 'offline'
   return (
     <div className="scrim fade-in interactive pointer-events-auto absolute inset-0 z-40 grid place-items-center p-4">
-      <div className="panel pop-in flex w-[min(380px,100%)] flex-col gap-3 p-7" role="dialog" aria-label="Menu">
+      <div className="panel pop-in flex max-h-[92dvh] w-[min(380px,100%)] flex-col gap-3 overflow-y-auto p-7" role="dialog" aria-label="Menu">
         <h2 className="display text-5xl leading-none text-[#ffd890]">{offline ? 'Paused' : 'Menu'}</h2>
         <p className="mb-2 text-[0.95rem] text-ash">{offline ? 'The arena waits for you.' : 'The match keeps running while this is open.'}</p>
         {!offline && lobby.roomCode && <div className="mb-1 flex items-center justify-between gap-3 rounded-lg border border-gold/20 bg-black/20 px-3 py-2" aria-label="Room invite">
@@ -382,6 +383,7 @@ export function EscMenu() {
             </Button>
             <Button onClick={() => toggle('settingsOpen', true)}>Settings</Button>
             <ReleaseNotesButton compact />
+            <FeedbackButton />
             {!offline && <Button onClick={() => {
               toggle('paused', false)
               useGame.getState().setScreen('menu')

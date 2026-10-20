@@ -30,6 +30,8 @@ Leases expire after 90 seconds without a heartbeat, need no unload request and a
 
 ### Persistent operational analytics
 
+For optional GA4 acquisition, campaign and player-funnel reporting, see [Google Analytics setup](GOOGLE-ANALYTICS.md). That client integration is separate from the private operational totals below and requires its Web stream ID before activation.
+
 Live in `38a2f766fb5b`: each authority writes its own private `analytics.sqlite`. The account authority records guest/account activity, browser links, first/last seen, visits, approximate app time and online population. Regions record every dedicated match independently of Elo eligibility: starts, completions, abandonments, interruptions, participation and bot counts, duration, rounds and actual settings. Casual, custom and short games count. A rematch gets a fresh match ID; reconnects do not create another participation. A stopped simulation is marked interrupted only after a replacement process owns its regional port. Analytics write failures log `analytics.write.failed` without suppressing gameplay, Elo or rewards.
 
 The explorer uses the following dimensions:

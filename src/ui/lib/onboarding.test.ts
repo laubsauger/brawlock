@@ -4,13 +4,16 @@ import { useGame } from '../../game/store'
 import { session } from '../../game/session'
 import { guidedPractice, hostGame, hostOnServer, joinRoom, playOffline, quickPlay } from '../flow'
 import { tutorial } from './onboarding'
+import { trackEvent } from '../../lib/analytics'
 
 vi.mock('../../game/stats', () => ({ getCareer: vi.fn(() => null) }))
+vi.mock('../../lib/analytics', () => ({ trackEvent: vi.fn() }))
 vi.mock('../../game/session', () => ({ session: {
   openOffline: vi.fn(),
   openPractice: vi.fn(),
   openHost: vi.fn(async () => ({ ok: true, mode: 'p2p', region: null })),
   openHostServer: vi.fn(async () => ({ ok: true, mode: 'server', region: null })),
+  setPublic: vi.fn(),
   quickPlay: vi.fn(async () => ({ ok: true, mode: 'server', region: null })),
   join: vi.fn(async () => {}),
 } }))
@@ -35,6 +38,31 @@ afterEach(() => {
 })
 
 describe('first-play onboarding', () => {
+  it('distinguishes finding How to play in the menu from the automatic first-play prompt', () => {
+    tutorial.open()
+    expect(trackEvent).toHaveBeenLastCalledWith('how_to_play_view', { entry_point: 'menu' })
+    tutorial.dismiss()
+    useGame.getState().setSettings({ tutorialSeen: false })
+    quickPlay('eu')
+    expect(trackEvent).toHaveBeenLastCalledWith('how_to_play_view', { entry_point: 'first_play' })
+  })
+
+  it('counts a practice choice separately from actual lesson start and overview dismissal', () => {
+    quickPlay('eu')
+    guidedPractice()
+    expect(trackEvent).toHaveBeenCalledWith('guided_practice_click', { entry_point: 'first_play' })
+    expect(trackEvent).toHaveBeenCalledWith('how_to_play_exit', { choice: 'practice', entry_point: 'first_play' })
+    expect(trackEvent).not.toHaveBeenCalledWith('tutorial_begin', expect.anything())
+    expect(trackEvent).not.toHaveBeenCalledWith('tutorial_complete', expect.anything())
+  })
+
+  it('does not count skipping the overview as finishing guided practice', () => {
+    tutorial.open()
+    tutorial.continue()
+    expect(trackEvent).toHaveBeenCalledWith('how_to_play_exit', { choice: 'continue', entry_point: 'menu' })
+    expect(trackEvent).not.toHaveBeenCalledWith('tutorial_complete', expect.anything())
+  })
+
   it('chooses guided practice without executing the intercepted matchmaking action', () => {
     quickPlay('eu')
     guidedPractice()

@@ -1,5 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { registerRenderCapture } from './capture'
 import * as THREE from 'three/webgpu'
 import { useGame } from '../game/store'
 import type { CosmeticSlot } from '../game/progressionCatalog'
@@ -93,6 +94,16 @@ function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs 
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl) as unknown as THREE.WebGPURenderer
+  useEffect(() => registerRenderCapture(gl.domElement, () => {
+    gl.render(scene, camera)
+    const copy = document.createElement('canvas')
+    copy.width = gl.domElement.width
+    copy.height = gl.domElement.height
+    const context = copy.getContext('2d')
+    if (!context) throw new Error('Could not create the wardrobe screenshot.')
+    context.drawImage(gl.domElement, 0, 0)
+    return copy
+  }), [gl, scene, camera])
   const [warlock, setWarlock] = useState<WarlockHandle | null>(null)
   const pawn = useRef(standingPawn())
   // yaw eases to `target` (the turn buttons); dragging sets both. zoom scales the framing.
