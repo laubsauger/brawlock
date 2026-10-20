@@ -296,10 +296,11 @@ export class CC0Warlock implements WarlockHandle {
   }
 
   setOutfit(outfit: Outfit): void {
-    this.gpu.robeStyle = outfit.robe ? ROBE_STYLE[outfit.robe] : 0
+    // ids outside today's catalog (old replays still carry the retired colour robes) wear nothing
+    this.gpu.robeStyle = (outfit.robe && ROBE_STYLE[outfit.robe]) ?? 0
     this.gpu.emblem = emblemIndex(outfit.emblem)
     // a worn staff; none worn falls back to the dev default the warlock was built with
-    const staff = outfit.staff ? STAFF_VARIANT[outfit.staff] : this.baseStaff
+    const staff = (outfit.staff && STAFF_VARIANT[outfit.staff]) ?? this.baseStaff
     if (staff !== this.staffVariant) this.setStaff(staff)
     const key = `${outfit.head ?? ''}|${outfit.back ?? ''}`
     if (key === this.outfitKey) return
