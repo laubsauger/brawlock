@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useGame } from '../game/store'
 import { getBuildUpdate, onBuildUpdate, reloadLatestBuild } from '../lib/staleBuild'
 import { onToast, type ToastTone } from './lib/toast'
@@ -7,14 +7,21 @@ import { Button } from './widgets'
 
 function BuildUpdateNotice() {
   const available = useSyncExternalStore(onBuildUpdate, getBuildUpdate, () => false)
-  const inMatch = useGame((s) => s.screen === 'match')
-  if (!available || inMatch) return null
-  return <div className="pointer-events-none fixed top-4 right-4 left-4 z-[90] flex justify-center" role="status" aria-live="polite">
-    <div className="toast pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-md px-4 py-2 text-[#ffe6bf]">
-      <span className="text-sm font-semibold">A new version is available</span>
-      <Button size="sm" variant="primary" onClick={reloadLatestBuild}>Reload game</Button>
-    </div>
-  </div>
+  const screen = useGame((s) => s.screen)
+  const dialog = useRef<HTMLDialogElement>(null)
+  const blocked = available && screen !== 'match' && screen !== 'boot'
+  useEffect(() => {
+    if (blocked && !dialog.current?.open) dialog.current?.showModal()
+  }, [blocked])
+  if (!blocked) return null
+  return <dialog ref={dialog} aria-labelledby="build-update-title" aria-describedby="build-update-description" aria-modal="true" data-testid="build-update-required"
+    className="panel panel-solid fixed inset-0 m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-gold/60 p-8 text-center text-bone shadow-2xl backdrop:bg-obsidian/90"
+    onCancel={(event) => event.preventDefault()} onKeyDown={(event) => event.stopPropagation()}>
+    <p className="mb-3 text-sm font-bold tracking-widest text-gold uppercase">Game updated</p>
+    <h2 id="build-update-title" className="display text-4xl text-[#ffd890]">Reload to play</h2>
+    <p id="build-update-description" className="mt-4 mb-6 text-base leading-relaxed">A new version of Brawlock is ready. Reload the game to update before joining or starting another game.</p>
+    <Button size="lg" variant="primary" className="w-full" autoFocus onClick={reloadLatestBuild}>Reload game</Button>
+  </dialog>
 }
 
 /** Short confirmations under the top HUD strip (below the score pills); newest replaces the last. */

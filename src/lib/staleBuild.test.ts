@@ -58,4 +58,44 @@ describe('new-build notice and explicit reload', () => {
     update.reloadLatestBuild()
     expect(window.location.replace).toHaveBeenLastCalledWith('https://example.com/brawlock/?mute=&room=KRZBW')
   })
+
+  it('requires a reload before play when a fresh version check detects a different build', async () => {
+    const { useGame } = await import('../game/store')
+    const version = await import('./buildVersion')
+    useGame.getState().setScreen('lobby')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ build: 'new' }) })))
+    await expect(version.ensureCurrentBuild('old')).rejects.toThrow(version.BUILD_UPDATE_REQUIRED)
+    expect(version.getBuildUpdate()).toBe(true)
+    await expect(version.ensureCurrentBuild('old')).rejects.toThrow(version.BUILD_UPDATE_REQUIRED)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces background and play-entry checks without allowing entry before the response', async () => {
+    const { useGame } = await import('../game/store')
+    const version = await import('./buildVersion')
+    useGame.getState().setScreen('menu')
+    let answer!: (response: unknown) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { answer = resolve })))
+    const background = version.checkBuildVersion('old')
+    const entry = version.ensureCurrentBuild('old')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const rejected = expect(entry).rejects.toThrow(version.BUILD_UPDATE_REQUIRED)
+    answer({ ok: true, json: async () => ({ build: 'new' }) })
+    await Promise.all([background, rejected])
+  })
+
+  it.each(['network', 'http', 'invalid'] as const)('blocks entry on a %s version-check failure but lets a later successful retry play', async (failure) => {
+    const { useGame } = await import('../game/store')
+    const version = await import('./buildVersion')
+    useGame.getState().setScreen('menu')
+    const request = vi.fn(async () => {
+      if (failure === 'network') throw new Error('offline')
+      return { ok: failure !== 'http', json: async () => ({ build: null as string | null }) }
+    })
+    vi.stubGlobal('fetch', request)
+    await expect(version.ensureCurrentBuild('current')).rejects.toThrow()
+    expect(version.getBuildUpdate()).toBe(false)
+    request.mockResolvedValue({ ok: true, json: async () => ({ build: 'current' }) })
+    await expect(version.ensureCurrentBuild('current')).resolves.toBeUndefined()
+  })
 })

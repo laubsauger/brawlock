@@ -34,6 +34,7 @@ import { input } from './input'
 import { getProfile, safeLocalStorage, setPreferredColor } from './profile'
 import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
+import { BUILD_UPDATE_REQUIRED, ensureCurrentBuild, getBuildUpdate, onBuildUpdate } from '../lib/buildVersion'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
@@ -284,6 +285,21 @@ export type GameSession = Omit<SessionApi, 'openOffline' | 'openHost' | 'setRoom
 
 interface Opening { kind: string; promise: Promise<HostResult> | null }
 let opening: Opening | null = null
+let sessionGeneration = 0
+let readyRequest = 0
+
+/** Start/ready shortcuts must also wait for a fresh check, without affecting a replacement room. */
+function withCurrentBuild(action: () => void): void {
+  if (getBuildUpdate()) return
+  const generation = sessionGeneration
+  const screen = useGame.getState().screen
+  void ensureCurrentBuild().then(() => {
+    if (generation === sessionGeneration && useGame.getState().screen === screen && !getBuildUpdate()) action()
+  }).catch((error: unknown) => {
+    if (generation !== sessionGeneration) return
+    useGame.getState().setLobby({ error: error instanceof Error ? error.message : 'Could not check the game version. Please try again.' })
+  })
+}
 
 function cancelled(mode: HostMode): HostResult {
   return { ok: false, mode, reason: 'cancelled', message: CANCELLED, region: null,
@@ -291,6 +307,7 @@ function cancelled(mode: HostMode): HostResult {
 }
 
 function resume(): boolean {
+  if (getBuildUpdate()) return false
   if (!impl.isActive()) return false
   useGame.getState().setLobby({ status: 'open', error: null })
   useGame.getState().setScreen(sessionScreen)
@@ -299,6 +316,7 @@ function resume(): boolean {
 
 /** Own the whole action, including region selection and its POST, before the first await. */
 function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) => Promise<HostResult>, rejoining = false, retry?: () => Promise<unknown>): Promise<HostResult> {
+  if (getBuildUpdate()) return Promise.resolve(hostFailed(mode, 'error', BUILD_UPDATE_REQUIRED, null, { mode, available: false, region: null }))
   if (opening) {
     useGame.getState().setScreen('lobby')
     return opening.kind === kind && opening.promise ? opening.promise : Promise.resolve(cancelled(mode))
@@ -307,6 +325,7 @@ function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) =>
   stopPractice()
   if (useGame.getState().lobby.role === 'offline' && useGame.getState().lobby.status === 'open') impl.leave()
   const attempt: Opening = { kind, promise: null }
+  sessionGeneration++
   opening = attempt
   if (!rejoining) rejoin.dismiss()
   const state = useGame.getState()
@@ -318,6 +337,8 @@ function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) =>
   const target: PlayTarget = { mode: kind === 'quick' ? 'casual' : kind === 'ranked' ? 'ranked' : kind === 'local' || kind === 'practice' ? kind : kind === 'p2p' ? 'host' : kind.startsWith('join:') ? 'join' : 'server', region: null, code: null }
   attempt.promise = (async () => {
     try {
+      await ensureCurrentBuild()
+      if (!current()) return cancelled(mode)
       const acquired = await playControl.acquire(target, retry ?? (() => openOnce(kind, mode, run, rejoining)))
       if (!current()) { if (acquired) await playControl.release(); return cancelled(mode) }
       if (!acquired) { state.setScreen('menu'); state.setLobby({ status: 'idle' }); return cancelled(mode) }
@@ -548,11 +569,16 @@ export const session: GameSession = {
   setBotDifficulty: impl.setBotDifficulty,
   setTeam: impl.setTeam,
   updateSettings: impl.updateSettings,
-  startMatch: impl.startMatch,
-  rematch: impl.rematch,
+  startMatch() { withCurrentBuild(() => impl.startMatch()) },
+  rematch() { withCurrentBuild(() => impl.rematch()) },
   backToLobby: impl.backToLobby,
-  setReady: impl.setReady,
+  setReady(ready) {
+    const request = ++readyRequest
+    if (ready) withCurrentBuild(() => { if (request === readyRequest) impl.setReady(true) })
+    else if (!getBuildUpdate()) impl.setReady(false)
+  },
   leave() {
+    sessionGeneration++
     stopPractice()
     opening = null
     nextJoinRoute = null
@@ -565,8 +591,16 @@ export const session: GameSession = {
   transport: impl.transport,
 }
 
+onBuildUpdate(() => {
+  // A waiting lobby may auto-start remotely: release the seat as well as blocking its UI.
+  // Ongoing matches are allowed to finish and checked again when their screen changes.
+  const state = useGame.getState()
+  if (state.screen !== 'match' && (opening || impl.isActive() || state.lobby.status === 'open')) session.leave()
+})
+
 connectPlayControl({
   lost(message, transfer) {
+    sessionGeneration++
     stopPractice(); opening = null; nextJoinRoute = null; impl.leave(transfer)
     useGame.getState().setLobby({ status: 'error', error: message })
   },

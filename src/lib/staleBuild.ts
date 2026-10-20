@@ -3,24 +3,17 @@
  * GitHub Pages drops the old ones, so a page loaded before a deploy fails the
  * moment it lazily imports a chunk (e.g. the PeerJS bundle when joining).
  * - A failed chunk import reloads the page once, keeping a pending room code.
- * - A periodic check of version.json offers a reload outside of matches.
+ * - Version checks require a reload outside of matches before playing again.
  */
 import { useGame } from '../game/store'
 import { session } from '../game/session'
 import { PENDING_ROOM_KEY } from './pendingRoom'
-
-declare const __BUILD_ID__: string
+import { checkBuildVersion } from './buildVersion'
 
 export { PENDING_ROOM_KEY } from './pendingRoom'
+export { checkBuildVersion, getBuildUpdate, onBuildUpdate } from './buildVersion'
 const RELOAD_KEY = 'brawlock.staleReloadAt'
-const CHECK_MS = 90_000
-let updateAvailable = false
-const updateListeners = new Set<() => void>()
-export const getBuildUpdate = () => updateAvailable
-export function onBuildUpdate(listener: () => void): () => void {
-  updateListeners.add(listener)
-  return () => updateListeners.delete(listener)
-}
+const CHECK_MS = 15_000
 
 function pendingRoom(): string | null {
   try {
@@ -57,28 +50,6 @@ function isChunkError(reason: unknown): boolean {
   return /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg)
 }
 
-async function newerBuildAvailable(currentBuild: string): Promise<boolean> {
-  if (currentBuild.startsWith('dev-')) return false
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}version.json?t=${Date.now()}`, { cache: 'no-store' })
-    if (!res.ok) return false
-    const { build } = (await res.json()) as { build?: string }
-    return typeof build === 'string' && build !== currentBuild
-  } catch {
-    return false
-  }
-}
-
-export async function checkBuildVersion(currentBuild = __BUILD_ID__): Promise<void> {
-  if (updateAvailable || useGame.getState().screen === 'match') return
-  if (await newerBuildAvailable(currentBuild)) {
-    // The request may have started in a menu just before the player entered a match.
-    if (updateAvailable || useGame.getState().screen === 'match') return
-    updateAvailable = true
-    for (const listener of updateListeners) listener()
-  }
-}
-
 export function installStaleBuildRecovery(): void {
   window.addEventListener('vite:preloadError', (e) => {
     e.preventDefault()
@@ -89,9 +60,14 @@ export function installStaleBuildRecovery(): void {
   })
 
   const check = () => checkBuildVersion()
+  void check()
   window.setInterval(check, CHECK_MS)
+  window.addEventListener('focus', () => { void check() })
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void check()
+  })
+  useGame.subscribe((state, previous) => {
+    if (state.screen !== previous.screen && state.screen !== 'match') void check()
   })
 }
 

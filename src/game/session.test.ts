@@ -11,11 +11,19 @@ const f = vi.hoisted(() => ({
   storage: new Map<string, string>(),
   impl: {
     openOffline: vi.fn(), openHost: vi.fn(), join: vi.fn(), leave: vi.fn(),
+    startMatch: vi.fn(), rematch: vi.fn(), setReady: vi.fn(),
     transport: (): 'server' | 'p2p' | null => f.transport,
     isActive: () => f.transport !== null,
     joinableSeats: () => 9,
     setDisplayName: vi.fn(), setPlayerColor: vi.fn(), startLobbyVote: vi.fn(), castLobbyVote: vi.fn(),
   },
+}))
+const version = vi.hoisted(() => ({ available: false, check: vi.fn(async () => {}), changed: null as (() => void) | null }))
+vi.mock('../lib/buildVersion', () => ({
+  BUILD_UPDATE_REQUIRED: 'Reload required',
+  getBuildUpdate: () => version.available,
+  ensureCurrentBuild: version.check,
+  onBuildUpdate: (listener: () => void) => { version.changed = listener; return () => {} },
 }))
 vi.mock('./playControl', () => ({ connectPlayControl: vi.fn(), playControl: { acquire: vi.fn(async () => true), release: vi.fn(async () => {}), valid: () => true, update: vi.fn(async () => {}), token: () => 'p'.repeat(43) } }))
 // This suite isolates entry coordination; account admission has real-TCP coverage.
@@ -88,6 +96,8 @@ beforeEach(async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }))
   vi.useFakeTimers()
   vi.clearAllMocks()
+  version.available = false
+  version.check.mockResolvedValue(undefined)
   rejoin.dismiss()
   f.transport = null
   f.requests.length = 0
@@ -121,6 +131,93 @@ afterEach(async () => {
 })
 
 describe('browser session listing and reconnect wiring', () => {
+  it('waits for a current-build check before reserving any seat or acquiring play permission', async () => {
+    const check = deferred<void>()
+    version.check.mockReturnValue(check.promise)
+    const post = vi.spyOn(online, 'quickPlay')
+    const opening = session.quickPlay({ region: 'test' })
+    expect(playControl.acquire).not.toHaveBeenCalled()
+    expect(post).not.toHaveBeenCalled()
+    version.available = true
+    version.changed!()
+    check.resolve()
+    expect(await opening).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(playControl.acquire).not.toHaveBeenCalled()
+    expect(post).not.toHaveBeenCalled()
+    expect(f.impl.join).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed entry version check without acquiring permission or opening a game', async () => {
+    version.check.mockRejectedValue(new Error('Could not check the game version. Please try again.'))
+    expect(await session.openHost()).toMatchObject({ ok: false, message: 'Could not check the game version. Please try again.' })
+    expect(playControl.acquire).not.toHaveBeenCalled()
+    expect(f.impl.openHost).not.toHaveBeenCalled()
+    expect(useGame.getState().screen).toBe('menu')
+  })
+
+  it('leaves a waiting lobby on an update and blocks joins, queues, resume, start and rematch until reload', async () => {
+    await session.openHost()
+    expect(session.isActive()).toBe(true)
+    version.available = true
+    version.changed!()
+    expect(session.isActive()).toBe(false)
+    expect(useGame.getState().screen).toBe('menu')
+    vi.clearAllMocks()
+    await session.openOffline(); await session.openPractice(); await session.openHost(); await session.openHostServer('test')
+    await session.quickPlay({ region: 'test' }); await session.rankedPlay({ region: 'test' }); await session.join('ABCDE', { kind: 'p2p' })
+    expect(session.resume()).toBe(false)
+    session.startMatch(); session.rematch(); session.setReady(true)
+    for (const call of [playControl.acquire, f.impl.openOffline, f.impl.openHost, f.impl.join, f.impl.startMatch, f.impl.rematch, f.impl.setReady]) expect(call).not.toHaveBeenCalled()
+  })
+
+  it('does not leave a match already in progress when an update notification arrives', async () => {
+    await session.openHost()
+    f.deps!.ui.setScreen('match')
+    f.impl.leave.mockClear()
+    version.available = true
+    version.changed!()
+    expect(f.impl.leave).not.toHaveBeenCalled()
+    expect(session.isActive()).toBe(true)
+    expect(useGame.getState().screen).toBe('match')
+  })
+
+  it.each(['startMatch', 'rematch', 'setReady'] as const)('waits for a version check before %s and cancels it if the room was left', async (action) => {
+    await session.openHost()
+    const check = deferred<void>()
+    version.check.mockReturnValue(check.promise)
+    if (action === 'setReady') session.setReady(true)
+    else session[action]()
+    expect(f.impl[action]).not.toHaveBeenCalled()
+    session.leave()
+    check.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.impl[action]).not.toHaveBeenCalled()
+  })
+
+  it('starts only after the successful fresh check and keeps ready cancellation immediate', async () => {
+    await session.openHost()
+    const check = deferred<void>()
+    version.check.mockReturnValue(check.promise)
+    session.startMatch()
+    expect(f.impl.startMatch).not.toHaveBeenCalled()
+    session.setReady(false)
+    expect(f.impl.setReady).toHaveBeenCalledWith(false)
+    check.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.impl.startMatch).toHaveBeenCalledOnce()
+  })
+
+  it('does not restore Ready after the player cancels while the version check is pending', async () => {
+    await session.openHost()
+    const check = deferred<void>()
+    version.check.mockReturnValue(check.promise)
+    session.setReady(true)
+    session.setReady(false)
+    check.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.impl.setReady).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
   it('checks global ownership before any local, practice, hosting, queue or join action', async () => {
     vi.spyOn(playControl, 'acquire').mockResolvedValue(false)
     const create = vi.spyOn(online, 'createRoom'), quick = vi.spyOn(online, 'quickPlay'), ranked = vi.spyOn(online, 'rankedPlay')
