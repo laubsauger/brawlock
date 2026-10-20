@@ -64,8 +64,35 @@ function calmBevel(n: unknown, isBevel: Node<'float'>): Node<'vec3'> {
   return mix(n as Node<'vec3'>, upView, isBevel.mul(0.8)).normalize()
 }
 
-/** Seconds a removed tile takes to sink out of sight. */
-export const SINK_DUR = 0.55
+/**
+ * Removed-tile timeline (render only; the sim drops the tile at once). The
+ * first SINK_DROP seconds sell "no longer ground": the slab lurches below the
+ * walk level, tilts and glows crimson (a pawn on it is already in lava). Then
+ * the lava takes its time: over SINK_SWALLOW the slab rocks, cracks open hot,
+ * the waterline creeps over it and it goes under. A ring's slow phase sweeps
+ * around the platform over SINK_SWEEP (per-tile delay from its angle), so a
+ * whole ring is swallowed in a wave instead of all at once.
+ */
+export const SINK_DROP = 0.24
+export const SINK_SWALLOW = 2.7
+export const SINK_SWEEP = 0.8
+/** seconds until the last tile of a ring is under */
+export const SINK_DUR = SINK_DROP + SINK_SWEEP + SINK_SWALLOW
+/** game units the slab lurches down at once (top 30 -> 9 above the lava) */
+const DROP_H = 21
+/** further sink while swallowed: top ends well under the lava even fully tilted */
+const SWALLOW_H = 80
+
+/**
+ * Slow-phase delay of the tile centred at game (x, y) for a ring whose sweep
+ * starts at angle `sweep`: 0 there, SINK_SWEEP on the opposite side, both
+ * halves running around to meet. Lava.ts evaluates the same curve per cell.
+ */
+export function sinkDelay(x: number, y: number, sweep: number): number {
+  const a = Math.atan2(y, x + 1e-5) - sweep
+  const w = (((a + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+  return (Math.abs(w - Math.PI) / Math.PI) * SINK_SWEEP
+}
 const RISE_DUR = 0.45
 const CAPACITY = (GRID_MAX * 2 + 1) ** 2
 
@@ -221,19 +248,19 @@ export class Arena {
    * Switch to `layer`. With `animate`, removed tiles sink and new tiles rise;
    * otherwise the platform snaps (initial state, new match).
    */
-  setLayer(layer: number, now: number, animate: boolean): void {
+  setLayer(layer: number, now: number, animate: boolean, sweep = 0): void {
     const L = clampLayer(layer)
     if (L === this.layer) return
     const next = arenaTiles(L)
     const nextIdx = new Set<number>()
     for (const t of next) nextIdx.add(cellIndex(t.gx, t.gy))
-    // removals
+    // removals (a sinking tile carries its sweep delay in the ring slot)
     for (const [idx, e] of this.tiles) {
       if (nextIdx.has(idx)) continue
       this.tiles.delete(idx)
       if (animate) {
         e.removedAt = now
-        e.ring = 0
+        e.ring = sinkDelay(e.gx * TILE_SIZE, e.gy * TILE_SIZE, sweep)
         this.sinking.push(e)
       }
     }
@@ -295,9 +322,13 @@ export class Arena {
       this.rebuildMaterial()
     }
     if (this.sinking.length > 0) {
-      const before = this.sinking.length
-      this.sinking = this.sinking.filter((e) => now - e.removedAt < SINK_DUR + 0.15)
-      if (this.sinking.length !== before) this.dirty = true
+      // in place: no per-frame allocation while a ring sinks
+      let n = 0
+      for (const e of this.sinking) if (now - e.removedAt < SINK_DUR + 0.15) this.sinking[n++] = e
+      if (n !== this.sinking.length) {
+        this.sinking.length = n
+        this.dirty = true
+      }
     }
     if (this.dirty) this.rebuild()
   }
@@ -365,13 +396,22 @@ export class Arena {
     const seed = aTile.x
     const removedAt = aTile.y
     const addedAt = aTile.z
-    const ring = aTile.w
+    const isRem = step(0, removedAt)
+    // live tiles: telegraph flag; sinking tiles: their sweep delay (seconds)
+    const ring = aTile.w.mul(float(1).sub(isRem))
+    const delay = aTile.w.mul(isRem)
 
     // ---------------- vertex: sink, rise, shockwave lift
-    const isRem = step(0, removedAt)
-    const sinkT = saturate(t.sub(removedAt).div(SINK_DUR)).mul(isRem)
-    const sink = sinkT.mul(sinkT).mul(150)
-    const tiltA = sinkT.mul(0.35)
+    // drop: an immediate lurch below the walk level (ease-out, ~0.24 s)
+    const age = t.sub(removedAt)
+    const dropT = saturate(age.div(SINK_DROP)).mul(isRem)
+    const dropE = float(1).sub(float(1).sub(dropT).pow(3))
+    // swallow: slow, accelerating pull under (ease-in), after the sweep delay
+    const sinkT = saturate(age.sub(SINK_DROP).sub(delay).div(SINK_SWALLOW)).mul(isRem)
+    // the slab rocks on the melt while it still floats, settling as it goes under
+    const rock = sin(age.mul(2.6).add(seed.mul(40))).mul(float(1).sub(sinkT)).mul(dropT)
+    const sink = dropE.mul(DROP_H).add(sinkT.pow(1.7).mul(SWALLOW_H)).add(rock.mul(2.5))
+    const tiltA = dropE.mul(0.08).add(sinkT.pow(1.2).mul(0.36)).add(rock.mul(0.03))
     const phi = seed.mul(6.2831)
     const tilted = rotate(positionGeometry, vec3(tiltA.mul(phi.cos()), 0, tiltA.mul(phi.sin())))
     const riseT = saturate(t.sub(addedAt).div(RISE_DUR))
@@ -394,6 +434,7 @@ export class Arena {
     const tF = varying(t)
     const sinkTV = varying(sinkT)
     const isRemV = varying(isRem)
+    const dropTV = varying(dropT)
     const gp = gamePos()
     const lp = positionGeometry.xz.div(TILE_SIZE * 0.5 * S)
     const ny = normalGeometry.y
@@ -516,15 +557,24 @@ export class Arena {
     // telegraph: the doomed ring heats from within, cracks first, then the slab
     // removed tiles carry the telegraph's crimson on (the cue players learned)
     // and cool as they sink, instead of jumping to a new flat colour
-    const teleP = max(tele.mul(pulse.mul(0.7).add(0.3)), isRemV.mul(float(1).sub(sinkTV)).mul(0.6))
+    // (sinking: the cracks run hotter the deeper the lava pulls the slab)
+    const teleP = max(tele.mul(pulse.mul(0.7).add(0.3)), isRemV.mul(sinkTV.mul(0.4).add(0.6)))
     em = em.add(vec3(0.16, 0.008, 0.003).mul(teleP).mul(isTop.mul(0.7).add(0.3)))
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
     // removed tiles: the telegraph's faint crimson body glow (its hot cracks carry
     // on above), cooling as they sink. The old (3.2, 0.9, 0.16) tone-mapped to
     // cream-white for 0.2-0.4 s on every shrink; even 0.4 red over the moonlit
     // stone read salmon-pink.
-    const hotCol = mix(vec3(0.2, 0.014, 0.005), vec3(0.06, 0.004, 0.002), sinkTV)
-    em = em.add(hotCol.mul(isRemV).mul(float(1).sub(sinkTV.mul(0.6))))
+    const hotCol = mix(vec3(0.2, 0.014, 0.005), vec3(0.12, 0.008, 0.003), sinkTV)
+    em = em.add(hotCol.mul(isRemV))
+    // being swallowed: a crack network spreads across the slab and opens hot,
+    // and the lava's own glow climbs it at the waterline (game height ~0),
+    // so the melt visibly laps over the rim before the slab goes under
+    const crackLo = float(0.94).sub(sinkTV.mul(0.14))
+    const sinkCrack = smoothstep(crackLo, crackLo.add(0.035), ridge).mul(smoothstep(0, 0.25, sinkTV)).mul(isTop).mul(isRemV)
+    em = em.add(vec3(2.6, 0.3, 0.05).mul(sinkCrack))
+    const waterline = exp(max(h, 0).div(-3.5)).mul(isRemV).mul(dropTV)
+    em = em.add(vec3(1.4, 0.34, 0.05).mul(waterline))
     // round-start pulse: pale arcane white-gold ring, evaluated PER FRAGMENT so
     // it sweeps as a smooth band (a per-tile value lit whole tiles as squares)
     const shAgeF = tF.sub(sh.z)
@@ -541,7 +591,7 @@ export class Arena {
     const ringCap = max(transit, smoothstep(0, 0.05, tele))
     em = mix(em, em.mul(min(float(1), float(1.2).div(max(emMax, 0.001)))), ringCap)
     // sinking slabs: dark basalt with an ember cast, never pale (QA: white shards)
-    const sinkDark = isRemV.mul(sinkTV.mul(0.25).add(0.75))
+    const sinkDark = isRemV.mul(sinkTV.mul(0.15).add(dropTV.mul(0.1)).add(0.75))
     const sinkTint = vec3(0.28, 0.17, 0.14)
 
     const m = new THREE.MeshStandardNodeMaterial()

@@ -5,6 +5,7 @@ import { isLocationSafe } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
+import { SPLASH_GULP } from './Lava'
 import { createWarlock, type CastArm, type DeathKind, type WarlockHandle } from '../character'
 import { RoundEpoch } from '../character/impactMotion'
 import type { VictoryStyle } from '../character/victoryPose'
@@ -439,10 +440,13 @@ export class PawnView {
   knockX = 0
   knockY = 0
   private cause = ''
+  /** body height when a lava death began (the slow sink starts there) */
+  private sinkFromH = LAVA_H - 16
 
   /** Death cause from the sim ('lava' sinks the corpse into the lava). */
   deathCause(cause: string): void {
     this.cause = cause
+    if (cause === 'lava') this.sinkFromH = this.h
     this.deathConfirmed = true
     if (this.deathAt < 0) this.deathAt = this.ctx.uTime.value
   }
@@ -755,10 +759,27 @@ export class PawnView {
       this.edgeOverride = false
     }
 
-    // lava deaths: the corpse thrashes and sinks out of sight
-    const sinking = this.deathAt >= 0 && this.cause === 'lava'
-    const targetH = sinking ? LAVA_H - 140 : safe ? TILE_TOP_H : LAVA_H - 16
-    this.h += (targetH - this.h) * (safe ? 1 - Math.exp(-dt * 30) : k * 0.6)
+    // lava deaths: the melt buoys the corpse for a moment, then slowly pulls
+    // it under; the lava closes over it at about SPLASH_GULP, when the lava
+    // shader draws the gulp. (It used to drop 124 units in ~0.3 s: gone at once;
+    // the collapsed body is only ~40 units thick.)
+    if (this.deathAt >= 0 && this.cause === 'lava') {
+      const a = Math.max(0, now - this.deathAt)
+      const s = Math.min(1, a / SPLASH_GULP)
+      // feet depth under the lava surface
+      const depth = 4 + 46 * Math.pow(s, 1.8) + 40 * Math.max(0, a - SPLASH_GULP)
+      const lift = Math.min(1, a / 0.3)
+      let h = LAVA_H - depth + Math.sin(a * 8.5) * 3 * (1 - s)
+      h = this.sinkFromH + (h - this.sinkFromH) * lift * lift * (3 - 2 * lift)
+      // the character also sinks its own body for a lava death (warlock
+      // deathTimeline: 75 units over 0.1..1.9 s, ease-in ^1.6); give that back
+      // so this curve alone sets how deep the body sits. Keep in step with it.
+      if (this.warlock) h += 75 * Math.pow(Math.min(1, Math.max(0, (a - 0.1) / 1.8)), 1.6)
+      this.h = h
+    } else {
+      const targetH = safe ? TILE_TOP_H : LAVA_H - 16
+      this.h += (targetH - this.h) * (safe ? 1 - Math.exp(-dt * 30) : k * 0.6)
+    }
     this.root.position.set(s.x * S, this.h * S, -s.y * S)
 
     // knockback lean and tumble (physics velocity without the walk part)

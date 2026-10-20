@@ -59,6 +59,7 @@ import type { EntityId, SimEvent } from '../../sim/types'
 import { LAVA_H, S, TILE_TOP_H } from '../coords'
 import { Billboards } from '../scene/Billboards'
 import { RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from '../scene/GroundFx'
+import { SPLASH_GULP } from '../scene/Lava'
 import { asV4 } from '../scene/world'
 import { baseSpellId, getSpellColor, SPELL_PALETTE, type RGB3 } from './palette'
 import type { VfxCtx } from './registry'
@@ -1097,8 +1098,10 @@ function tickLava(ctx: VfxCtx, e: Emitter, t: number): void {
   }
   const lt = t - e.t0
   const ps = ctx.particles
-  // how much of the body is still above the lava (sink ~ the character's own 1.9 s)
-  const above = Math.max(0, 1 - Math.pow(Math.min(1, lt / 1.9), 1.6))
+  // how much of the body is still above the lava (PawnView's slow pull plus
+  // the character's own sink: under at about SPLASH_GULP)
+  const s = Math.min(1, lt / SPLASH_GULP)
+  const above = 1 - s * s * (3 - 2 * s)
   const top = LAVA_H + BODY_H * above
   // robe on fire: flames lick up the remaining body
   if (above > 0.05) {

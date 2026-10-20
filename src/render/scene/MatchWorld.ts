@@ -17,7 +17,7 @@ import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
 import type { TierConfig } from '../quality'
 import type { RenderSource } from '../source'
-import { Arena } from './Arena'
+import { Arena, SINK_DROP, SINK_SWALLOW, sinkDelay } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
 import { CastMarks, hasHandMark } from './CastMarks'
@@ -25,7 +25,7 @@ import { FacingChevrons } from './FacingChevrons'
 import { MoveDestination } from './MoveDestination'
 import { resolveDestination, type DestClick } from './moveDestinationLogic'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
-import { Lava } from './Lava'
+import { Lava, SPLASH_GULP } from './Lava'
 import { Environment, Obstacles } from './props'
 import { pendingUploads, texturesSettled } from './textures'
 import { Particles } from './Particles'
@@ -40,6 +40,12 @@ import '../vfx/spells'
 import { toWorld } from '../coords'
 import { AOE_RING_INSET, AOE_RING_THICK } from '../scale'
 import { useGame, type Quality } from '../../game/store'
+
+/** delayed sink particle kinds (MatchWorld.sinkFx) and their pool size (a full outer ring is ~70 tiles x 2) */
+const SINK_SEEP = 0
+const SINK_GULP = 1
+const DEATH_GULP = 2
+const SINK_FX_N = 256
 
 /** Shared with the post pipeline: hurt flash, heat haze data. */
 export const postState = {
@@ -721,6 +727,8 @@ export class MatchWorld {
     this.drainUploads()
     this.updateShadowCadence()
     this.ambient(dt, t)
+    this.lava.update(t)
+    this.tickSinkFx(t)
     this.tickSmoulders(dt, t)
     this.tickLingers(dt, t)
     this.drawFlashes(t)
@@ -869,20 +877,31 @@ export class MatchWorld {
       this.lastLayer = L
       // remember the ring that sinks for the shrink burst
       this.removedRing.length = 0
+      // the ring's slow swallow sweeps around from a random side (visual only)
+      const sweep = Math.random() * Math.PI * 2
       if (prevLayer > L) {
         const r0 = layerRadius(prevLayer)
+        const r1 = layerRadius(L)
         for (let gx = -10; gx <= 10; gx++) {
           for (let gy = -10; gy <= 10; gy++) {
             const cx = gx * TILE_SIZE
             const cy = gy * TILE_SIZE
             const d2 = cx * cx + cy * cy
-            const r1 = layerRadius(L)
             if (d2 < r0 * r0 && d2 >= r1 * r1) this.removedRing.push({ x: cx, y: cy })
           }
         }
-        this.shrinkBurst()
+        if (!first) {
+          this.shrinkBurst()
+          this.lava.shrink(r0, r1, t, sweep)
+          // per tile: lava seeping over the slab, then the gulp as it goes under
+          for (const p of this.removedRing) {
+            const at = t + SINK_DROP + sinkDelay(p.x, p.y, sweep)
+            this.queueSinkFx(SINK_SEEP, p.x, p.y, at + SINK_SWALLOW * 0.35)
+            this.queueSinkFx(SINK_GULP, p.x, p.y, at + SINK_SWALLOW * 0.9)
+          }
+        }
       }
-      this.arena.setLayer(L, t, !first)
+      this.arena.setLayer(L, t, !first, sweep)
     }
     // telegraph: next ring pulses red during the last second before a shrink
     const next = curr.arena.nextShrinkTick
@@ -892,6 +911,65 @@ export class MatchWorld {
       if (secs > 0 && secs <= 1.05) tele = 0.45 + 0.55 * (1 - Math.min(1, secs))
     }
     this.arena.uTelegraph.value = tele
+  }
+
+  /** Delayed sink particles (tile seep / gulp, lava-death gulp): fixed pool, swap-removed when fired. */
+  private sinkFxX = new Float32Array(SINK_FX_N)
+  private sinkFxY = new Float32Array(SINK_FX_N)
+  private sinkFxAt = new Float32Array(SINK_FX_N)
+  private sinkFxKind = new Uint8Array(SINK_FX_N)
+  private sinkFxN = 0
+
+  private queueSinkFx(kind: number, x: number, y: number, at: number): void {
+    if (this.sinkFxN >= SINK_FX_N) return
+    const i = this.sinkFxN++
+    this.sinkFxKind[i] = kind
+    this.sinkFxX[i] = x
+    this.sinkFxY[i] = y
+    this.sinkFxAt[i] = at
+  }
+
+  private tickSinkFx(t: number): void {
+    for (let i = 0; i < this.sinkFxN; ) {
+      if (this.sinkFxAt[i] > t) {
+        i++
+        continue
+      }
+      // a stale entry (paused / new match) fires nothing
+      if (t - this.sinkFxAt[i] < 0.5) this.sinkFx(this.sinkFxKind[i], this.sinkFxX[i], this.sinkFxY[i])
+      const n = --this.sinkFxN
+      this.sinkFxKind[i] = this.sinkFxKind[n]
+      this.sinkFxX[i] = this.sinkFxX[n]
+      this.sinkFxY[i] = this.sinkFxY[n]
+      this.sinkFxAt[i] = this.sinkFxAt[n]
+    }
+  }
+
+  /**
+   * Something going under the lava. Seep: a slab half swallowed, a couple of
+   * embers off the melt lapping over it. Gulp: the lava closes over a slab or
+   * a body; a crown of molten droplets, a puff of dark smoke, rising embers
+   * (the lava shader draws the closing ring and the cooling crust).
+   */
+  private sinkFx(kind: number, x: number, y: number): void {
+    const ps = this.particles
+    const R = kind === DEATH_GULP ? 30 : 70
+    const n = ps.budget(kind === SINK_SEEP ? 2 : kind === SINK_GULP ? 6 : 16)
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2
+      const rr = R * Math.sqrt(Math.random())
+      if (kind === SINK_SEEP) {
+        ps.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, LAVA_H + 6, 0, 0, 50 + Math.random() * 70, 1.2 + Math.random() * 0.8, 7, 2, 3.0, 0.9, 0.18, 15, 0.5, 14)
+      } else {
+        const sp = 60 + Math.random() * 160
+        ps.spawn(x + Math.cos(a) * rr, y + Math.sin(a) * rr, LAVA_H + 4, Math.cos(a) * sp, Math.sin(a) * sp, 200 + Math.random() * 320, 0.55 + Math.random() * 0.4, 6 + Math.random() * 5, -2, 2.6, 0.8, 0.12, -1500, 0.4, -0.035)
+      }
+    }
+    if (kind === SINK_SEEP) return
+    const ns = this.smoke.budget(kind === SINK_GULP ? 0.6 : 3)
+    for (let i = 0; i < ns; i++) {
+      this.smoke.spawn(x + (Math.random() - 0.5) * R, y + (Math.random() - 0.5) * R, LAVA_H + 20, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 60 + Math.random() * 50, 1.6 + Math.random() * 0.8, 40, 150, 0.05, 0.03, 0.025, 20, 0.6, 14)
+    }
   }
 
   private shrinkBurst(): void {
@@ -1095,6 +1173,11 @@ export class MatchWorld {
           if (cause.startsWith('scourge')) cause = 'scourge'
           if (!claimed) this.deathBurst(v, cause, ext.kb ?? 0)
           v.deathCause(cause)
+          if (cause === 'lava') {
+            // the lava answers whoever draws the death: splash, then the gulp as it closes
+            this.lava.splash(v.x, v.y, t, 1)
+            this.queueSinkFx(DEATH_GULP, v.x, v.y, t + SPLASH_GULP)
+          }
           if (v.onLava && t - this.lastCallout > 1) {
             this.lastCallout = t
             this.overlay?.callout('Melted', v.x, v.y, v.h + 120, t)
