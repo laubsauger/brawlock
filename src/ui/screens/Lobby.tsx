@@ -1,4 +1,5 @@
 import { FeedbackButton } from '../FeedbackButton'
+import { EmblemBadge } from '../EmblemBadge'
 import { useEffect, useRef, useState } from 'react'
 import { BOT_DIFFICULTIES, useGame, type LobbyView } from '../../game/store'
 import { MAX_PLAYERS, session } from '../../game/session'
@@ -156,15 +157,19 @@ function PlayerCard({
   const shown = teamMode === 'teams' ? 'teams' : 'ffa'
   const color = playerColor(slot, shown)
   const glyph = playerGlyph(slot, shown, cb)
+  // the player's emblem badge when they wear one, else their colour gem
+  const gem = slot.cosmetics?.emblem
+    ? <EmblemBadge emblem={slot.cosmetics.emblem} color={color} size={28} />
+    : <span className="lobby-player-gem" style={{ background: `linear-gradient(135deg, ${color}, ${color}77)` }} aria-hidden />
   return (
     <li
       className="lobby-player card-in relative flex items-center rounded-lg"
       style={{ background: `linear-gradient(90deg, ${color}1f, rgba(0,0,0,.22) 45%)`, boxShadow: `inset 3px 0 0 ${color}, inset 0 0 0 1px rgba(255,170,100,.08)` }}
     >
       {onColor ? <button type="button" className="lobby-player-color shrink-0 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold" onClick={onColor} aria-label="Change your color" title="Change your color">
-        <span className="lobby-player-gem" style={{ background: `linear-gradient(135deg, ${color}, ${color}77)` }} aria-hidden />
+        {gem}
         <span className="text-[0.65rem] leading-none text-gold">Color</span>
-      </button> : <span className="lobby-player-color shrink-0" aria-hidden><span className="lobby-player-gem" style={{ background: `linear-gradient(135deg, ${color}, ${color}77)` }} /></span>}
+      </button> : <span className="lobby-player-color shrink-0" aria-hidden>{gem}</span>}
       <div className="min-w-0 flex-1">
         <div className="lobby-player-name flex min-w-0 items-center gap-2">
           <span className="min-w-0 truncate font-bold" title={slot.name}>

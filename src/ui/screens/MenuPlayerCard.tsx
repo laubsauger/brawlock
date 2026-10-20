@@ -2,6 +2,9 @@ import type { AccountPlayer } from '../../game/account'
 import { MenuGlyph } from '../icons'
 import { hoverSfx, sfx } from '../lib/sound'
 import { EmberMark } from './Collection'
+import { EmblemBadge } from '../EmblemBadge'
+import { localEquipment } from '../../game/wardrobe'
+import { getProfile } from '../../game/profile'
 
 export type MenuRatingState = 'loading' | 'ready' | 'error' | 'disabled'
 
@@ -33,10 +36,14 @@ export function MenuPlayerCard(props: Props) {
   const status = checking ? 'Checking sign-in…' : account ? account.profile ? 'Your account' : 'Finish account setup' : 'Guest warlock'
   const profileLabel = account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}, ${account.email}` : `Edit player name and color: ${name}`
   const invoke = (action: () => void) => () => { sfx('click'); action() }
+  // the account's equipped cape emblem is its badge (last progression snapshot)
+  const emblem = account ? localEquipment()?.emblem ?? null : null
+  const preferred = account?.profile?.color ?? getProfile().color
+  const avatarColor = preferred === null ? '#efc58e' : `#${preferred.toString(16).padStart(6, '0')}`
   const actions = Number(ranked) + Number(accountsEnabled)
   return <section className="menu-player-card" aria-label="Player and account" data-testid="menu-player-card">
     <button type="button" className="menu-player-profile" data-testid="player-profile" onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? `Signed in as ${account.email}` : 'Edit your name and color'}>
-      <span className="menu-player-avatar"><MenuGlyph kind="profile" size={23} /></span>
+      <span className="menu-player-avatar">{emblem ? <EmblemBadge emblem={emblem} color={avatarColor} size={34} /> : <MenuGlyph kind="profile" size={23} />}</span>
       <span className="menu-player-identity">
         <span className="menu-player-status">{status}</span>
         <span className="menu-player-name" title={name}>{name}</span>

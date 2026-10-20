@@ -1,4 +1,6 @@
 import { FeedbackButton } from '../FeedbackButton'
+import { EmblemBadge } from '../EmblemBadge'
+import type { EmblemCosmeticId } from '../../game/progressionCatalog'
 import { useRef, useState, type ReactNode } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
@@ -216,6 +218,8 @@ interface BoardRow {
   glyph: string
   team: number
   kind: 'human' | 'bot'
+  /** equipped cape emblem: the player's badge */
+  emblem: EmblemCosmeticId | null
   /** bots: difficulty, shown as a small tag next to the name */
   difficulty?: string
   score: number
@@ -240,6 +244,7 @@ function readBoard(): BoardRow[] {
         glyph: playerGlyph(slot, s.settings.teamMode, cb),
         team: slot.team,
         kind: slot.kind,
+        emblem: slot.cosmetics?.emblem ?? null,
         difficulty: slot.kind === 'bot' ? slot.difficulty : undefined,
         score: sc?.score ?? 0,
         kills: sc?.kills ?? 0,
@@ -317,6 +322,7 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
                     <span className="h-3 w-3 rotate-45 rounded-[2px]" style={{ background: r.color }} aria-hidden />
                     <span className="font-semibold">
                       {r.glyph && <span className="mr-1" style={{ color: r.color }} aria-hidden>{r.glyph}</span>}
+                      <EmblemBadge emblem={r.emblem} color={r.color} size={20} className="mr-1.5 align-middle" />
                       {r.name}
                     </span>
                     {r.id === local && <span className="chip text-gold">You</span>}
