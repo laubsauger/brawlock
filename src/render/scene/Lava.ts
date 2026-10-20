@@ -12,6 +12,16 @@ import { asV4, gamePos, type WorldCtx } from './world'
 export const SPLASH_N = 8
 /** seconds from a body hitting the lava until the lava closes over it (Pawns' sink) */
 export const SPLASH_GULP = 2.1
+/**
+ * Lava death: how deep (game units) the corpse's feet sit under the lava
+ * surface `age` seconds after death. The melt buoys it near the surface, then
+ * pulls it under (the collapsed body is ~40 units thick) so the lava closes
+ * over it at SPLASH_GULP; the character itself does not sink.
+ */
+export function lavaDeathDepth(age: number): number {
+  const s = Math.min(1, Math.max(0, age) / SPLASH_GULP)
+  return 4 + 46 * Math.pow(s, 1.8) + 40 * Math.max(0, age - SPLASH_GULP)
+}
 /** a splash's whole life: splash, burn, gulp, then the crust re-forms */
 const SPLASH_LIFE = SPLASH_GULP + 3.6
 /** a shrink ring's lava reaction: last tile under + the crust re-forming */

@@ -15,6 +15,7 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { PawnState, SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
+import { lavaDeathDepth } from '../../scene/Lava'
 import { clothParams, createWarlock, preloadWarlock, warlockParams, type DeathKind, type StaffVariant, type WarlockHandle, type WarlockStyle } from '../index'
 import { getWarlockAsset } from '../asset'
 import { getSpellColor } from '../../vfx/palette'
@@ -39,6 +40,8 @@ interface Actor {
   frameEvents: SimEvent[]
   burning: boolean
   dieNext?: boolean
+  /** tick of a lava death: the holder sinks like PawnView (the character no longer sinks itself) */
+  lavaTick?: number
 }
 
 function newPawn(id: number): PawnState {
@@ -336,11 +339,13 @@ async function main() {
       }
       // like the sim: the pawn dies on the tick that carries the death event
       a.dieNext = true
+      a.lavaTick = kind === 'lava' ? tick : undefined
       emit(a, { type: 'death', pawn: p.id, owner: p.owner, killer: null, cause: causes[kind], kb })
     },
     respawn() {
       const a = hero()
       a.pawn.alive = true
+      a.lavaTick = undefined
       emit(a, { type: 'respawn', pawn: a.pawn.id, owner: a.pawn.owner, x: a.pawn.x, y: a.pawn.y })
     },
     victory() {
@@ -615,7 +620,9 @@ async function main() {
     for (const a of actors) {
       const p = a.pawn
       const pr = a.prev
-      a.holder.position.set((pr.x + (p.x - pr.x) * alpha) * S, 0, -(pr.y + (p.y - pr.y) * alpha) * S)
+      const lavaAge = a.lavaTick === undefined ? -1 : (tick - a.lavaTick + alpha) * DT
+      const lavaY = lavaAge < 0 ? 0 : -lavaDeathDepth(lavaAge) * Math.min(1, lavaAge / 0.3) * S
+      a.holder.position.set((pr.x + (p.x - pr.x) * alpha) * S, lavaY, -(pr.y + (p.y - pr.y) * alpha) * S)
       a.w.update(p, pr, alpha, dt, all)
     }
   }

@@ -5,7 +5,7 @@ import { isLocationSafe } from '../arenaGeom'
 import { LAVA_H, S, TILE_TOP_H, facingToYaw } from '../coords'
 import { MODEL_SCALE, STAFF_PIVOT, STAFF_TIP, createPawnMaterial, getBodyGeometry, getStaffGeometry, type PawnUniforms } from './pawnModel'
 import { KEY_LIGHT_DIR, type WorldCtx } from './world'
-import { SPLASH_GULP } from './Lava'
+import { SPLASH_GULP, lavaDeathDepth } from './Lava'
 import { createWarlock, type CastArm, type DeathKind, type WarlockHandle } from '../character'
 import { RoundEpoch } from '../character/impactMotion'
 import type { VictoryStyle } from '../character/victoryPose'
@@ -766,16 +766,10 @@ export class PawnView {
     if (this.deathAt >= 0 && this.cause === 'lava') {
       const a = Math.max(0, now - this.deathAt)
       const s = Math.min(1, a / SPLASH_GULP)
-      // feet depth under the lava surface
-      const depth = 4 + 46 * Math.pow(s, 1.8) + 40 * Math.max(0, a - SPLASH_GULP)
       const lift = Math.min(1, a / 0.3)
-      let h = LAVA_H - depth + Math.sin(a * 8.5) * 3 * (1 - s)
-      h = this.sinkFromH + (h - this.sinkFromH) * lift * lift * (3 - 2 * lift)
-      // the character also sinks its own body for a lava death (warlock
-      // deathTimeline: 75 units over 0.1..1.9 s, ease-in ^1.6); give that back
-      // so this curve alone sets how deep the body sits. Keep in step with it.
-      if (this.warlock) h += 75 * Math.pow(Math.min(1, Math.max(0, (a - 0.1) / 1.8)), 1.6)
-      this.h = h
+      const h = LAVA_H - lavaDeathDepth(a) + Math.sin(a * 8.5) * 3 * (1 - s)
+      // ease over from where the body stood when it died
+      this.h = this.sinkFromH + (h - this.sinkFromH) * lift * lift * (3 - 2 * lift)
     } else {
       const targetH = safe ? TILE_TOP_H : LAVA_H - 16
       this.h += (targetH - this.h) * (safe ? 1 - Math.exp(-dt * 30) : k * 0.6)

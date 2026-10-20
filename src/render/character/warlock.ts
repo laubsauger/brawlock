@@ -766,7 +766,8 @@ export class CC0Warlock implements WarlockHandle {
       case 'lava':
         g.burn = 1
         g.char = ramp(t, 0.1, 1.3)
-        sink = 0.75 * Math.pow(ramp(t, 0.1, 1.9), 1.6)
+        // no own sink: the holder (PawnView / dev preview) follows
+        // lavaDeathDepth, in step with the lava shader's gulp
         scale = 1 - 0.18 * ramp(t, 0.3, 1.9)
         g.dissolve = ramp(t, 1.2, 2.1)
         break

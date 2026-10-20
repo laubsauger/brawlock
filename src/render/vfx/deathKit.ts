@@ -1098,8 +1098,8 @@ function tickLava(ctx: VfxCtx, e: Emitter, t: number): void {
   }
   const lt = t - e.t0
   const ps = ctx.particles
-  // how much of the body is still above the lava (PawnView's slow pull plus
-  // the character's own sink: under at about SPLASH_GULP)
+  // how much of the body is still above the lava (PawnView sinks it along
+  // lavaDeathDepth: under at about SPLASH_GULP)
   const s = Math.min(1, lt / SPLASH_GULP)
   const above = 1 - s * s * (3 - 2 * s)
   const top = LAVA_H + BODY_H * above
