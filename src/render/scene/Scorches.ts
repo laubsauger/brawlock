@@ -9,6 +9,9 @@ import { asV4, type WorldCtx } from './world'
  * Impact scorch marks on the floor: a ragged dark burn with ember speckles
  * that cool off, then the whole mark fades. Ring buffer, shader-animated.
  */
+/** marks stay this many times their authored life (the embers still cool on the original timing) */
+const LINGER = 2.5
+
 export class Scorches {
   readonly mesh: THREE.Mesh
   private a: THREE.InstancedBufferAttribute
@@ -16,7 +19,8 @@ export class Scorches {
   private cursor = 0
   private dirty = false
   private material: THREE.MeshBasicNodeMaterial
-  private readonly capacity = 40
+  // room for the lingering marks of a busy 10-player fight before the ring overwrites one
+  private readonly capacity = 96
 
   constructor(private ctx: WorldCtx) {
     this.a = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4)
@@ -26,6 +30,7 @@ export class Scorches {
     for (let i = 0; i < this.capacity; i++) {
       aa[i * 4 + 3] = -1e4
       ba[i * 4 + 1] = 1
+      ba[i * 4 + 3] = 1
     }
     this.material = this.buildMaterial(null)
     const g = new THREE.BufferGeometry()
@@ -77,7 +82,8 @@ export class Scorches {
       const n = texture(ctx.noise, q.mul(0.45).add(B.z)).r
       shape = smoothstep(1.0, 0.45, rr.add(n.sub(0.5).mul(0.7)))
     }
-    const embers = step(0.72, sp).mul(saturate(float(1).sub(tn.mul(3)))).mul(shape)
+    // embers cool over a third of the authored life (B.w seconds), not the lingering one
+    const embers = step(0.72, sp).mul(saturate(float(1).sub(age.div(B.w)))).mul(shape)
     const m = new THREE.MeshBasicNodeMaterial()
     m.transparent = true
     m.depthWrite = false
@@ -99,9 +105,9 @@ export class Scorches {
     aa[i * 4 + 2] = -y * S
     aa[i * 4 + 3] = this.ctx.uTime.value
     ba[i * 4] = radius
-    ba[i * 4 + 1] = life
+    ba[i * 4 + 1] = life * LINGER
     ba[i * 4 + 2] = Math.random() * 10
-    ba[i * 4 + 3] = 0
+    ba[i * 4 + 3] = life / 3
     this.dirty = true
   }
 
