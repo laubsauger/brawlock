@@ -201,7 +201,7 @@ describe('leaderboard: what counts', () => {
     tracker.finish({ winners: [1], slots, scores: [], rounds: 2, ticks: 200 * 60 })
     const result = finished as unknown as FinishedMatch
     expect(result.seats).toHaveLength(2)
-    expect(result.seats.find((s) => s.player === 1)).toEqual({ player: 1, device: 'dev-bbbbbbbb', name: 'P1', roundsPlayed: 1, roundsWon: 1, kills: 1, deaths: 0, won: true })
+    expect(result.seats.find((s) => s.player === 1)).toMatchObject({ player: 1, device: 'dev-bbbbbbbb', name: 'P1', roundsPlayed: 1, roundsWon: 1, kills: 1, deaths: 0, won: true })
     expect(result.seats.find((s) => s.player === 0)).toMatchObject({ roundsPlayed: 2, deaths: 1 })
     expect(result.ranked.map((r) => r.groups)).toEqual([[[0]], [[1], [0]]])
     expect(result.bots).toBe(2)
@@ -287,6 +287,134 @@ describe('leaderboard: rating', () => {
     if ('skipped' in again) throw new Error(again.skipped)
     expect(again.players.find((p) => p.device === 'dev-aaaaaaaa')).toMatchObject({ matches: 2, wins: 2, firstAt: 5000, lastAt: 9000 })
     expect(settleMatch({ ...m, ticks: 60 }, new Map(), 0, 'x')).toEqual({ skipped: 'shorter than 120 s' })
+  })
+})
+
+describe('leaderboard: departed humans', () => {
+  function tracked(devices = { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, teamMode: MatchSettings['teamMode'] = 'ffa') {
+    const slots = [slot(0, 'human'), slot(1, 'human'), slot(2, 'bot')]
+    const settings = { ...DEFAULT_SETTINGS, teamMode }
+    const state = createMatch(settings, slots, 42)
+    let finished: FinishedMatch | null = null
+    const tracker = new ServerMatchTracker((m) => { finished = m })
+    tracker.start({ slots, settings, devices })
+    const observe = (tick: number, phase: SimState['phase'] = state.phase, events: SimEvent[] = []) => {
+      state.tick = tick
+      state.phase = phase
+      tracker.observe(state, events)
+    }
+    const finish = (winners: PlayerId[], abandoned = false) => {
+      tracker.finish({ winners, slots, scores: state.scores, rounds: state.round, ticks: state.tick, ...(abandoned ? { abandoned: true } : {}) })
+      return finished as unknown as FinishedMatch
+    }
+    return { tracker, state, observe, finish }
+  }
+
+  it('counts only human-controlled combat time, including a dead human watching, and forfeits at exactly 60 seconds', () => {
+    const f = tracked()
+    f.observe(0, 'shop')
+    f.observe(6000, 'shop')
+    f.observe(6000, 'fight')
+    f.state.pawns[0].alive = false
+    f.observe(9600, 'fight')
+    f.tracker.control(0, 'bot')
+    f.observe(12000, 'fight')
+    const match = f.finish([0])
+    expect(match.seats[0]).toMatchObject({ combatTicks: 3600, forfeited: true, won: false, roundsPlayed: 0 })
+    expect(match.combatPairs).toEqual([{ players: [0, 1], ticks: 3600 }])
+    expect(match.ranked).toEqual([])
+    expect(ineligible(match)).toBeNull()
+    const result = settleMatch(match, new Map(), 1000, 'eu')
+    if ('skipped' in result) throw new Error(result.skipped)
+    expect(result.results.find((r) => r.device === 'dev-aaaaaaaa')).toMatchObject({ forfeited: true, won: false, delta: -20, roundsPlayed: 0 })
+    expect(result.players.find((p) => p.device === 'dev-aaaaaaaa')).toMatchObject({ matches: 1, wins: 0, rating: 980 })
+  })
+
+  it('keeps the last human build and full bot roster while excluding bot upgrades and an early departure from forfeits', () => {
+    const f = tracked()
+    f.observe(0, 'fight')
+    const pawn = f.state.pawns[0]
+    const index = pawn.slots.indexOf('fireball')
+    pawn.levels[index] = 2
+    f.observe(3599)
+    f.tracker.control(0, 'bot')
+    pawn.levels[index] = 5
+    f.observe(10_000)
+    const match = f.finish([0])
+    expect(match.seats[0].combatTicks).toBe(3599)
+    expect(match.seats[0]).not.toHaveProperty('forfeited')
+    expect(match.seats[0].build?.levels[index]).toBe(2)
+    expect(match.seats[0]).not.toHaveProperty('stats')
+    expect(match.roster).toHaveLength(3)
+    expect(match.roster?.find((p) => p.player === 0)).toMatchObject({ device: 'dev-aaaaaaaa', kind: 'human', build: { levels: match.seats[0].build!.levels }, won: false })
+    expect(match.roster?.find((p) => p.player === 2)).toMatchObject({ kind: 'bot', name: 'Bot 2' })
+  })
+
+  it('rejoining before completion clears absence, resumes human time and records the human build again', () => {
+    const f = tracked()
+    f.observe(0, 'fight')
+    f.observe(3600)
+    f.tracker.control(0, 'bot')
+    f.observe(7200)
+    f.tracker.control(0, 'human')
+    f.observe(7260, 'fight', [roundWin([0])])
+    const match = f.finish([0])
+    expect(match.seats[0]).toMatchObject({ combatTicks: 3660, won: true, roundsPlayed: 1 })
+    expect(match.seats[0]).not.toHaveProperty('forfeited')
+    expect(rateMatch(match, new Map()).get('dev-aaaaaaaa')).toBeGreaterThan(0)
+  })
+
+  it('settles an empty first round after a shared combat minute as losses for both, with no fabricated round or winner', () => {
+    const f = tracked()
+    f.observe(0, 'fight')
+    f.observe(3600)
+    f.tracker.control(0, 'bot')
+    f.tracker.control(1, 'bot')
+    const match = f.finish([], true)
+    expect(match).toMatchObject({ abandoned: true, ranked: [], ticks: 3600 })
+    expect(match.seats.map((s) => [s.forfeited, s.won, s.roundsPlayed])).toEqual([[true, false, 0], [true, false, 0]])
+    expect(ineligible(match)).toBeNull()
+    expect([...rateMatch(match, new Map()).values()]).toEqual([-20, -20])
+    const result = settleMatch(match, new Map(), 1000, 'eu')
+    if ('skipped' in result) throw new Error(result.skipped)
+    expect(result.players.map((p) => [p.matches, p.wins, p.roundsPlayed, p.rating])).toEqual([[1, 0, 0, 980], [1, 0, 0, 980]])
+  })
+
+  it('never lets a forfeiter keep positive Elo through earlier round wins', () => {
+    const m = play([slot(0, 'human'), slot(1, 'human')], { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, [
+      { deaths: [[1, 0]], winners: [0] }, { deaths: [[1, 0]], winners: [0] },
+    ])
+    m.seats[0].forfeited = true
+    m.seats[0].won = false
+    m.seats[1].won = false
+    expect(rateMatch(m, new Map()).get('dev-aaaaaaaa')).toBe(-20)
+    expect(rateMatch(m, new Map()).get('dev-bbbbbbbb')).toBe(20)
+  })
+
+  it('requires an overlapping minute between unique human opponents, never solo, duplicate or sequential bot games', () => {
+    const early = tracked()
+    early.observe(0, 'fight'); early.observe(3599)
+    early.tracker.control(0, 'bot'); early.tracker.control(1, 'bot')
+    expect(ineligible(early.finish([], true))).toMatch(/shorter/)
+
+    const sequential = tracked()
+    sequential.tracker.control(1, 'bot')
+    sequential.observe(0, 'fight'); sequential.observe(3600)
+    sequential.tracker.control(0, 'bot'); sequential.tracker.control(1, 'human')
+    sequential.observe(7200)
+    sequential.tracker.control(1, 'bot')
+    expect(ineligible(sequential.finish([], true))).toBe('no round between humans')
+
+    const duplicate = tracked({ 0: 'dev-aaaaaaaa', 1: 'dev-aaaaaaaa' })
+    duplicate.observe(0, 'fight'); duplicate.observe(3600)
+    duplicate.tracker.control(0, 'bot'); duplicate.tracker.control(1, 'bot')
+    expect(ineligible(duplicate.finish([], true))).toBe('fewer than 2 humans')
+
+    const teammates = tracked(undefined, 'teams')
+    teammates.state.slots[1].team = teammates.state.slots[0].team
+    teammates.observe(0, 'fight'); teammates.observe(3600)
+    teammates.tracker.control(0, 'bot'); teammates.tracker.control(1, 'bot')
+    expect(ineligible(teammates.finish([], true))).toMatch(/shorter/)
   })
 })
 

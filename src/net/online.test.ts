@@ -6,6 +6,30 @@ import type { NetFactory } from './transport'
 const regions = [{ id: 'us-west', label: 'US West', url: 'wss://west.test' }, { id: 'eu', label: 'Europe', url: 'wss://eu.test' }]
 const response = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
 
+describe('authoritative match history requests', () => {
+  it('routes casual and ranked history to the selected identity and rejects corrupt public records', async () => {
+    const id = crypto.randomUUID()
+    const entry = { id, at: 1000, queue: 'casual', region: 'eu', ticks: 3600, rounds: 1, teamMode: 'ffa', gameMode: 'rounds',
+      self: 0, outcome: 'forfeit', delta: null, rating: null,
+      players: [{ player: 0, name: 'Ash', kills: 0, deaths: 1, won: false, forfeited: true }] }
+    let body: unknown = { matches: [entry] }
+    const fetch = vi.fn(async (url: string) => response(200, url.endsWith('/health')
+      ? { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-history' } : body))
+    const online = new Online({ regions, build: 'dev-history', fetch })
+    expect(await online.matchHistory('eu', 'private-player-000', 'casual')).toEqual([entry])
+    expect(fetch.mock.calls.at(-1)?.[0]).toBe('https://eu.test/players/private-player-000/history?limit=10&queue=casual')
+    expect(await online.matchHistory('eu', id, 'ranked', true)).toEqual([entry])
+    expect(fetch.mock.calls.at(-1)?.[0]).toBe(`https://eu.test/profiles/${id}/history?limit=10&queue=ranked`)
+    body = { matches: [{ ...entry, players: [{ ...entry.players[0], device: 'private-player-000' }] }] }
+    await expect(online.matchHistory('eu', id, undefined, true)).rejects.toThrow('invalid match history data')
+    body = { matches: [] }
+    expect(await online.matchHistory('eu', id, undefined, true)).toEqual([])
+    const calls = fetch.mock.calls.length
+    await expect(online.matchHistory('eu', 'private-player-000', undefined, true)).rejects.toThrow('public player ID is invalid')
+    expect(fetch).toHaveBeenCalledTimes(calls)
+  })
+})
+
 describe('known room rediscovery and routing', () => {
   it('reads availability only in the selected region and exposes failures rather than an empty count', async () => {
     let status = 200

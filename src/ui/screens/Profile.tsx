@@ -18,6 +18,8 @@ import { chooseName, NAME_MAX } from '../lib/name'
 import { historyEloLabel } from '../lib/elo'
 import { accountsEnabled } from '../../game/account'
 import { Collection, MatchEmbers } from './Collection'
+import { BuildIcons } from '../BuildIcons'
+import { MatchQueueTabs, ServerMatches, type MatchQueueFilter } from './ServerMatches'
 
 type Tab = 'matches' | 'stats' | 'rivals' | 'board' | 'replays'
 
@@ -100,7 +102,7 @@ function Replays() {
  * The whole table of one past match: every player's score, knockouts, deaths, damage and gold,
  * best first; a row opens that player's detailed stats when they were stored.
  */
-function MatchScoreboard({ r }: { r: MatchRecord }) {
+export function MatchScoreboard({ r }: { r: MatchRecord }) {
   const [open, setOpen] = useState<number | null>(null)
   const rows = [...r.participants].sort((a, b) => b.score - a.score || b.kills - a.kills || b.damage - a.damage)
   return (
@@ -122,8 +124,8 @@ function MatchScoreboard({ r }: { r: MatchRecord }) {
               <tr className="border-t border-white/5">
                 <td className="py-1">
                   <span className="flex items-center gap-1.5">
-                    {p.stats ? (
-                      <button type="button" className="row-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} ${p.name}'s match stats`} onClick={() => setOpen(expanded ? null : p.player)}>
+                    {p.stats || p.build ? (
+                      <button type="button" className="row-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} ${p.name}'s match details`} onClick={() => setOpen(expanded ? null : p.player)}>
                         <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden><path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
                       </button>
                     ) : <span className="w-5" aria-hidden />}
@@ -139,8 +141,11 @@ function MatchScoreboard({ r }: { r: MatchRecord }) {
                 <td className="tabular py-1 text-right">{Math.round(p.damage).toLocaleString()}</td>
                 <td className="tabular py-1 pr-1 text-right">{p.stats ? p.stats.goldEarned : '–'}</td>
               </tr>
-              {expanded && p.stats && (
-                <tr><td colSpan={5} className="pb-2 pl-6"><PlayerStatsDetail stats={p.stats} /></td></tr>
+              {expanded && (p.stats || p.build) && (
+                <tr><td colSpan={5} className="pb-2 pl-6">
+                  {p.build && <div className="mb-3 mt-2" aria-label={`${p.name}'s recorded equipment`}><BuildIcons kit={p.build} size={26} /></div>}
+                  {p.stats && <PlayerStatsDetail stats={p.stats} />}
+                </td></tr>
               )}
             </Fragment>
           )
@@ -150,8 +155,20 @@ function MatchScoreboard({ r }: { r: MatchRecord }) {
   )
 }
 
-function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: string | null) => void }) {
-  const history = useStats(readHistory)
+function Matches({ openId, onOpen, source, onSource }: { openId: string | null; onOpen: (id: string | null) => void; source: 'online' | 'device'; onSource: (source: 'online' | 'device') => void }) {
+  const [queue, setQueue] = useState<MatchQueueFilter>('all')
+  return <div className="flex flex-col gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {online.configured && <Segmented label="Match history source" value={source} onChange={onSource} options={[{ value: 'online', label: 'Online' }, { value: 'device', label: 'This device' }]} />}
+      <MatchQueueTabs value={queue} onChange={setQueue} />
+    </div>
+    {source === 'online' ? <ServerMatches queue={queue} /> : <LocalMatches key={queue} queue={queue} openId={openId} onOpen={onOpen} />}
+  </div>
+}
+
+function LocalMatches({ openId, onOpen, queue }: { openId: string | null; onOpen: (id: string | null) => void; queue: MatchQueueFilter }) {
+  const stored = useStats(readHistory)
+  const history = queue === 'all' ? stored : stored.filter((match) => match.queue === queue)
   const [collectionOpen, setCollectionOpen] = useState(false)
   const replayIds = useReplayIds()
   const openRef = useRef<HTMLLIElement>(null)
@@ -164,12 +181,13 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
     return (
       <>
         <ImportReplay />
-        <Empty>No matches yet. Play against bots or host a game; every match lands here.</Empty>
+        <Empty>{stored.length === 0 ? 'No matches yet. Play against bots or host a game; every match lands here.' : `No ${queue} matches recorded on this device.`}</Empty>
       </>
     )
   return (
     <>
     <ImportReplay />
+    <p className="text-sm text-ash">Saved on this device.{queue === 'all' && stored.some((match) => !match.queue) && ' Earlier matches without a recorded queue appear in All.'}</p>
     <ul className="flex flex-col gap-1.5">
       {history.map((r) => {
         const me = r.participants.find((p) => p.player === r.self)
@@ -198,6 +216,7 @@ function Matches({ openId, onOpen }: { openId: string | null; onOpen: (id: strin
                 {win ? 'Win' : r.outcome === 'loss' ? 'Loss' : 'Watched'}
               </span>
               <span className={`chip px-2 py-0.5 text-[0.68rem] ${elo.tone}`} title={elo.title} aria-label={`${elo.label}: ${elo.title}`}>{elo.label}</span>
+              <span className="text-xs text-ash">{r.queue === 'ranked' ? 'Ranked' : r.queue === 'casual' ? 'Casual' : r.queue === 'custom' ? 'Custom' : r.queue === 'offline' ? 'Offline' : 'Queue not recorded'}</span>
               <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
                 {others.map((p) => (
                   <span key={p.player} className="flex items-center gap-1.5">
@@ -522,6 +541,10 @@ function PublicProfile({ publicId, name, onClose }: { publicId: string; name: st
         <Tile label="Ranked matches" value={String(profile.matches)} sub={`${profile.wins} wins`} />
         <Tile label="Ranked K / D" value={`${profile.kills} / ${profile.deaths}`} sub="Bot combat excluded" />
       </div>
+      <section className="mb-5 flex flex-col gap-3" aria-label="Recent online matches">
+        <h3 className="section-title text-lg">Recent matches</h3>
+        <ServerMatches publicId={publicId} />
+      </section>
       {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} source="server" />}
     </>}
   </Modal>, document.body)
@@ -807,6 +830,7 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
   const [draft, setDraft] = useState(name)
   const [tab, setTab] = useState<Tab>(initialTab)
   const [openMatch, setOpenMatch] = useState<string | null>(null)
+  const [matchSource, setMatchSource] = useState<'online' | 'device'>(online.configured ? 'online' : 'device')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -858,7 +882,7 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
         {/* The rotated 9px title marker and its 6px glow need 8px of paint room
             inside this scrollport; equal padding keeps the content aligned. */}
         <div id="profile-content" role="tabpanel" aria-labelledby={`profile-tab-${tab}`} className="-ml-2 min-h-0 flex-1 overflow-y-auto pl-2 pr-1">
-          {(tab === 'matches' || tab === 'stats') && <div role="group" aria-label="Career summary" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+          {(tab === 'stats' || (tab === 'matches' && matchSource === 'device')) && <div role="group" aria-label="Career summary" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
             <Tile label="Matches" value={String(c?.games ?? 0)} />
             <Tile label="Wins" value={String(c?.wins ?? 0)} sub={c ? `${pct(c.wins, c.games)} win rate` : undefined} />
             <Tile label="Kills / deaths" value={kd} sub={c ? `${c.kills} / ${c.deaths}` : undefined} />
@@ -868,12 +892,13 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
             <Tile label="Against players" value={c ? `${c.vsHumans.wins}–${c.vsHumans.games - c.vsHumans.wins}` : '–'} sub={c ? pct(c.vsHumans.wins, c.vsHumans.games) : undefined} />
             <Tile label="Against bots" value={c ? `${c.vsBots.wins}–${c.vsBots.games - c.vsBots.wins}` : '–'} sub={c ? pct(c.vsBots.wins, c.vsBots.games) : undefined} />
           </div>}
-          {tab === 'matches' && <Matches openId={openMatch} onOpen={setOpenMatch} />}
+          {tab === 'matches' && <Matches openId={openMatch} onOpen={setOpenMatch} source={matchSource} onSource={setMatchSource} />}
           {tab === 'stats' && (
             <StatsTab
               career={c}
               onOpenMatch={(id) => {
                 setOpenMatch(id)
+                setMatchSource('device')
                 setTab('matches')
               }}
             />

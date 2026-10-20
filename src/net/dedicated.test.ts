@@ -24,6 +24,7 @@ import { wsNet } from './ws'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { createMemoryNet } from './memory'
 import { Lister, p2pListingTarget } from './lister'
+import { validMatchHistory } from './matchHistory'
 
 const TIME_SCALE = 4
 let servers: DedicatedServer[] = []
@@ -1482,6 +1483,18 @@ describe('shared global ratings authority over TCP', () => {
       const profile = await (await fetch(`${eu.http}/players/global-ann-device`)).json() as { ratingChange7d: number; recent: { region: string }[] }
       expect(profile.recent.map((r) => r.region)).toEqual(['eu', 'us-west'])
       expect(profile.ratingChange7d).toBe(global.entries.find((p) => p.name === 'Ann')!.ratingChange7d)
+      const historyPath = '/players/global-ann-device/history?queue=ranked&limit=10'
+      const history = await (await fetch(`${eu.http}${historyPath}`)).json() as { matches: unknown }
+      expect(validMatchHistory(history.matches)).toBe(true)
+      expect(history.matches).toMatchObject([{ region: 'eu', queue: 'ranked' }])
+      expect(await (await fetch(`${us.http}${historyPath}`)).json()).toEqual(history)
+      expect(JSON.stringify(history)).not.toMatch(/global-ann-device|global-bob-device|device/)
+      const casual = { ...submission(), key: crypto.randomUUID(), queue: 'casual' }
+      expect(await (await record(casual, { authorization: `Bearer ${token}` })).json()).toMatchObject({ status: 'unrated' })
+      const casualRead = await (await fetch(`${eu.http}/players/global-ann-device/history?queue=casual`)).json() as { matches: unknown }
+      expect(validMatchHistory(casualRead.matches)).toBe(true)
+      expect(casualRead.matches).toMatchObject([{ queue: 'casual' }])
+      expect(await read(us.http, 'us-west')).toEqual(global)
       ann.session.setDisplayName('Ann across regions')
       await until(() => ann.lobby().slots.some((s) => s.name === 'Ann across regions'), 3000, 'EU rename accepted')
       // The public read is fresh from the authority; no regional cache can fork it.

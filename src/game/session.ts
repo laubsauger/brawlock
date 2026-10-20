@@ -36,6 +36,8 @@ import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
 import { BUILD_UPDATE_REQUIRED, ensureCurrentBuild, getBuildUpdate, onBuildUpdate } from '../lib/buildVersion'
 import { MatchTracker, recordMatch, updateProfileNames } from './stats'
+import type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
+export type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
@@ -109,7 +111,8 @@ function createRecorder(): MatchRecorder {
   const replay = createReplayHook(__NET_ID__)
   return {
     start: (info) => {
-      tracker = new MatchTracker(info)
+      const lobby = useGame.getState().lobby
+      tracker = new MatchTracker({ ...info, queue: lobby.role === 'offline' ? 'offline' : lobby.ranked ? 'ranked' : lobby.quick ? 'casual' : 'custom' })
       replay.start(info)
     },
     step: (before, inputs, patches, slots) => replay.step(before, inputs, patches, slots),
@@ -136,7 +139,7 @@ const impl = createSession({
   ui: {
     lobby: () => useGame.getState().lobby,
     setLobby: (p) => useGame.getState().setLobby(p),
-    screen: () => useGame.getState().screen,
+    screen: () => sessionScreen,
     setScreen: (s) => {
       if (s === 'lobby' || s === 'match' || s === 'results') sessionScreen = s
       useGame.getState().setScreen(s)
@@ -237,6 +240,7 @@ export interface HostingApi {
   serverProfile(region?: RegionChoice): Promise<ServerProfile | null>
   /** An inspectable player profile addressed by its public ID, never its private device identity. */
   publicProfile(publicId: string, region?: RegionChoice): Promise<ServerProfile | null>
+  matchHistory(queue?: HistoryQueue, publicId?: string): Promise<MatchHistoryEntry[]>
 }
 
 const CANCELLED = 'Hosting was cancelled.'
@@ -273,7 +277,7 @@ function opened(t: 'server' | 'p2p'): boolean {
   return l.status === 'open' && l.role !== 'offline' && impl.transport() === t
 }
 
-export type GameSession = Omit<SessionApi, 'openOffline' | 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join' | 'idleHumans' | 'dropIdle'> & HostingApi & {
+export type GameSession = Omit<SessionApi, 'openOffline' | 'openHost' | 'setRoom' | 'roomState' | 'joinableSeats' | 'join' | 'idleHumans' | 'dropIdle' | 'finishDeparted'> & HostingApi & {
   openOffline(): Promise<void>
   useRankedHere(game: AccountGame): Promise<void>
   /** A guided offline lesson without match records, rewards or matchmaking. */
@@ -281,6 +285,7 @@ export type GameSession = Omit<SessionApi, 'openOffline' | 'openHost' | 'setRoom
   join(code: string, route?: RoomRoute): Promise<void>
   /** Show this tab's accepted room again without matchmaking or reconnecting. */
   resume(): boolean
+  roomPhase(): 'lobby' | 'match' | 'results'
 }
 
 interface Opening { kind: string; promise: Promise<HostResult> | null }
@@ -518,6 +523,11 @@ export const session: GameSession = {
   async publicProfile(publicId, choice) {
     return online.publicProfile((await serverRegion(choice)).id, publicId)
   },
+  async matchHistory(queue, publicId) {
+    const account = useAccount.getState().player
+    const identity = publicId ?? (account ? accountRatingKey(account.id) : getDeviceId())
+    return online.matchHistory((await serverRegion()).id, identity, queue, publicId !== undefined)
+  },
   setPublic(value) {
     const l = useGame.getState().lobby
     if (!(impl.transport() === 'p2p' && l.role === 'host' && l.roomCode)) {
@@ -553,6 +563,7 @@ export const session: GameSession = {
   },
   isActive: impl.isActive,
   resume,
+  roomPhase: () => sessionScreen,
   setDisplayName: impl.setDisplayName,
   setPlayerColor(color) {
     setPreferredColor(color)
@@ -624,7 +635,7 @@ function listingTarget(): ReturnType<typeof p2pListingTarget> {
   const l = st.lobby
   const set = l.settings ?? DEFAULT_SETTINGS
   return p2pListingTarget({ listed, role: l.role, status: l.status, code: l.roomCode, public: !!l.public,
-    transport: impl.transport(), slots: l.slots, settings: set, screen: st.screen, host: getProfile().name,
+    transport: impl.transport(), slots: l.slots, settings: set, screen: sessionScreen, host: getProfile().name,
     max: MAX_PLAYERS, joinable: impl.joinableSeats(), progress: listingProgress })
 }
 

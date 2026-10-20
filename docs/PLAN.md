@@ -4,6 +4,10 @@ A new iteration of **Warlock** (Warcraft III custom map, later the official Dota
 
 Version 1 is faithful to the original core. Innovation comes after v1 ships and the core feels right.
 
+**Planning audit, 2026-10-20:** this document retains the original design and milestone history.
+[Next sprint](NEXT-SPRINT.md) is the active backlog; §12 below distinguishes implemented work,
+remaining engineering and human verification. Release receipts establish deployment status.
+
 Research that backs this plan lives in `docs/research/`:
 
 | File | Contents |
@@ -122,7 +126,7 @@ Duration, Range, Lifesteal. 6 levels each, 5 gold per level, or 13 to raise all 
 
 ### 3.4 Modes and lobby options
 
-Team mode Shuffle (default) / FFA / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked: later (§9 M4).
+Team mode Shuffle (default) / FFA / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
 
 ## 4. Architecture
 
@@ -185,7 +189,7 @@ Target: Dota-class responsiveness or better on a normal connection.
 - **Room codes**: 5 letters without I/O (pattern from Pit of Carnage). The host registers PeerJS id `brawlock-<CODE>`; friends type the code or open `?room=CODE`.
 - **Topology limits**: P2P star (the host browser is the server). Roughly 10–20% of NATs need TURN (PeerJS provides free TURN; own TURN later). Host leaving ends the match in v1; host migration is post-v1.
 - **Reconnect**: rejoin by the same link within the abandon window; a bot holds the pawn meanwhile (original `bot_on_dc`).
-- **Dedicated servers (M4)**: Bun process running the same `sim/` as input arbiter and authority, many rooms per process, 2–3 regional VMs. WebSocket first behind a transport interface, WebTransport datagrams later (server-side WebTransport libraries for Node/Bun are still immature; see `tech.md`). Per-match hosting (Edgegap) for ranked. Hathora, Rivet game hosting and Unity Multiplay are gone, so we avoid platform lock-in.
+- **Dedicated servers (implemented):** Node processes run the same `sim/` as input arbiter and authority across the existing US/EU regions, using WebSockets and the shared transport interface. Account/rating authority and maintenance/drain are implemented. The earlier Bun/per-match-hosting proposal is superseded; no hosting-provider migration is scheduled. WebTransport remains deferred.
 
 ### 4.5 Render and UI data flow
 
@@ -203,7 +207,7 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 ### 5.2 Readability rules
 
 - Team color on character trim, ground ring, and every projectile the player casts. Colorblind-safe palette option.
-- Telegraph every windup (cast point) with a ground decal and animation; Scourge windup visibly charges.
+- Windups remain bound to hands/body, with distinct spell silhouettes and a local targeting decal where appropriate. No apparent outgoing projectile before release; cancellation fizzles in place. Scourge visibly charges. See [the readability audit](ABILITY-READABILITY-AUDIT.md).
 - Knockback shows strength: trail length and hit-spark size scale with impulse; knockback points visible as a growing aura and a number.
 - Lava danger: tiles about to drop pulse red one second before the shrink.
 - Floating combat numbers, crisp and color coded, with stacking.
@@ -215,7 +219,7 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 
 ### 5.3 Characters and world
 
-- Warlock characters: rigged glTF, idle, run, cast (3 variants), knocked-back tumble, burn, death, victory. Robe and cape get faked cloth motion in a TSL vertex shader (sway and trail from velocity and acceleration, stronger toward the hem), driven by a small damped spring per pawn that also takes hit impulses, and constrained outside body and leg capsules so it never clips. M0's procedural placeholder already uses the same technique. Decision (2026-10-15): CC0 rigged base (KayKit / Quaternius), heavily customized: TSL materials, hood, robe and cape geometry with the cloth shader, team-color runes, glowing staff. Cosmetic variants chosen in the lobby.
+- Warlock characters: rigged glTF, idle, run, cast (3 variants), knocked-back tumble, burn, death, victory. Robe and cape get faked cloth motion in a TSL vertex shader (sway and trail from velocity and acceleration, stronger toward the hem), driven by a small damped spring per pawn that also takes hit impulses, and constrained outside body and leg capsules so it never clips. M0's procedural placeholder already uses the same technique. Decision (2026-10-15): CC0 rigged base (KayKit / Quaternius), heavily customized: TSL materials, hood, robe and cape geometry with the cloth shader, team-color runes and hand casting. Staff casting is shelved (§11). Cosmetic variants chosen in the lobby.
 - Tiles: generated in code (rounded-corner logic from the original), PBR materials from CC0 libraries (Poly Haven, ambientCG), three themes matching the original's three obstacle sets: ruined temple stone, volcanic rock, mossy overgrown.
 - Lighting: warm lava bounce from below, cool moonlit key light, soft shadows on High and up, height fog and haze over the lava.
 - Obstacles: destructible pillars (sim done: 400 HP, explosion r300, 2–8 random per round, re-rolled each shop phase) with per-theme art, crack stages and an explosion. Spawning switches on once the art exists.
@@ -296,15 +300,15 @@ Upgrades show on the warlock and in the spells, not only in the shop (approved 2
 
 ### 5.8 Online experience (esports bar)
 
-The game only matters if online play feels great. Before servers exist (M4), everything below runs P2P with local persistence.
+Online systems now run through dedicated regions as well as explicit P2P custom hosting. Local persistence remains available; authoritative accounts, ranks and progression have their own server contracts.
 
 - **Zero-friction joining**: 5-letter room code or link, name remembered, join in two clicks, reconnect with the same pawn.
 - **Lobby**: player cards with name, color, ping bars, host crown, ready state and your head-to-head record against each opponent; bot slots with difficulty.
-- **One-click rematch** from the results screen; clients follow automatically. Back-to-lobby keeps everyone.
-- **Pings**: per-player latency in lobby and scoreboard. Map pings (alt-click to mark a spot for teammates) in M1.
+- **Post-game consent:** results stay visible until players choose Ready; casual/ranked automatic rematches wait for every human. Back-to-lobby keeps the roster; Leave and New game are explicit.
+- **Pings**: per-player latency in lobby and scoreboard is implemented. Teammate map pings remain deferred.
 - **Statistics**: post-match board (score, kills, deaths, damage, rounds won, MVP); career totals; match history; **encounters** (per-opponent wins, losses, last played); local leaderboard of players you have met with a local rating. Profiles use a stable per-browser id.
-- **Global leaderboards, ranked and matchmaking** need authoritative servers (M4); results from P2P matches cannot be trusted for ranking.
-- **Spectating**: mid-match joiners spectate and play the next match.
+- **Global leaderboards, ranked and matchmaking** use the implemented authoritative regions. P2P results do not grant global ranking.
+- **Join-in-progress:** casual/custom joiners can reserve bot seats and spectate until their next playable round. Ranked admission closes once the match starts.
 
 ## 6. Controls
 
@@ -334,18 +338,27 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 - Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
 - Calibration: `npm run bots:elo` (scripts/bots/elo.ts) plays a seeded 1v1 round-robin of full first-to-5 matches on the real sim (about 40 s for 200 matches per pair, plus optional 4-player FFA pods). The unit is the **round**, the unit a player feels; a match turns a 75% round edge into about 90% of matches. Elo is the Bradley–Terry maximum-likelihood fit over all rounds (Medium = 1000); 95% intervals come from a bootstrap over whole matches, because rounds of one match share gold and items.
 - FFA (2+ enemies): bots pick the best opportunity, not the weakest player on the map (distance, kill chance discounted by travel, an easy hit, who threatens them, a grudge, third-party pushes, minus targets others are already on and their crossfire), hold a target for a while, stand where it is least crowded and back off at low HP; a seeded personality varies this per bot (`targetSense` and the notes in `src/bots/presets.ts`). `npx vite-node scripts/bots/ffa.ts` measures 8-bot FFA spread; 8 Brutal bots went from 2.6 bots per target and a 4+ mob in 52% of samples to 1.5 and 3%.
-- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber are about 75% round win rate apart (150-250 Elo per step), with Uber the unchanged top. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60-88% round win rate. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 400, Medium 1000, Hard 1600, Brutal 1825, Uber 2000) for a future human rating.
+- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber target about 75% round win rate per step (150–250 Elo), with Uber as the top reference; current measured gaps are shown below. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60-88% round win rate. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 350, Medium 1000, Hard 1625, Brutal 1725, Uber 1875) for the lobby’s approximate strength labels. Human ratings keep their existing Medium = 1000 anchor.
 
-  | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | 2026-10-17: round Elo |
+  | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | Lobby estimate |
   |---|---|---|---|---|---|
-  | Easy | 410 | 352-463 | - | - | 356 |
-  | Medium | 1000 | anchor | 97% over Easy | 100% | 1000 |
-  | Hard | 1611 | 1565-1679 | 97% over Medium | 100% | 1739 |
-  | Brutal | 1827 | 1780-1898 | 76% over Hard | 96% | 1935 |
-  | Uber | 1996 | 1944-2064 | 71% over Brutal | 88% | 2112 |
+  | Easy | 358 | 285–415 | — | — | 350 |
+  | Medium | 1000 | anchor | 98% over Easy | 100% | 1000 |
+  | Hard | 1627 | 1586–1674 | 98% over Medium | 100% | 1625 |
+  | Brutal | 1713 | 1670–1758 | 61% over Hard | 73% | 1725 |
+  | Uber | 1883 | 1841–1931 | 71% over Brutal | 87% | 1875 |
 
-  Measured 2026-10-19, 200 matches per pair (seeds 1-200), after Brutal and Uber moved from one shared build to six drawn per bot (`src/bots/plan.ts`; the builds rate within about ±40 Elo of each other). This measurement predates extending the shared build pool to Easy, Medium and Hard; the existing seeded ladder regression checks still pass after that extension, but the full Elo estimates have not been remeasured. The ladder was the same just before the initial build-pool change (Hard 1624, Brutal 1826, Uber 1988): the drift from 2026-10-17 came from earlier bot changes. In 4-player FFA pods the steps shrank (12 pods per combination: Uber over Brutal 67%, Brutal over Hard 70% of pairwise placements).
-- M0 ships a port of the original AI (danger field dodge, lead aim, random casts) as Easy/Medium. M3 builds the full system.
+  Measured 2026-10-20 on source `2c51430`: 200 completed first-to-5 matches per pair,
+  seeds 1–200, sides alternated; 2,000 duels and 10,995 completed rounds, no capped duels.
+  The shared build pool and current Lightning/Fireball interaction are included. Ratings are
+  Bradley–Terry fits with Medium fixed at 1000; intervals resample whole matches 500 times.
+  [Measurement](research/bot-calibration-2026-10-20.json) retains counts and fitted intervals.
+  A further 60 FFA pods are exploratory: seven hit the 1,500-second cap, so their placement
+  evidence is not presented as completed-match win rates or used for the lobby estimates.
+  **Open balance issue:** Hard–Brutal is only an 87-point measured gap (61% of rounds), below
+  the intended 150–250-point / roughly 75% step. Estimates now describe this honestly;
+  bot behavior was not retuned by this measurement.
+- Historical M0 used the original danger-field/lead-aim AI. The current M3 difficulty system, shared seeded builds and calibration harness are implemented.
 
 ## 8. Assets and licensing
 
@@ -385,7 +398,7 @@ Difficulty vector, forward-sim dodging, shop build plans, team play, calibration
 
 ### M4: Platform
 
-Dedicated server build, region selection, public lobby browser, matchmaking, ranked 1v1, replays (inputs plus seed), spectator mode, host migration.
+Historical milestone scope: dedicated servers, regions, public lobby browser, matchmaking, ranked, replays and spectators. Those systems are implemented. Ranked now uses the eight-player scheduled-round format in [RANKED-FORMAT.md](RANKED-FORMAT.md), superseding the early 1v1 proposal. P2P host migration remains deferred; it is not required for dedicated games.
 
 ### After v1: innovation backlog
 
@@ -412,23 +425,47 @@ New spells and items, map variants and hazards, alternative movement schemes, dr
 10. **Staff casting shelved** (2026-10-15): the staff attachment does not grip or follow the hands and would need staff-specific animations. Hand casting is the default; revisit the staff when animation work is budgeted.
 9. **Character art** is the biggest presentation lever. Decided: CC0 base, customized. Risk: stylized low-poly bases cap fidelity; revisit (AI 3D gen or commission) if the customized base cannot reach the bar.
 
-## 12. Status and open items (2026-10-16)
+## 12. Current planning status (audited 2026-10-20)
 
-Done this session, beyond the milestones above:
-- Netcode: client prediction default, host fairness delay (median client one-way latency, capped at 6 ticks), connection monitoring API (`session.netStats()`, `onNetGrade`) with HUD indicator, net graph (F3) and rate-limited warnings.
-- Performance with 8 players: render CPU per frame from 6–7 ms to about 3.3 ms (static attribute uploads with update ranges, visible-only matrix updates, shadow refresh every 2nd frame on High/Ultra, warlock animation 3× cheaper and 2 draws per warlock, VFX buffers upload only the used range). Round transitions are flat at one vsync (cached tile material, budgeted texture uploads, pooled pillars built in a worker). Match start prewarms the arena in the lobby.
-- Readability: team colours in team modes (`PLAYER_COLORS[team]`, matching banner names), colourblind palette option with player glyphs, unique bot names, readable warlock robes (old near-black look kept as `look: 'void'`), Scourge L1/L2/L3 visual and audio tiers (L1 tame, L3 the full blast), Scourge caster band, Lightning crack-and-echo sound and full bolt on misses, spell icons recoloured to the spell palette.
-- Fixes: shop-phase spawns no longer land in lava with 5+ players (§2 deviation), tile whiteout on shrink, render crash guards and first-stack error capture.
-- Settings: screen shake, frame rate limit, resolution scale, key-hint toggle.
+Use [NEXT-SPRINT.md](NEXT-SPRINT.md) for priorities. The old 2026-10-16 candidate list is
+retired: it incorrectly described several completed systems as not started.
 
-Open:
-- The hidden lobby prewarm occasionally (2 of 12 runs) has one 130–150 ms GPU-side compile frame; nothing over 100 ms after Start.
-- `src/render/threePatches.ts` patches three r186 `Material.alphaTest` for shadow-pass materials (35–38% less allocation, ~40% fewer minor GCs); re-check on every three upgrade (dev warning fires if the internals change).
-- Firefox and WebKit Playwright builds are too old for the installed driver; the cross-browser determinism check used Firefox.app and the system JavaScriptCore shell instead (0 mismatches over 1,080 checkpoints).
-- Showcase supercut tooling lives in `scripts/showcase/` and `src/render/showcase/` (not imported by the app).
+Implemented in the current source:
 
-Done since the first §12 list (2026-10-16, second pass): lobby prewarm split (createImageBitmap, 4 ms upload budget, no lobby long task), nameplate style writes cut ~85%, shadow cache-key churn removed, warlock `setDetail` wired, rAF game clock while visible, shrink-warning pulse compositor-only, tile-seam flicker and shrink-ring whiteout fixed, thinner antialiased lava cracks, softer Scourge charge sound, cross-browser determinism verified. The two red/blue rings in the shop were Warp Zone casts by a bot (casting in the shop is allowed, as in the original).
-Third pass: facing chevron drawn over the body (one shared draw; `FacingChevrons.ts`), screen shake independent of effects intensity, console clean in production, nameplate de-collision (max lift 2 plate heights), calm scripted menu backdrop (`menuStage.ts`), Rush absorb VFX, Snowball ice blue, README with screenshots.
-Fourth pass (2026-10-16/17): exploding-robe fix at low fps (substepped front-envelope spring), shop no longer shifts plus ability hover cards with live sim stats (media slot reserved), kill feedback (stamp over the killer, KO callout, kill pips), announcer pack (ElevenLabs, Maverick default / Arena alternative: First Blood, multi-kills, streaks) on its own bus, flat top HUD, ambience bus and slider, calmer Splitter sounds, bots that time Teleport and Scourge plus the Uber difficulty (beats Brutal 38-2), default rules first to 5 / 25 s shop / kill gold 1 / win gold 2.
+- Dedicated US/EU rooms, public Browse games and casual/ranked queues; the current ranked
+  format supersedes the early 1v1 proposal. Explicit same-room recovery and universal
+  session ownership are documented in [SESSION-RECOVERY.md](SESSION-RECOVERY.md).
+- Accounts, reserved editable names, account-owned Elo/Embers/collection, and the first-party
+  game / Pages media split. Completed cutover evidence is in the release receipts.
+- Local replay recording/library/playback, ability hover videos, the Move cancels cast
+  setting, system reduced-motion support and effect/shake controls. A separate in-game
+  reduced-motion override is not implemented; the existing support follows the OS preference.
+- Private analytics with trends and region/build breakdowns; completed-match player details.
+  These do not preserve combat counters from aborted games.
+- Shared seeded builds for all active bot tiers, cast-cancel readability, recorded death/kill
+  sounds, the completed Maverick library, and streamed menu music. Combat synth music is
+  intentionally disabled while a proper battle soundtrack remains unselected.
+- Public custom games by default with an explicit private opt-out, and the join/ownership
+  race fix that keeps the chosen visibility in the opened lobby.
+- Required reload before stale clients can enter/start games; game UI/chat layout fixes.
+- Fresh bot calibration above. Display estimates changed; AI parameters did not.
 
-Not started (candidates): reduced-motion option (§M2 accessibility), preview clips in the hover cards (from `media/showcase/`), optional "click-to-move does not cancel a cast" setting, bot calibration and Elo bands (§M3), everything in §M4.
+Still relevant engineering:
+
+- Separate human-only activity checkpoints remain future work; do not fold partial counters
+  into completed-match detail. Qualifying departures now settle as losses after 60 seconds of
+  combat, with ranked Elo and durable queue-filtered history/builds. Operational aborts remain
+  distinct. See [NEXT-SPRINT.md](NEXT-SPRINT.md) for the current scope.
+- Investigate the measured Hard–Brutal gap before changing difficulty settings.
+- Select/integrate a real combat soundtrack; the present intentional silence is not a bug.
+- P2P host migration, delayed competitive spectating, map pings and WebTransport remain later
+  platform work, not prerequisites to the already working dedicated game.
+
+Verification and maintenance, not unbuilt features:
+
+- Real production passkey enrollment/reuse and signed-in cross-device/region reward play
+  still require human verification. The user already confirmed public Google sign-in.
+- Recheck `src/render/threePatches.ts` whenever upgrading three; the current version is pinned.
+- Earlier prewarm, shader and cross-browser measurements are historical evidence, not proof
+  of a current regression. Reproduce a problem before scheduling another performance rewrite.
+- Showcase/trailer tooling is implemented and excluded from the app build.

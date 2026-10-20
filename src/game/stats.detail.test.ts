@@ -9,6 +9,7 @@ import {
   AWARDS_MAX,
   HISTORY_DETAIL_MAX,
   MatchTracker,
+  cleanBuild,
   cleanStats,
   getCareer,
   getHallOfFame,
@@ -339,6 +340,82 @@ function finished(walked: number, date: number): MatchRecord {
   return rec
 }
 
+describe('saved builds and queue identity', () => {
+  it('captures the latest real equipment and masteries without sharing simulation or caller references', () => {
+    const s = fight()
+    const t = new MatchTracker({ localPlayer: 0, slots: s.slots, settings: s.settings, queue: 'ranked' })
+    expect(t.buildOf(0)).toBeNull()
+    const spellSlot = grant(s, 0, 'lightning', 3)
+    s.scores[0].masteries.range = 2
+    t.observe(s, [])
+    const original = t.buildOf(0)!
+    expect(original.levels[spellSlot]).toBe(3)
+    expect(original.masteries.range).toBe(2)
+    pawn(s, 0).levels[spellSlot] = 4
+    s.scores[0].masteries.range = 3
+    expect(t.buildOf(0)).toEqual(original)
+    ;(original.slots as (string | null)[])[spellSlot] = null
+    ;(original.levels as number[])[spellSlot] = 99
+    ;(original.masteries as { range: number }).range = 99
+    expect(t.buildOf(0)!.levels[spellSlot]).toBe(3)
+    expect(t.buildOf(0)!.masteries.range).toBe(2)
+    t.observe(s, [])
+    const rec = t.finish({ winners: [0], slots: s.slots, scores: s.scores, rounds: 1, ticks: 600 })
+    expect(rec.queue).toBe('ranked')
+    expect(rec.participants[0].build).toEqual({ slots: pawn(s, 0).slots, levels: pawn(s, 0).levels, masteries: s.scores[0].masteries })
+    pawn(s, 0).levels[spellSlot] = 5
+    expect(rec.participants[0].build!.levels[spellSlot]).toBe(4)
+    expect(t.buildOf(99)).toBeNull()
+  })
+
+  it('persists builds and every queue, leaving unknown historical queues and builds absent', () => {
+    const kv = memKV()
+    for (const queue of ['ranked', 'casual', 'custom', 'offline'] as const) {
+      const rec = finished(0, 1)
+      rec.queue = queue
+      recordMatch(rec, 'me', kv)
+      expect(getMatchHistory(1, kv)[0]).toMatchObject({ queue, participants: [{ build: rec.participants[0].build }, {}] })
+    }
+    const legacy = finished(0, 1)
+    delete legacy.queue
+    for (const participant of legacy.participants) delete participant.build
+    const stored = { v: 2, history: [legacy], career: null, encounters: {}, ratings: {} }
+    const old = memKV({ 'brawlock.stats.v1': JSON.stringify(stored) })
+    expect(Object.hasOwn(getMatchHistory(1, old)[0], 'queue')).toBe(false)
+    expect(Object.hasOwn(getMatchHistory(1, old)[0].participants[0], 'build')).toBe(false)
+    ;(stored.history[0] as unknown as { queue: string }).queue = 'unknown'
+    old.data['brawlock.stats.v1'] = JSON.stringify(stored)
+    expect(Object.hasOwn(getMatchHistory(1, old)[0], 'queue')).toBe(false)
+  })
+
+  it('rejects incomplete, unknown or impossible stored upgrades instead of inventing a build', () => {
+    const valid = finished(0, 1).participants[0].build!
+    expect(cleanBuild(valid)).toEqual(valid)
+    const mutations: ((build: { slots: (string | null)[]; levels: number[]; masteries: { duration: number; range: number; lifesteal: number } }) => void)[] = [
+      (b) => { b.slots.pop() },
+      (b) => { b.levels.pop() },
+      (b) => { b.slots[6] = 'unknown' },
+      (b) => { b.slots[0] = 'fireball'; b.levels[0] = 1 },
+      (b) => { b.levels[0] = 1 },
+      (b) => { b.levels[6] = 8 },
+      (b) => { b.levels[7] = 4 },
+      (b) => { b.levels[6] = -1 },
+      (b) => { b.levels[6] = 1.5 },
+      (b) => { b.masteries.range = 7 },
+      (b) => { delete (b.masteries as Partial<typeof b.masteries>).range },
+    ]
+    for (const mutate of mutations) {
+      const bad = JSON.parse(JSON.stringify(valid))
+      mutate(bad)
+      expect(cleanBuild(bad)).toBeUndefined()
+      const record = finished(0, 1)
+      record.participants[0].build = bad
+      const kv = memKV({ 'brawlock.stats.v1': JSON.stringify({ v: 2, history: [record] }) })
+      expect(Object.hasOwn(getMatchHistory(1, kv)[0].participants[0], 'build')).toBe(false)
+    }
+  })
+})
+
 describe('storage: old saves load, the stored shape stays small', () => {
   it('keeps new fun facts through storage using the existing award shape', () => {
     const rec = finished(0, 1)
@@ -396,6 +473,7 @@ describe('storage: old saves load, the stored shape stays small', () => {
     const hist = getMatchHistory(HISTORY_DETAIL_MAX + 3, kv)
     expect(hist[HISTORY_DETAIL_MAX - 1].participants[0].stats).toBeDefined()
     expect(hist[HISTORY_DETAIL_MAX].participants[0].stats).toBeUndefined()
+    expect(hist[HISTORY_DETAIL_MAX].participants[0].build).toEqual(finished(0, 1).participants[0].build)
     expect(hist[HISTORY_DETAIL_MAX].participants[0].name).toBeDefined()
   })
 })

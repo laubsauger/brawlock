@@ -27,6 +27,7 @@ import { MatchTracker, type PlayerMatchStats, type RecordedProfileCoverage, type
 import { hashString } from '../sim/snapshot'
 import { TICK_HZ, type GameMode, type MatchSettings, type PlayerId, type PlayerSlot, type SimEvent, type SimState, type TeamMode } from '../sim/types'
 import type { MatchRecorder } from './session'
+import type { InspectedKit } from '../game/inspect'
 
 /** a new device's rating: the Medium bot's (BOT_ELO anchor) */
 export const LB_RATING_START = 1000
@@ -34,6 +35,8 @@ export const LB_RATING_START = 1000
 export const LB_K = 40
 export const LB_MIN_HUMANS = 2
 export const LB_MIN_SECONDS = 120
+/** A departed human owes a match loss after one minute of combat participation. */
+export const LB_FORFEIT_SECONDS = 60
 export const LB_TOP = 100
 
 /** One human seat of a finished match. */
@@ -52,6 +55,9 @@ export interface SeatStats {
   /** All combat (bots included), only when a human controlled this seat for the complete match.
    * Absent on legacy submissions, late joins and any bot-controlled interval. */
   stats?: PlayerMatchStats
+  forfeited?: boolean
+  combatTicks?: number
+  build?: InspectedKit
 }
 
 /** One round: its human players ranked, best first (a group shares a place). */
@@ -70,12 +76,19 @@ export interface FinishedMatch {
   /** human seats that sent a device id */
   seats: SeatStats[]
   ranked: RoundRanking[]
+  roster?: HistoryPlayer[]
+  abandoned?: boolean
+  /** Overlapping combat participation by distinct human seats; bounded to 45 pairs. */
+  combatPairs?: { players: [PlayerId, PlayerId]; ticks: number }[]
 }
 
 /** Why a match does not count (null: it counts). */
 export function ineligible(m: FinishedMatch, minSeconds = LB_MIN_SECONDS): string | null {
   const devices = countedDevices(m)
   if (devices.size < LB_MIN_HUMANS) return 'fewer than 2 humans'
+  // A qualifying departure cannot erase a first-round result by making the
+  // entire room empty before the ordinary two-minute completion threshold.
+  if (qualifyingForfeitPairs(m).length > 0) return null
   if (m.ticks < minSeconds * TICK_HZ) return `shorter than ${minSeconds} s`
   const byPlayer = seatsByPlayer(m)
   if (!m.ranked.some((r) => r.groups.flat().filter((p) => byPlayer.has(p)).length >= 2)) return 'no round between humans'
@@ -94,6 +107,17 @@ function seatsByPlayer(m: FinishedMatch): Map<PlayerId, SeatStats> {
   return new Map(m.seats.filter((s) => ok.has(s.device)).map((s) => [s.player, s]))
 }
 
+function qualifyingForfeitPairs(m: FinishedMatch): { players: [PlayerId, PlayerId]; ticks: number }[] {
+  const seats = seatsByPlayer(m)
+  return (m.combatPairs ?? []).filter(({ players, ticks }) => ticks >= LB_FORFEIT_SECONDS * TICK_HZ
+    && players.every((p) => (seats.get(p)?.combatTicks ?? 0) >= LB_FORFEIT_SECONDS * TICK_HZ)
+    && players.some((p) => seats.get(p)?.forfeited === true))
+}
+
+function ratingParticipants(m: FinishedMatch): Set<PlayerId> {
+  return new Set([...m.seats.filter((s) => s.roundsPlayed > 0).map((s) => s.player), ...qualifyingForfeitPairs(m).flatMap((p) => p.players)])
+}
+
 export function eloExpected(a: number, b: number): number {
   return 1 / (1 + Math.pow(10, (b - a) / 400))
 }
@@ -104,16 +128,20 @@ export function eloExpected(a: number, b: number): number {
  */
 export function rateMatch(m: FinishedMatch, ratings: ReadonlyMap<string, number>, k = LB_K): Map<string, number> {
   const seat = seatsByPlayer(m)
-  const players = [...seat.keys()].filter((p) => seat.get(p)!.roundsPlayed > 0)
+  const participating = ratingParticipants(m)
+  const players = [...seat.keys()].filter((p) => participating.has(p))
   const rating = (p: PlayerId) => ratings.get(seat.get(p)!.device) ?? LB_RATING_START
   // team of each player in the last round they were ranked in (teammates are not rated)
   const team = new Map<PlayerId, number>()
+  for (const p of m.roster ?? []) if (p.team !== undefined) team.set(p.player, p.team)
   for (const round of m.ranked) for (const [p, t] of Object.entries(round.team)) team.set(Number(p), t)
   const teams = m.teamMode !== 'ffa'
   /** a's score against b: the match result, then round wins, then the share of rounds a placed above b */
   const score = (a: PlayerId, b: PlayerId): number => {
     const sa = seat.get(a)!
     const sb = seat.get(b)!
+    if (sa.forfeited) return 0
+    if (sb.forfeited) return 1
     if (sa.won !== sb.won) return sa.won ? 1 : 0
     if (sa.roundsWon !== sb.roundsWon) return sa.roundsWon > sb.roundsWon ? 1 : 0
     let above = 0
@@ -134,9 +162,14 @@ export function rateMatch(m: FinishedMatch, ratings: ReadonlyMap<string, number>
       const a = players[i]
       const b = players[j]
       if (teams && team.has(a) && team.get(a) === team.get(b)) continue
-      const d = k * (score(a, b) - eloExpected(rating(a), rating(b)))
-      delta.set(a, (delta.get(a) ?? 0) + d)
-      delta.set(b, (delta.get(b) ?? 0) - d)
+      // A first-round leaver is rated only against humans they actually shared
+      // the qualifying combat minute with, never against later bot-seat joins.
+      if ((seat.get(a)!.roundsPlayed === 0 || seat.get(b)!.roundsPlayed === 0)
+        && !qualifyingForfeitPairs(m).some((p) => p.players.includes(a) && p.players.includes(b))) continue
+      const da = k * (score(a, b) - eloExpected(rating(a), rating(b)))
+      const db = k * (score(b, a) - eloExpected(rating(b), rating(a)))
+      delta.set(a, (delta.get(a) ?? 0) + da)
+      delta.set(b, (delta.get(b) ?? 0) + db)
       pairs.set(a, (pairs.get(a) ?? 0) + 1)
       pairs.set(b, (pairs.get(b) ?? 0) + 1)
     }
@@ -171,6 +204,10 @@ export class ServerMatchTracker implements MatchRecorder {
   private details: MatchTracker | null = null
   private detailedSeats = new Set<PlayerId>()
   private observedDetails = false
+  private lastTick = 0
+  private lastPhase: SimState['phase'] | null = null
+  private combatPairs = new Map<string, { players: [PlayerId, PlayerId]; ticks: number }>()
+  private roster = new Map<PlayerId, HistoryPlayer>()
 
   constructor(
     private readonly onDone: (m: FinishedMatch, result: MatchResult) => void | Promise<void>,
@@ -194,17 +231,24 @@ export class ServerMatchTracker implements MatchRecorder {
     this.details = new MatchTracker({ ...info, localPlayer: -1 })
     this.detailedSeats.clear()
     this.observedDetails = false
+    this.lastTick = 0
+    this.lastPhase = null
+    this.combatPairs.clear()
+    this.roster.clear()
     this.bots = info.slots.filter((s) => s.kind === 'bot').length
     for (const s of info.slots) {
       const device = info.devices?.[s.id]
+      this.roster.set(s.id, { player: s.id, name: s.name, color: s.color, kind: s.kind, team: s.team,
+        ...(s.kind === 'human' && device ? { device } : {}), kills: 0, deaths: 0, won: false })
       if (s.kind !== 'human' || !device) continue
-      this.seats.set(s.id, { player: s.id, device, name: s.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false })
+      this.seats.set(s.id, { player: s.id, device, name: s.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false, combatTicks: 0 })
       this.detailedSeats.add(s.id)
     }
     this.active = true
   }
 
   control(player: PlayerId, by: 'human' | 'bot'): void {
+    if (!this.active) return
     if (by === 'bot') {
       this.botted.add(player)
       this.detailedSeats.delete(player)
@@ -215,7 +259,8 @@ export class ServerMatchTracker implements MatchRecorder {
   /** A bot seat becomes human between rounds; its earlier bot rounds stay excluded. */
   join(slot: PlayerSlot, device?: string): void {
     if (!this.active || slot.kind !== 'human' || !device || this.seats.has(slot.id)) return
-    this.seats.set(slot.id, { player: slot.id, device, name: slot.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false })
+    this.seats.set(slot.id, { player: slot.id, device, name: slot.name, roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0, won: false, combatTicks: 0 })
+    this.roster.set(slot.id, { player: slot.id, device, name: slot.name, color: slot.color, kind: 'human', team: slot.team, kills: 0, deaths: 0, won: false })
   }
 
   private human(p: PlayerId | null): SeatStats | null {
@@ -233,6 +278,24 @@ export class ServerMatchTracker implements MatchRecorder {
     this.roundParticipants = state.rankedFinal && state.round > (this.settings?.rankedRounds ?? 0)
       ? new Set(state.rankedFinal.contenders)
       : null
+    const elapsed = Math.max(0, state.tick - this.lastTick)
+    this.lastTick = state.tick
+    if (this.lastPhase === 'fight' && elapsed > 0) {
+      // Dead players still participate as spectators until they leave. Alive
+      // time would incorrectly excuse a player who watched then rage-quit.
+      const humans = [...this.seats.values()].filter((s) => this.human(s.player) !== null)
+      for (const s of humans) s.combatTicks = (s.combatTicks ?? 0) + elapsed
+      for (let i = 0; i < humans.length; i++) for (let j = i + 1; j < humans.length; j++) {
+        const a = humans[i].player
+        const b = humans[j].player
+        if (this.settings?.teamMode !== 'ffa' && state.slots.find((s) => s.id === a)?.team === state.slots.find((s) => s.id === b)?.team) continue
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`
+        const pair = this.combatPairs.get(key) ?? { players: [Math.min(a, b), Math.max(a, b)] as [PlayerId, PlayerId], ticks: 0 }
+        pair.ticks += elapsed
+        this.combatPairs.set(key, pair)
+      }
+    }
+    this.lastPhase = state.phase
     // teams (shuffle mode changes them per round) and survivors after these events
     this.team.clear()
     this.alive.clear()
@@ -240,6 +303,18 @@ export class ServerMatchTracker implements MatchRecorder {
       this.team.set(sl.id, sl.team)
       const seat = this.seats.get(sl.id)
       if (seat && sl.kind === 'human') seat.name = sl.name
+      // Preserve a departed human's last equipment and score. Replacement bot
+      // upgrades never become purchases attributed to the absent player.
+      if (!seat || !this.botted.has(sl.id)) {
+        const score = state.scores?.find((s) => s.id === sl.id)
+        const build = this.details?.buildOf(sl.id)
+        if (seat && build) seat.build = build
+        const previous = this.roster.get(sl.id)
+        this.roster.set(sl.id, { player: sl.id, name: sl.name, color: sl.color, kind: sl.kind, team: sl.team,
+          ...(seat ? { device: seat.device } : {}),
+          kills: score?.kills ?? previous?.kills ?? 0, deaths: score?.deaths ?? previous?.deaths ?? 0,
+          ...(score ? { score: score.score } : {}), ...(build ? { build } : {}), won: false })
+      }
     }
     for (const p of state.pawns) if (p.alive) this.alive.add(p.owner)
     for (const e of events) {
@@ -277,10 +352,14 @@ export class ServerMatchTracker implements MatchRecorder {
   finish(result: MatchResult): void | Promise<void> {
     if (!this.active || !this.settings) return
     this.active = false
-    const winners = new Set(result.winners)
-    for (const s of this.seats.values()) s.won = !this.botted.has(s.player) && winners.has(s.player)
+    const abandoned = result.abandoned === true
+    const winners = new Set(abandoned ? [] : result.winners)
+    for (const s of this.seats.values()) {
+      if (this.botted.has(s.player) && (s.combatTicks ?? 0) >= LB_FORFEIT_SECONDS * TICK_HZ) s.forfeited = true
+      s.won = !this.botted.has(s.player) && winners.has(s.player)
+    }
     // deathmatch (no rounds): the whole match is one ranking by score
-    if (this.ranked.length === 0 && result.scores.length > 0) {
+    if (!abandoned && this.settings.gameMode === 'deathmatch' && this.ranked.length === 0 && result.scores.length > 0) {
       const score = new Map(result.scores.map((x) => [x.id, x.score]))
       const players = [...this.seats.keys()].filter((p) => !this.botted.has(p) && score.has(p))
       const levels = [...new Set(players.map((p) => score.get(p)!))].sort((a, b) => b - a)
@@ -300,6 +379,14 @@ export class ServerMatchTracker implements MatchRecorder {
         ...(this.details && this.observedDetails && this.detailedSeats.has(s.player) ? { stats: this.details.statsOf(s.player) } : {}),
       })),
       ranked: this.ranked,
+      combatPairs: [...this.combatPairs.values()],
+      ...(abandoned ? { abandoned: true } : {}),
+      roster: [...this.roster.values()].map((p) => {
+        const seat = this.seats.get(p.player)
+        return { ...p, won: seat ? seat.won : winners.has(p.player),
+          ...(seat ? { roundsPlayed: seat.roundsPlayed, roundsWon: seat.roundsWon } : {}),
+          ...(seat?.forfeited ? { forfeited: true } : {}) }
+      }),
     }, result)
   }
 
@@ -349,6 +436,7 @@ export interface ResultRow {
   rating: number
   /** Optional additive detailed counters; never reconstructed for old results. */
   stats?: PlayerMatchStats
+  forfeited?: boolean
 }
 
 /** One line of the board as stored (device included: never sent out). */
@@ -377,6 +465,44 @@ export interface BoardQuery {
   since: number
 }
 
+export type HistoryQueue = 'ranked' | 'casual' | 'custom'
+export interface HistoryPlayer {
+  player: PlayerId
+  device?: string
+  name: string
+  color?: number
+  kind?: 'human' | 'bot'
+  team?: number
+  score?: number
+  roundsPlayed?: number
+  roundsWon?: number
+  kills: number
+  deaths: number
+  won: boolean
+  forfeited?: boolean
+  build?: InspectedKit
+}
+export interface StoredMatchHistory {
+  queue: HistoryQueue
+  at: number
+  region: string
+  room: string
+  ticks: number
+  rounds: number
+  teamMode: TeamMode
+  gameMode: GameMode
+  players: HistoryPlayer[]
+  deltas?: Record<string, { delta: number; rating: number }>
+}
+export interface MatchHistoryEntry extends Omit<StoredMatchHistory, 'room' | 'players' | 'deltas'> {
+  id: string
+  self: PlayerId
+  outcome: 'win' | 'loss' | 'forfeit'
+  delta: number | null
+  rating: number | null
+  players: Omit<HistoryPlayer, 'device'>[]
+}
+
 export interface LeaderboardStore {
   /** current rows of these devices */
   players(devices: string[]): Map<string, PlayerRow>
@@ -395,6 +521,7 @@ export interface LeaderboardStore {
   /** Persistent opaque public identity; the private device id stays server-side. */
   publicDevice(publicId: string): string | null
   details(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
+  history(device: string, options: { queue?: HistoryQueue; limit: number }): MatchHistoryEntry[]
   close(): void
 }
 
@@ -461,13 +588,16 @@ export function settleMatch(
   const delta = rateMatch(m, ratings)
   const results: ResultRow[] = []
   const players: PlayerRow[] = []
+  const participating = ratingParticipants(m)
   for (const s of seat.values()) {
-    if (s.roundsPlayed === 0) continue
+    if (!participating.has(s.player)) continue
     const d = delta.get(s.device) ?? 0
     const before = current.get(s.device)
     const rating = (before?.rating ?? LB_RATING_START) + d
-    results.push({ device: s.device, name: s.name, at: now, region, won: s.won, roundsPlayed: s.roundsPlayed, roundsWon: s.roundsWon, kills: s.kills, deaths: s.deaths, delta: d, rating,
+    const won = s.won && !s.forfeited
+    results.push({ device: s.device, name: s.name, at: now, region, won, roundsPlayed: s.roundsPlayed, roundsWon: s.roundsWon, kills: s.kills, deaths: s.deaths, delta: d, rating,
       ...(s.stats ? { stats: s.stats } : {}),
+      ...(s.forfeited ? { forfeited: true } : {}),
     })
     players.push({
       device: s.device,
@@ -475,7 +605,7 @@ export function settleMatch(
       tag: deviceTag(s.device),
       rating,
       matches: (before?.matches ?? 0) + 1,
-      wins: (before?.wins ?? 0) + (s.won ? 1 : 0),
+      wins: (before?.wins ?? 0) + (won ? 1 : 0),
       roundsPlayed: (before?.roundsPlayed ?? 0) + s.roundsPlayed,
       roundsWon: (before?.roundsWon ?? 0) + s.roundsWon,
       kills: (before?.kills ?? 0) + s.kills,

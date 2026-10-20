@@ -152,6 +152,7 @@ export interface Room {
   netStats(): NetStatsView | null
   setMaintenance(message: string | null): void
   debug(): SessionDebug
+  settleDeparted(): Promise<void>
   close(): void
 }
 
@@ -395,6 +396,16 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     }
   }
 
+  let departureSettlement: Promise<void> | null = null
+  function settleDeparted(): Promise<void> {
+    if (departureSettlement) return departureSettlement
+    if (session.debug().peers > 0 || opts.hasPendingConnections?.()) return Promise.resolve()
+    departureSettlement = session.finishDeparted().then(() => {
+      if (!closed && session.debug().peers === 0 && screen === 'results') session.backToLobby()
+    }).finally(() => { departureSettlement = null })
+    return departureSettlement
+  }
+
   const idleRounds = quick || opts.auto ? (opts.idleRounds ?? IDLE_ROUNDS) : 0
   const resultsIdleMs = quick || opts.auto ? (quick?.resultsIdleMs ?? opts.resultsIdleMs ?? RESULTS_IDLE_MS) : 0
 
@@ -411,7 +422,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     const d = session.debug()
     if (screen === 'match' && d.peers === 0 && !opts.hasPendingConnections?.()) {
       log(`room ${opts.code}: empty, back to the lobby`)
-      session.backToLobby()
+      void settleDeparted()
       return
     }
     if (idleRounds <= 0 || screen === 'match') return
@@ -474,6 +485,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       if (!message) schedule()
     },
     debug: () => session.debug(),
+    settleDeparted,
     close() {
       closed = true
       if (startTimer) clearTimeout(startTimer)

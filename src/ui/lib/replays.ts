@@ -8,6 +8,7 @@ import { REPLAY_EXT } from '../../game/replay/format'
 import { replays } from '../../game/replay/store'
 import { replayViewer } from '../../game/replay/viewer'
 import { toast } from './toast'
+import { session } from '../../game/session'
 
 let returnTo: Screen = 'menu'
 
@@ -32,6 +33,10 @@ export function useReplayIds(): ReadonlySet<string> {
 
 /** Open the viewer on a stored replay. */
 export async function watchReplay(id: string): Promise<void> {
+  if (session.isActive()) {
+    toast('Leave your current room before watching a replay.', 'warn')
+    return
+  }
   const g = useGame.getState()
   returnTo = g.screen === 'replay' ? returnTo : g.screen === 'results' ? 'results' : 'menu'
   g.setScreen('replay')

@@ -33,9 +33,21 @@ function ownerOf(state: SimState, holder: BetIdentity): PlayerId | undefined {
   return state.slots.find((slot) => betIdentityMatchesSlot(holder, slot))?.id
 }
 
+/** The betting window, independent of a spectator's balance or existing wager. */
+export function spectateBetWindow(state: SimState): 'open' | 'disabled' | 'notStarted' | 'roundEnded' | 'twoLeft' | 'timedOut' | 'decided' {
+  if (!state.settings.spectatorBets || state.settings.gameMode !== 'rounds') return 'disabled'
+  if (state.phase === 'roundEnd' || state.phase === 'gameOver') return 'roundEnded'
+  if (state.phase !== 'fight') return 'notStarted'
+  const living = state.pawns.filter((p) => p.alive && isActive(state, p.owner))
+  if (state.betting.closeTick !== undefined) {
+    if (state.tick >= state.betting.closeTick) return 'timedOut'
+  } else if (living.length < BET_MIN_LIVING) return 'twoLeft'
+  return new Set(living.map((p) => teamOf(state, p.owner))).size < 2 ? 'decided' : 'open'
+}
+
 /** Eligibility is shared by the authoritative command and the dead-player HUD. */
 export function canSpectateBet(state: SimState, player: PlayerId, target?: PlayerId): boolean {
-  if (!state.settings.spectatorBets || state.settings.gameMode !== 'rounds' || state.phase !== 'fight') return false
+  if (spectateBetWindow(state) !== 'open') return false
   const slot = slotOf(state, player)
   const payer = scoreOf(state, player)
   const pawn = pawnOf(state, player)
@@ -44,9 +56,6 @@ export function canSpectateBet(state: SimState, player: PlayerId, target?: Playe
   const holder = identity(state, player)
   if (state.betting.bets.some((bet) => bet.round === state.round && sameIdentity(bet.payer, holder))) return false
   const living = state.pawns.filter((p) => p.alive && isActive(state, p.owner))
-  const closeTick = state.betting.closeTick
-  if (closeTick !== undefined ? state.tick >= closeTick : living.length < BET_MIN_LIVING) return false
-  if (new Set(living.map((p) => teamOf(state, p.owner))).size < 2) return false
   const validTarget = (id: PlayerId) => Number.isInteger(id) && id >= 0 &&
     !!slotOf(state, id) && !!scoreOf(state, id)?.connected && living.some((p) => p.owner === id)
   return target === undefined ? living.some((p) => validTarget(p.owner)) : validTarget(target)

@@ -290,7 +290,7 @@ export async function startServer(opts = {}) {
                 finally { pendingAuthority-- }
               }
             } else if (path === '/internal/rating/read') {
-              if (!body || typeof body.path !== 'string' || body.path.length > 2048 || !/^\/(leaderboard(?:\?|$)|players\/[A-Za-z0-9_-]{8,64}$|profiles\/[0-9a-f-]{36}$)/.test(body.path)
+              if (!body || typeof body.path !== 'string' || body.path.length > 2048 || !/^\/(leaderboard(?:\?|$)|players\/[A-Za-z0-9_-]{8,64}(?:\/history(?:\?[^#]*)?)?$|profiles\/[0-9a-f-]{36}(?:\/history(?:\?[^#]*)?)?$)/.test(body.path)
                 || Object.keys(body).length !== 1) reply(400, { error: 'invalid rating read' })
               else reply(200, await privateAuthority.read(body.path))
             } else reply(404, { error: 'not found' })

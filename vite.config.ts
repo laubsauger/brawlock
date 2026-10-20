@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
 import { netId } from './scripts/net-id.mjs'
-import { readReleaseMetadata } from './scripts/release-version.mjs'
+import { readReleaseMetadata, readReleaseNotes } from './scripts/release-version.mjs'
 import { resolveAssetBase } from './src/lib/assetBase'
 
 // GitHub Pages serves the site under /<repo-name>/
@@ -14,6 +14,7 @@ const repo = process.env.GITHUB_REPOSITORY?.split('/')[1]
 // notice that a newer build replaced its lazily loaded chunks.
 const BUILD_ID = process.env.GITHUB_SHA?.slice(0, 12) ?? `dev-${Date.now()}`
 const RELEASE = readReleaseMetadata(process.cwd())
+const RELEASE_NOTES = readReleaseNotes(process.cwd(), RELEASE)
 
 // Netcode compatibility id (scripts/net-id.mjs): a dedicated server refuses clients of
 // another netcode. Release builds only; dev builds are never refused.
@@ -74,7 +75,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [react(), tailwindcss(), versionFile(), soundsPage(), ...(configuredAssets === undefined ? [] : [hostedManifest(mediaBase)])],
-    define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __NET_ID__: JSON.stringify(NET_ID), __RELEASE__: JSON.stringify(RELEASE) },
+    define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __NET_ID__: JSON.stringify(NET_ID), __RELEASE__: JSON.stringify(RELEASE), __RELEASE_NOTES__: JSON.stringify(RELEASE_NOTES) },
     resolve: {
       // bare 'three' (addons, r3f) and 'three/webgpu' (scene) would pull two
       // copies of three. Alias bare 'three' to the webgpu build so one instance

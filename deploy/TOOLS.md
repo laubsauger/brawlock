@@ -77,6 +77,19 @@ npm pkg set releaseDate="$(date -u +%F)"
 
 These commands edit package metadata without committing or creating a tag. Review and publish the approved source through the normal release process. Use `alpha.2`, `alpha.3`, etc. for subsequent pre-alpha releases; move to a new minor/patch version deliberately when that change is useful. Rebuilding or resuming the same release retains its version/date.
 
+For every release, prepend an entry to [release-notes.json](../release-notes.json) with the exact
+package version/date, a short title and 1–8 concise player-facing bullets. Keep older entries.
+Describe changes included in that release; leave future plans in the planning docs. Avoid
+internal implementation details. The build and release preflight reject missing, blank or
+placeholder notes, duplicate versions, and a newest entry that does not match the package.
+The release preflight checks the approved revision's notes before any remote changes.
+
+The menu and pause menu expose **What's new · vVERSION**. First visits silently record the
+current version and show no changelog popup. Returning players see notes once after a version
+change, after the entrance splash and only in the menu; acknowledgement persists locally.
+An update never interrupts combat or lobby entry. Players can expand earlier releases in the
+same scrollable dialog. The manual button remains usable when browser storage is blocked.
+
 Apply checks the remote `vVERSION` tag before any maintenance. It refuses a tag pointing to different code. After reopening and successful final fleet proof, it creates that immutable Git tag on the verified source revision through authenticated `gh`; it never moves/deletes an existing tag or creates a GitHub Release. The receipt records tag publication and its source link. `gh` therefore needs permission to create repository refs. If publication fails, the deployed games remain open and the receipt survives: resume the same journal to retry only tag publication. A new version is required for different code, even on the same date.
 
 ### Execute and resume

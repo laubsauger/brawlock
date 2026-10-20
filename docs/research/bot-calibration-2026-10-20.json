@@ -1,0 +1,158 @@
+{
+  "measured": "2026-10-20",
+  "source": "2c51430",
+  "command": "npm run bots:elo -- --games 200 --ffa 12 --workers 6 --seed 1",
+  "method": "Round-based Bradley\u2013Terry; Medium = 1000; 500 whole-match bootstrap resamples; display rounded to nearest 25",
+  "duels": {
+    "matches": 2000,
+    "matchesPerPair": 200,
+    "seeds": [
+      1,
+      200
+    ],
+    "completedRounds": 10995,
+    "cappedMatches": 0,
+    "pairs": [
+      {
+        "a": "easy",
+        "b": "medium",
+        "winsA": 23,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "hard",
+        "winsA": 1,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "brutal",
+        "winsA": 0,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "uber",
+        "winsA": 0,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "hard",
+        "winsA": 24,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "brutal",
+        "winsA": 17,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "uber",
+        "winsA": 6,
+        "winsB": 1000,
+        "draws": 0
+      },
+      {
+        "a": "hard",
+        "b": "brutal",
+        "winsA": 556,
+        "winsB": 867,
+        "draws": 0
+      },
+      {
+        "a": "hard",
+        "b": "uber",
+        "winsA": 199,
+        "winsB": 981,
+        "draws": 0
+      },
+      {
+        "a": "brutal",
+        "b": "uber",
+        "winsA": 380,
+        "winsB": 941,
+        "draws": 0
+      }
+    ],
+    "elo": {
+      "easy": {
+        "elo": 357.6663397169584,
+        "ci95": 65.00231641317924,
+        "lo": 284.5285974760162,
+        "hi": 414.5332303023747
+      },
+      "medium": {
+        "elo": 1000,
+        "ci95": 0,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hard": {
+        "elo": 1626.6812151897984,
+        "ci95": 44.13974890227223,
+        "lo": 1585.6651175149518,
+        "hi": 1673.9446153194963
+      },
+      "brutal": {
+        "elo": 1713.2379770323114,
+        "ci95": 44.03043913472675,
+        "lo": 1669.5933822174607,
+        "hi": 1757.6542604869142
+      },
+      "uber": {
+        "elo": 1883.2507260765415,
+        "ci95": 44.82719074322881,
+        "lo": 1841.4748781932826,
+        "hi": 1931.1292596797402
+      }
+    }
+  },
+  "ffa": {
+    "pods": 60,
+    "podsPerCombination": 12,
+    "cappedAt1500Seconds": 7,
+    "note": "Exploratory completed-round placements, not a completed-match win-rate estimate; not used for lobby Elo",
+    "elo": {
+      "easy": {
+        "elo": 588.6679640636637,
+        "ci95": 60.28999121473481,
+        "lo": 523.8031019424662,
+        "hi": 644.3830843719359
+      },
+      "medium": {
+        "elo": 1000,
+        "ci95": 0,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hard": {
+        "elo": 1446.1935446680684,
+        "ci95": 59.97428802642821,
+        "lo": 1390.0870501258041,
+        "hi": 1510.0356261786606
+      },
+      "brutal": {
+        "elo": 1471.8966956115128,
+        "ci95": 62.16472164043182,
+        "lo": 1415.1084964506701,
+        "hi": 1539.4379397315338
+      },
+      "uber": {
+        "elo": 1595.085405080303,
+        "ci95": 66.54393359092205,
+        "lo": 1532.0951932560265,
+        "hi": 1665.1830604378706
+      }
+    }
+  }
+}

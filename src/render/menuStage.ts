@@ -4,6 +4,8 @@ import { spawnProjectile } from '../sim/projectiles'
 import { DT } from '../sim/types'
 import type { InputCommand, PlayerInput, PlayerSlot, SimEvent, SimState, Vec2 } from '../sim/types'
 import { layerRadius } from './arenaGeom'
+import { BotController } from '../bots'
+import { Rng } from '../bots/prng'
 
 /** A quiet sparring lesson: aim at a rival, answer the shot, then recover the stance.
  * Shared simulation owns turning, casting, flight, reflection, damage and movement.
@@ -22,6 +24,53 @@ export interface MenuStage {
   step(): { state: SimState; events: SimEvent[] }
   readonly focus: Vec2
   readonly out: Vec2
+}
+
+/** Real, private combat. Bots shop from their seeded build pools, move, dodge,
+ * land hits and finish rounds; nothing is registered as a player session. */
+export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000)): MenuStage {
+  const rng = new Rng(seed)
+  const names = ['Sunbinder', 'Tidecaller', 'Nightveil', 'Ashkeeper', 'Stormwatch', 'Runewarden', 'Mosscloak', 'Dusksinger']
+  const colors = [0xffb957, 0x4bdac9, 0xb98cff, 0xe66d52, 0x80bafa, 0xd1a367, 0x86b874, 0xd57fb4]
+  const slots: PlayerSlot[] = names.map((name, id) => ({ id, name, color: colors[id], team: id, kind: 'bot', difficulty: id % 2 ? 'uber' : 'brutal' }))
+  let bots: BotController[] = []
+  let sim: SimState
+  const advance = () => stepSim(sim, bots.map((bot) => ({ player: bot.player, tick: sim.tick, cmds: bot.think(sim) })))
+  const begin = (tick: number) => {
+    const matchSeed = rng.int(0x1_0000_0000)
+    sim = createMatch({ ...DEFAULT_SETTINGS, winScore: 3, startGold: 110, roundGold: 12, shopSeconds: 7, spectatorBets: false, bounties: false }, slots, matchSeed)
+    // Keep the renderer's event timeline monotonic across fresh matches.
+    sim.tick = tick
+    bots = slots.map((slot) => new BotController(slot.id, slot.difficulty!, matchSeed))
+    // Finish genuine buying and the opening approach before showing a new
+    // match. Subsequent rounds retain their short visible recovery and shop.
+    for (let i = 0; i < 11 * 60; i++) advance()
+    sim.settings.shopSeconds = 2
+  }
+  begin(0)
+  const focus = { x: 0, y: 0 }
+  const follow = () => {
+    const alive = sim.pawns.filter((pawn) => pawn.alive)
+    if (!alive.length) return
+    let x = 0
+    let y = 0
+    for (const pawn of alive) { x += pawn.x; y += pawn.y }
+    // Two-second tracking eases through knockbacks and deaths instead of
+    // making the lens chase every projectile or switch targets abruptly.
+    focus.x += (x / alive.length - focus.x) * 0.008
+    focus.y += (y / alive.length - focus.y) * 0.008
+  }
+  return {
+    focus,
+    out: { x: Math.cos(MENU_FOCUS_ANGLE), y: Math.sin(MENU_FOCUS_ANGLE) },
+    step() {
+      if (sim.phase === 'gameOver') begin(sim.tick)
+      advance()
+      follow()
+      const state = cloneState(sim)
+      return { state, events: state.events }
+    },
+  }
 }
 
 export function createMenuStage(theme = Math.floor(Math.random() * 3), seed = 41): MenuStage {

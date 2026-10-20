@@ -1,57 +1,95 @@
-# Release status and next sprint
+# Next sprint
 
-Release **`v0.1.0-alpha.4`** (`6a11220942bc`) is deployed, 2026-10-19: network ID `56a431840cc0`, protocol 8, US West and Europe open. Each labeled release is tagged on GitHub and its receipt kept under ignored `artifacts/live-release/<build>/`. The release tool now asks for an explicit go per release (see [TOOLS.md](../deploy/TOOLS.md#one-command-routine-release); `--skip-tests` exists for a revision whose suite already passed).
+Audited against the source on **2026-10-20**. This is the active backlog; the original
+milestones in [PLAN.md](PLAN.md) and older design documents are not a list of missing features.
+Deployment is established by release receipts, not by implementation status here.
 
-## Shipped in alpha.2 – alpha.4 (2026-10-19)
+## Next engineering work
 
-- **Bots:** every bot of a lobby has its own seed again (the session and the bot both mixed the player id in and cancelled out: identical builds and personas); bots no longer see windwalking enemies.
-- **Match start:** pillars and pawn markers warm in the lobby (79 → 6 pipelines and ~290 → 18 ms of node builds after warm-up); arena shader and upload fixes raised full-app fps 20–55 % at the same image.
-- **Post-game:** results never move a player without their own Ready (casual and ranked), with New game (another room) and Leave; ranked lobby Ready cuts the countdown to 5 s; casual quick play is first to 3.
-- **Ranked Elo:** rated per match by the result (winners, then round wins; survival only splits ties), K 40. The four matches recorded under the old per-round rule were recomputed (backup kept next to `leaderboard.sqlite`).
-- **Presentation:** death cries, a steady lava burn sound, big kill callouts for everyone, Fireball/Scourge leading the spell bar, a compact results chat, full standings and rewards in match history; bets close when two warlocks remain.
+1. **Partial combat activity from unfinished games.** Completed-match profiles currently omit
+   aborted games, late joins and seats with bot-controlled intervals. Add separate idempotent
+   activity checkpoints, scoped to human-controlled intervals. Cover disconnect/reconnect,
+   late admission, bot takeover, room closure and retry without double counting. Keep the
+   existing completed-match detail unchanged. **Qualifying departures are now settled as
+   losses** after 60 seconds of combat, including ranked Elo; that is separate from these
+   proposed activity checkpoints. Operational aborts/crashes still grant no fabricated result
+   or Embers. Decide checkpoint cadence, counters, retention and UI labels before adding
+   partial combat aggregates; that additional aggregation remains unimplemented.
+2. **Hard–Brutal spacing.** The fresh calibration found Brutal wins 61% of rounds against Hard,
+   below the intended roughly 75% step. Investigate builds/decisions with paired seeds before
+   retuning; preserve Easy/Medium accessibility and keep Uber as the reference. Current Elo
+   labels describe measured strength rather than pretending the target gaps are achieved.
+3. **Battle soundtrack.** Choose proper recorded combat music. Synth battle music is disabled
+   deliberately; menu/shop music and combat SFX remain. Selection still needs a listening
+   decision; it is not a reason to restore the synth or generate arbitrary tracks.
 
-**Committed, not yet released:** casual tables of Hard bots with one Brutal and one Medium; bots go after warlocks that stand still.
+## Completed in this planning pass
 
-## Earlier: release `38a2f766fb5b`
+- Reconciled stale account/cutover/platform plans with their implementation and release evidence.
+- Retired the old “not started” list for replays, hover previews, Move cancels cast, bot builds
+  and the dedicated platform. Reduced-motion support follows the OS preference; a separate
+  settings override is not implemented.
+- Remeasured all five active bot tiers after the shared seeded-build changes: **2,000 complete
+  duels, 10,995 rounds**, plus 60 exploratory FFA pods. Updated lobby Elo estimates to
+  Easy **350**, Medium **1000**, Hard **1625**, Brutal **1725**, Uber **1875**. Bot behavior is
+  unchanged. Seven FFA pods reached the time cap; their placements are not full-match wins.
+  See [the measurement](research/bot-calibration-2026-10-20.json) and [PLAN.md §7](PLAN.md#7-bots).
 
-The first combined rollout (accounts, Embers, maintenance) is recorded in [its receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md); the sections below describe what it introduced.
+## Additional work implemented locally
 
-[The main game](https://brawlock.osc.link/) now serves the root-path client and matching version. Its public provider configuration advertises Google; anonymous `/api/account` correctly returns 401. Heavy media remains on GitHub Pages. The explicitly authorized old-rating/history and regional-outbox season reset is complete, preserving the new account records and credentials. There is no separate legacy ladder or device-rating import.
+- Dedicated-match departures retain a result: after 60 seconds of human combat participation,
+  an absent player receives a loss when the match ends. Rejoining before completion clears
+  the departure; replacement bots cannot earn their owner detailed stats or equipment upgrades.
+  Ranked forfeits override earlier round wins. Empty rooms settle before cleanup; a completed
+  victory survives a disconnect during result delivery. Crashes/admin aborts remain aborts.
+- Casual/ranked/custom authoritative history now uses the same durable receipt transaction,
+  including player builds, equipment levels, masteries and forfeits. Stats offers Online / This
+  device and All / Casual / Ranked filters; legacy records stay explicitly unclassified.
+- The menu backdrop runs ongoing seeded Brutal/Uber battles with moving bots and fresh matches.
+- Spectator betting opens its choices visibly, uses precise window states and reasons, and
+  sits near the bottom center. Browser proof covers actual wager acceptance and settlement.
+- Lobby Menu keeps the connection, a compact status/Return bar remains while browsing Stats,
+  and ranked player-found plays a single sound. Match start brings the game to the foreground;
+  Browse menu is also available during online matches, which continue running.
+- Prepared v0.1.0-alpha.6 with concise in-game release notes and expandable older versions.
+  First visits have no changelog popup; returning players see changed-version notes once in
+  the menu. Builds and release preflight require current-version notes in release-notes.json.
 
-The user confirmed a real public Google login worked. Follow-up account onboarding, Ranked readiness, menu-inclusive population, private analytics, universal game ownership, guided practice and match-progress browsing are live. **Still human-unverified:** production passkey enrollment/reuse and signed-in gameplay across both regions.
+## Human verification still open
 
-## Shipped accounts and ranked identity
+- Production passkey enrollment and reuse in a real player browser.
+- Signed-in cross-device play across both regions, including a complete live reward match.
 
-The release includes provider/passkey UI, globally unique editable player names/colors, server-verified ranked admission, account-keyed global Elo, and global ranked occupancy with reconnect and regional-generation cleanup. Immutable account IDs own ratings, names and progression across machines; browser device IDs do not prove ownership. Successful renames release the previous name atomically without moving the account or its currency. Casual guests remain supported.
+The user already confirmed real public Google sign-in. Local virtual-authenticator tests
+and guest admission checks do not substitute for the remaining signed-in production flows.
 
-The existing ranked format remains eight players, five scoring rounds and a final brawl when needed. Casual Quick Play and custom matches retain their separate formats. Details: [ACCOUNTS.md](ACCOUNTS.md), [ACCOUNT-IDENTITY-PLAN.md](ACCOUNT-IDENTITY-PLAN.md), [RANKED-FORMAT.md](RANKED-FORMAT.md) and [STATIC-HOSTING.md](STATIC-HOSTING.md).
+## Implemented, not future plans
 
-## Shipped Embers and collection
+Accounts/names, account-owned Elo and Embers, collection/equipment, universal session
+ownership, explicit rejoin, guided practice, private analytics with region/build charts,
+public player details, maintenance/drain, and the first-party game / Pages media split are
+implemented. Their contracts live in the corresponding docs. More recent source changes
+also include public custom rooms by default, reliable visibility selection, forced stale-client
+reload, seeded builds for every active bot tier, the Maverick announcer library, cast-cancel
+readability and the 30-second teaser tooling. Do not restart these as missing features.
 
-Embers are account-owned cosmetic currency, independent of Elo and match shop gold. Only fixed-rule official Quick Play/Ranked matches qualify; official casual bot games can qualify without an Elo opponent. Custom games and replay viewing cannot manufacture rewards.
+## Parked
 
-Policy 1 pays **20 completion + up to 5 for round wins + 5 for a match win**. Eligibility requires a completed human-controlled seat, at least two rounds, 30 seconds alive, five casts and either 100 damage or 500 walked game units in a match lasting at least 120 seconds. The completion base exceeds all bonuses combined. There is no daily cap or streak penalty. Regional durable outboxes and authority receipts prevent duplicate credits; clients never submit balances or reward amounts.
+- **Email/password or magic-link login:** optional idea, not selected for implementation.
+  Keep Google/passkeys as implemented. Any future email method needs explicit linking and
+  recovery rules; matching email strings alone must not silently merge accounts.
+- P2P host migration, delayed competitive spectating, map pings, WebTransport, new game modes,
+  mobile controls, premium currency and an expanded cosmetic catalog remain later work.
+- Recheck the pinned three material patch when upgrading three. Historic prewarm/browser
+  measurements are maintenance evidence, not an outstanding performance rewrite.
 
-The four-item catalog has two additional victory poses and two cloth palettes. Three appear each shared UTC day. Ownership is permanent; purchases check the current offer, server price, balance and ownership atomically, with retry keys preventing duplicate charges. Original robes and the original celebration mix stay free. Verified admission supplies equipped presentation for the next game.
+## Recorded releases
 
-The menu has a signed-in Collection/balance shortcut; results show confirmed reward breakdowns and a count-up. Durably pending delivery and an inability to save are distinct, with explicit retry and no optimistic credit. See [PROGRESSION.md](PROGRESSION.md). Payments, premium currency, hats, new character meshes and a larger customization editor remain later work.
-
-## Shipped visual and deterministic finish
-
-The scene-linear grade opens stone/cloth midtones in the existing output shader while retaining ACES exposure 1.05, colored highlights and the warm lava/cool floor separation. It adds no render pass, texture or geometry; DOM HUD/text stays outside the grade. Fixed low/medium/high captures and bounded measurements are in [COLOR-GRADING.md](COLOR-GRADING.md). Actual HDR-display output remains separate future work.
-
-Bot transcendental math now uses deterministic `sim/math.ts`, guarded against engine-dependent calls. Node/Chrome comparisons matched **21,600 state hashes and input frames** across two seeded 180-second eight-bot runs. A paired 500-game calibration moved difficulty estimates by less than four Elo points. `BOT_ELO` was re-measured on 2026-10-19, after Brutal and Uber moved to per-bot shop builds (Easy 400, Medium 1000, Hard 1600, Brutal 1825, Uber 2000; table in [PLAN.md](PLAN.md) §7).
-
-## Shipped maintenance and release evidence
-
-Persistent authenticated regional drain blocks new rooms, reservations, listings and rematches while existing players finish their whole current match and reconnect to their own seats. This includes casual/custom matches and ranked final brawls; there is no forced shutdown timer or silent region migration. Readiness accounts for match settlement, rating/Embers outboxes and pending account releases. See [MAINTENANCE.md](MAINTENANCE.md).
-
-That frozen release passed **1,480 tests across 145 files**, 20 release/analytics checks, all builds and live guest admission/cleanup in both regions. The final guided-practice and maintenance desktop checks passed. Earlier Node/Chrome parity, grade/cosmetic rendering and production bot-fight proofs remain recorded with their original release; the human account flows listed above remain unverified.
-
-The [one-command release automation](../deploy/TOOLS.md#one-command-routine-release) completed this live fleet rollout: frozen source, coordinated drains, stopped backups, additive migration, exact-revision publication and guest proof. Its canonical-path resume recovered a macOS verifier-path issue without replacing backups or relabeling source. The operator follow-up makes paths canonical by default; ten release regressions and eleven analytics checks pass. This tool is the routine release entry point.
-
-## Next sprint: partial combat activity
-
-Consider recording combat activity from aborted games and players who leave, independently of completed-match results. Use separate idempotent activity checkpoints covering only human-controlled intervals, so reconnects/retries cannot duplicate counters and bot-controlled time cannot be attributed to the player.
-
-Unfinished matches must grant **no Elo, match wins or Embers**. Preserve that boundary rather than presenting partial activity as a completed match. Checkpoint cadence, eligible counters, retention and UI labeling still need a scoped design; implementation is deferred to the next sprint.
+The latest verified rollout receipt is **v0.1.0-alpha.5**, source `7fb5633c4075`, on
+2026-10-19; its local tag was absent, but the fleet receipt confirms successful proof and tag
+publication. v0.1.0-alpha.6 is prepared locally, not deployed. This audit did not deploy
+anything or re-verify live versions. The earlier [account-season release](../deploy/releases/2026-10-19-accounts.md)
+completed the one-time fresh-season reset; **never repeat it in a routine release**.
+The [combined release receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md) records accounts,
+ownership, analytics, maintenance and routing proof. Use [the release tooling](../deploy/TOOLS.md)
+for a separately authorized rollout and retain its exact-version receipt.

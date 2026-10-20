@@ -363,12 +363,14 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * Round-based Elo per difficulty (Medium = 1000), measured by `npm run bots:elo`: Bradley–Terry
  * fit over seeded 1v1 rounds, rounded to 25 (table and intervals: docs/PLAN.md §7). Rounds, not
  * matches, are the unit: a first-to-5 match turns a 75% round edge into about 90% of matches.
- * For a future human rating on the same scale. Dummy has no rating (it never acts).
+ * Measured 2026-10-20 after all active tiers moved to seeded builds. These are estimates,
+ * not the target tier gaps; see docs/research/bot-calibration-2026-10-20.json.
+ * Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
-  easy: 400,
+  easy: 350,
   medium: 1000,
-  hard: 1600,
-  brutal: 1825,
-  uber: 2000,
+  hard: 1625,
+  brutal: 1725,
+  uber: 1875,
 }

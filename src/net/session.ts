@@ -205,6 +205,8 @@ export interface SessionApi {
   rematch(): void
   /** Host / offline: everyone back to the lobby, slots kept. Client: own screen only, between matches. */
   backToLobby(): void
+  /** Dedicated only: settle an active match after every human departed. */
+  finishDeparted(): Promise<void>
   /** "Wants a rematch" flag, shown to everyone in lobby.ready. Reset when a match starts. */
   setReady(ready: boolean): void
   /** Room-wide reliable chat. Only the host supplies sender identity. */
@@ -1045,8 +1047,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         if (match.takeover.delete(back)) {
           match.bots.delete(back)
           cancelBotPlan(match, back)
-          rec?.control?.(back, 'human')
         }
+        if (match.endAt < 0) rec?.control?.(back, 'human')
         match.connectedPatch.set(back, true)
       }
       renameSlot(back, p.name)
@@ -1283,6 +1285,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       showNotice(`${p.name} ${why === 'disconnected' ? 'disconnected' : 'left'} while waiting`, true)
     } else if (m && m.humans.has(id)) {
       // B21-style: keep the pawn (and the slot) so the player can come back
+      if (m.endAt < 0) rec?.control?.(id, 'bot')
       m.disconnected.add(id)
       m.connectedPatch.set(id, false)
       let text = `${p.name} ${why === 'left' ? 'left' : why === 'idle' ? 'was idle and left' : 'disconnected'}`
@@ -1292,7 +1295,6 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           m.bots.set(id, bot)
           m.takeover.add(id)
           text += ', a bot took over'
-          rec?.control?.(id, 'bot')
         }
       }
       showNotice(text, true)
@@ -1576,7 +1578,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.fair.delay = jump ? target : m.fair.delay + Math.sign(target - m.fair.delay)
   }
 
-  async function finishMatch(m: HostMatch): Promise<void> {
+  async function finishMatch(m: HostMatch, abandoned = false): Promise<void> {
     const endingEpoch = epoch
     m.stop?.()
     match = null
@@ -1586,7 +1588,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rating: dedicated
         ? { status: 'unavailable', reason: 'The server did not supply an Elo result.' }
         : { status: 'unrated', reason: 'Offline and player-hosted games do not affect global Elo.' },
-      winners: m.winners ?? winnersOf(s),
+      ...(abandoned ? { abandoned: true } : {}),
+      winners: abandoned ? [] : m.winners ?? winnersOf(s),
       slots: s.slots,
       scores: s.scores,
       rounds: s.round,
@@ -2551,6 +2554,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (dedicated && roomInfo.maintenance) { showNotice(roomInfo.maintenance, true); return }
       if (match) stopMatch(match)
       api.startMatch()
+    },
+
+    async finishDeparted() {
+      const m = match
+      if (!dedicated || !m || peers.length > 0 || [...m.humans].some((id) => !m.disconnected.has(id))) return
+      await finishMatch(m, m.endAt < 0 && m.state.phase !== 'gameOver')
     },
 
     backToLobby() {

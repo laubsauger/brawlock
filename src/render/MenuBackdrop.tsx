@@ -7,7 +7,7 @@ import { useGame } from '../game/store'
 import { DT, type Vec2 } from '../sim/types'
 import { S, TILE_TOP_H } from './coords'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
-import { createMenuStage, createMenuTableau, type MenuStage } from './menuStage'
+import { createMenuBattle, createMenuStage, type MenuStage } from './menuStage'
 import { menuCameraAt } from './menuCamera'
 import { useMedia } from '../ui/lib/media'
 import { tierConfig } from './quality'
@@ -18,8 +18,8 @@ import { warlockReady } from './character'
 
 /**
  * Animated backdrop for menu and lobby screens: a slow cinematic drift over a
- * ten-warlock coven rehearsing short spells over a clear practice floor.
- * The prior sparring scene remains available with ?menuScene=sparring.
+ * real seeded battles between strong bots, including movement, hits and deaths.
+ * The quiet sparring lesson remains available with ?menuScene=sparring.
  * Both use a private frame buffer and never touch match state.
  *
  * The menu panels sit on the left: the camera aims left of the action so the
@@ -62,7 +62,7 @@ function MenuScene({ quality, fx, reducedMotion, renderIdle }: {
     renderIdle.current = false
     still.current.readyFrames = 0
     const source = createPrivateSource()
-    const stage = sparring ? createMenuStage() : createMenuTableau()
+    const stage = sparring ? createMenuStage() : createMenuBattle()
     // two ticks up front so the first rendered frame already has prev + curr
     const t0 = performance.now()
     for (let i = 1; i <= 2; i++) {
@@ -130,7 +130,7 @@ function MenuScene({ quality, fx, reducedMotion, renderIdle }: {
     if (sparring) {
       Object.assign(shot, menuCameraAt(drive.t, f, u, aspect, reducedMotion))
       shot.aimHeight = 0
-    } else tableauCameraAt(drive.t, f, u, aspect, reducedMotion, shot)
+    } else battleCameraAt(drive.t, f, u, aspect, reducedMotion, shot)
     pos.set(shot.x * S, (TILE_TOP_H + shot.height) * S, -shot.y * S)
     aim.set(shot.aimX * S, (TILE_TOP_H + shot.aimHeight) * S, -shot.aimY * S)
     cam.position.copy(pos)
@@ -156,31 +156,30 @@ function MenuScene({ quality, fx, reducedMotion, renderIdle }: {
   return null
 }
 
-type TableauShot = ReturnType<typeof menuCameraAt> & { aimHeight: number }
+type BattleShot = ReturnType<typeof menuCameraAt> & { aimHeight: number }
 
-/** One slow, shallow portrait shot. Narrow phones pull back rather than cropping
- * the witnesses; the group sits above the central menu in portrait and beside
- * the menu on desktop. Reuses the caller's shot object every frame. */
-function tableauCameraAt(seconds: number, focus: Vec2, out: Vec2, aspect: number, reducedMotion: boolean, shot: TableauShot): void {
+/** A continuous broad arc and gentle push over the living fighters. The stage
+ * smooths its focus, so no cuts, target changes or gameplay shake reach this lens. */
+function battleCameraAt(seconds: number, focus: Vec2, out: Vec2, aspect: number, reducedMotion: boolean, shot: BattleShot): void {
   const t = reducedMotion ? 0 : seconds
-  const arc = Math.sin(t * Math.PI * 2 / 96) * 0.02
+  const arc = Math.sin(t * Math.PI * 2 / 96) * 0.35
   const ca = Math.cos(arc)
   const sa = Math.sin(arc)
   const ux = out.x * ca - out.y * sa
   const uy = out.x * sa + out.y * ca
   const portrait = aspect < 1
-  const fit = Math.max(1, 0.95 / aspect)
-  const breath = (1 - Math.cos(t * Math.PI * 2 / 96)) * 10
-  const back = (1980 - breath) * fit
-  const height = (1190 - breath * 0.35) * fit
-  const screenX = portrait ? 0.52 : 0.72
+  const fit = Math.max(1, 0.85 / aspect)
+  const breath = (1 - Math.cos(t * Math.PI * 2 / 64)) * 100
+  const back = (2350 - breath) * fit
+  const height = (1700 - breath * 0.5) * fit
+  const screenX = portrait ? 0.52 : 0.64
   const reach = Math.hypot(back, height)
-  const shift = reach * (2 * screenX - 1) * Math.tan(35 * Math.PI / 360) * aspect
+  const shift = reach * (2 * screenX - 1) * Math.tan(46 * Math.PI / 360) * aspect
   shot.x = focus.x - ux * back
   shot.y = focus.y - uy * back
   shot.height = height
   shot.aimX = focus.x - uy * shift
   shot.aimY = focus.y + ux * shift
-  shot.aimHeight = portrait ? -560 : 35
-  shot.fov = 35
+  shot.aimHeight = portrait ? -450 : 65
+  shot.fov = 46
 }

@@ -16,6 +16,9 @@
  */
 import type { BotDifficulty, GameMode, MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState, TeamMode } from '../sim/types'
 import { TICK_HZ } from '../sim/types'
+import { ITEM_SLOT_START, MASTERY_MAX_LEVEL, SLOT_COUNT, SPELL_MAX_LEVEL } from '../sim/config'
+import { PASSIVE_ITEMS, SPELLS } from '../sim/spells/data'
+import type { InspectedKit } from './inspect'
 import { KillTally } from './announcer'
 import { isTeleportSave, slideDecay, slideSnapshot } from './teleportSave'
 import { randomId, safeLocalStorage, type KV } from './profile'
@@ -100,9 +103,12 @@ export interface Participant {
   won: boolean
   /** detailed stats (absent in old saves and in history older than HISTORY_DETAIL_MAX) */
   stats?: PlayerMatchStats
+  /** Last observed equipment and upgrades, detached from the running simulation. */
+  build?: InspectedKit
 }
 
 export type Outcome = 'win' | 'loss' | 'spectator'
+export type MatchQueue = 'ranked' | 'casual' | 'custom' | 'offline'
 
 export type AwardId =
   | 'butcher'
@@ -134,6 +140,8 @@ export interface Award {
 }
 
 export interface MatchRecord {
+  /** Absent on legacy records whose queue was not recorded. */
+  queue?: MatchQueue
   /** Server-confirmed rating outcome; absent on historical records without confirmation. */
   rating?: import('../net/rating').MatchRating
   id: string
@@ -314,6 +322,7 @@ export function pairOutcome(rec: Pick<MatchRecord, 'teamMode'>, a: Participant, 
 // ---------------------------------------------------------------------------
 
 export interface TrackerInfo {
+  queue?: MatchQueue
   localPlayer: PlayerId
   slots: PlayerSlot[]
   settings: MatchSettings
@@ -400,6 +409,7 @@ export class MatchTracker {
   /** `${from}>${to}` → damage */
   private dmgPairs = new Map<string, number>()
   private readonly accs = new Map<PlayerId, Acc>()
+  private readonly builds = new Map<PlayerId, InspectedKit>()
   private readonly tally = new KillTally()
   private firstBlood: PlayerId | null = null
   private readonly info: TrackerInfo
@@ -518,6 +528,10 @@ export class MatchTracker {
 
     // then the snapshot: integrate movement over the elapsed time, track flights
     for (const p of pawns) {
+      const score = Array.isArray(state.scores) ? state.scores.find((s) => s.id === p.owner) : undefined
+      if (score && Array.isArray(p.slots) && Array.isArray(p.levels)) {
+        this.builds.set(p.owner, { slots: [...p.slots], levels: [...p.levels], masteries: { ...score.masteries } })
+      }
       const a = this.acc(p.owner)
       const x = n(p.x)
       const y = n(p.y)
@@ -561,6 +575,12 @@ export class MatchTracker {
         a.lastGold = g
       }
     }
+  }
+
+  /** Detached last observed build; callers cannot mutate the tracker's snapshot. */
+  buildOf(player: PlayerId): InspectedKit | null {
+    const build = this.builds.get(player)
+    return build ? { slots: [...build.slots], levels: [...build.levels], masteries: { ...build.masteries } } : null
   }
 
   /** Per-player stats so far (also used by finish). */
@@ -610,6 +630,7 @@ export class MatchTracker {
     }
     const participants: Participant[] = slots.map((s) => {
       const sc = result.scores.find((x) => x.id === s.id)
+      const build = this.buildOf(s.id)
       return {
         player: s.id,
         profileId: profileIdOf(s),
@@ -624,6 +645,7 @@ export class MatchTracker {
         damage: Math.round(dealt.get(s.id) ?? 0),
         won: winners.has(s.id),
         stats: this.statsOf(s.id),
+        ...(build ? { build } : {}),
       }
     })
     const self = participants.some((p) => p.player === this.info.localPlayer) ? this.info.localPlayer : -1
@@ -635,6 +657,7 @@ export class MatchTracker {
       })
     const rec: MatchRecord = {
       id: randomId(),
+      ...(this.info.queue ? { queue: this.info.queue } : {}),
       date,
       teamMode: this.info.settings.teamMode,
       gameMode: this.info.settings.gameMode,
@@ -1010,16 +1033,48 @@ function cleanMatchRating(value: unknown): MatchRecord['rating'] {
   return { status: rating.status, ...(typeof rating.reason === 'string' ? { reason: rating.reason } : {}) }
 }
 
+/** A stored build is complete or absent; never invent upgrades for incomplete history. */
+export function cleanBuild(value: unknown): InspectedKit | undefined {
+  const build = obj(value)
+  if (!build || !Array.isArray(build.slots) || build.slots.length !== SLOT_COUNT
+    || !Array.isArray(build.levels) || build.levels.length !== SLOT_COUNT) return undefined
+  const masteries = obj(build.masteries)
+  const bounded = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max
+  if (!masteries || !bounded(masteries.duration, MASTERY_MAX_LEVEL)
+    || !bounded(masteries.range, MASTERY_MAX_LEVEL) || !bounded(masteries.lifesteal, MASTERY_MAX_LEVEL)) return undefined
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const id: unknown = build.slots[i]
+    const level: unknown = build.levels[i]
+    if (id === null) {
+      if (level !== 0) return undefined
+      continue
+    }
+    if (typeof id !== 'string') return undefined
+    const active = Object.hasOwn(SPELLS, id) ? SPELLS[id] : undefined
+    const passive = Object.hasOwn(PASSIVE_ITEMS, id) ? PASSIVE_ITEMS[id] : undefined
+    const def = i < ITEM_SLOT_START ? active?.kind === 'spell' && active.column - 1 === i ? active : undefined
+      : active?.kind === 'item' ? active : passive
+    if (!def || !bounded(level, i < ITEM_SLOT_START ? Math.min(def.maxLevel, SPELL_MAX_LEVEL) : def.maxLevel) || level === 0) return undefined
+  }
+  return {
+    slots: [...build.slots], levels: [...build.levels],
+    masteries: { duration: masteries.duration, range: masteries.range, lifesteal: masteries.lifesteal },
+  }
+}
+
 /** Clean the v2 additions of a stored record (v1 records simply have none). */
 function cleanRecord(r: MatchRecord): MatchRecord {
   const participants = r.participants.map((p) => {
     const stats = cleanStats((p as { stats?: unknown }).stats)
-    const { stats: _drop, ...rest } = p as Participant
+    const build = cleanBuild((p as { build?: unknown }).build)
+    const { stats: _drop, build: _build, ...rest } = p as Participant
     void _drop
-    return stats ? { ...rest, stats } : rest
+    void _build
+    return { ...rest, ...(stats ? { stats } : {}), ...(build ? { build } : {}) }
   })
   const awards = cleanAwards(r.awards)
   const out: MatchRecord = { ...r, participants }
+  if (!['ranked', 'casual', 'custom', 'offline'].includes(r.queue as string)) delete out.queue
   const rating = cleanMatchRating(r.rating)
   if (rating) out.rating = rating
   else delete out.rating

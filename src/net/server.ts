@@ -160,6 +160,7 @@ interface Entry {
   hadHuman: boolean
   /** Accepted sockets include a pending hello, so a newcomer in flight is not evicted. */
   connections: number
+  settling?: Promise<void>
   accounts: Map<string, number>
   accountReservations: Map<string, number>
 }
@@ -303,7 +304,7 @@ export function createServerCore(
               matchId, queue: setup.ranked ? 'ranked' as const : 'quick' as const, rulesVersion: 1 as const,
               completedAt: clock(), durationSeconds: Math.floor(m.ticks / 60),
               players: m.seats.filter((s) => /^a_[A-Za-z0-9_-]{8,60}$/.test(s.device)).map((s) => ({
-                accountId: s.device.slice(2), completed: !!s.stats && (e?.accounts.get(s.device.slice(2)) ?? 0) > 0,
+                accountId: s.device.slice(2), completed: !m.abandoned && !s.forfeited && !!s.stats && (e?.accounts.get(s.device.slice(2)) ?? 0) > 0,
                 aliveSeconds: s.stats?.aliveSec ?? 0,
                 casts: Object.values(s.stats?.spells ?? {}).reduce((n, [casts]) => n + casts, 0),
                 damageDealt: s.stats?.damageDealt ?? 0, walked: s.stats?.walked ?? 0,
@@ -318,7 +319,7 @@ export function createServerCore(
               log('error', 'progression.storage.error', { room: code })
               result.progression = { matchId, status: 'unavailable' }
             }) : Promise.resolve()
-            const rating = setup.ranked ? record(code, m) : Promise.resolve({ status: 'unrated' as const, reason: 'Casual games do not affect global Elo.' })
+            const rating = record(code, m, setup.ranked ? 'ranked' : setup.quick ? 'casual' : 'custom')
             ;[result.rating] = await Promise.all([rating, progression])
             if (e && deps.accounts) for (const [id, connected] of e.accounts) if (connected === 0) { deps.accounts.release(code, id); e.accounts.delete(id) }
           } finally { pendingResults-- }
@@ -341,10 +342,10 @@ export function createServerCore(
   }
 
   /** A finished server match: rated and stored when it counts (leaderboard.ts). */
-  async function record(room: string, m: FinishedMatch): Promise<MatchRating> {
+  async function record(room: string, m: FinishedMatch, queue: 'ranked' | 'casual' | 'custom'): Promise<MatchRating> {
     if (!authority) return { status: 'unrated', reason: 'This server does not record global Elo.' }
     try {
-      const rating = await authority.record({ key: crypto.randomUUID(), region: cfg.region, room, at: clock(), minSeconds: cfg.leaderboardMinSeconds, match: m })
+      const rating = await authority.record({ key: crypto.randomUUID(), region: cfg.region, room, at: clock(), minSeconds: cfg.leaderboardMinSeconds, match: m, queue })
       log(rating.status === 'unavailable' ? 'error' : 'info', rating.status === 'rated' ? 'leaderboard.match' : 'leaderboard.skip', { room, reason: rating.reason, humans: m.seats.length, ticks: m.ticks })
       return rating
     } catch (e) {
@@ -370,8 +371,18 @@ export function createServerCore(
     log('info', 'room.closed', { room: code, reason: 'empty', rooms: rooms.size })
   }
 
+  function settleAndClose(code: string, e: Entry): void {
+    if (e.settling) return
+    // A lobby peek has no match to settle and still closes synchronously.
+    if (e.room.screen() !== 'match') { closeRoom(code, e); return }
+    listCache = null
+    e.settling = e.room.settleDeparted().then(() => {
+      if (rooms.get(code) === e && e.connections === 0 && e.room.peers() === 0 && reservedNow(e) === 0) closeRoom(code, e)
+    }).catch((error) => { log('error', 'room.settlement.error', { room: code, error: String(error) }) })
+      .finally(() => { e.settling = undefined })
+  }
   function closeEmptyQueue(code: string, e: Entry): void {
-    if (e.hadHuman && e.room.isQuick() && e.connections === 0 && e.room.peers() === 0 && reservedNow(e) === 0) closeRoom(code, e)
+    if (e.hadHuman && e.room.isQuick() && e.connections === 0 && e.room.peers() === 0 && reservedNow(e) === 0) settleAndClose(code, e)
   }
 
   /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
@@ -380,6 +391,7 @@ export function createServerCore(
     let bestN = -1
     for (const e of rooms.values()) {
       const r = e.room
+      if (e.settling) continue
       if (!r.isPublic() || r.code === exclude) continue
       if (r.isRanked() !== ranked) continue
       const phase = r.screen()
@@ -404,7 +416,7 @@ export function createServerCore(
     if (listCache && now - listCache.at < LIST_CACHE_MS) return listCache.body
     const order = (r: RoomSummary) => (r.phase === 'lobby' ? 0 : r.phase === 'results' ? 1 : 2)
     const list = [...rooms.values()]
-      .filter((e) => e.room.isPublic() && e.room.screen() !== 'menu')
+      .filter((e) => !e.settling && e.room.isPublic() && e.room.screen() !== 'menu')
       .map((e) => e.room.summary())
       .sort((a, b) => order(a) - order(b) || b.humans - a.humans || a.code.localeCompare(b.code))
     listCache = { at: now, body: { region: cfg.region, rooms: list, listings: listings.list() } }
@@ -585,7 +597,7 @@ export function createServerCore(
         log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
         return json(201, { code, created: true, region: cfg.region }, req.origin)
       }
-      if ((parts[0] === 'leaderboard' && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 2)) {
+      if ((parts[0] === 'leaderboard' && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && (parts.length === 2 || (parts.length === 3 && parts[2] === 'history')))) {
         if (req.method !== 'GET') return json(405, { error: 'method not allowed' }, req.origin)
         if (!authority) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
         if (!boardLimit.take(req.ip, deps.now())) {
@@ -635,12 +647,14 @@ export function createServerCore(
       const parsed = parseRoomCode(url.searchParams.get('room') ?? '')
       if ('problem' in parsed) return { kind: 'message', message: parsed.problem }
       if (!rooms.has(parsed.code)) return { kind: 'message', message: 'No room with that code. Ask for a fresh link.' }
+      if (rooms.get(parsed.code)!.settling) return { kind: 'message', message: 'This match has finished and its room is closing. Join a new game.' }
       return { kind: 'room', code: parsed.code }
     },
 
     async authorize(code, account) {
       const e = rooms.get(code)
       if (!e) throw new Error('This room has closed.')
+      if (e.settling) throw new Error('This match has finished and its room is closing. Join a new game.')
       if (maintenance.draining && account && !e.room.hasProfile(account.ratingKey)) throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
       if (!e.room.isRanked() || !deps.accounts) return
       if (!account) throw new Error('Sign in and choose your player name before joining ranked.')
@@ -657,7 +671,7 @@ export function createServerCore(
         deps.accounts.release(code, account.id)
         throw new Error(maintenance.message ?? MAINTENANCE_NOTICE)
       }
-      if (rooms.get(code) !== e) { deps.accounts.release(code, account.id); throw new Error('This room has closed.') }
+      if (rooms.get(code) !== e || e.settling) { deps.accounts.release(code, account.id); throw new Error('This room has closed.') }
       e.accounts.set(account.id, e.accounts.get(account.id) ?? 0)
       e.accountReservations.set(account.id, deps.now() + RESERVE_MS)
     },
@@ -673,7 +687,7 @@ export function createServerCore(
         return
       }
       const e = rooms.get(admission.code)
-      if (!e) {
+      if (!e || e.settling) {
         socket.send(encode({ t: 'error', message: 'This room just closed.' }))
         setTimeout(() => socket.close(), 200)
         return
@@ -775,7 +789,7 @@ export function createServerCore(
         if (reservedNow(e) > 0) continue
         if (e.emptySince < 0) e.emptySince = now
         else if (now - e.emptySince >= cfg.emptyRoomMs) {
-          closeRoom(code, e)
+          settleAndClose(code, e)
         }
       }
       createLimit.sweep(now)

@@ -1,6 +1,6 @@
 # Account identity and the fresh ranked season
 
-Decision record, 2026-10-19. The account flow, regional ranked verification and progression are implemented locally; **not deployed**. [ACCOUNTS.md](ACCOUNTS.md) is the current contract and release-gate reference.
+Decision record, 2026-10-19; status reconciled 2026-10-20. **Implemented and rolled out:** account identity, regional ranked verification and progression. This is a record of the chosen design, not an active implementation backlog. [ACCOUNTS.md](ACCOUNTS.md) is the contract; [NEXT-SPRINT.md](NEXT-SPRINT.md) lists remaining work and human verification. The [account-season receipt](../deploy/releases/2026-10-19-accounts.md) records the cutover.
 
 ## Chosen identity model
 
@@ -20,7 +20,7 @@ Renaming works in this release. A successful atomic update releases the old name
 
 The user approved `https://brawlock.osc.link` as the main game/auth origin, with the old GitHub Pages entry redirecting there. Keep the regional endpoints at `us.brawlock.osc.link` and `eu.brawlock.osc.link`. Issue production passkeys only on the final HTTPS game origin; their relying-party domain cannot be casually moved later. [STATIC-HOSTING.md](STATIC-HOSTING.md) describes the retained Pages media split and link-preserving entry redirects.
 
-**The later explicit instruction to wipe history supersedes the earlier legacy-preservation plan.** Reset old device-based ratings and match history when cutting over to the fresh account season. Do not expose a legacy ladder, merge device Elo into accounts, or implement an import. A private operational backup is fine. Keep new account records, reserved names, provider credentials and session secrets intact. The reset has not been executed on the live fleet.
+**The later explicit instruction to wipe history supersedes the earlier legacy-preservation plan.** Reset old device-based ratings and match history when cutting over to the fresh account season. Do not expose a legacy ladder, merge device Elo into accounts, or implement an import. A private operational backup is fine. Keep new account records, reserved names, provider credentials and session secrets intact. This one-time reset completed during the account-season rollout, with private stopped backups and new accounts/credentials preserved. Do not run it again for routine releases.
 
 Old-origin local settings/replays do not automatically transfer between domains; no cross-origin history-import flow is part of this release. Preserve query/hash invite behavior in the entry redirect.
 
@@ -28,4 +28,4 @@ Old-origin local settings/replays do not automatically transfer between domains;
 
 Locally covered: session revocation/expiry, profile uniqueness and rename identity, one-use admission proofs, regional RPC identity validation, global ranked occupancy/reconnect routes and account-owned progression invariants. Real browser virtual-passkey and DOM account/collection proofs are also available.
 
-Still gate the combined release on real-TCP regional admission/reconnect and result settlement, completed maintenance/drain behavior, visual/cosmetic review, exact matching builds and the coordinated hostname/fleet cutover. Real Google login through the production HTTPS site remains unverified. Keep secrets server-only and preserve casual guest play throughout. A local implementation or provider URL probe is not evidence that the production rollout is complete.
+The recorded combined release passed real-TCP regional admission/reconnect and settlement, maintenance/drain, cosmetic checks, exact-build routing and fleet cutover. The user confirmed real production Google login. Production passkey enrollment/reuse and signed-in cross-device regional/reward play still require human verification; see [ACCOUNTS.md](ACCOUNTS.md#evidence-and-remaining-release-gates). Keep secrets server-only and preserve casual guests. Do not recreate the completed cutover or treat a local fixture as proof of these remaining public account flows.

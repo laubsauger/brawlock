@@ -14,7 +14,8 @@
   It shares the local profile's spell, movement, survival, economy and Hall definitions.
 - Only seats controlled by a human continuously from match start through finish receive
   detail. Late joins and any bot takeover omit detail for that match, even after reconnect.
-  Their ordinary eligible Elo/results remain unchanged.
+  A recovered connection can finish normally, but the interrupted detailed counters stay
+  outside complete-match coverage. An eligible unrecovered departure is recorded as a loss.
 - Detail includes combat against bots. The existing leaderboard K/D and Elo remain
   human-only; the UI labels these scopes separately.
 - `coverage.detailedMatches` counts complete recorded matches, `totalMatches` counts all
@@ -27,8 +28,9 @@
 
 ## Storage and rollout
 
-- SQLite adds only `player_public_ids` and `player_details`; original player/result rows
-  and the Elo formula are preserved. Existing players receive public IDs on upgrade;
+- SQLite adds `player_public_ids`, `player_details`, `match_history`, `match_history_seats`
+  and `ranked_result_flags`; existing schemas and rows are preserved. Normal completed-match
+  Elo remains unchanged; qualifying departures use the explicit forfeit rule below. Existing players receive public IDs on upgrade;
   reopening preserves those IDs. Detail folds commit inside the existing receipt transaction.
 - EU sends optional per-seat `stats` through its existing authenticated durable outbox to
   the US authority. Both regions forward public reads to that same authority. Retries keep
@@ -42,3 +44,28 @@
   Never drop detail, rewrite queued payloads or change idempotency fingerprints.
 - Old binaries ignore the additive tables. Re-upgrading backfills any old-writer players
   again while preserving previously assigned public IDs and detail.
+
+## Departures and queue history
+
+- Each human seat accumulates combat ticks while connected, including time watching after
+  death; shop time and bot-controlled intervals do not count. A disconnected seat with at
+  least 60 seconds receives a loss if it has not rejoined when the match finishes.
+- Forfeits override earlier round wins. Elo gives a forfeiter a score of zero against each
+  rated opponent using the existing expected-score/K calculation. If both opponents forfeit,
+  each receives a loss penalty; departure penalties are intentionally not zero-sum.
+- Normal completed ranked matches retain the two-minute/two-human eligibility rule. A
+  qualifying first-round departure can settle sooner only with 60 seconds of simultaneous
+  opposing human combat participation and distinct identities. No completed round is invented.
+- Last-human departure settles before room removal and account-claim release. Abandonment
+  has no winners or completion rewards; operational shutdowns/simulation failures remain
+  aborts. A victory already reached before a transport closes keeps its result.
+- `GET /players/:identity/history` and `GET /profiles/:publicId/history` return `{matches:[]}`,
+  newest first, optionally filtered with `queue=ranked|casual|custom`, `limit=1..10`.
+  Casual/custom records never update ranked Elo/totals. New receipts save history and ranked
+  mutations atomically; old payloads/fingerprints are accepted without rewriting.
+- Public history exposes random match UUIDs and a public roster, never room codes, receipt
+  keys or private identities. Builds contain exactly 12 loadout slots/levels plus three mastery
+  levels. A departed human keeps the last human-controlled build; bot purchases are excluded.
+  Old records omit builds and queue labels instead of reconstructing them.
+- Deploy the upgraded authority before new regional writers/readers. For rollback, drain new
+  history submissions with the compatible authority first; preserve pending outboxes intact.

@@ -17,7 +17,8 @@ import { moveCursor, reticleCursor } from './lib/cursors'
  */
 export function MatchLayer() {
   const screen = useGame((s) => s.screen)
-  if (screen !== 'lobby' && screen !== 'match' && screen !== 'results' && screen !== 'replay') return null
+  const roomOpen = useGame((s) => s.lobby.status === 'open' && s.lobby.role !== 'offline')
+  if (!roomOpen && screen !== 'lobby' && screen !== 'match' && screen !== 'results' && screen !== 'replay') return null
   // a replay shows the scene (no input: the viewer drives it)
   return <Layer live={screen === 'match'} shown={screen === 'match' || screen === 'replay'} />
 }

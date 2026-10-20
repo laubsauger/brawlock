@@ -1,7 +1,69 @@
 import { describe, expect, it } from 'vitest'
 import { hashState, isLocationSafeAtLayer } from '../sim'
 import type { SimEvent, SimState } from '../sim/types'
-import { createMenuStage, createMenuTableau, MENU_LAYER } from './menuStage'
+import { createMenuBattle, createMenuStage, createMenuTableau, MENU_LAYER } from './menuStage'
+
+describe('menu battle', () => {
+  it('shows moving strong bots, varied real attacks, impacts and eliminations', () => {
+    const stage = createMenuBattle(41)
+    const spells = new Set<string>()
+    let moving = 0
+    let damage = 0
+    let deaths = 0
+    let rounds = 0
+    let previousTick = 0
+    for (let i = 0; i < 180 * 60; i++) {
+      const { state, events } = stage.step()
+      if (i === 0) expect(state.phase).toBe('fight')
+      expect(state.tick).toBeGreaterThan(previousTick)
+      previousTick = state.tick
+      expect(state.slots.every((slot) => slot.kind === 'bot' && ['brutal', 'uber'].includes(slot.difficulty!))).toBe(true)
+      if (state.pawns.some((pawn) => Math.hypot(pawn.walkVx, pawn.walkVy) > 20)) moving++
+      for (const event of events) {
+        if (event.type === 'cast') spells.add(event.spell)
+        if (event.type === 'damage') damage++
+        if (event.type === 'death') deaths++
+        if (event.type === 'roundWin') rounds++
+      }
+    }
+    expect(spells.size).toBeGreaterThanOrEqual(10)
+    expect(damage).toBeGreaterThan(100)
+    expect(deaths).toBeGreaterThanOrEqual(7)
+    expect(rounds).toBeGreaterThanOrEqual(1)
+    expect(moving / (180 * 60)).toBeGreaterThan(0.85)
+  })
+
+  it('keeps independent seeded battles and snapshots detached from callers', () => {
+    const a = createMenuBattle(13)
+    const b = createMenuBattle(13)
+    const retained = a.step()
+    b.step()
+    const original = JSON.stringify(retained)
+    for (let i = 0; i < 60; i++) { a.step(); b.step() }
+    expect(JSON.stringify(retained)).toBe(original)
+    retained.state.pawns[0].x = 99999
+    retained.state.pawns[0].slots.fill(null)
+    retained.events.length = 0
+    expect(a.step()).toEqual(b.step())
+    expect(a.focus).toEqual(b.focus)
+  })
+
+  it('starts fresh seeded matches indefinitely without reversing the render timeline', () => {
+    const stage = createMenuBattle(41)
+    let tick = 0
+    let freshMatches = 0
+    let roundWins = 0
+    for (let i = 0; i < 1200 * 60; i++) {
+      const frame = stage.step()
+      if (tick && frame.state.tick - tick > 1) freshMatches++
+      if (frame.state.tick <= tick) throw new Error('Menu render timeline reversed')
+      tick = frame.state.tick
+      roundWins += frame.events.filter((event) => event.type === 'roundWin').length
+    }
+    expect(freshMatches).toBeGreaterThan(0)
+    expect(roundWins).toBeGreaterThanOrEqual(6)
+  })
+})
 
 function watch(seconds: number, theme = 0, seed = 41) {
   const stage = createMenuStage(theme, seed)

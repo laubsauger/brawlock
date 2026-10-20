@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
+import { ReleaseNotesButton } from '../ReleaseNotes'
 import { Button, Kbd, Modal } from '../widgets'
 import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, rankedPlay, useLastHostResult } from '../flow'
@@ -420,6 +421,7 @@ export function MainMenu() {
       <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
         <div className="flex flex-col gap-3">
           <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
+            <ReleaseNotesButton compact />
             <Button size="sm" className="menu-stats gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /><span className="btn-label">Stats</span></Button>
             <Button variant="ghost" size="sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => toggle('settingsOpen', true)}><MenuGlyph kind="settings" size={16} /> Settings</Button>

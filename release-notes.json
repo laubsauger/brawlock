@@ -1,0 +1,65 @@
+[
+  {
+    "version": "0.1.0-alpha.6",
+    "releaseDate": "2026-10-20",
+    "title": "Stay in the game",
+    "changes": [
+      "Browse menus and stats without leaving your lobby. Return in one click; hear when ranked finds players.",
+      "The menu now hosts ongoing battles between strong bots.",
+      "Spectator bets are easier to find, with visible picks and clear open, locked and closed states.",
+      "Leaving after 60 seconds of combat counts as a loss when the match ends, including ranked Elo. Rejoin before the end to recover.",
+      "Filter online match history by Casual or Ranked, and inspect saved spells, equipment and upgrades.",
+      "See what changed after an update, and browse earlier releases from What's new."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.5",
+    "releaseDate": "2026-10-19",
+    "title": "Sharper opponents",
+    "changes": [
+      "Casual games mix Hard bots with one Brutal and one Medium opponent.",
+      "Bots punish warlocks who stand still.",
+      "Unattended results close after 30 minutes when nobody is ready.",
+      "Spell glows render more efficiently."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.4",
+    "releaseDate": "2026-10-19",
+    "title": "Fairer ranked results",
+    "changes": [
+      "Ranked Elo follows the overall match result, fixing cases where the winner lost rating because of round survival order."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.3",
+    "releaseDate": "2026-10-19",
+    "title": "Ready when you are",
+    "changes": [
+      "The next match waits until every human player presses Ready.",
+      "New game lets you find another room without waiting for a rematch.",
+      "When everyone is ready, the lobby countdown drops to five seconds."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.2",
+    "releaseDate": "2026-10-19",
+    "title": "Louder hits, clearer results",
+    "changes": [
+      "Fireball and Scourge lead the hotbar, with voiced deaths and clearer kill callouts.",
+      "Casual matches play to three round wins.",
+      "Match history shows the full standings and earned Embers.",
+      "Betting closes earlier as the fight narrows."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.1",
+    "releaseDate": "2026-10-19",
+    "title": "The first public playtest",
+    "changes": [
+      "Casual and ranked multiplayer across US and European servers.",
+      "Accounts, a cosmetic collection and guided practice.",
+      "Recover your room after a reload or disconnect."
+    ]
+  }
+]

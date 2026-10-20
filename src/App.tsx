@@ -1,10 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useGame, type Screen } from './game/store'
 import { audio } from './audio'
 import { Backdrop } from './ui/Brand'
 import { SplashScreen } from './ui/SplashScreen'
 import { MainMenu } from './ui/screens/MainMenu'
-import { Lobby } from './ui/screens/Lobby'
+import { AutoStart, Lobby } from './ui/screens/Lobby'
+import { session } from './game/session'
+import { Button } from './ui/widgets'
+import { usePolled } from './ui/lib/ticker'
 import { Match } from './ui/screens/Match'
 import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
@@ -19,12 +22,13 @@ import { Toasts } from './ui/Toasts'
 import { undoRemap } from './ui/lib/remap'
 import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
-import { forcedMute, forcedSynth, music } from './ui/lib/sound'
+import { forcedMute, forcedSynth, music, sfx } from './ui/lib/sound'
 import { Tutorial } from './ui/Tutorial'
 import { RoomChatLayout } from './ui/hud/Chat'
 import { useOnlinePresence } from './ui/lib/presence'
 import { RankedControlPrompt } from './ui/screens/RankedControlPrompt'
 import { PlayControlPrompt } from './ui/screens/PlayControlPrompt'
+import { ReleaseNotesDialog } from './ui/ReleaseNotes'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
 const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
@@ -145,6 +149,46 @@ function useGlobalKeys() {
   }, [])
 }
 
+/** Lives outside keyed screens so browsing stats never drops queue status or
+ * repeats the player-found sound when the lobby mounts again. */
+export function ActiveRoomStatus() {
+  const screen = useGame((s) => s.screen)
+  const lobby = useGame((s) => s.lobby)
+  const room = usePolled(() => ({ active: session.isActive(), phase: session.roomPhase() }), (value) => `${value.active}:${value.phase}`, 4)
+  const humans = lobby.slots.filter((slot) => slot.kind === 'human').length
+  const previous = useRef({ code: '', humans: 0, countdown: false, alerted: false })
+  useEffect(() => {
+    const code = lobby.roomCode ?? ''
+    const prior = previous.current
+    if (prior.code !== code) Object.assign(prior, { code, humans: 0, countdown: false, alerted: false })
+    if (!room.active || !lobby.ranked || room.phase !== 'lobby') {
+      if (!room.active || room.phase !== 'lobby') Object.assign(prior, { humans: 0, countdown: false, alerted: false })
+      return
+    }
+    // A transient reconnect can temporarily clear the roster. It must not
+    // manufacture another "player found" notification when it returns.
+    if (lobby.status !== 'open') return
+    const countdown = !!lobby.autoStart
+    if (humans < 2) prior.alerted = false
+    if (humans >= 2 && !prior.alerted && (prior.humans < 2 || (!prior.countdown && countdown))) {
+      sfx('ready')
+      prior.alerted = true
+    }
+    prior.humans = humans
+    prior.countdown = countdown
+  }, [lobby, humans, room.active, room.phase])
+  if (!room.active || (screen !== 'menu' && screen !== 'credits')) return null
+  const queue = lobby.ranked ? 'Ranked' : lobby.quick ? 'Casual' : 'Custom'
+  return <aside className="relative z-30 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-gold/30 bg-[#1b120e]/95 px-4 py-2 text-sm shadow-lg sm:px-6" aria-label="Your active game" data-testid="active-room-status">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1" role="status" aria-live="polite">
+      <span className="font-semibold text-gold">{queue}{lobby.roomCode && <span className="ml-2 text-xs text-ash">{lobby.roomCode}</span>}</span>
+      <span className="text-ash">{humans} {humans === 1 ? 'player' : 'players'} · {lobby.slots.length} seats</span>
+      <span className="text-bone">{lobby.maintenance ? 'Region updating' : lobby.status !== 'open' ? 'Reconnecting…' : room.phase === 'match' ? 'Match in progress' : room.phase === 'results' ? 'Match finished' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} /> : lobby.ranked && humans < 2 ? 'Waiting for another player' : 'Lobby open'}</span>
+    </div>
+    <Button size="sm" variant="primary" onClick={() => session.resume()} data-testid="return-active-room-status">{room.phase === 'lobby' ? 'Return to lobby' : room.phase === 'results' ? 'View results' : 'Return to match'}</Button>
+  </aside>
+}
+
 export default function App() {
   const screen = useGame((s) => s.screen)
   const settingsOpen = useGame((s) => s.settingsOpen)
@@ -162,11 +206,14 @@ export default function App() {
   }, [screen])
 
   return (
-    <div className="relative h-full overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden">
       <InkFilters />
       {BACKDROP.has(screen) && <Backdrop />}
       {/* lobby -> match -> results: one match scene instance, warmed hidden in the lobby */}
       <MatchLayer />
+      <ActiveRoomStatus />
+      <ReleaseNotesDialog />
+      <div className="relative min-h-0 flex-1">
       <RoomChatLayout screen={screen}>
         {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
         <main key={screen} className={`room-screen-content ${screen === 'match' ? 'pointer-events-none' : 'pointer-events-auto'}`}>
@@ -186,6 +233,7 @@ export default function App() {
         <PerfHud />
         <NetGraph />
       </RoomChatLayout>
+      </div>
     </div>
   )
 }

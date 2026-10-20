@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../game/session', () => ({ online: { configured: true }, session: {} }))
+const onlineConfig = vi.hoisted(() => ({ configured: true }))
+vi.mock('../../game/session', () => ({ online: onlineConfig, session: {} }))
 import { DetailedProfileStats, EloChange7d, Profile } from './Profile'
 import { emptyTotals, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
 import * as stats from '../../game/stats'
@@ -35,12 +36,25 @@ describe('direct stats and replay entry points', () => {
     expect(html).not.toContain('Time in the arena')
   })
 
-  it('preserves the existing profile default entry', () => {
+  it('opens online history by default in server builds', () => {
     const html = renderToStaticMarkup(createElement(Profile, { onBack() {} }))
     expect(html).toContain('Your record')
-    expect(html).toContain('No matches yet')
+    expect(html).toContain('Loading online matches')
+    expect(html).toContain('aria-label="Match history source"')
+    expect(html).toContain('aria-label="Match queue"')
+    expect(html).not.toContain('aria-label="Career summary"')
     expect(html).not.toContain('data-testid="global-board"')
     expect(html).not.toContain('data-testid="replay-library"')
+  })
+
+  it('keeps local match history and career totals available in offline builds', () => {
+    onlineConfig.configured = false
+    try {
+      const html = renderToStaticMarkup(createElement(Profile, { onBack() {} }))
+      expect(html).toContain('No matches yet')
+      expect(html).toContain('aria-label="Career summary"')
+      expect(html).not.toContain('Loading online matches')
+    } finally { onlineConfig.configured = true }
   })
 
   it('makes each device leaderboard identity inspectable, including the local player', () => {
@@ -56,7 +70,7 @@ describe('direct stats and replay entry points', () => {
     } finally { rows.mockRestore() }
   })
 
-  it.each(['matches', 'stats'] as const)('keeps the career summary inside %s content, after the shared tab bar', (initialTab) => {
+  it.each(['stats'] as const)('keeps the career summary inside %s content, after the shared tab bar', (initialTab) => {
     const html = renderToStaticMarkup(createElement(Profile, { onBack() {}, initialTab }))
     const panel = html.indexOf('data-testid="profile-panel"')
     const tabs = html.indexOf('role="tablist"')

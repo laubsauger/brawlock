@@ -1,9 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { frame } from '../../game/frame'
 import { useGame } from '../../game/store'
-import { canInspect, goldVisible, inspectedLoadout, inspectionLabel, inspectStore, isSpectating, livingPlayers, cycle, type InspectedLoadout } from '../../game/inspect'
-import { Sigil } from '../icons'
-import { itemDef, MASTERIES, MASTERY_MAX_LEVEL, SPELL_MAX_LEVEL } from '../data/catalog'
+import { canInspect, goldVisible, inspectedLoadout, inspectionLabel, inspectStore, isSpectating, livingPlayers, cycle, type InspectedKit, type InspectedLoadout } from '../../game/inspect'
+import { BuildIcons } from '../BuildIcons'
 import { usePolled, useTick } from '../lib/ticker'
 import { kbMultiplier, playerColor, playerGlyph, slotName } from '../lib/view'
 import { colorblindPalette } from '../../game/playerPalette'
@@ -25,9 +24,7 @@ interface LoadoutView {
   name: string
   color: string
   glyph: string
-  spells: [string | null, number][]
-  items: [string | null, number][]
-  masteries: number[]
+  kit: InspectedKit | null
   gold: number | null
   hp: number
   maxHp: number
@@ -38,7 +35,7 @@ interface LoadoutView {
   kind: InspectedLoadout['kind']
 }
 
-const EMPTY: LoadoutView = { ok: false, name: '', color: '#ccc', glyph: '', spells: [], items: [], masteries: [], gold: null, hp: 0, maxHp: 0, kb: 0, alive: false, kills: 0, deaths: 0, kind: 'unrevealed' }
+const EMPTY: LoadoutView = { ok: false, name: '', color: '#ccc', glyph: '', kit: null, gold: null, hp: 0, maxHp: 0, kb: 0, alive: false, kills: 0, deaths: 0, kind: 'unrevealed' }
 
 function readLoadout(player: number): LoadoutView {
   const s = frame.curr
@@ -49,15 +46,12 @@ function readLoadout(player: number): LoadoutView {
   const pawn = s.pawns.find((p) => p.owner === player)
   const sc = s.scores.find((x) => x.id === player)
   if (!slot) return EMPTY
-  const lv = (i: number): [string | null, number] => [loadout.kit?.slots[i] ?? null, loadout.kit?.levels[i] ?? 0]
   return {
     ok: true,
     name: slot.name,
     color: playerColor(slot, s.settings.teamMode),
     glyph: playerGlyph(slot, s.settings.teamMode, colorblindPalette()),
-    spells: [0, 1, 2, 3, 4, 5].map(lv),
-    items: [6, 7, 8, 9, 10, 11].map(lv),
-    masteries: MASTERIES.map((m) => loadout.kit?.masteries[m.id] ?? 0),
+    kit: loadout.kit,
     gold: loadout.kind === 'live' && goldVisible(s, frame.localPlayer, player) ? Math.floor(sc?.gold ?? 0) : null,
     hp: Math.round(pawn?.alive ? pawn.hp : 0),
     maxHp: Math.round(pawn?.maxHp ?? 0),
@@ -78,17 +72,6 @@ function useLoadout(player: number): LoadoutView {
   return readLoadout(player)
 }
 
-function Pips({ level, max }: { level: number; max: number }) {
-  if (max <= 1) return null
-  return (
-    <span className="loadout-pips" aria-hidden>
-      {Array.from({ length: max }, (_, i) => (
-        <i key={i} data-on={i < level} />
-      ))}
-    </span>
-  )
-}
-
 /**
  * Icons of one player's kit: the six spell columns with level pips, the six
  * item slots, mastery levels and (yourself / allies only) gold. Polled at
@@ -98,38 +81,10 @@ export function Loadout({ player, size = 26, cards = false }: { player: number; 
   const v = useLoadout(player)
   if (!v.ok) return <span className="text-sm text-ash">Loadout unavailable</span>
   if (v.kind === 'unrevealed') return <span className="text-sm text-ash">{inspectionLabel(v.kind)}</span>
-  const icon = (id: string | null, level: number, slot: number, kind: 'spell' | 'item') => {
-    const max = kind === 'spell' ? SPELL_MAX_LEVEL : (itemDef(id)?.maxLevel ?? 1)
-    return (
-      <span
-        key={slot}
-        className="loadout-slot"
-        data-empty={!id}
-        style={{ width: size, height: size + (max > 1 ? 4 : 0) }}
-        {...(cards && id ? abilityCardProps(() => ({ kind, id, context: 'inspect', slot, level, player, side: 'left' })) : null)}
-      >
-        {id ? <Sigil id={id} size={size} /> : <span className="loadout-empty" style={{ width: size, height: size }} />}
-        {id && <Pips level={level} max={max} />}
-      </span>
-    )
-  }
   return (
     <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1" title={inspectionLabel(v.kind)}>
       {v.kind === 'lastRound' && <span className="w-full text-xs text-ash">{inspectionLabel(v.kind)}</span>}
-      <span className="flex gap-0.5" aria-label="Spells">
-        {v.spells.map(([id, lv], i) => icon(id, lv, i, 'spell'))}
-      </span>
-      <span className="flex gap-0.5" aria-label="Items">
-        {v.items.map(([id, lv], i) => icon(id, lv, 6 + i, 'item'))}
-      </span>
-      <span className="tabular flex gap-1 text-[0.72rem] font-semibold text-ash" title={MASTERIES.map((m, i) => `${m.name} mastery ${v.masteries[i]} of ${MASTERY_MAX_LEVEL}`).join(', ')}>
-        {MASTERIES.map((m, i) => (
-          <span key={m.id} className={v.masteries[i] ? 'text-[#ffcf9a]' : ''}>
-            {m.name[0]}
-            {v.masteries[i]}
-          </span>
-        ))}
-      </span>
+      {v.kit && <BuildIcons kit={v.kit} size={size} cardProps={cards ? (id, level, slot, kind) => abilityCardProps(() => ({ kind, id, context: 'inspect', slot, level, player, side: 'left' })) : undefined} />}
       {v.gold != null && (
         <span className="tabular flex items-center gap-1 text-[0.85rem] font-bold text-gold" title="Gold">
           <span className="coin" aria-hidden />

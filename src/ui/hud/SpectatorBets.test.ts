@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import { frame, pushState, resetFrame } from '../../game/frame'
-import { createMatch, DEFAULT_SETTINGS } from '../../sim'
+import { createMatch, DEFAULT_SETTINGS, TICK_HZ } from '../../sim'
 import { placeSpectateBet, settleSpectateBets } from '../../sim/bets'
 import { SpectatorBets } from './SpectatorBets'
 
@@ -22,6 +22,52 @@ function setup() {
 const markup = () => renderToStaticMarkup(createElement(SpectatorBets))
 
 describe('personal betting presentation', () => {
+  it('shows open status and usable picks immediately instead of hiding them in a disclosure', () => {
+    const state = setup()
+    pushState(state)
+    const html = markup()
+    expect(html).toContain('data-betting-state="open"')
+    expect(html).toContain('Betting open')
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('aria-label="Bet 1 gold on Player 1"')
+    expect(html.indexOf('spectator-bet-choices')).toBeLessThan(html.indexOf('<details'))
+  })
+
+  it('explains the timed duel window and its deadline instead of blaming the two survivors', () => {
+    const state = setup()
+    state.pawns[4].alive = false
+    state.betting.closeTick = state.tick + 3 * TICK_HZ
+    pushState(state)
+    expect(markup()).toContain('Closes in 3s')
+    expect(markup()).toContain('Betting open')
+    state.tick = state.betting.closeTick
+    pushState(state)
+    expect(markup()).toContain('Betting closed: the first 10 seconds are over')
+    expect(markup()).not.toContain('two warlocks left')
+    expect(markup()).not.toContain('aria-label="Bet 1 gold on')
+  })
+
+  it('distinguishes an unaffordable open window from a closed round', () => {
+    const state = setup()
+    state.scores[0].gold = 0
+    pushState(state)
+    expect(markup()).toContain('Not enough gold')
+    expect(markup()).toContain('You need 1 gold to bet')
+    state.phase = 'roundEnd'
+    pushState(state)
+    expect(markup()).toContain('Betting closed for this round')
+    expect(markup()).not.toContain('Not enough gold')
+  })
+
+  it('does not offer picks once the only living warlocks share one team', () => {
+    const state = setup()
+    state.settings.teamMode = 'teams'
+    state.slots[1].team = state.slots[2].team = state.slots[4].team = 1
+    pushState(state)
+    expect(markup()).toContain('Betting closed: only one team remains')
+    expect(markup()).not.toContain('aria-label="Bet 1 gold on')
+  })
+
   it('does not label a replacement occupant as the original locked pick', () => {
     const state = setup()
     placeSpectateBet(state, 0, 1, 1)

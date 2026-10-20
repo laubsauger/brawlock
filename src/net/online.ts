@@ -20,7 +20,8 @@
 import { PROTOCOL_VERSION } from './protocol'
 import type { HostEndpoint, NetFactory, Transport } from './transport'
 import type { RoomSummary } from './dedicated'
-import type { Period, PublicBoardRow, PublicProfileCoverage, PublicProfileDetail } from './leaderboard'
+import type { Period, PublicBoardRow, PublicProfileCoverage, PublicProfileDetail, HistoryQueue, MatchHistoryEntry } from './leaderboard'
+import { validMatchHistory } from './matchHistory'
 import type { ListingInfo } from './listings'
 import type { BotDifficulty } from '../sim/types'
 import type { RoomRoute } from './rejoin'
@@ -455,6 +456,19 @@ export class Online {
     const { found: _, ...profile } = body
     if (profile.publicId !== publicId) throw new ServerError('error', 'The server returned a different player profile.')
     return { ...profile, region: this.copy(this.st.get(r.id)!) }
+  }
+
+  /** Completed authoritative matches, including eligible departures and casual games. */
+  async matchHistory(regionId: string, identity: string, queue?: HistoryQueue, publicId = false): Promise<MatchHistoryEntry[]> {
+    if (publicId && !PUBLIC_ID.test(identity)) throw new ServerError('error', 'That public player ID is invalid.')
+    const r = await this.usable(regionId)
+    const params = new URLSearchParams({ limit: '10' })
+    if (queue) params.set('queue', queue)
+    const body = await this.read(r, `/${publicId ? 'profiles' : 'players'}/${encodeURIComponent(identity)}/history?${params}`)
+    if (!body || typeof body !== 'object' || !('matches' in body) || !validMatchHistory(body.matches)) {
+      throw new ServerError('error', 'The server returned invalid match history data.')
+    }
+    return body.matches
   }
 
   /** A configured region that is up (probed for routing), else ServerError. */

@@ -352,6 +352,9 @@ export function Lobby() {
           )}
         </div>
         <div className="flex gap-2">
+          {online && lobby.status === 'open' && <Button sound="back" onClick={() => useGame.getState().setScreen('menu')} title="Browse menus and stats while staying in this lobby" data-testid="lobby-browse-menu">
+            Menu
+          </Button>}
           <Button variant="danger" sound="back" onClick={leaveToMenu}>
             Leave lobby
           </Button>

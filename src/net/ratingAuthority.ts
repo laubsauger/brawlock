@@ -1,8 +1,9 @@
 /** One server-side rating authority. Regions submit finished simulations, never client scores. */
-import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore } from './leaderboard'
+import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue } from './leaderboard'
 import type { MatchRating } from './rating'
 import { PASSIVE_ITEMS, SPELL_IDS } from '../sim/spells/data'
 import type { PlayerMatchStats } from '../game/stats'
+import { validHistoryBuild } from './matchHistory'
 
 export interface RatingSubmission {
   key: string
@@ -11,6 +12,7 @@ export interface RatingSubmission {
   at: number
   minSeconds: number
   match: FinishedMatch
+  queue?: HistoryQueue
 }
 
 export interface RatingRead { status: number; body: unknown }
@@ -29,7 +31,7 @@ export interface RatingReceiptStore extends LeaderboardStore {
   rememberReceipt(key: string, fingerprint: string, rating: MatchRating): void
   commitReceipt(key: string, fingerprint: string, rating: MatchRating, ...args: Parameters<LeaderboardStore['commit']>): void
   /** Calculation reads and the write share the same lock, including across rolling processes. */
-  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']> }): MatchRating
+  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']>; history?: StoredMatchHistory }): MatchRating
 }
 
 const DEVICE = /^[A-Za-z0-9_-]{8,64}$/
@@ -70,27 +72,64 @@ function validStats(value: unknown, ticks: number): value is PlayerMatchStats {
 
 /** Strict bounded validation at the trusted-server boundary, before SQL or Elo work. */
 export function validRatingSubmission(v: unknown): v is RatingSubmission {
-  if (!object(v) || !only(v, ['key', 'region', 'room', 'at', 'minSeconds', 'match'])) return false
+  if (!object(v) || !only(v, ['key', 'region', 'room', 'at', 'minSeconds', 'match', 'queue'])) return false
   if (typeof v.key !== 'string' || !/^[A-Za-z0-9:_-]{8,128}$/.test(v.key)
     || typeof v.region !== 'string' || !/^[A-Za-z0-9_-]{0,32}$/.test(v.region)
     || typeof v.room !== 'string' || !/^[A-Z]{5}$/.test(v.room)
     || !integer(v.at, 9_000_000_000_000) || !integer(v.minSeconds, 3600)) return false
+  if (v.queue !== undefined && !['ranked', 'casual', 'custom'].includes(v.queue as string)) return false
   const m = v.match
-  if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked'])
+  if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked', 'roster', 'abandoned', 'combatPairs'])
     || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000) || !integer(m.bots, 10)
     || typeof m.teamMode !== 'string' || !['ffa', 'teams', 'shuffle'].includes(m.teamMode)
     || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch'].includes(m.gameMode)
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false
+  if (m.abandoned !== undefined && typeof m.abandoned !== 'boolean') return false
   const players = new Set<number>()
   for (const s of m.seats) {
-    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'stats'])
+    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'stats', 'forfeited', 'combatTicks', 'build'])
       || !integer(s.player, 9) || players.has(s.player as number)
       || typeof s.device !== 'string' || !DEVICE.test(s.device)
       || typeof s.name !== 'string' || s.name.length === 0 || s.name.length > 24 || /[\u0000-\u001f\u007f]/.test(s.name)
       || !integer(s.roundsPlayed, 10000) || !integer(s.roundsWon, s.roundsPlayed as number)
       || !integer(s.kills, 1_000_000) || !integer(s.deaths, 1_000_000) || typeof s.won !== 'boolean'
+      || (s.forfeited !== undefined && (typeof s.forfeited !== 'boolean' || (s.forfeited && s.won)))
+      || (s.combatTicks !== undefined && !integer(s.combatTicks, m.ticks as number))
+      || (s.build !== undefined && !validHistoryBuild(s.build))
       || (Object.hasOwn(s, 'stats') && !validStats(s.stats, m.ticks as number))) return false
     players.add(s.player as number)
+  }
+  if (m.combatPairs !== undefined) {
+    if (!Array.isArray(m.combatPairs) || m.combatPairs.length > 45) return false
+    const pairs = new Set<string>()
+    for (const pair of m.combatPairs) {
+      if (!object(pair) || !only(pair, ['players', 'ticks']) || !Array.isArray(pair.players) || pair.players.length !== 2
+        || !pair.players.every((p) => integer(p, 9) && players.has(p)) || pair.players[0] >= pair.players[1]
+        || !integer(pair.ticks, m.ticks as number)) return false
+      const key = pair.players.join(':')
+      if (pairs.has(key)) return false
+      pairs.add(key)
+    }
+  }
+  if (m.roster !== undefined) {
+    if (!Array.isArray(m.roster) || m.roster.length > 10) return false
+    const ids = new Set<number>()
+    for (const p of m.roster) {
+      if (!object(p) || !only(p, ['player', 'device', 'name', 'color', 'kind', 'team', 'score', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'forfeited', 'build'])
+        || !integer(p.player, 9) || ids.has(p.player as number) || typeof p.name !== 'string' || !p.name || p.name.length > 24 || /[\u0000-\u001f\u007f]/.test(p.name)
+        || (p.device !== undefined && (typeof p.device !== 'string' || !DEVICE.test(p.device)))
+        || (p.kind !== undefined && !['human', 'bot'].includes(p.kind as string))
+        || (p.color !== undefined && !integer(p.color, 0xffffff)) || (p.team !== undefined && !integer(p.team, 9))
+        || (p.score !== undefined && (typeof p.score !== 'number' || !Number.isFinite(p.score) || Math.abs(p.score) > 1_000_000))
+        || !integer(p.kills, 1_000_000) || !integer(p.deaths, 1_000_000) || typeof p.won !== 'boolean'
+        || (p.roundsPlayed !== undefined && !integer(p.roundsPlayed, 10000))
+        || (p.roundsWon !== undefined && !integer(p.roundsWon, 10000))
+        || (p.forfeited !== undefined && (typeof p.forfeited !== 'boolean' || (p.forfeited && p.won)))
+        || (p.build !== undefined && !validHistoryBuild(p.build))) return false
+      if (p.device !== undefined && !m.seats.some((s) => object(s) && s.player === p.player && s.device === p.device)) return false
+      ids.add(p.player as number)
+    }
+    if (m.seats.some((s) => object(s) && !ids.has(s.player as number))) return false
   }
   for (const r of m.ranked) {
     if (!object(r) || !only(r, ['groups', 'team']) || !Array.isArray(r.groups) || r.groups.length > 10 || !object(r.team)) return false
@@ -130,8 +169,16 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
       return store.applyReceipt(s.key, fingerprint, () => {
         const m = s.match
         const current = store.players(m.seats.map((p) => p.device))
-        const settled = settleMatch(m, current, s.at, s.region, Math.max(opts.minSeconds ?? LB_MIN_SECONDS, s.minSeconds))
-        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped } }
+        const history: StoredMatchHistory | undefined = s.queue === undefined ? undefined : {
+          queue: s.queue, at: s.at, region: s.region, room: s.room, ticks: m.ticks, rounds: m.rounds,
+          teamMode: m.teamMode, gameMode: m.gameMode,
+          players: m.roster ?? m.seats.map(({ stats: _stats, combatTicks: _ticks, ...seat }) => ({ ...seat, kind: 'human' as const })),
+        }
+        const settled = s.queue !== undefined && s.queue !== 'ranked'
+          ? { skipped: 'Casual and custom games do not affect global Elo.' }
+          : settleMatch(m, current, s.at, s.region, Math.max(opts.minSeconds ?? LB_MIN_SECONDS, s.minSeconds))
+        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped }, history }
+        if (history) history.deltas = Object.fromEntries(settled.results.map((r) => [r.device, { delta: r.delta, rating: r.rating }]))
         for (const player of settled.players) {
           const previous = current.get(player.device)
           if (!previous) continue
@@ -139,7 +186,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
           player.firstAt = Math.min(previous.firstAt, s.at)
           player.lastAt = Math.max(previous.lastAt, s.at)
         }
-        return { rating: { status: 'rated' }, commit: [
+        return { rating: { status: 'rated' }, history, commit: [
           { at: s.at, region: s.region, room: s.room, ticks: m.ticks, rounds: m.rounds, humans: m.seats.length, bots: m.bots }, settled.results, settled.players,
         ] }
       })
@@ -164,6 +211,16 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         })
       }
       const all: BoardQuery = { period: 'all', region: null, since: 0 }
+      if ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 3 && parts[2] === 'history') {
+        let id: string
+        try { id = decodeURIComponent(parts[1]) } catch { return { status: 400, body: { error: 'bad player id encoding' } } }
+        if (parts[0] === 'players' ? !DEVICE.test(id) : !PUBLIC_PLAYER_ID.test(id)) return { status: 400, body: { error: 'bad player id' } }
+        const queue = url.searchParams.get('queue')
+        const limit = Number(url.searchParams.get('limit') ?? '10')
+        if ((queue !== null && !['ranked', 'casual', 'custom'].includes(queue)) || !Number.isSafeInteger(limit) || limit < 1 || limit > 10) return { status: 400, body: { error: 'Invalid history filter or limit (1–10).' } }
+        const device = parts[0] === 'players' ? id : store.publicDevice(id)
+        return { status: 200, body: { matches: device ? store.history(device, { queue: queue === null ? undefined : queue as HistoryQueue, limit }) : [] } }
+      }
       if ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 2) {
         let id: string
         try { id = decodeURIComponent(parts[1]) }
@@ -181,7 +238,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
           coverage: { totalMatches: p.matches, detailedMatches: details?.detail.matches ?? 0,
             firstDetailedAt: details?.firstAt ?? null, lastDetailedAt: details?.lastAt ?? null },
           detail: details?.detail ?? null,
-          recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })) } }
+          recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, ...(x.forfeited === undefined ? {} : { forfeited: x.forfeited }), roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })) } }
       }
       if (url.pathname !== '/leaderboard') return { status: 404, body: { error: 'not found' } }
       const period = url.searchParams.get('period') ?? 'all'

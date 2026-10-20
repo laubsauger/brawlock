@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
-import { localRatingAuthority, type RatingSubmission } from './ratingAuthority'
+import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
+import { validMatchHistory } from './matchHistory'
+import { createMatch, DEFAULT_SETTINGS } from '../sim'
+import { MatchTracker } from '../game/stats'
 
 const first = 'a_account-first'
 const second = 'a_account-second'
@@ -77,5 +80,65 @@ describe('account-ranked canonical rating names', () => {
       expect(await authority.record(submission('account-name-unresolved', 1000))).toEqual({ status: 'rated' })
       await expect(authority.read('/leaderboard')).rejects.toThrow(/Missing canonical player name/)
     } finally { authority.close!() }
+  })
+})
+
+describe('authoritative casual and ranked match history', () => {
+  it('keeps casual-only history and equipment without changing Elo, then filters ranked results and deduplicates retries', async () => {
+    const store = openLeaderboard(':memory:')
+    const authority = localRatingAuthority(store, { minSeconds: 1 })
+    try {
+      const casual = { ...submission('history-casual-first', 1000), queue: 'casual' as const }
+      const slots = casual.match.seats.map((s) => ({ id: s.player, name: s.name, kind: 'human' as const, team: s.player, color: s.player + 1 }))
+      const state = createMatch(DEFAULT_SETTINGS, slots, 42)
+      const tracker = new MatchTracker({ localPlayer: 0, settings: DEFAULT_SETTINGS, slots })
+      tracker.observe(state, [])
+      casual.match.roster = casual.match.seats.map((s) => ({ ...s, kind: 'human', color: s.player + 1, team: s.player,
+        build: tracker.buildOf(s.player)! }))
+      expect(validRatingSubmission(casual)).toBe(true)
+      const build = casual.match.roster[0].build!
+      expect(validRatingSubmission({ ...casual, match: { ...casual.match, roster: casual.match.roster.map((p) => ({ ...p, build: { ...build, device: first } })) } })).toBe(false)
+      expect(validRatingSubmission({ ...casual, match: { ...casual.match, roster: casual.match.roster.map((p) => ({ ...p, build: { ...build, masteries: { ...build.masteries, profileId: first } } })) } })).toBe(false)
+      expect(await authority.record(casual)).toMatchObject({ status: 'unrated' })
+      expect(store.players([first, second]).size).toBe(0)
+      expect(await authority.record(casual)).toMatchObject({ status: 'unrated' })
+      const read = await authority.read(`/players/${first}/history?queue=casual`)
+      const matches = (read.body as { matches: unknown }).matches
+      expect(validMatchHistory(matches)).toBe(true)
+      expect(matches).toMatchObject([{ queue: 'casual', self: 0, outcome: 'win', delta: null,
+        players: [{ build: tracker.buildOf(0) }, { build: tracker.buildOf(1) }] }])
+      expect(JSON.stringify(read.body)).not.toMatch(/a_account|device|ABCDE|history-casual-first/)
+      expect((await authority.read(`/players/${first}/history?queue=ranked`)).body).toEqual({ matches: [] })
+
+      const ranked = { ...submission('history-ranked-next', 2000), queue: 'ranked' as const }
+      expect(await authority.record(ranked)).toEqual({ status: 'rated' })
+      expect(await authority.record(ranked)).toEqual({ status: 'rated' })
+      expect(store.history(first, { limit: 10 })).toHaveLength(2)
+      const row = store.top({ period: 'all', region: null, since: 0 }, 10).find((r) => r.device === first)!
+      const publicHistory = await authority.read(`/profiles/${row.publicId}/history?queue=casual`)
+      expect(publicHistory.body).toEqual(read.body)
+      expect(store.history(first, { queue: 'ranked', limit: 10 })[0]).toMatchObject({ outcome: 'win', delta: 20, rating: 1020 })
+      expect((await authority.read(`/players/${first}/history?limit=11`)).status).toBe(400)
+      expect((await authority.read(`/players/${first}/history?queue=offline`)).status).toBe(400)
+    } finally { authority.close!() }
+  })
+
+  it('rejects malformed new fields and private identities in public responses', () => {
+    const original = { ...submission('strict-history-record', 1000), queue: 'ranked' as const }
+    for (const match of [
+      { ...original.match, abandoned: 'true' },
+      { ...original.match, combatPairs: [{ players: [0, 0], ticks: 20 }] },
+      { ...original.match, combatPairs: [{ players: [0, 1], ticks: 121 }] },
+      { ...original.match, seats: original.match.seats.map((s) => ({ ...s, combatTicks: 121 })) },
+      { ...original.match, seats: original.match.seats.map((s) => ({ ...s, build: { slots: [], levels: [], masteries: {} } })) },
+      { ...original.match, seats: original.match.seats.map((s) => ({ ...s, forfeited: true })) },
+    ]) expect(validRatingSubmission({ ...original, match })).toBe(false)
+    const entry = { id: crypto.randomUUID(), queue: 'casual', at: 1000, region: 'eu', ticks: 120, rounds: 1,
+      teamMode: 'ffa', gameMode: 'rounds', self: 0, outcome: 'loss', delta: null, rating: null,
+      players: [{ player: 0, name: 'Ash', kills: 0, deaths: 1, won: false }] }
+    expect(validMatchHistory([entry])).toBe(true)
+    expect(validMatchHistory([{ ...entry, players: [{ ...entry.players[0], device: first }] }])).toBe(false)
+    expect(validMatchHistory([{ ...entry, outcome: 'win' }])).toBe(false)
+    expect(validMatchHistory([entry, entry])).toBe(false)
   })
 })

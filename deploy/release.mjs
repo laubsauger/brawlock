@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { releaseMetadata } from '../scripts/release-version.mjs'
+import { releaseMetadata, validateReleaseNotes } from '../scripts/release-version.mjs'
 import { releaseTag, tagReceipt } from './release-tags.mjs'
 
 const toolDir = dirname(fileURLToPath(import.meta.url))
@@ -195,11 +195,12 @@ export async function main(args = process.argv.slice(2)) {
   const repo = await command('git', ['rev-parse', '--show-toplevel'])
   const revision = await command('git', ['rev-parse', '--verify', `${opts.revision}^{commit}`], { cwd: repo })
   const release = releaseMetadata(JSON.parse(await command('git', ['show', `${revision}:package.json`], { cwd: repo })))
+  validateReleaseNotes(JSON.parse(await command('git', ['show', `${revision}:release-notes.json`], { cwd: repo })), release)
   const head = await command('git', ['rev-parse', 'HEAD'], { cwd: repo })
   const blockers = []
   if (revision !== head) blockers.push('The requested revision must be the current HEAD; no checkout/reset is performed')
   if (await command('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repo })) blockers.push('Tracked changes are present; review and commit them before a release')
-  const required = ['deploy/release.mjs', 'deploy/release.test.mjs', 'deploy/release-tags.mjs', 'scripts/release-version.mjs', 'deploy/release-remote.cjs', 'deploy/release.config.json', 'scripts/release/verify-fleet.mjs', 'deploy/deploy.sh', 'deploy/accounts.sh', 'deploy/web.sh', 'deploy/maintenance.sh']
+  const required = ['release-notes.json', 'deploy/release.mjs', 'deploy/release.test.mjs', 'deploy/release-tags.mjs', 'scripts/release-version.mjs', 'scripts/release-notes.test.mjs', 'deploy/release-remote.cjs', 'deploy/release.config.json', 'scripts/release/verify-fleet.mjs', 'deploy/deploy.sh', 'deploy/accounts.sh', 'deploy/web.sh', 'deploy/maintenance.sh']
   const tracked = (await command('git', ['ls-files', '--', ...required], { cwd: repo })).split('\n')
   if (required.some((file) => !tracked.includes(file))) blockers.push('The orchestrator and every deployment helper must already be committed in the approved revision')
   const remote = await command('git', ['remote', 'get-url', 'origin'], { cwd: repo })
@@ -320,7 +321,7 @@ export async function main(args = process.argv.slice(2)) {
       snapshot()
       workflowMatchesConfig(readFileSync(join(source, '.github/workflows/deploy.yml'), 'utf8'), config)
       await run('npm', ['ci'])
-      await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs'])
+      await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/release-notes.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs'])
       if (!state.skipTests) await run('npm', ['test', '--', '--maxWorkers=1'])
       await run('npm', ['run', 'typecheck'])
       await run('npm', ['run', 'build', '--', '--base=/'])

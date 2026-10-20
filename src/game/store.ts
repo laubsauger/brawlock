@@ -133,6 +133,8 @@ export interface LobbyView {
 }
 
 export interface MatchResult {
+  /** All humans departed; settle participation without awarding a match winner. */
+  abandoned?: boolean
   progression?: { matchId: string; status: 'pending' | 'awarded' | 'ineligible' | 'unavailable' }
   /** Authoritative global Elo verdict; absent on older saved results. */
   rating?: import('../net/rating').MatchRating

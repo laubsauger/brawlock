@@ -52,17 +52,22 @@ describe('bots: calibrated difficulty ladder', () => {
     expect(roundShare('hard', 'medium', 4)).toBeGreaterThanOrEqual(0.9)
   }, 20_000)
 
-  it('BOT_ELO matches the measured steps (Medium = 1000, 150-250 Elo per top step)', () => {
+  it('BOT_ELO describes the measured round shares, with Medium anchored at 1000', () => {
     expect(BOT_ELO.medium).toBe(1000)
     const tiers = ['easy', 'medium', 'hard', 'brutal', 'uber'] as const
     for (let i = 1; i < tiers.length; i++) expect(BOT_ELO[tiers[i]]).toBeGreaterThan(BOT_ELO[tiers[i - 1]])
-    for (const [hi, lo] of [
-      ['uber', 'brutal'],
-      ['brutal', 'hard'],
+    // Independent 200-match measurements, seeds 1–200, recorded in
+    // docs/research/bot-calibration-2026-10-20.json. Labels describe observed
+    // strength; the target 75% gaps above are a separate balancing objective.
+    for (const [hi, lo, wins, losses] of [
+      ['medium', 'easy', 1000, 23],
+      ['hard', 'medium', 1000, 24],
+      ['brutal', 'hard', 867, 556],
+      ['uber', 'brutal', 941, 380],
     ] as const) {
-      const p = expectedScore(BOT_ELO[hi], BOT_ELO[lo])
-      expect(p, `${hi} over ${lo}`).toBeGreaterThanOrEqual(0.7)
-      expect(p, `${hi} over ${lo}`).toBeLessThanOrEqual(0.8)
+      const predicted = expectedScore(BOT_ELO[hi], BOT_ELO[lo])
+      const measured = wins / (wins + losses)
+      expect(Math.abs(predicted - measured), `${hi} over ${lo}`).toBeLessThan(0.05)
     }
   })
 })

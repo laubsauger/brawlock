@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { addRecordedMatch, emptyTotals } from '../src/game/stats.ts'
+import { addRecordedMatch, cleanBuild, emptyTotals } from '../src/game/stats.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS matches (
@@ -40,6 +40,27 @@ CREATE TABLE IF NOT EXISTS player_public_ids (
 CREATE TABLE IF NOT EXISTS player_details (
   device TEXT PRIMARY KEY REFERENCES players(device), detail TEXT NOT NULL,
   first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS match_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  receipt_key TEXT UNIQUE NOT NULL, public_id TEXT UNIQUE NOT NULL,
+  at INTEGER NOT NULL, region TEXT NOT NULL, room TEXT NOT NULL,
+  queue TEXT NOT NULL CHECK(queue IN ('ranked', 'casual', 'custom')),
+  ticks INTEGER NOT NULL, rounds INTEGER NOT NULL,
+  team_mode TEXT NOT NULL, game_mode TEXT NOT NULL, roster TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS match_history_seats (
+  match_id INTEGER NOT NULL REFERENCES match_history(id), device TEXT NOT NULL,
+  player INTEGER NOT NULL, outcome TEXT NOT NULL CHECK(outcome IN ('win', 'loss', 'forfeit')),
+  delta REAL, rating REAL,
+  PRIMARY KEY(match_id, device)
+);
+CREATE INDEX IF NOT EXISTS match_history_device ON match_history_seats(device, match_id);
+CREATE INDEX IF NOT EXISTS match_history_at ON match_history(at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS ranked_result_flags (
+  match_id INTEGER NOT NULL, device TEXT NOT NULL, forfeited INTEGER NOT NULL CHECK(forfeited IN (0, 1)),
+  PRIMARY KEY(match_id, device),
+  FOREIGN KEY(match_id, device) REFERENCES results(match_id, device)
 );
 `
 
@@ -86,6 +107,7 @@ const result = (r) => ({
   deaths: r.deaths,
   delta: r.delta,
   rating: r.rating,
+  ...(r.forfeited === null || r.forfeited === undefined ? {} : { forfeited: r.forfeited === 1 }),
 })
 
 /** Open (or create) the store at `file` (':memory:' for tests). */
@@ -116,6 +138,11 @@ export function openLeaderboard(file) {
   const upDetails = db.prepare(`INSERT INTO player_details (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
       first_at = MIN(player_details.first_at, excluded.first_at), last_at = MAX(player_details.last_at, excluded.last_at)`)
+  const insResultFlags = db.prepare('INSERT INTO ranked_result_flags(match_id, device, forfeited) VALUES (?, ?, ?)')
+  const insHistory = db.prepare(`INSERT INTO match_history
+    (receipt_key, public_id, at, region, room, queue, ticks, rounds, team_mode, game_mode, roster)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  const insHistorySeat = db.prepare('INSERT INTO match_history_seats(match_id, device, player, outcome, delta, rating) VALUES (?, ?, ?, ?, ?, ?)')
 
   // Add opaque identities to legacy players without changing their results or
   // rating. Old binaries ignore these additive tables and keep working.
@@ -136,6 +163,7 @@ export function openLeaderboard(file) {
     const id = insMatch.run(m.at, m.region, m.room, m.ticks, m.rounds, m.humans, m.bots).lastInsertRowid
     for (const r of results) {
       insResult.run(id, r.device, r.name, r.at, r.region, r.won ? 1 : 0, r.roundsPlayed, r.roundsWon, r.kills, r.deaths, r.delta, r.rating)
+      if (r.forfeited !== undefined) insResultFlags.run(id, r.device, r.forfeited ? 1 : 0)
     }
     for (const p of players) {
       upPlayer.run(p.device, p.name, p.tag, p.rating, p.matches, p.wins, p.roundsPlayed, p.roundsWon, p.kills, p.deaths, p.firstAt, p.lastAt)
@@ -149,6 +177,30 @@ export function openLeaderboard(file) {
       // room token, device ID or client profile ID.
       addRecordedMatch(detail, r.stats, Math.round(m.ticks / 60), m.at, String(id))
       upDetails.run(r.device, JSON.stringify(detail), m.at, m.at)
+    }
+  }
+
+  // History is independent of ranked player totals: a casual-only account needs
+  // neither an Elo row nor a public leaderboard identity to retain its matches.
+  function writeHistory(key, h) {
+    const fields = ['player', 'name', 'color', 'kind', 'team', 'score', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'forfeited', 'build']
+    const roster = h.players.map((p) => {
+      const row = Object.fromEntries(fields.filter((field) => Object.hasOwn(p, field)).map((field) => [field, p[field]]))
+      if (p.build !== undefined) {
+        row.build = cleanBuild(p.build)
+        if (!row.build) throw new Error('Invalid recorded match build')
+      }
+      return row
+    })
+    const id = insHistory.run(key, randomUUID(), h.at, h.region, h.room, h.queue, h.ticks, h.rounds, h.teamMode, h.gameMode, JSON.stringify(roster)).lastInsertRowid
+    const identities = new Map()
+    for (const p of h.players) if (p.device !== undefined && p.kind !== 'bot') identities.set(p.device, (identities.get(p.device) ?? 0) + 1)
+    for (const p of h.players) {
+      // One browser controlling multiple seats has no unambiguous personal
+      // outcome. Exclude every association for that identity, as Elo does.
+      if (p.device === undefined || p.kind === 'bot' || identities.get(p.device) !== 1) continue
+      const delta = h.deltas?.[p.device]
+      insHistorySeat.run(id, p.device, p.player, p.forfeited ? 'forfeit' : p.won ? 'win' : 'loss', delta?.delta ?? null, delta?.rating ?? null)
     }
   }
 
@@ -225,6 +277,7 @@ export function openLeaderboard(file) {
         }
         const settled = calculate()
         if (settled.commit) writeMatch(...settled.commit)
+        if (settled.history) writeHistory(key, settled.history)
         insReceipt.run(key, fingerprint, JSON.stringify(settled.rating))
         db.exec('COMMIT')
         return settled.rating
@@ -247,7 +300,22 @@ export function openLeaderboard(file) {
     },
 
     recent(device, limit) {
-      return stmt('SELECT * FROM results WHERE device = ? ORDER BY at DESC, match_id DESC LIMIT ?').all(device, limit).map(result)
+      return stmt(`SELECT r.*, f.forfeited FROM results r
+        LEFT JOIN ranked_result_flags f ON f.match_id = r.match_id AND f.device = r.device
+        WHERE r.device = ? ORDER BY r.at DESC, r.match_id DESC LIMIT ?`).all(device, limit).map(result)
+    },
+
+    history(device, { queue, limit }) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid match history limit')
+      if (queue !== undefined && !['ranked', 'casual', 'custom'].includes(queue)) throw new Error('Invalid match history queue')
+      return stmt(`SELECT h.*, s.player, s.outcome, s.delta, s.rating
+        FROM match_history_seats s JOIN match_history h ON h.id = s.match_id
+        WHERE s.device = ? ${queue === undefined ? '' : 'AND h.queue = ?'}
+        ORDER BY h.at DESC, h.id DESC LIMIT ?`)
+        .all(device, ...(queue === undefined ? [] : [queue]), limit)
+        .map((r) => ({ id: r.public_id, at: r.at, region: r.region, queue: r.queue, ticks: r.ticks, rounds: r.rounds,
+          teamMode: r.team_mode, gameMode: r.game_mode, self: r.player, outcome: r.outcome,
+          delta: r.delta, rating: r.rating, players: JSON.parse(r.roster) }))
     },
 
     ratingChanges(devices, since, until) {

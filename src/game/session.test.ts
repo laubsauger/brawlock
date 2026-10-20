@@ -131,6 +131,28 @@ afterEach(async () => {
 })
 
 describe('browser session listing and reconnect wiring', () => {
+  it('keeps the authoritative lobby and public listing while browsing the menu, then follows the actual match start', async () => {
+    await session.openHost()
+    session.setPublic(true)
+    await vi.advanceTimersByTimeAsync(0)
+    const dials = f.impl.openHost.mock.calls.length
+    const leaves = f.impl.leave.mock.calls.length
+    useGame.getState().setScreen('menu')
+    expect(f.deps!.ui.screen()).toBe('lobby')
+    expect(session.roomPhase()).toBe('lobby')
+    await vi.advanceTimersByTimeAsync(11000)
+    const listing = [...f.requests].reverse().find((r) => r.url.endsWith('/listings/listing-id') && r.method === 'PUT')
+    expect(JSON.parse(listing!.body!)).toMatchObject({ code: 'ABCDE', phase: 'lobby' })
+    expect(f.impl.leave).toHaveBeenCalledTimes(leaves)
+    expect(session.resume()).toBe(true)
+    expect(useGame.getState().screen).toBe('lobby')
+    expect(f.impl.openHost).toHaveBeenCalledTimes(dials)
+    useGame.getState().setScreen('menu')
+    f.deps!.ui.setScreen('match')
+    expect(useGame.getState().screen).toBe('match')
+    expect(session.roomPhase()).toBe('match')
+  })
+
   it('waits for a current-build check before reserving any seat or acquiring play permission', async () => {
     const check = deferred<void>()
     version.check.mockReturnValue(check.promise)
@@ -402,7 +424,7 @@ describe('browser session listing and reconnect wiring', () => {
     const post = f.requests.find((r) => r.url.endsWith('/listings') && r.method === 'POST')!
     expect(JSON.parse(post.body!)).toMatchObject({ code: 'ABCDE', humans: 1, bots: 9, joinable: 9, phase: 'lobby' })
     expect(session.transport()).toBe('p2p')
-    useGame.getState().setScreen('match')
+    f.deps!.ui.setScreen('match')
     await vi.advanceTimersByTimeAsync(2100)
     const beat = [...f.requests].reverse().find((r) => r.url.endsWith('/listings/listing-id') && r.method === 'PUT')!
     expect(JSON.parse(beat.body!)).toMatchObject({ code: 'ABCDE', bots: 9, phase: 'match', joinable: 9 })
@@ -414,7 +436,7 @@ describe('browser session listing and reconnect wiring', () => {
     await session.openHost()
     session.setPublic(true)
     await vi.advanceTimersByTimeAsync(0)
-    useGame.getState().setScreen('match')
+    f.deps!.ui.setScreen('match')
     const state = createMatch(DEFAULT_SETTINGS, useGame.getState().lobby.slots, 1)
     state.round = 2; state.phase = 'fight'; state.tick = 62 * TICK_HZ
     f.deps!.frame.pushState(state, performance.now())
@@ -431,7 +453,7 @@ describe('browser session listing and reconnect wiring', () => {
     f.deps!.frame.pushState({ ...state, phase: 'shop', tick: 70 * TICK_HZ }, performance.now())
     await vi.advanceTimersByTimeAsync(2100)
     expect(JSON.parse(beats().at(-1)!.body!).progress.elapsedSeconds).toBe(70)
-    useGame.getState().setScreen('lobby')
+    f.deps!.ui.setScreen('lobby')
     await vi.advanceTimersByTimeAsync(2100)
     expect(JSON.parse(beats().at(-1)!.body!)).toMatchObject({ phase: 'lobby', progress: null })
   })

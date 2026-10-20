@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { bountyOf, canSpectateBet, claimBounty, deliverBettingCredits, placeSpectateBet, settleSpectateBets } from './bets'
+import { bountyOf, canSpectateBet, claimBounty, deliverBettingCredits, placeSpectateBet, settleSpectateBets, spectateBetWindow } from './bets'
 import { killPawn } from './combat'
 import { cloneState, hashState, step } from './index'
 import { roundWon, startRound } from './mode'
@@ -22,6 +22,21 @@ function wealth(state: SimState): number {
 }
 
 describe('authoritative spectator wagers', () => {
+  test('shares exact close reasons with the HUD, including timed two-player finals', () => {
+    const s = setup()
+    expect(spectateBetWindow(s)).toBe('open')
+    pawn(s, 6).alive = false
+    expect(spectateBetWindow(s)).toBe('twoLeft')
+    s.betting.closeTick = s.tick + 10
+    expect(spectateBetWindow(s)).toBe('open')
+    expect(canSpectateBet(s, 0, 4)).toBe(true)
+    s.tick = s.betting.closeTick
+    expect(spectateBetWindow(s)).toBe('timedOut')
+    expect(placeSpectateBet(s, 0, s.round, 4)).toBe(false)
+    s.phase = 'roundEnd'
+    expect(spectateBetWindow(s)).toBe('roundEnded')
+  })
+
   test('one immutable 1-gold bet, bound to the current round and a living connected target', () => {
     const s = setup()
     expect(canSpectateBet(s, 0)).toBe(true)
