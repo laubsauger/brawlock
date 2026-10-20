@@ -90,6 +90,8 @@ export class PawnView {
   maxHp = 1
   owner = -1
   name = ''
+  /** a bot plays this seat (a bot slot, or a human seat a bot took over): plate shows the bot mark */
+  bot = false
   color = new THREE.Color()
   onLava = false
   kbPoints = 0

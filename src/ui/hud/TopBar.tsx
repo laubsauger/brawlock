@@ -146,6 +146,8 @@ interface StripPlayer {
   /** shape next to the name (colourblind palette only) */
   glyph: string
   team: number
+  /** a bot plays this seat (a bot slot, or a human seat a bot took over) */
+  bot: boolean
 }
 
 /** In team modes every player wears the team colour (same as the banners and the arena), in FFA their own. */
@@ -156,7 +158,8 @@ function readPlayers(): StripPlayer[] {
   const cb = colorblindPalette()
   return [...s.slots]
     .sort((a: PlayerSlot, b: PlayerSlot) => a.team - b.team || a.id - b.id)
-    .map((p) => ({ id: p.id, name: p.name, color: playerColor(p, mode), glyph: playerGlyph(p, mode, cb), team: p.team }))
+    .map((p) => ({ id: p.id, name: p.name, color: playerColor(p, mode), glyph: playerGlyph(p, mode, cb), team: p.team,
+      bot: p.kind === 'bot' || s.scores.find((x) => x.id === p.id)?.connected === false }))
 }
 
 /** Live score + alive state for one player, written from the shared rAF. */
@@ -207,6 +210,7 @@ function ScorePill({ p, local, density = 'normal', inGroup = false }: { p: Strip
       <span className={`shrink-0 rounded-sm ${d.bar}`} style={{ background: p.color, boxShadow: `0 0 8px ${p.color}` }} aria-hidden />
       <span className={`truncate font-semibold ${d.name}`}>
         {p.glyph && <span className="mr-1" style={{ color: p.color }} aria-hidden>{p.glyph}</span>}
+        {p.bot && <span className="bot-mark mr-1" title="Bot" aria-label="Bot" />}
         {p.name}
       </span>
       <span ref={score} className={`tabular inline-block font-bold text-gold ${d.score}`}>
@@ -230,6 +234,7 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
       <span className={`flex min-w-[8rem] max-w-[13rem] flex-col justify-center px-2.5 ${side === 'right' ? 'items-end text-right' : ''}`}>
         <span className="hud-text-shadow truncate text-[0.95rem] leading-tight font-bold">
           {p.glyph && <span className="mr-1" aria-hidden>{p.glyph}</span>}
+          {p.bot && <span className="bot-mark mr-1" title="Bot" aria-label="Bot" />}
           {p.name}
         </span>
         {local && <span className="text-[0.68rem] leading-none font-semibold text-gold">You</span>}
@@ -241,7 +246,7 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
   )
 }
 
-const playersKey = (ps: StripPlayer[]) => ps.map((p) => `${p.id}:${p.name}:${p.color}:${p.glyph}:${p.team}`).join('|')
+const playersKey = (ps: StripPlayer[]) => ps.map((p) => `${p.id}:${p.name}:${p.color}:${p.glyph}:${p.team}:${p.bot}`).join('|')
 
 /** Players grouped by team, in team order (readPlayers already sorts by team). */
 function teamsOf(ps: StripPlayer[]): [number, StripPlayer[]][] {

@@ -284,7 +284,7 @@ export class MatchWorld {
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     this.locator = opts.mode === 'match' && opts.overlayParent ? new PawnLocator(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
-      this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', color: 0, nameColor: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
+      this.plates.push({ id: -1, x: 0, y: 0, h: 0, name: '', bot: false, color: 0, nameColor: 0, hp: 0, maxHp: 1, kbPoints: 0, visible: false, local: false })
     }
     postState.sdf = ctx.field.texture
     postState.hurt = 0
@@ -767,6 +767,7 @@ export class MatchWorld {
         pl.y = v.y
         pl.h = v.h + 190
         pl.name = v.name
+        pl.bot = v.bot
         pl.color = v.color.getHex()
         pl.nameColor = v.nameColor
         pl.hp = v.hp
@@ -1836,6 +1837,7 @@ export class MatchWorld {
       }
       // team identity (Shuffle re-teams every round): ring, trims, plate fill
       v.name = this.slotOf(curr, p.owner)?.name ?? ''
+      v.bot = this.slotOf(curr, p.owner)?.kind === 'bot' || curr.scores.find((s) => s.id === p.owner)?.connected === false
       v.setIdentity(colorForPawn(curr, p.owner), slotColorOf(curr, p.owner))
       v.setCosmetics(this.slotOf(curr, p.owner)?.cosmetics)
       v.combat = curr.phase === 'fight'

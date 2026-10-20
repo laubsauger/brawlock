@@ -56,9 +56,9 @@ const PLATE_MAX_PUSH = 2 * 33
 /** ease time constant for the stacking offset: ~95 % of the way in 120 ms, no jitter when the order flips */
 const PLATE_EASE_TAU = 0.04
 
-function plateWidth(name: string, local: boolean, kills: number): number {
+function plateWidth(name: string, local: boolean, kills: number, bot: boolean): number {
   const pips = kills === 0 ? 0 : kills <= 3 ? kills * 9 + kills - 1 : 11 + String(kills).length * 6
-  return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5) + (pips ? pips + 4 : 0)) + PLATE_PAD_X
+  return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5) + (pips ? pips + 4 : 0) + (bot ? 14 : 0)) + PLATE_PAD_X
 }
 
 export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb'
@@ -105,6 +105,8 @@ interface Plate {
   stampDim: boolean
   lastPips: number
   lastName: string
+  botMark: HTMLSpanElement
+  lastBot: boolean
   lastColor: number
   lastNameColor: number
   lastHp: number
@@ -139,6 +141,8 @@ export interface PlateInput {
   y: number
   h: number
   name: string
+  /** a bot plays this seat: the name gets the bot mark */
+  bot: boolean
   /** identity (team) colour: HP fill */
   color: number
   /** slot colour: name text */
@@ -283,14 +287,18 @@ export class WorldOverlay {
       stamp.append(stampName, stampCount)
       stampWrap.appendChild(stamp)
       const pips = div('bl-pips')
-      nameRow.append(pips, name)
+      const botMark = document.createElement('span')
+      botMark.className = 'bot-mark'
+      botMark.title = 'Bot'
+      botMark.style.display = 'none'
+      nameRow.append(pips, botMark, name)
       const bounty = div('bl-bounty')
       bounty.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#d59a31" stroke="#ffe2a0"/><path d="M6 3v6" stroke="#fff0be"/></svg>'
       const bountyText = document.createElement('span')
       bounty.append(bountyText)
       el.append(stampWrap, nameRow, bar, kb, bounty)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, stampDim: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, botMark, lastBot: false, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, stampDim: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -429,7 +437,7 @@ export class WorldOverlay {
       const owner = state?.pawns.find((p) => p.id === inp.id)?.owner
       const bounty = state?.settings.bounties && owner !== undefined ? bountyOf(state, owner) : 0
       this.pBounty[i] = bounty
-      this.pW[i] = plateWidth(inp.name, inp.local, this.kills.pipsOf(inp.id)) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
+      this.pW[i] = plateWidth(inp.name, inp.local, this.kills.pipsOf(inp.id), inp.bot) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
       this.pExtra[i] = this.kills.stampOf(inp.id, now) ? STAMP_H : 0
     }
     // 2. de-collide: stack overlapping plates upwards
@@ -487,6 +495,10 @@ export class WorldOverlay {
       if (p.lastName !== inp.name) {
         p.name.textContent = inp.name
         p.lastName = inp.name
+      }
+      if (p.lastBot !== inp.bot) {
+        p.botMark.style.display = inp.bot ? '' : 'none'
+        p.lastBot = inp.bot
       }
       if (p.lastNameColor !== inp.nameColor) {
         p.name.style.color = `#${inp.nameColor.toString(16).padStart(6, '0')}`
