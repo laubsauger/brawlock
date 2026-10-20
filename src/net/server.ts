@@ -1,4 +1,3 @@
-import { summarizeLinks } from './monitoring'
 /**
  * Dedicated server core (M4.1, docs/M4.md §11): room registry, HTTP API, WebSocket
  * admission, rate limits and structured logs. Transport-agnostic and typed:
@@ -179,7 +178,6 @@ export interface ServerCore {
   sweep(): void
   close(): void
   stats(): { rooms: number; players: number; connections: number }
-  monitoring(): { rooms: { mode: string; phase: string; round: number | null; humans: number; bots: number }[]; links: ReturnType<typeof summarizeLinks> }
   maintenance(): MaintenanceStatus
   setMaintenance(state: MaintenanceState): MaintenanceStatus
 }
@@ -816,14 +814,6 @@ export function createServerCore(
 
     stats() {
       return { rooms: rooms.size, players: players(), connections }
-    },
-    monitoring() {
-      const all = [...rooms.values()].map((entry) => entry.room)
-      return { rooms: all.map((room) => {
-        const summary = room.summary()
-        return { mode: summary.ranked ? 'ranked' : summary.quick ? 'casual' : 'custom', phase: summary.phase,
-          round: summary.progress?.round ?? null, humans: summary.humans, bots: summary.bots }
-      }), links: summarizeLinks(all.map((room) => room.netStats())) }
     },
     maintenance() {
       const activeMatches = [...rooms.values()].filter((entry) => entry.room.screen() === 'match').length
