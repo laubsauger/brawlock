@@ -1398,8 +1398,13 @@ export function getMatchHistory(limit = 20, kv: KV | null = safeLocalStorage()):
 }
 
 /** Every profile this browser has seen, by local rating. `selfProfileId` marks the local row. */
+/**
+ * Players rated on this device, best first. Bots are left out: every bot of a difficulty shares
+ * one identity (`bot:brutal`), so a row would merge many opponents, and a ladder is for people.
+ */
 export function getLocalLeaderboard(selfProfileId?: string, kv: KV | null = safeLocalStorage()): RatingRow[] {
   return Object.values(loadDb(kv).ratings)
+    .filter((r) => r.kind !== 'bot')
     .map((r) => ({ ...r, self: r.profileId === selfProfileId }))
     .sort((a, b) => b.rating - a.rating)
 }

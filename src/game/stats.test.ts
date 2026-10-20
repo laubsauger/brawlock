@@ -264,6 +264,14 @@ describe('local stats', () => {
     expect(loaded.every((r) => r.id === record.id && r.outcome === 'win')).toBe(true)
   })
 
+  it('the device leaderboard lists people only: bots of a difficulty share one identity', () => {
+    const kv = memKV()
+    const me = slot(0, 'Me', ME)
+    const bot = (id: number): PlayerSlot => ({ id, name: `Bot ${id}`, color: 0x00ff00, team: id, kind: 'bot', difficulty: 'brutal' })
+    recordMatch(playMatch([me, bot(1), bot(2)], [0], [score(0, 3, 2, 0), score(1, 0, 0, 1), score(2, 0, 0, 1)], [[0, 1], [0, 2]], [], 1000), ME, kv)
+    expect(getLocalLeaderboard(ME, kv).map((r) => r.kind)).toEqual(['human'])
+  })
+
   it('keeps names as labels: renames preserve totals, equal names remain distinct, and history stays historical', () => {
     const kv = memKV()
     const me = slot(0, 'Same name', ME)

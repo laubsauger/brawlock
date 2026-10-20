@@ -626,7 +626,6 @@ function LocalBoard() {
                     <span className="h-3 w-3 rotate-45 rounded-[2px]" style={{ background: hex(r.color) }} aria-hidden />
                     <button type="button" className="rounded text-left font-semibold underline-offset-2 hover:text-gold hover:underline focus-visible:outline-2 focus-visible:outline-gold" aria-label={`View recorded stats for ${r.name}`} onClick={() => setSelected(r)}>{r.name}</button>
                     {r.self && <span className="chip text-gold">You</span>}
-                    {r.kind === 'bot' && <span className="chip">Bot</span>}
                   </span>
                 </td>
                 <td className="py-2 text-right text-[1.12rem] font-bold text-gold">{Math.round(r.rating)}</td>
