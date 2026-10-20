@@ -79,6 +79,7 @@ export const AUDIO_CREDITS: readonly AudioCredit[] = [
   { title: 'Male Grunt 5 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621357' },
   { title: 'Male Grunt 7 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621353' },
   { title: 'Male Grunt 3 - WITHOUT reverb', creator: 'WelvynZPorterSamples', license: 'CC0', url: 'https://freesound.org/people/WelvynZPorterSamples/sounds/621355' },
+  { title: 'Wilhelm Scream (from the original recording session)', creator: 'qubodup', license: 'CC0', url: 'https://freesound.org/people/qubodup/sounds/813308' },
 ]
 
 export const AUDIO_ASSETS = {
@@ -161,6 +162,7 @@ export const AUDIO_ASSETS = {
   death_grunt_a: { loop: false, duration: 0.457, credit: 53 },
   death_grunt_b: { loop: false, duration: 0.406, credit: 54 },
   death_grunt_c: { loop: false, duration: 0.406, credit: 55 },
+  death_wilhelm: { loop: false, duration: 1.756, credit: 56 },
   'announcer/maverick_round_one': { loop: false, duration: 1.456, credit: 45 },
   'announcer/maverick_round_two': { loop: false, duration: 1.333, credit: 45 },
   'announcer/maverick_round_three': { loop: false, duration: 1.237, credit: 45 },

@@ -614,6 +614,7 @@ export class AudioEngine {
     if (hyb) {
       for (const layer of hyb.layers) {
         if (layer.minParam !== undefined && (c.param ?? 0) < layer.minParam) continue
+        if (layer.maxParam !== undefined && (c.param ?? 0) >= layer.maxParam) continue
         const pick = this.samples.pick(layer.assets)
         if (pick) layers.push({ layer, buffer: pick.buffer, loopEnd: AUDIO_ASSETS[pick.id].duration })
       }

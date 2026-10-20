@@ -125,8 +125,21 @@ const projectileSounds = (kind: string): ProjectileSounds => PROJECTILE_SOUNDS[k
  */
 export interface CueMemory {
   projectiles: Map<EntityId, string>
+  /** the Wilhelm scream already played this match (cleared at game over) */
+  wilhelmUsed: boolean
+  /** 0..1 roll for rare cue variants (tests pass a fixed one) */
+  rng: () => number
 }
-export const newCueMemory = (): CueMemory => ({ projectiles: new Map() })
+export const newCueMemory = (rng: () => number = Math.random): CueMemory => ({ projectiles: new Map(), wilhelmUsed: false, rng })
+
+/**
+ * Chance that a credited knock-into-the-lava screams the Wilhelm scream instead of a death cry:
+ * an homage, so it stays rare (at most once per match per listener).
+ */
+export const WILHELM_CHANCE = 1 / 25
+
+/** death cue param that swaps the death cry for the Wilhelm scream (hybrid `death` layers) */
+export const WILHELM_PARAM = 1
 
 /** Exaggerated "speed of sound" (units/s) so a passing fireball audibly swoops. */
 const DOPPLER_C = 5000
@@ -343,9 +356,14 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const p = c.pawnPos(e.pawn)
     const sp = e.x !== undefined && e.y !== undefined ? c.at(e.x, e.y) : p ? c.at(p.x, p.y) : CENTRE
     if (e.cause === 'disconnect') return [cue('fade', sp, 0.6, { stopKey: windupKey(e.pawn) })]
+    let param: number | undefined
+    if (e.cause === 'lava' && e.killer !== null && !c.memory.wilhelmUsed && c.memory.rng() < WILHELM_CHANCE) {
+      c.memory.wilhelmUsed = true
+      param = WILHELM_PARAM
+    }
     // Your own knockout stays centered and distinct even when the camera is panned away.
-    if (e.owner === c.listener.localPlayer) return [cue('death', CENTRE, 1.15, { stopKey: windupKey(e.pawn) })]
-    const out = [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn) })]
+    if (e.owner === c.listener.localPlayer) return [cue('death', CENTRE, 1.15, { stopKey: windupKey(e.pawn), param })]
+    const out = [cue('death', { pan: sp.pan, gain: Math.max(0.6, sp.gain) }, 1, { stopKey: windupKey(e.pawn), param })]
     // A credited kill is a personal reward, independent of distance or the spectator camera.
     const local = c.listener.localPlayer
     if (local !== undefined && local >= 0 && e.killer === local) out.push(cue('killConfirm', CENTRE))
@@ -415,7 +433,10 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),
   roundWin: (e) => [cue('roundWin', CENTRE, 0.9, { param: e.team < 0 ? 0 : 1 })],
-  gameOver: () => [cue('gameOver', CENTRE)],
+  gameOver: (_e, c) => {
+    c.memory.wilhelmUsed = false
+    return [cue('gameOver', CENTRE)]
+  },
 }
 
 /** Sound cues for one tick's events, placed relative to the listener. */

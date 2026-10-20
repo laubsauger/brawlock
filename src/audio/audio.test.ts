@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SimEvent } from '../sim/types'
 import { audio } from './index'
 import { AudioEngine, VOICES, busGains } from './engine'
-import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
+import { HANDLED_EVENTS, IGNORED_EVENTS, PROJECTILE_SOUNDS, SPELL_SOUNDS, WILHELM_CHANCE, WILHELM_PARAM, flightPath, kbIntensity, newCueMemory, planEvents, spatial } from './events'
 import { PROJECTILE_BEHAVIORS, SPELL_BEHAVIORS } from '../sim/spells'
 import { MusicLayer } from './music'
 import { announcements, matchAnnouncer } from '../game/announcer'
@@ -282,6 +282,29 @@ describe('audio: event mapping', () => {
     const bolt = { ...orbState, state: { ...orbState.state, projectiles: [{ ...orbState.state.projectiles[0], id: 34, kind: undefined, vx: 700 }] } }
     planEvents([{ type: 'projectileSpawn', id: 34, spell: 'drain' }], bolt, memory)
     expect(planEvents([{ type: 'projectileHit', id: 34, spell: 'drain', x: 300, y: 0, target: 2 }], bolt, memory)[0].id).toBe('drainHit')
+  })
+
+  it('the Wilhelm scream is a rare homage: credited lava knockouts only, once per match', () => {
+    const death = (cause: string, killer: number | null): SimEvent => ({ type: 'death', pawn: 2, owner: 1, killer, cause, x: 0, y: 0 })
+    const scream = (cues: ReturnType<typeof planEvents>) => cues.find((c) => c.id === 'death')?.param === WILHELM_PARAM
+    // a lucky roll is not enough without being knocked in: falling in alone or a spell kill stays a death cry
+    const lucky = newCueMemory(() => 0)
+    expect(scream(planEvents([death('lava', null)], LISTENER, lucky))).toBe(false)
+    expect(scream(planEvents([death('fireball', 0)], LISTENER, lucky))).toBe(false)
+    // knocked into the lava on a lucky roll: the scream, then never again this match
+    expect(scream(planEvents([death('lava', 0)], LISTENER, lucky))).toBe(true)
+    expect(scream(planEvents([death('lava', 0)], LISTENER, lucky))).toBe(false)
+    // the next match may scream again
+    planEvents([{ type: 'gameOver', winners: [0] }], LISTENER, lucky)
+    expect(scream(planEvents([death('lava', 0)], LISTENER, lucky))).toBe(true)
+    // an ordinary roll keeps the normal cries
+    expect(scream(planEvents([death('lava', 0)], LISTENER, newCueMemory(() => WILHELM_CHANCE)))).toBe(false)
+    // the hybrid death swaps the cry for the scream instead of layering both
+    const layers = HYBRID.death!.layers
+    const heard = (param: number) => layers.filter((l) => (l.minParam === undefined || param >= l.minParam) && (l.maxParam === undefined || param < l.maxParam)).flatMap((l) => l.assets)
+    expect(heard(WILHELM_PARAM)).toContain('death_wilhelm')
+    expect(heard(WILHELM_PARAM)).not.toContain('death_cry_a')
+    expect(heard(0)).not.toContain('death_wilhelm')
   })
 
   it('Lightning detonating a Fireball is one big electric blast, not two explosions', () => {

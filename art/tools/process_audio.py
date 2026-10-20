@@ -64,6 +64,8 @@ PLAN = {
   'death_grunt_a':('62fda412', 0.325, 0.45, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
   'death_grunt_b':('1be3ef8d', 0.315, 0.4, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
   'death_grunt_c':('758b5863', 0.345, 0.4, 'shot', 'highpass=f=70,lowpass=f=6500,afade=t=in:d=0.003', (-1, 0.08)),
+  # rare homage: the Wilhelm scream, from its original recording session (CC0, qubodup cut)
+  'death_wilhelm':('70a3c202', 0.0, 1.75, 'shot', 'highpass=f=70,lowpass=f=6500', (-1, 0.25)),
 }
 # ONLY=name,name encodes just those (new assets without re-encoding the rest)
 if os.environ.get('ONLY'):

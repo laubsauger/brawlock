@@ -27,6 +27,8 @@ export interface SampleLayer {
   loop?: boolean
   /** only when the voice param is at least this (e.g. knockback intensity) */
   minParam?: number
+  /** only when the voice param is below this */
+  maxParam?: number
 }
 
 export interface HybridDef {
@@ -142,8 +144,10 @@ export const HYBRID: Partial<Record<SfxId, HybridDef>> = {
   death: {
     layers: [
       // the warlock's death cry leads (one of seven, slightly varied in pitch); the body
-      // impact and burn sit under it
-      { assets: ['death_cry_a', 'death_cry_b', 'death_cry_c', 'death_cry_d', 'death_grunt_a', 'death_grunt_b', 'death_grunt_c'], gain: 1.15, rate: [0.94, 1.06] },
+      // impact and burn sit under it. A rare lava knockout screams the Wilhelm scream instead
+      // (param WILHELM_PARAM, chosen in events.ts), unpitched so it stays recognisable.
+      { assets: ['death_cry_a', 'death_cry_b', 'death_cry_c', 'death_cry_d', 'death_grunt_a', 'death_grunt_b', 'death_grunt_c'], gain: 1.15, rate: [0.94, 1.06], maxParam: 1 },
+      { assets: ['death_wilhelm'], gain: 1.15, minParam: 1 },
       { assets: ['thud_a'], gain: 0.9, rate: [0.75, 0.85] },
       { assets: ['fire_burst'], gain: 0.32, rate: [0.7, 0.8], at: 0.05 },
       { assets: ['coal_crackle'], gain: 0.3, slice: [0.6, 0.8], at: 0.15 },
