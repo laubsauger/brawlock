@@ -9,13 +9,17 @@ import { Skull } from './Announce'
 import { deathNextStep, deathRecap } from './deathRecap'
 import { SpectatorBets } from './SpectatorBets'
 
+/** the knockout card holds the centre this long, then docks top-left (betting slides right) */
+const DOCK_MS = 3000
+
 /** A confirmed local knockout gets its own readable beat, separate from round banners. */
 export function DeathFeedback() {
   const panel = useRef<HTMLDivElement>(null)
   const recap = useRef<HTMLParagraphElement>(null)
   const next = useRef<HTMLParagraphElement>(null)
   const edge = useRef<HTMLDivElement>(null)
-  const memory = useRef({ tick: -1, local: frame.localPlayer, shown: false, animations: [] as Animation[] })
+  const memory = useRef({ tick: -1, local: frame.localPlayer, shown: false, at: 0, docked: false, animations: [] as Animation[] })
+  const place = useRef<() => void>(() => {})
 
   useEffect(() => {
     // A remount must not replay old deaths or their impact pulse.
@@ -30,8 +34,13 @@ export function DeathFeedback() {
     const position = () => {
       const shortLandscape = window.innerWidth >= 640 && window.innerHeight <= 520
       const preferred = shortLandscape ? 64 : window.innerWidth >= 640 ? 124 : 88
-      container.style.top = `${Math.ceil(Math.max(preferred, strip.getBoundingClientRect().bottom + 10))}px`
+      const below = Math.ceil(Math.max(preferred, strip.getBoundingClientRect().bottom + 10))
+      // docked: the top-left corner, unless wrapping score pills reach into it
+      const docked = memory.current.docked && window.innerWidth >= 640
+      const pills = strip.querySelector('.hud-top')?.getBoundingClientRect()
+      container.style.top = `${docked && pills && pills.left > 340 ? 12 : below}px`
     }
+    place.current = position
     position()
     // Wrapping score pills and UI scaling can change the strip's height independently
     // of the viewport. Measure only those layout changes, never every game frame.
@@ -69,6 +78,8 @@ export function DeathFeedback() {
         const killer = e.killer !== null && e.killer !== local ? slotName(state, e.killer) : null
         recap.current.textContent = deathRecap(e, killer)
         m.shown = true
+        m.at = performance.now()
+        dock(false)
         m.animations.forEach((a) => a.cancel())
         m.animations = []
         if (!reducedMotion()) {
@@ -87,6 +98,7 @@ export function DeathFeedback() {
     }
     if (state.phase === 'shop' || state.phase === 'warmup' || state.phase === 'gameOver') m.shown = false
     panel.current.hidden = !m.shown
+    if (m.docked !== (m.shown && performance.now() - m.at > DOCK_MS)) dock(!m.docked)
     if (!m.shown) {
       m.animations.forEach((a) => a.cancel())
       m.animations = []
@@ -97,10 +109,34 @@ export function DeathFeedback() {
     if (next.current.textContent !== text) next.current.textContent = text
   })
 
+  /** Toggle the docked layout (CSS on `.hud[data-death-docked]`), sliding the card and the bets there. */
+  function dock(on: boolean) {
+    const m = memory.current
+    if (m.docked === on || !panel.current) return
+    m.docked = on
+    const hud = panel.current.closest<HTMLElement>('.hud')
+    if (!hud) return
+    const moving = [panel.current, hud.querySelector<HTMLElement>('[data-testid="spectator-bets"]')].filter((el): el is HTMLElement => !!el)
+    const before = moving.map((el) => el.getBoundingClientRect())
+    if (on) hud.dataset.deathDocked = ''
+    else delete hud.dataset.deathDocked
+    place.current()
+    if (!on || reducedMotion()) return
+    moving.forEach((el, i) => {
+      const after = el.getBoundingClientRect()
+      const zoom = parseFloat(getComputedStyle(el).zoom) || 1
+      if (Math.abs(before[i].left - after.left) + Math.abs(before[i].top - after.top) < 1) return
+      m.animations.push(el.animate(
+        [{ translate: `${(before[i].left - after.left) / zoom}px ${(before[i].top - after.top) / zoom}px` }, { translate: '0 0' }],
+        { duration: 520, easing: 'cubic-bezier(.16,1,.3,1)' },
+      ))
+    })
+  }
+
   return (
     <>
       <div ref={edge} className="pointer-events-none absolute inset-0" style={{ opacity: 0, background: 'radial-gradient(ellipse at center, transparent 40%, rgba(145, 20, 8, .7) 100%)' }} aria-hidden />
-      <div className="pointer-events-none absolute inset-x-3 top-[88px] flex justify-center sm:top-[124px] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
+      <div className="death-dock pointer-events-none absolute inset-x-3 top-[88px] flex justify-center sm:top-[124px] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:left-3 sm:[@media(max-height:520px)]:top-16 sm:[@media(max-height:520px)]:w-[min(42vw,330px)]">
         <div ref={panel} hidden className="death-card hud-scale w-full max-w-[360px] origin-top rounded border border-[#f38b69]/40 bg-[#1c1010]/90 px-4 py-3 text-center shadow-[0_8px_40px_#0008] max-sm:[@media(max-height:740px)]:py-2" role="status" aria-live="polite" aria-atomic="true">
           <div className="flex items-center justify-center gap-2 text-[#ffb69a]">
             <Skull size={22} />

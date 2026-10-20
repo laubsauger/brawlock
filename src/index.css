@@ -1739,3 +1739,17 @@
     .shrink-warn[data-on="true"]::after { animation: none !important; opacity: 1; }
   }
 }
+
+/* after its beat (DeathFeedback DOCK_MS) the knockout card docks top-left, compact,
+   and on wide screens the spectator bets move from the centre to the right.
+   Unlayered so it overrides the Tailwind utilities on those elements. */
+@media (min-width: 640px) {
+  .hud[data-death-docked] .death-dock { right: auto; width: min(300px, 42vw); justify-content: flex-start; }
+  .hud[data-death-docked] .death-card { padding: 8px 12px; text-align: left; }
+  .hud[data-death-docked] .death-card > div { justify-content: flex-start; }
+  .hud[data-death-docked] .death-card .font-display { font-size: 1rem; }
+  .hud[data-death-docked] .death-card p { font-size: 0.8rem; }
+}
+@media (min-width: 1200px) and (min-height: 521px) {
+  .hud[data-death-docked] .spectator-bets-dock { justify-content: flex-end; }
+}
