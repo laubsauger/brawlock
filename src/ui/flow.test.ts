@@ -54,16 +54,28 @@ describe('shared play setup hosting', () => {
     expect(mocks.setPublic).toHaveBeenCalledWith(true)
   })
 
-  it('keeps private hosting private, and lists a computer-hosted room only when requested', async () => {
+  it('lists computer-hosted games by default and applies the explicit private opt-out', async () => {
     hostGame()
     mocks.request.mock.calls[0][0].run()
     await Promise.resolve()
-    expect(mocks.setPublic).not.toHaveBeenCalled()
-    hostGame(true)
+    expect(mocks.setPublic).toHaveBeenCalledExactlyOnceWith(true)
+    hostGame(false)
     mocks.request.mock.calls[1][0].run()
     await Promise.resolve()
-    expect(mocks.setPublic).toHaveBeenCalledTimes(1)
-    expect(mocks.setPublic).toHaveBeenCalledWith(true)
+    expect(mocks.setPublic).toHaveBeenCalledTimes(2)
+    expect(mocks.setPublic).toHaveBeenLastCalledWith(false)
+  })
+
+  it('lists server-hosted games by default and applies the explicit private opt-out', async () => {
+    hostOnServer('us-west')
+    mocks.request.mock.calls[0][0].run()
+    await Promise.resolve()
+    expect(mocks.setPublic).toHaveBeenCalledExactlyOnceWith(true)
+    hostOnServer('us-west', false)
+    mocks.request.mock.calls[1][0].run()
+    await Promise.resolve()
+    expect(mocks.setPublic).toHaveBeenCalledTimes(2)
+    expect(mocks.setPublic).toHaveBeenLastCalledWith(false)
   })
 
   it('does not list anything after a failed hosting attempt', async () => {

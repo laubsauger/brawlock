@@ -201,6 +201,46 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('waits for the owner lobby before completing a join so immediate public listing is not lost', async () => {
+    const net = createMemoryNet({ latencyMs: 1 })
+    const delayedLobby: NetFactory = {
+      ...net,
+      async host() {
+        const endpoint = await net.host()
+        return { ...endpoint, onConnection: (accept) => endpoint.onConnection((transport) => {
+          const send = transport.sendReliable.bind(transport)
+          transport.sendReliable = (data) => {
+            if (decode(data)?.t === 'lobby') setTimeout(() => send(data), 100)
+            else send(data)
+          }
+          accept(transport)
+        }) }
+      },
+    }
+    const host = makePeer(delayedLobby, 'Server', 'server-key')
+    const owner = makePeer(net, 'Owner', 'owner-key')
+    await host.session.openHost({ dedicated: true })
+    let joined = false
+    const joining = owner.session.join(host.store.lobby.roomCode!).then(() => {
+      joined = true
+      owner.session.setPublic(true)
+    })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(owner.store.lobby.status).toBe('open')
+    expect(joined).toBe(false)
+    await vi.advanceTimersByTimeAsync(250)
+    await joining
+    expect(owner.store.lobby.role).toBe('host')
+    expect(host.session.roomState().public).toBe(true)
+    expect(owner.store.lobby.public).toBe(true)
+    owner.session.setPublic(false)
+    await vi.advanceTimersByTimeAsync(150)
+    expect(host.session.roomState().public).toBe(false)
+    expect(owner.store.lobby.public).toBe(false)
+    owner.session.leave()
+    host.session.leave()
+  })
+
   it('reports an active room only after hosting or accepted welcome, and clears it on leave', async () => {
     const net = createMemoryNet(LINK)
     const host = makePeer(net, 'Hosty', 'host-key')

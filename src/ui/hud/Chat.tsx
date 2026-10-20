@@ -6,7 +6,6 @@ import { isTypingTarget } from '../lib/keys'
 import { Button, Kbd } from '../widgets'
 
 const EMPTY: readonly ChatLine[] = []
-const RECENT_MS = 8000
 
 interface ComposerState {
   open: boolean
@@ -48,9 +47,9 @@ function senderColor(color: number): string {
   return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`
 }
 
-export function ChatMessage({ line, fading = false }: { line: ChatLine; fading?: boolean }) {
+export function ChatMessage({ line }: { line: ChatLine }) {
   return (
-    <li className="break-words text-sm leading-snug [overflow-wrap:anywhere]" style={{ opacity: fading ? 0 : 1, transition: 'opacity 900ms' }}>
+    <li className="break-words text-sm leading-snug [overflow-wrap:anywhere]">
       <b style={{ color: senderColor(line.color) }}>{line.name}</b><span className="text-ash">: </span><span className="text-bone">{line.text}</span>
     </li>
   )
@@ -100,10 +99,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
   const transcript = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
   const wasOpen = useRef(false)
-  const received = useRef(lastId)
-  const [recent, setRecent] = useState(() => lines.slice(-3).map((line) => ({ line, at: Date.now() })))
-  const [now, setNow] = useState(Date.now)
-  const visibleRecent = recent.filter((entry) => now - entry.at < RECENT_MS)
+  const recent = lines.slice(-3)
   const unread = lines.filter((line) => line.id > composer.readId && line.player !== local).length
 
   useEffect(() => {
@@ -112,26 +108,12 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
   }, [composer.open, onExpandedChange])
 
   useEffect(() => {
-    const added = lines.filter((line) => line.id > received.current)
-    received.current = lastId
-    if (added.length) {
-      const at = Date.now()
-      setNow(at)
-      setRecent((previous) => [...previous, ...added.map((line) => ({ line, at }))].slice(-3))
-    }
     if (composer.open || !compact) dispatch({ type: 'read', lastId })
     const list = transcript.current
     const justOpened = composer.open && !wasOpen.current
     wasOpen.current = composer.open
     if (list && (atBottom.current || justOpened)) list.scrollTop = list.scrollHeight
   }, [lines, lastId, composer.open, compact])
-
-  const fading = compact && !composer.open && visibleRecent.length > 0
-  useEffect(() => {
-    if (!fading) return
-    const timer = window.setInterval(() => setNow(Date.now()), 500)
-    return () => window.clearInterval(timer)
-  }, [fading])
 
   useEffect(() => {
     if (composer.open && !settings && !paused) input.current?.focus()
@@ -181,13 +163,13 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
         aria-label="Room-wide messages"
         aria-live="polite"
         aria-relevant="additions"
-        className={`mt-2 space-y-1 ${!compact ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1' : expanded ? 'max-h-[min(24vh,180px)] overflow-y-auto overscroll-contain pr-1' : 'pointer-events-none [@media(max-width:1199px)]:[&>li:not(:last-child)]:hidden [@media(max-width:1199px)]:[&>li]:line-clamp-1'}`}
+        className={`mt-2 space-y-1 ${!compact ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1' : expanded ? 'max-h-[min(24vh,180px)] overflow-y-auto overscroll-contain pr-1' : 'pointer-events-none'}`}
         onScroll={(event) => {
           const list = event.currentTarget
           atBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 24
         }}
       >
-        {expanded ? lines.map((line) => <ChatMessage key={line.id} line={line} />) : visibleRecent.map(({ line, at }) => <ChatMessage key={line.id} line={line} fading={now - at >= 6500} />)}
+        {(expanded ? lines : recent).map((line) => <ChatMessage key={line.id} line={line} />)}
       </ol>
       {expanded && lines.length === 0 && <p className="mt-1 text-xs text-ash">Say hello to the room.</p>}
       {(composer.open || !compact) && (

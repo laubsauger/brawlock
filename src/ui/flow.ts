@@ -89,7 +89,7 @@ export function useLastHostResult(): HostResult | null {
 }
 
 /** "Host from your PC" (peer-to-peer). Never switches to the game server by itself. */
-export function hostGame(listed = false): void {
+export function hostGame(listed = true): void {
   if (!allowPlay()) return
   tutorial.request({
     label: 'Host from your PC',
@@ -98,7 +98,7 @@ export function hostGame(listed = false): void {
       setLastHost(null)
       void session.openHost().then((result) => {
         setLastHost(result)
-        if (result.ok && listed) session.setPublic(true)
+        if (result.ok) session.setPublic(listed)
       })
     },
   })
@@ -150,7 +150,7 @@ export function rankedPlay(region: string): void {
 }
 
 /** Host on a game server: a region id, or 'auto' (lowest ping among regions that are up). */
-export function hostOnServer(region: string, listed = false): void {
+export function hostOnServer(region: string, listed = true): void {
   if (!allowPlay()) return
   tutorial.request({
     label: 'Host on a server',
@@ -159,7 +159,7 @@ export function hostOnServer(region: string, listed = false): void {
       setLastHost(null)
       void session.openHostServer(region).then((result) => {
         setLastHost(result)
-        if (result.ok && listed) session.setPublic(true)
+        if (result.ok) session.setPublic(listed)
       })
     },
   })

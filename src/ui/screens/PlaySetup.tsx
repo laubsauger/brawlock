@@ -10,7 +10,7 @@ import { Button, Modal } from '../widgets'
 export function PlaySetup({ initialOnline, onClose }: { initialOnline: boolean; onClose: () => void }) {
   const [multiplayer, setMultiplayer] = useState(initialOnline)
   const [location, setLocation] = useState<'server' | 'pc'>(online.configured ? 'server' : 'pc')
-  const [listed, setListed] = useState(initialOnline)
+  const [listed, setListed] = useState(true)
   const regions = useRegions(5000)
   const choice = useRegionChoice()
   const setSettings = useGame((s) => s.setSettings)

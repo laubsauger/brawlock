@@ -459,7 +459,7 @@ export function Lobby() {
         </section>
       </div>
 
-      <footer className="mt-4 flex flex-wrap items-center justify-between gap-4">
+      <footer className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-4 pr-8 pb-8">
         {(!automatic || lobby.notice) && <p
           className={`flex items-center gap-2.5 text-[1.08rem] font-semibold ${status.tone === 'error' ? 'text-[#ff9b8a]' : status.tone === 'ok' ? 'text-heal' : 'text-[#f0d9b8]'}`}
           role="status"

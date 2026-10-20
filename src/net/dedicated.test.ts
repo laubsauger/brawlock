@@ -137,6 +137,25 @@ async function start(config: Record<string, unknown> = {}, build = 'dev-server',
 }
 
 describe('dedicated server (M4.1)', () => {
+  it('applies the public choice immediately after joining, and preserves a later private opt-out', async () => {
+    const { base, srv } = await start()
+    const owner = headlessClient(base, { key: 'listing-owner', play: false })
+    try {
+      const code = await owner.online.createRoom('test')
+      await owner.session.join(code)
+      expect(owner.lobby().role).toBe('host')
+      owner.session.setPublic(true)
+      await until(() => owner.lobby().public === true, 3000, 'initial public listing')
+      expect(srv.core.room(code)!.isPublic()).toBe(true)
+      owner.session.addBot('easy')
+      await until(() => owner.lobby().slots.length === 2, 3000, 'lobby update retains listing')
+      expect(owner.lobby().public).toBe(true)
+      owner.session.setPublic(false)
+      await until(() => owner.lobby().public === false, 3000, 'explicit private opt-out')
+      expect(srv.core.room(code)!.isPublic()).toBe(false)
+    } finally { owner.session.leave() }
+  })
+
   it('delivers shared chat and history to a newcomer waiting for a bot seat during combat', async () => {
     const { base, srv } = await start()
     const owner = headlessClient(base, { key: 'chat-owner', name: 'Owner', play: false })

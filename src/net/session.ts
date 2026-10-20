@@ -1671,10 +1671,6 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         // a dedicated server hosts the room: the invite link is a server room link too
         serverRoom = !!m.server
         ui.setLobby({ localPlayer, status: 'open', notice: null, ...(serverRoom && joinedCode ? { joinUrl: deps.joinUrl(joinedCode) } : {}) })
-        if (welcomeTimer) clearTimeout(welcomeTimer)
-        welcomeTimer = null
-        welcomeDone?.()
-        welcomeDone = null
         break
       case 'lobby':
         slots = m.slots
@@ -1695,6 +1691,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
           // a P2P host sends no room state: a plain room
           ...roomView(serverRoom ? m.room : undefined, deps.now()),
         })
+        // Joining is ready only once ownership and room visibility are known.
+        // Setup applies the public/private choice immediately after join resolves.
+        if (welcomeTimer) clearTimeout(welcomeTimer)
+        welcomeTimer = null
+        welcomeDone?.()
+        welcomeDone = null
         break
       case 'pings':
         setPings(m.pings ?? {})
