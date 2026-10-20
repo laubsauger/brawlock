@@ -35,7 +35,7 @@ Deployment is established by release receipts, not by implementation status here
   unchanged. Seven FFA pods reached the time cap; their placements are not full-match wins.
   See [the measurement](research/bot-calibration-2026-10-20.json) and [PLAN.md §7](PLAN.md#7-bots).
 
-## Additional work implemented locally
+## Shipped in v0.1.0-alpha.6
 
 - Dedicated-match departures retain a result: after 60 seconds of human combat participation,
   an absent player receives a loss when the match ends. Rejoining before completion clears
@@ -51,9 +51,9 @@ Deployment is established by release receipts, not by implementation status here
 - Lobby Menu keeps the connection, a compact status/Return bar remains while browsing Stats,
   and ranked player-found plays a single sound. Match start brings the game to the foreground;
   Browse menu is also available during online matches, which continue running.
-- Prepared v0.1.0-alpha.6 with concise in-game release notes and expandable older versions.
-  First visits have no changelog popup; returning players see changed-version notes once in
-  the menu. Builds and release preflight require current-version notes in release-notes.json.
+- In-game release notes with expandable older versions. First visits have no changelog
+  popup; returning players see changed-version notes once in the menu. Builds and release
+  preflight require current-version notes in release-notes.json.
 
 ## Human verification still open
 
@@ -85,10 +85,11 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest verified rollout receipt is **v0.1.0-alpha.5**, source `7fb5633c4075`, on
-2026-10-19; its local tag was absent, but the fleet receipt confirms successful proof and tag
-publication. v0.1.0-alpha.6 is prepared locally, not deployed. This audit did not deploy
-anything or re-verify live versions. The earlier [account-season release](../deploy/releases/2026-10-19-accounts.md)
+The latest rollout is **v0.1.0-alpha.7**, source `2ab87bea7700`, on 2026-10-20: a hotfix for
+match clicks (a layout wrapper covered the canvas). **v0.1.0-alpha.6**, source `37bba9b15def`,
+shipped earlier the same day with account schema 7 (one retired-cosmetic refund). Both tags
+are published on GitHub; their receipts stay in the release tool's journal, not in
+`deploy/releases/`. The earlier [account-season release](../deploy/releases/2026-10-19-accounts.md)
 completed the one-time fresh-season reset; **never repeat it in a routine release**.
 The [combined release receipt](../deploy/releases/2026-10-19-38a2f766fb5b.md) records accounts,
 ownership, analytics, maintenance and routing proof. Use [the release tooling](../deploy/TOOLS.md)
