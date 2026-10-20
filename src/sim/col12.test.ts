@@ -5,7 +5,7 @@ import { step } from './index'
 import { spawnProjectile } from './projectiles'
 import { RELEASED_SPELLS, SPELLS } from './spells/data'
 import { IMPLEMENTED_SPELLS } from './spells'
-import { cmd, grant, newMatch, pawn, place, run, toCombat } from './testkit'
+import { castNow, cmd, fight, grant, newMatch, pawn, place, run, toCombat } from './testkit'
 import type { ProjectileState, SimEvent, SimState } from './types'
 
 const F = frictionPerTick(0.96)
@@ -157,8 +157,8 @@ describe('Swap (spells.md §8.11)', () => {
 
 // ---------------------------------------------------------------------------
 describe('Lightning (spells.md §8.6)', () => {
-  function zap(s: SimState, x: number, y: number): SimEvent[] {
-    const slot = grant(s, 0, 'lightning')
+  function zap(s: SimState, x: number, y: number, level = 1): SimEvent[] {
+    const slot = grant(s, 0, 'lightning', level)
     step(s, [cast(0, slot, x, y)])
     return [...s.events, ...run(s, 14)]
   }
@@ -190,7 +190,7 @@ describe('Lightning (spells.md §8.6)', () => {
     expect(of(zap(s, 1000, 0), 'damage')).toHaveLength(1)
   })
 
-  test('detonates the caster’s own Fireball: r225, up to 2/3 (damage + 70), kb 1.35', () => {
+  test('detonates a level-one Fireball with the original peak damage and radius, reachable within the full-damage core', () => {
     const s = duel()
     const p0 = pawn(s, 0)
     const p1 = pawn(s, 1)
@@ -201,9 +201,90 @@ describe('Lightning (spells.md §8.6)', () => {
     const events = zap(s, 1000, 0)
     expect(of(events, 'explosion')[0]).toMatchObject({ spell: 'lightning', radius: 225 })
     const dmg = of(events, 'damage')[0]
-    expect(dmg.amount).toBeCloseTo((2 / 3) * 140 * (125 / 225), 9)
+    expect(dmg.amount).toBeCloseTo((2 / 3) * 140, 9)
     expect(s.projectiles).toHaveLength(0)
   })
+
+  function launchAndParkFireball(s: SimState, owner: number, level: number): void {
+    const slot = grant(s, owner, 'fireball', level)
+    const caster = pawn(s, owner)
+    castNow(s, owner, slot, caster.x + 1000, caster.y)
+    const fb = s.projectiles.find((projectile) => projectile.spell === 'fireball' && projectile.owner === owner)!
+    expect(fb).toBeDefined()
+    // Keep the real launched projectile's level and damage; fix only the test geometry.
+    fb.x = 300; fb.y = 0; fb.vx = 0; fb.vy = 0
+  }
+
+  test.each([
+    [1, 1, 140], [2, 1, 147], [3, 1, 154], [4, 1, 161],
+    [5, 1, 168], [6, 1, 175], [7, 1, 182],
+    [1, 7, 188], [4, 3, 177], [7, 7, 230],
+  ])('detonation scales with Fireball level %i and Lightning level %i (combined base %i)', (fireballLevel, lightningLevel, combinedDamage) => {
+    const s = duel()
+    place(pawn(s, 0), 0, 0, 0)
+    const target = pawn(s, 1)
+    place(target, -600, 600)
+    launchAndParkFireball(s, 0, fireballLevel)
+    place(target, 300, 100) // Off the beam; 100 units from the explosion centre.
+    const events = zap(s, 1000, 0, lightningLevel)
+    const expected = (2 / 3) * combinedDamage
+    const damage = of(events, 'damage')
+    expect(damage).toHaveLength(1)
+    expect(damage[0]).toMatchObject({ target: target.id, source: 0, cause: 'lightning' })
+    expect(damage[0].amount).toBeCloseTo(expected, 9)
+    expect(damage[0].kb).toBeCloseTo(knockbackSpeed(expected, expected, 1, 1.35, 1), 9)
+    expect(of(events, 'explosion')[0]).toMatchObject({ radius: 225 })
+    expect(target.vx).toBeCloseTo(0, 9)
+    expect(target.vy).toBeGreaterThan(0)
+    expect(s.projectiles).toHaveLength(0)
+  })
+
+  test('an allied Fireball contributes its own launch damage, not the Lightning caster’s Fireball level', () => {
+    const s = fight(3, [0, 0, 1])
+    place(pawn(s, 0), 0, 0, 0)
+    place(pawn(s, 1), -600, 600, 0)
+    place(pawn(s, 2), 800, 800)
+    launchAndParkFireball(s, 1, 7)
+    expect(pawn(s, 0).levels[FIREBALL_SLOT]).toBe(1)
+    place(pawn(s, 2), 300, 100)
+    const events = zap(s, 1000, 0)
+    const damage = of(events, 'damage')
+    expect(damage).toHaveLength(1)
+    expect(damage[0]).toMatchObject({ target: pawn(s, 2).id, source: 0, cause: 'lightning' })
+    expect(damage[0].amount).toBeCloseTo((2 / 3) * (70 + 112), 9)
+    expect(s.projectiles).toHaveLength(0)
+  })
+
+  test.each([
+    [60, 1], [75, 1], [100, 1], [150, 0.6], [200, 0.2], [224, 0.008], [225, 0], [226, 0],
+  ])('Fireball detonation at distance %i gets damage fraction %f', (distance, fraction) => {
+    const s = duel()
+    place(pawn(s, 0), 0, 0, 0)
+    place(pawn(s, 1), -600, 600)
+    launchAndParkFireball(s, 0, 7)
+    place(pawn(s, 1), 300, distance)
+    const events = zap(s, 1000, 0, 7)
+    expect(of(events, 'explosion')[0]).toMatchObject({ radius: 225 })
+    const damage = of(events, 'damage')
+    if (fraction === 0) expect(damage).toHaveLength(0)
+    else {
+      expect(damage).toHaveLength(1)
+      expect(damage[0].amount).toBeCloseTo((2 / 3) * 230 * fraction, 9)
+    }
+    expect(s.projectiles).toHaveLength(0)
+  })
+
+  test.each([[300, 50, true], [300, 51, false], [599, 0, true], [600, 0, false]])(
+    'Lightning triggers a Fireball at forward distance %i and lateral offset %i: %s', (x, y, detonates) => {
+      const s = duel()
+      place(pawn(s, 0), 0, 0, 0)
+      place(pawn(s, 1), -600, 600)
+      const fb = spawnProjectile(s, 0, 'fireball', x, y, 0, 0, 25, { lifetime: 5, data: { damage: 70, kb: 1 } })
+      const events = zap(s, 1000, 0)
+      expect(of(events, 'explosion')).toHaveLength(detonates ? 1 : 0)
+      expect(of(events, 'beam')[0].target).toBe(detonates ? fb.id : null)
+    },
+  )
 
   test('destroys an enemy projectile in its path and stops there; passes through a Boomerang', () => {
     const s = duel()

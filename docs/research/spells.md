@@ -5,6 +5,8 @@ Source: the `warlock` repo snapshot (one commit, "dont track compiled files"). U
 Tooltips come from `resource/addon_english.txt` (UTF-16) and `panorama/localization/addon_english.txt`. The shop UI data is in
 `content/dota_addons/warlock/panorama/scripts/custom_game/shop/warlock_shop_data.js`.
 
+Brawlock balance override: Lightning detonations use the Fireball projectile's stored launch damage in place of the original's fixed `70`, so Fireball upgrades contribute to the combo. Full damage applies within 100 units of the explosion, then falls linearly to zero at 225; the `⅔` multiplier and 1.35 knockback factor remain. The original formulas and reference tables below are retained as source documentation.
+
 Conventions:
 - Distances are Source/Hammer units (u), time is seconds, velocity is u/s, angles are radians unless noted.
 - Gameplay is 2D on the XY plane. Every actor sits at z = `GAME_Z` = 120 except the Meteor. Most distance checks use XY only; the ones that use 3D are called out.

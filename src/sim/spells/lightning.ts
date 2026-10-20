@@ -6,7 +6,9 @@
  * and its centre lies 0 < s < best ahead; the nearest wins. A warlock's bubble (Alteration) and
  * body share one centre, so on equal distance the larger CC wins: the bubble blocks, as the docs
  * require (the original's tie order was table iteration order).
- * - own / allied Fireball: detonates (r225, 0 -> 2/3 (damage + 70), knockback factor 1.35)
+ * - own / allied Fireball: detonates (r225, full damage within r100, kb 1.35).
+ *   Brawlock balance change: peak is 2/3 (Lightning + Fireball launch damage), then falls to 0
+ *   from r100 to r225; the reference instead used fixed 70 and fell off from the centre.
  * - CC accepts damage: damage along the BEAM direction, knockback factor 0.92
  * - enemy Shield / Alteration bubble: the beam stops there with no effect
  */
@@ -21,6 +23,7 @@ import type { SpellBehavior } from './types'
 import { aim, castAttr } from './util'
 
 const LIGHTNING_ENEMY_MASK = BIT_PLAYER | BIT_PROJECTILE | BIT_OBSTACLE
+const FIREBALL_FULL_DAMAGE_RADIUS = 100
 
 export const lightningSpell: SpellBehavior = {
   onCast(ctx) {
@@ -64,7 +67,8 @@ export const lightningSpell: SpellBehavior = {
         destroyProjectile(state, fb, null)
         damageArea(state, caster.owner, fb.x, fb.y, radius, {
           amountMin: 0,
-          amountMax: (2 / 3) * (damage + 70),
+          amountMax: (2 / 3) * (damage + fb.data.damage),
+          fullDamageRadius: FIREBALL_FULL_DAMAGE_RADIUS,
           knockbackFactor: attr(def, 'fb_knockback_factor', level),
           cause: 'lightning',
         })

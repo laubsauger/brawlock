@@ -82,7 +82,7 @@ Shop spells:
 | Spell | Col | Mechanic |
 |---|---|---|
 | Boomerang | 1 | Curved shuriken that flies out and homes back to you; passes through projectiles |
-| Lightning | 1 | Instant 600-range line, hits the first thing in its path; detonates your own and allied Fireballs (r225) |
+| Lightning | 1 | Instant 600-range line, hits the first thing in its path; detonates your own and allied Fireballs (full damage within r100, fading to zero at r225; peak = ⅔ × (Lightning damage + the Fireball's launch damage), knockback factor 1.35). Enemy Fireballs are destroyed without exploding and stop the beam. |
 | Homing | 1 | Bolt that steers toward the nearest enemy for 4.5 s; touching yourself detonates it (r292) and speeds you up |
 | Twin | 1 | Two bolts on mirrored elliptical arcs that converge on the target point |
 | Teleport | 2 | Instant blink up to 770–1190; keeps 80% of current velocity; no lava check |

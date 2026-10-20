@@ -144,6 +144,8 @@ export interface AreaDamage {
   amount?: number
   amountMin?: number
   amountMax?: number
+  /** Full amountMax through this radius, then linear falloff to amountMin at the outer edge. */
+  fullDamageRadius?: number
   knockbackFactor?: number
   /** linear knockback factor, kbFactorMin at the edge to kbFactorMax at the centre (Scourge) */
   kbFactorMin?: number
@@ -170,10 +172,12 @@ export function damageArea(
     const d = Math.sqrt(dx * dx + dy * dy)
     if (!(d < radius)) continue
     const normal = d > 0 ? { x: dx / d, y: dy / d } : { x: 1, y: 0 }
-    const amount =
-      dmg.amountMin !== undefined && dmg.amountMax !== undefined
-        ? dmg.amountMin + ((dmg.amountMax - dmg.amountMin) / radius) * (radius - d)
-        : (dmg.amount ?? 0)
+    let amount = dmg.amount ?? 0
+    if (dmg.amountMin !== undefined && dmg.amountMax !== undefined) {
+      amount = dmg.fullDamageRadius !== undefined && d <= dmg.fullDamageRadius
+        ? dmg.amountMax
+        : dmg.amountMin + ((dmg.amountMax - dmg.amountMin) / (radius - (dmg.fullDamageRadius ?? 0))) * (radius - d)
+    }
     let kf = dmg.knockbackFactor ?? 1
     if (dmg.kbFactorMin !== undefined && dmg.kbFactorMax !== undefined) {
       const t = 1 - d / radius
