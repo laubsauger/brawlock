@@ -358,7 +358,11 @@ export function EscMenu() {
   return (
     <div className="scrim fade-in interactive pointer-events-auto absolute inset-0 z-40 grid place-items-center p-4">
       <div className="panel pop-in flex max-h-[92dvh] w-[min(380px,100%)] flex-col gap-3 overflow-y-auto p-7" role="dialog" aria-label="Menu">
-        <h2 className="display text-5xl leading-none text-[#ffd890]">{offline ? 'Paused' : 'Menu'}</h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="display text-5xl leading-none text-[#ffd890]">{offline ? 'Paused' : 'Menu'}</h2>
+          {/* which queue this match came from, so a report can say whether it was ranked */}
+          <span className={`chip mt-1 shrink-0 ${lobby.ranked ? 'border-gold/60 text-gold' : 'text-ash'}`} data-testid="match-queue">{offline ? 'Offline' : lobby.ranked ? 'Ranked' : lobby.quick ? 'Casual' : 'Custom game'}</span>
+        </div>
         <p className="mb-2 text-[0.95rem] text-ash">{offline ? 'The arena waits for you.' : 'The match keeps running while this is open.'}</p>
         {!offline && lobby.roomCode && <div className="mb-1 flex items-center justify-between gap-3 rounded-lg border border-gold/20 bg-black/20 px-3 py-2" aria-label="Room invite">
           <div><span className="block text-xs text-ash">Room code</span><strong className="tabular text-xl tracking-[.15em] text-gold">{lobby.roomCode}</strong></div>
