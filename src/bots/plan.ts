@@ -1,6 +1,6 @@
 /**
- * Shop builds of the planning bots (Brutal, Uber). Each bot draws one build when it is created,
- * from its own seeded stream, so a lobby of Ubers shows the range of builds players use
+ * Shop builds shared by every active bot tier. Each bot draws one build when it is created,
+ * from its own seeded stream, so a lobby of bots shows the range of builds players use
  * instead of one build eight times.
  *
  * A build is a priority list bought in order as gold allows, several buys per shop phase like

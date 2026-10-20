@@ -7,10 +7,10 @@
  * delay >= 150 ms and aim error > 0 through Brutal. Uber sits above Brutal without cheating:
  * reaction >= 120 ms, aim error > 0, the same casts, cooldowns and gold; it wins on decisions.
  *
- * Calibrated with Elo per ROUND (scripts/bots/elo.ts, BOT_ELO below): Easy is the original AI
- * for new players; Medium sits between Easy and Hard; Hard, Brutal and Uber are about 75% round
- * win rate apart (about 190 Elo per step), Uber unchanged as the top. Hard is Brutal's decision
- * set at slower hands (0.18 s, 0.03 rad); Brutal adds Uber's build plan and edge pressure.
+ * Calibrated with Elo per ROUND (scripts/bots/elo.ts, BOT_ELO below). Every active tier
+ * draws from the same seeded shop-build pool. Difficulty still controls reaction, aim
+ * and combat decisions: Hard is Brutal's decision set at slower hands (0.18 s, 0.03 rad),
+ * while Brutal adds edge pressure. Easy keeps its beginner reaction and aim settings.
  *
  * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
  * |------------------|-------|-------|--------|-------|--------|-------|----------|
@@ -30,7 +30,7 @@
  * | shrinkLookahead s|   -   | 0     | 0      | 3     | 3      | 3     | -        |
  * | walkOffLava      |   -   | no    | yes    | yes   | yes    | yes   | no       |
  * | dodgeAvoidsLava  |   -   | no    | no     | yes   | yes    | yes   | no       |
- * | buys spells      |   no  | yes   | yes    | yes   | plan   | plan  | yes      |
+ * | buys spells      |   no  | plan  | plan   | plan  | plan   | plan  | yes      |
  * | comboChance      |   -   | 0     | 0      | 0.9   | 0.9    | 1     | -        |
  * | thrustAttack     |   -   | no    | no     | yes   | yes    | yes   | no       |
  * | threatChance     |   -   | 0.35  | 0.8    | 1     | 1      | 1     | -        |
@@ -73,7 +73,7 @@
  * blast would kill.
  *
  * edgePressure (Brutal, Uber) picks the target with the best kill chance (near the edge, high
- * knockback points) and keeps to its arena-centre side, so hits push out. 'plan' (Brutal, Uber)
+ * knockback points) and keeps to its arena-centre side, so hits push out. 'plan' (all active tiers)
  * draws one of several builds per bot (plan.ts: an escape spell first, a damage spell, Fireball
  * and Scourge upgrades, then what the build is about) and buys to it as gold allows each shop
  * phase. Uber only: frictionLead leads knocked targets with their decaying slide;
@@ -141,7 +141,7 @@ export interface BotParams {
   dodgeAvoidsLava: boolean
   /** chance per think to retarget to the closest enemy (original 1/5) */
   retargetChance: number
-  /** buy random spells between rounds (original behaviour) */
+  /** buy spells and items between rounds or while dead */
   buys: boolean
   /** chance per think to Lightning its own Fireball when it passes an enemy */
   comboChance: number
@@ -238,9 +238,11 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   easy: {
     ...ORIGINAL,
     thinkInterval: 1.0,
+    buildPlan: 'plan',
   },
   medium: {
     ...ORIGINAL,
+    buildPlan: 'plan',
     thinkInterval: 0.35,
     reactionDelay: 0.22,
     aimErrorRad: 0.08,
@@ -254,6 +256,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   hard: {
     ...ORIGINAL,
+    buildPlan: 'plan',
     thinkInterval: 0.1,
     reactionDelay: 0.18,
     aimErrorRad: 0.03,
