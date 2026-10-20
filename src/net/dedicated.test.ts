@@ -364,6 +364,28 @@ describe('dedicated server (M4.1)', () => {
     back.session.leave()
   }, 40000)
 
+  /** Why: a leaver's seat (a bot played it) must not reappear under their name in the next game. */
+  it('a player who left mid-match is gone from the lobby after Back to lobby', async () => {
+    const { base } = await start()
+    const owner = headlessClient(base, { key: 'owner', play: true })
+    const code = await owner.online.createRoom('test')
+    await owner.session.join(code)
+    owner.session.updateSettings({ shopSeconds: 1, winScore: 50, botsReplaceLeavers: true })
+    const guest = headlessClient(base, { key: 'leaver', device: 'device-leaver1', name: 'Leaver', play: true })
+    await guest.session.join(code)
+    owner.session.addBot('easy')
+    await until(() => owner.lobby().slots.length === 3, 3000, 'guest seated')
+    owner.session.startMatch()
+    await until(() => guest.screen() === 'match', 5000, 'match')
+    guest.session.leave()
+    await until(() => owner.notices.some((n) => /bot took over/.test(n)), 4000, 'bot takeover')
+    owner.session.backToLobby()
+    await until(() => owner.screen() === 'lobby', 4000, 'back in the lobby')
+    await until(() => owner.lobby().slots.length === 2, 3000, 'leaver seat freed')
+    expect(owner.lobby().slots.map((s) => s.name)).not.toContain('Leaver')
+    owner.session.leave()
+  }, 30000)
+
   /** Why: a release server must not serve clients of another netcode (they would mispredict); dev builds may mix. */
   it('refuses clients of another netcode with a reload message', async () => {
     const { base, http } = await start({}, 'aaaaaaaaaaaa')
@@ -1178,11 +1200,11 @@ describe('leaderboard over the server (M4.3)', () => {
     const bob = { key: 'bob', device: 'device-bob-0001', name: 'Bob' }
     // Custom rooms stay casual, with one human or with two humans and a bot.
     const solo = await playMatch(base, [ann], 2)
-    expect(solo[0].rating).toEqual({ status: 'unrated', reason: 'Casual games do not affect global Elo.' })
+    expect(solo[0].rating).toEqual({ status: 'unrated', reason: 'Casual and custom games do not affect global Elo.' })
     const casual = await playMatch(base, [ann, bob], 1)
     expect(casual.map((r) => r.rating)).toEqual([
-      { status: 'unrated', reason: 'Casual games do not affect global Elo.' },
-      { status: 'unrated', reason: 'Casual games do not affect global Elo.' },
+      { status: 'unrated', reason: 'Casual and custom games do not affect global Elo.' },
+      { status: 'unrated', reason: 'Casual and custom games do not affect global Elo.' },
     ])
     expect(events).not.toContain('leaderboard.match')
     expect(((await (await fetch(`${http}/leaderboard`)).json()) as { entries: unknown[] }).entries).toEqual([])

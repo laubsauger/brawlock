@@ -1580,11 +1580,27 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.fair.delay = jump ? target : m.fair.delay + Math.sign(target - m.fair.delay)
   }
 
+  /**
+   * Humans who left during the match free their lobby seat as soon as it stops, before
+   * the rating save: a Rematch or Back to lobby during that save must not carry their
+   * name into the next game as a bot-played "human" seat.
+   */
+  function releaseDeparted(m: HostMatch): void {
+    if (!m.disconnected.size) return
+    slots = slots.filter((x) => !m.disconnected.has(x.id))
+    for (const id of m.disconnected) {
+      slotKeys.delete(id)
+      slotDevices.delete(id)
+    }
+    publishLobby()
+  }
+
   async function finishMatch(m: HostMatch, abandoned = false): Promise<void> {
     const endingEpoch = epoch
     m.stop?.()
     match = null
     finishingMatch = m
+    releaseDeparted(m)
     const s = m.state
     const result: MatchResult = {
       rating: dedicated
@@ -1605,15 +1621,6 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     ui.setResult(result)
     ui.setScreen('results')
     broadcast({ t: 'end', match: m.id, result }, m.id)
-    // humans who left during the match free their lobby slot now
-    if (m.disconnected.size) {
-      slots = slots.filter((x) => !m.disconnected.has(x.id))
-      for (const id of m.disconnected) {
-        slotKeys.delete(id)
-        slotDevices.delete(id)
-      }
-      publishLobby()
-    }
   }
 
   /** Local stats; a broken recorder must never break the session. */
@@ -1630,12 +1637,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.stop?.()
     match = null
     rec?.abort()
+    releaseDeparted(m)
   }
 
   function abortMatch(m: HostMatch, reason: string): void {
     m.stop?.()
     match = null
     rec?.abort()
+    releaseDeparted(m)
     ui.setLobby({ error: reason })
     ui.setScreen('lobby')
     broadcast({ t: 'notice', text: reason })
@@ -2560,7 +2569,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     async finishDeparted() {
       const m = match
-      if (!dedicated || !m || peers.length > 0 || [...m.humans].some((id) => !m.disconnected.has(id))) return
+      if (!dedicated || !m || peers.length > 0) return
+      // nobody is connected, so every human seat has departed, including one that never
+      // (re)connected in this match; finishMatch frees them all from the lobby
+      for (const id of m.humans) m.disconnected.add(id)
       await finishMatch(m, m.endAt < 0 && m.state.phase !== 'gameOver')
     },
 
