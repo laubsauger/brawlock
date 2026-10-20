@@ -14,8 +14,9 @@ import '../../index.css'
 import { useGame } from '../../game/store'
 import { InkFilters } from '../../ui/InkFilters'
 import { MatchView, preloadWarlock, renderStats } from '../index'
+import { tweakParams } from '../tweaks'
 import { Director, VIDEO_FPS } from './director'
-import { installCameraOverride } from './camRig'
+import { camOverride, installCameraOverride } from './camRig'
 import { ShowcaseOverlay } from './overlay'
 import { SHOTS, shotById } from './shots'
 
@@ -36,8 +37,11 @@ declare global {
 const params = new URLSearchParams(location.search)
 const shotId = params.get('shot') ?? SHOTS[0].id
 const spec = shotById(shotId)
+if (spec.floorStyle) tweakParams.floorStyle = spec.floorStyle
 useGame.getState().setSettings({ quality: (params.get('q') as 'ultra' | 'high' | null) ?? 'ultra', fxIntensity: 1, showPerf: false })
 installCameraOverride()
+// Filmed moves supply their own deliberate motion; gameplay recoil must not drag the lens.
+camOverride.shake = 0
 
 const status = { warlock: false, fonts: false, overlay: false, director: null as Director | null, began: false, error: '' }
 void preloadWarlock().then(() => (status.warlock = true))
@@ -71,8 +75,11 @@ window.__showcase = {
   },
   frame(): { vt: number; st: number; done: boolean; errors: number } {
     const d = status.director!
-    d.advance(window.__vclock.now + MS)
-    window.__vclock.step(MS)
+    const steps = spec.renderSubsteps ?? 1
+    for (let i = 0; i < steps; i++) {
+      d.advance(window.__vclock.now + MS / steps, false, 1 / (VIDEO_FPS * steps))
+      window.__vclock.step(MS / steps)
+    }
     return { vt: d.vt, st: d.simT, done: d.done, errors: window.__vclock.errors.length }
   },
   errors: () => window.__vclock.errors.slice(0, 5),
@@ -84,6 +91,11 @@ window.__showcase = {
    */
   audit(): string[] {
     const bad: string[] = []
+    if (spec.overlay?.plates === false && spec.overlay.nums === false && spec.overlay.stamps === false) {
+      for (const el of Array.from(document.querySelectorAll('.bl-ov,.bl-locator'))) {
+        if (getComputedStyle(el).display !== 'none') bad.push(`world HUD visible in clean capture: ${el.className}`)
+      }
+    }
     let canvases = 0
     for (const el of Array.from(document.body.querySelectorAll('*'))) {
       if (el.closest('.sc-ov, .bl-ov, svg') || el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue

@@ -6,13 +6,15 @@
 import { writeFileSync } from 'node:fs'
 import { ShotSim } from '../../src/render/showcase/simShot'
 import { TRAILER_SHOTS } from '../../src/render/showcase/shots/trailer'
+import { TEASER30_SHOTS } from '../../src/render/showcase/shots/teaser30'
+import { TEASER30V2_SHOTS } from '../../src/render/showcase/shots/teaser30v2'
 import { TICK_HZ } from '../../src/sim/types'
 import { speedAt } from '../../src/render/showcase/types'
 
 const [out, only] = process.argv.slice(2)
 const pick = only ? new Set(only.split(',')) : null
 const sheet: Record<string, { dur: number; hit: number; sync: number; events: [number, string, string, string][] }> = {}
-for (const spec of TRAILER_SHOTS) {
+for (const spec of [...TRAILER_SHOTS, ...TEASER30_SHOTS, ...TEASER30V2_SHOTS]) {
   if (pick && !pick.has(spec.id)) continue
   const sim = new ShotSim(spec)
   const owner = (id: number) => sim.state.pawns.find((p) => p.id === id)?.owner ?? -1
@@ -20,7 +22,8 @@ for (const spec of TRAILER_SHOTS) {
   let st = 0
   const frames = Math.round(spec.dur * 60)
   for (let k = 1; k <= frames; k++) {
-    st += (1 / 60) * speedAt(spec, (k - 1) / 60, st)
+    const steps = spec.renderSubsteps ?? 1
+    for (let j = 0; j < steps; j++) st += (1 / (60 * steps)) * speedAt(spec, (k - 1 + j / steps) / 60, st)
     const need = Math.ceil(st * TICK_HZ - 1e-6)
     while (sim.state.tick - sim.t0 < need) {
       for (const e of sim.stepOnce()) {

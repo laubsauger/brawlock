@@ -120,11 +120,11 @@ export class Director {
    * Advance one video frame. `nextNow` = the performance.now() the render will
    * see this frame (virtual clock after its step).
    */
-  advance(nextNow: number, preroll = false): void {
+  advance(nextNow: number, preroll = false, dt = DTV): void {
     if (!preroll) {
       const s = speedAt(this.spec, this.vt, this.simT)
       this.timeScale = s
-      this.simT += DTV * s
+      this.simT += dt * s
       const target = this.simT * TICK_HZ
       const need = Math.ceil(target - 1e-6)
       let guard = 0
@@ -134,9 +134,10 @@ export class Director {
       }
       const done = this.sim.state.tick - this.sim.t0
       this.alpha = Math.max(0, Math.min(1, 1 - (done - target)))
-      this.vt += DTV
+      this.vt += dt
     }
     devTime.scale = preroll ? 1 : this.timeScale
+    this.ctx.dt = dt
     this.writeFrame(nextNow)
     this.applyCamera()
     this.overlay?.update(this.spec.overlay ?? null, this.vt, this.spec.dur)

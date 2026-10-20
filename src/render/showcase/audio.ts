@@ -27,7 +27,8 @@ export function shotCues(id: string, start: number): { cues: AudioCue[]; dur: nu
   const frames = d.frames
   for (let k = 1; k <= frames; k++) {
     const before = d.sim.log.length
-    d.advance(0)
+    const steps = spec.renderSubsteps ?? 1
+    for (let j = 0; j < steps; j++) d.advance(0, false, 1 / (VIDEO_FPS * steps))
     const evs = d.sim.log.slice(before).map((l) => l.e)
     const pose = camOverride.pose!
     const dist = Math.hypot(pose.x - pose.tx, pose.y - pose.ty, pose.h - pose.th)

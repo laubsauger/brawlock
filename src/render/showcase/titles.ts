@@ -21,11 +21,13 @@ export type TitleEvent =
   | { kind: 'slam'; at: number; until: number; text: string; sub?: string; subAt?: number; size?: number; y?: number; hue?: 'ember' | 'gold' | 'bone' }
   /** spell name tag, bottom left: column kicker + name */
   | { kind: 'tag'; at: number; until: number; spell: string }
+  /** Quiet explanatory copy, leaving the fight unobstructed. */
+  | { kind: 'caption'; at: number; until: number; text: string; sub?: string; size?: number }
   | { kind: 'flash'; at: number; dur: number; peak?: number; color?: 'ember' | 'white' }
   /** black overlay from `from` to `to` opacity */
   | { kind: 'fade'; at: number; until: number; from: number; to: number }
   | { kind: 'vignette'; at: number; until: number; strength?: number }
-  | { kind: 'end'; at: number; until: number; line1: string; line2?: string; line3?: string }
+  | { kind: 'end'; at: number; until: number; line1: string; line2?: string; line3?: string; emblem?: boolean }
 
 export interface TitleSpec {
   dur: number
@@ -71,6 +73,14 @@ const CSS = `
 .tt-end-l2{position:relative;margin-top:18px;font-weight:600;font-size:28px;letter-spacing:.16em;color:#ffc548;filter:url(#ink-md)}
 .tt-end-l3{position:relative;margin-top:34px;display:flex;align-items:center;gap:16px;font-weight:700;font-size:20px;letter-spacing:.42em;text-transform:uppercase;color:#c9b39a}
 .tt-end-l3 i{display:inline-block;width:8px;height:8px;transform:rotate(45deg);background:#ff7a2a;box-shadow:0 0 8px #ff7a2a}
+.tt-caption{left:0;right:0;bottom:0;padding:76px 96px 64px;background:linear-gradient(transparent,rgba(4,2,2,.82));box-sizing:border-box}
+.tt-caption-title{font-family:"Cinzel",serif;font-size:62px;font-weight:800;letter-spacing:.025em;color:#ffe7bf;line-height:1.15;text-shadow:0 3px 12px #000}
+.tt-caption-sub{font-size:32px;letter-spacing:.04em;margin-top:10px;color:#e9d7c2;text-shadow:0 2px 8px #000}
+.tt-end.tt-emblem .tt-end-bg{background:radial-gradient(ellipse at 50% 42%,#291008 0%,#090504 62%,#030202 100%)}
+.tt-end.tt-emblem img.tt-end-emblem{width:390px;margin-bottom:12px;filter:drop-shadow(0 0 35px rgba(255,90,12,.22))}
+.tt-end.tt-emblem img.tt-end-wordmark{width:830px}
+.tt-end.tt-emblem .tt-end-l1{font-size:32px;margin-top:28px;letter-spacing:.13em}
+.tt-end.tt-emblem .tt-end-l2{font-size:40px;margin-top:16px;letter-spacing:.05em}
 `
 
 const FILLS = {
@@ -92,6 +102,21 @@ function show(e: HTMLElement, on: boolean, display = 'block'): boolean {
 }
 
 type Draw = (t: number) => void
+
+function caption(root: HTMLElement, e: Extract<TitleEvent, { kind: 'caption' }>): Draw {
+  const box = el('div', 'tt-caption', root)
+  const title = el('div', 'tt-caption-title', box)
+  title.textContent = e.text
+  if (e.size) title.style.fontSize = `${e.size}px`
+  if (e.sub) el('div', 'tt-caption-sub', box).textContent = e.sub
+  return (t) => {
+    if (!show(box, t >= e.at && t < e.until)) return
+    const into = ease(clamp01((t - e.at) / 0.25))
+    const out = ease(clamp01((e.until - t) / 0.2))
+    box.style.opacity = (into * out).toFixed(4)
+    box.style.transform = `translateY(${((1 - into) * 10).toFixed(3)}px)`
+  }
+}
 
 function slam(root: HTMLElement, e: Extract<TitleEvent, { kind: 'slam' }>): Draw {
   // per frame only transforms and opacities change: the ink-filtered glyphs raster once
@@ -217,10 +242,16 @@ function brand(root: HTMLElement, e: Extract<TitleEvent, { kind: 'brand' }>, img
 }
 
 function end(root: HTMLElement, e: Extract<TitleEvent, { kind: 'end' }>, imgs: HTMLImageElement[]): Draw {
-  const box = el('div', 'tt-end', root)
+  const box = el('div', e.emblem ? 'tt-end tt-emblem' : 'tt-end', root)
   const bg = el('div', 'tt-end-bg', box)
   const glow = el('div', 'tt-end-glow', box)
-  const img = el('img', '', box) as HTMLImageElement
+  let emblem: HTMLImageElement | null = null
+  if (e.emblem) {
+    emblem = el('img', 'tt-end-emblem', box) as HTMLImageElement
+    emblem.src = '/brand/emblem.png'
+    imgs.push(emblem)
+  }
+  const img = el('img', 'tt-end-wordmark', box) as HTMLImageElement
   img.src = LOGO
   imgs.push(img)
   const l1 = el('div', 'tt-end-l1', box)
@@ -246,6 +277,10 @@ function end(root: HTMLElement, e: Extract<TitleEvent, { kind: 'end' }>, imgs: H
     const pulse = Math.max(0, 1 - Math.abs(u - 0.3) / 0.7)
     img.style.opacity = String(k.toFixed(3))
     img.style.transform = `scale(${(1.2 - 0.16 * k - 0.04 * easeOut(clamp01(u / 3))).toFixed(4)})`
+    if (emblem) {
+      emblem.style.opacity = k.toFixed(3)
+      emblem.style.transform = `scale(${lerp(1.04, 1, easeOut(clamp01(u / 2))).toFixed(4)})`
+    }
     glow.style.opacity = String((k * (0.5 + 0.5 * pulse)).toFixed(3))
     const parts: [HTMLElement | null, number][] = [
       [l1, 0.55],
@@ -279,7 +314,7 @@ document.body.appendChild(svg)
 const root = el('div', 'tt', document.body)
 
 void document.fonts.ready.then(async () => {
-  await Promise.all(['200px "Metal Mania"', '700 30px "Barlow Semi Condensed"', '600 28px "Barlow Semi Condensed"', '700 40px "Cinzel"'].map((f) => document.fonts.load(f).catch(() => [])))
+  await Promise.all(['200px "Metal Mania"', '400 32px "Barlow Semi Condensed"', '700 30px "Barlow Semi Condensed"', '600 28px "Barlow Semi Condensed"', '700 40px "Cinzel"'].map((f) => document.fonts.load(f).catch(() => [])))
   state.fonts = true
 })
 
@@ -296,11 +331,12 @@ window.__titles = {
     const imgs: HTMLImageElement[] = []
     state.draws = []
     // paint order = list order: fills first (vignette, fades), words on top
-    const order: TitleEvent['kind'][] = ['vignette', 'brand', 'end', 'tag', 'slam', 'flash', 'fade']
+    const order: TitleEvent['kind'][] = ['vignette', 'brand', 'end', 'tag', 'caption', 'slam', 'flash', 'fade']
     const evs = spec.events.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
     for (const e of evs) {
       if (e.kind === 'slam') state.draws.push(slam(root, e))
       else if (e.kind === 'tag') state.draws.push(tag(root, e))
+      else if (e.kind === 'caption') state.draws.push(caption(root, e))
       else if (e.kind === 'flash') state.draws.push(flash(root, e))
       else if (e.kind === 'fade') state.draws.push(fade(root, e))
       else if (e.kind === 'vignette') state.draws.push(vignette(root, e))

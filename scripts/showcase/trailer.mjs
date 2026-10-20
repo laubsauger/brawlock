@@ -6,6 +6,7 @@
  *   node scripts/showcase/trailer.mjs --music <track> [--beats <beats.json from beats.mjs>]
  *     [--shots media/trailer/shots] [--cues media/trailer/cues.json] [--out media/trailer]
  *     [--name brawlock_trailer_v1] [--static <snapshot dir for the SFX render>] [--sfx 0.5]
+ *     [--voice <timeline-aligned WAV>] [--no-youtube]
  *     [--plan] (print the cut list and stop) [--titles-only] [--sfx-only] [--titles] (force a title re-render)
  *
  * Writes <name>.mp4 (1080p60 master), <name>_youtube.mp4 (1440p60 upload), <name>_share.mp4 (1080p30, < 25 MB), <name>_small.mp4
@@ -29,6 +30,8 @@ const SHOTS = resolve(opt('shots', join(root, 'media/trailer/shots')))
 const OUT = resolve(opt('out', join(root, 'media/trailer')))
 const NAME = opt('name', 'brawlock_trailer_v1')
 const MUSIC = opt('music', '') && resolve(opt('music', ''))
+const VOICE = opt('voice', '') && resolve(opt('voice', ''))
+if (VOICE && !MUSIC) throw new Error('--voice requires --music for the narrated mix')
 const SFX_GAIN = Number(opt('sfx', '0.3'))
 const edl = await import(pathToFileURL(resolve(opt('edl', join(here, 'trailer.edl.mjs')))).href)
 const cues = JSON.parse(readFileSync(resolve(opt('cues', join(root, 'media/trailer/cues.json'))), 'utf8'))
@@ -92,7 +95,14 @@ for (const [beat, kind, f] of edl.TITLES) {
   const at = beatT(beat)
   if (kind === 'brand') events.push({ kind, at: 0, mark: beatT(f.mark), out: beatT(f.out), until: beatT(f.out) + 0.04 })
   else if (kind === 'slam') events.push({ kind, at, until: beatT(beat + f.beats), text: f.text, sub: f.sub, size: f.size, hue: f.hue, y: f.y })
-  else if (kind === 'end') events.push({ kind, at, until: totalF / FPS + 1, line1: f.line1, line2: f.line2, line3: f.line3 })
+  else if (kind === 'caption') events.push({ kind, at, until: beatT(beat + f.beats), text: f.text, sub: f.sub, size: f.size })
+  else if (kind === 'end') events.push({ kind, at, until: totalF / FPS + 1, line1: f.line1, line2: f.line2, line3: f.line3, emblem: f.emblem })
+}
+// Narrated titles use exact speech times rather than rounding to music beats.
+if (edl.NARRATION) {
+  for (const line of edl.NARRATION) {
+    if (line.title) events.push({ kind: 'slam', at: line.at, ...line.title })
+  }
 }
 for (const c of cuts) {
   if (c.tag) events.push({ kind: 'tag', at: c.startF / FPS + 0.02, until: (c.startF + c.n) / FPS, spell: c.tag })
@@ -155,6 +165,8 @@ const SFX = nIn
 const TIT = nIn + 1
 if (MUSIC) inputs.push('-i', MUSIC)
 const MUS = nIn + 2
+if (VOICE) inputs.push('-i', VOICE)
+const VO = nIn + 3
 const withShot = cuts.map((c, i) => [c, i]).filter(([c]) => c.shot)
 filt.push(`[${SFX}:a]aresample=48000,aformat=channel_layouts=stereo,asplit=${withShot.length}${withShot.map(([, i]) => `[s${i}]`).join('')}`)
 cuts.forEach((c, i) => {
@@ -174,7 +186,11 @@ if (MUSIC) {
   // game SFX as accents under the music: no rumble or fizz, peaks tamed, well below the track
   filt.push(`[ac]highpass=f=110,lowpass=f=7000,acompressor=threshold=0.12:ratio=4:attack=5:release=120,volume=${SFX_GAIN}[sa]`)
   filt.push(`[${MUS}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${total},asetpts=PTS-STARTPTS[ma]`)
-  filt.push(`[sa][ma]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.97:level=false[ao]`)
+  if (VOICE) {
+    filt.push(`[${VO}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur=${total},atrim=0:${total},asplit=2[va][side]`)
+    filt.push('[ma][side]sidechaincompress=threshold=0.055:ratio=2.5:attack=80:release=650:knee=4[ducked]')
+    filt.push('[sa][ducked][va]amix=inputs=3:normalize=0:duration=longest,alimiter=limit=0.97:level=false[ao]')
+  } else filt.push(`[sa][ma]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.97:level=false[ao]`)
 } else filt.push(`[ac]volume=${SFX_GAIN},alimiter=limit=0.97:level=false[ao]`)
 const master = join(OUT, `${NAME}.mp4`)
 writeFileSync(join(OUT, `${NAME}_filter.txt`), filt.join(';\n'))
@@ -183,8 +199,10 @@ execFileSync(FF, ['-nostdin', '-y', '-loglevel', 'error', ...inputs, '-/filter_c
 
 // YouTube upload: 1440p60 (YouTube serves 1440p+ uploads with a better codec and more bitrate than 1080p)
 const yt = join(OUT, `${NAME}_youtube.mp4`)
-execFileSync(FF, ['-nostdin', '-y', '-loglevel', 'error', '-i', master, '-vf', 'scale=2560:1440:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-c:a', 'copy', '-movflags', '+faststart', yt], { stdio: 'inherit' })
-console.log(`youtube: ${yt}`)
+if (!args.includes('--no-youtube')) {
+  execFileSync(FF, ['-nostdin', '-y', '-loglevel', 'error', '-i', master, '-vf', 'scale=2560:1440:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-c:a', 'copy', '-movflags', '+faststart', yt], { stdio: 'inherit' })
+  console.log(`youtube: ${yt}`)
+}
 
 // share copies: 1080p30 under 25 MB and 720p30 under 10 MB (two-pass to a bitrate budget)
 for (const [suffix, scale, mb, ak] of [

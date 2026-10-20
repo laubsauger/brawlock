@@ -34,7 +34,9 @@ const BODY = 150
 export function collectAction(spec: ShotSpec): ActionInfo {
   const sim = new ShotSim(spec)
   let st = 0
-  for (let vt = 0; vt < spec.dur - 1e-6; vt += 1 / 60) st += (1 / 60) * speedAt(spec, vt, st)
+  const steps = spec.renderSubsteps ?? 1
+  for (let vt = 0; vt < spec.dur - 1e-6; vt += 1 / 60)
+    for (let j = 0; j < steps; j++) st += (1 / (60 * steps)) * speedAt(spec, vt + j / (60 * steps), st)
   const ticks = Math.ceil(st * TICK_HZ)
   const out: ActionInfo = { samples: [], deaths: [], endSt: st }
   const sample = () => {

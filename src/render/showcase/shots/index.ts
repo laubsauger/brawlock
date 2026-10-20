@@ -12,8 +12,10 @@ import { BRAWL_SHOTS } from './brawl'
 import { END_SHOTS, FINALE_SHOTS } from './finale'
 import { TEST_SHOTS } from './test'
 import { TRAILER_SHOTS } from './trailer'
+import { TEASER30_SHOTS } from './teaser30'
+import { TEASER30V2_SHOTS } from './teaser30v2'
 
-export const SHOTS: ShotSpec[] = [...OPEN_SHOTS, ...TIP_SHOTS, ...KIT_SHOTS, ...COL1_SHOTS, ...COL2_SHOTS, ...COL3_SHOTS, ...COL4_SHOTS, ...COL5_SHOTS, ...COL6_SHOTS, ...ITEM_SHOTS, ...MECH_SHOTS, ...BRAWL_SHOTS, ...FINALE_SHOTS, ...END_SHOTS, ...TEST_SHOTS, ...TRAILER_SHOTS]
+export const SHOTS: ShotSpec[] = [...OPEN_SHOTS, ...TIP_SHOTS, ...KIT_SHOTS, ...COL1_SHOTS, ...COL2_SHOTS, ...COL3_SHOTS, ...COL4_SHOTS, ...COL5_SHOTS, ...COL6_SHOTS, ...ITEM_SHOTS, ...MECH_SHOTS, ...BRAWL_SHOTS, ...FINALE_SHOTS, ...END_SHOTS, ...TEST_SHOTS, ...TRAILER_SHOTS, ...TEASER30_SHOTS, ...TEASER30V2_SHOTS]
 
 export function shotById(id: string): ShotSpec {
   const s = SHOTS.find((x) => x.id === id)

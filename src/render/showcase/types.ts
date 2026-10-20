@@ -68,6 +68,8 @@ export interface OverlaySpec {
 
 export interface ShotSpec extends SimShotSpec {
   id: string
+  /** Existing floor material treatment used for this private capture. */
+  floorStyle?: import('../tweaks').FloorStyle
   /** video seconds */
   dur: number
   /** time scale as a function of sim seconds (1 = real time) */
@@ -86,6 +88,8 @@ export interface ShotSpec extends SimShotSpec {
   preroll?: number
   /** trailer: video seconds of the shot's key moment (the edit lands it on a beat) */
   hit?: number
+  /** Capture-only temporal render steps per output frame (e.g. 4 for a close bullet-time orbit). */
+  renderSubsteps?: number
 }
 
 /** the shot's time scale at video second `vt` / sim second `st` (never negative) */

@@ -40,6 +40,7 @@ const CSS = `
 .sc-noplates .bl-plate{display:none!important}
 .sc-nonums .bl-num,.sc-nonums .bl-call{display:none!important}
 .sc-nostamps .bl-stampw,.sc-nostamps .bl-bounty{display:none!important}
+.sc-no-world-overlay .bl-ov,.sc-no-world-overlay .bl-locator{display:none!important}
 `
 
 const LOGO = '/brand/wordmark.webp'
@@ -195,6 +196,7 @@ export class ShowcaseOverlay {
     this.host.classList.toggle('sc-noplates', spec.plates === false)
     this.host.classList.toggle('sc-nonums', spec.nums === false)
     this.host.classList.toggle('sc-nostamps', spec.stamps === false)
+    this.host.classList.toggle('sc-no-world-overlay', spec.plates === false && spec.nums === false && spec.stamps === false)
     // corner logo
     const heroOn = !!spec.hero && vt >= spec.hero.at && vt <= (spec.hero.until ?? dur)
     const endOn = !!spec.end && vt >= spec.end.at

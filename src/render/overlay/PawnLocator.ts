@@ -24,6 +24,7 @@ export class PawnLocator {
 
   constructor(private parent: HTMLElement) {
     const el = document.createElement('div')
+    el.className = 'bl-locator'
     el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;display:none;z-index:3;will-change:transform'
     const arrow = document.createElement('div')
     // a chevron in a dark disc: reads on any floor, never like a spell icon
