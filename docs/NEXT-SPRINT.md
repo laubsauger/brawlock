@@ -19,8 +19,8 @@ Deployment is established by release receipts, not by implementation status here
    below the intended roughly 75% step. Investigate builds/decisions with paired seeds before
    retuning; preserve Easy/Medium accessibility and keep Uber as the reference. Current Elo
    labels describe measured strength rather than pretending the target gaps are achieved.
-3. **Battle soundtrack.** Choose proper recorded combat music. Synth battle music is disabled
-   deliberately; menu/shop music and combat SFX remain. Selection still needs a listening
+3. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
+   disabled in both deliberately; the menu recording and combat SFX remain. Selection still needs a listening
    decision; it is not a reason to restore the synth or generate arbitrary tracks.
 
 ## Completed in this planning pass

@@ -11,6 +11,9 @@
  * (node tests, old browsers) or while the context is not running.
  */
 import { MusicLayer, type MusicTrack } from './music'
+
+/** synthesized music beds still in use: none (menu has a recording; shop and fight wait for theirs) */
+const SYNTH_MUSIC: readonly MusicTrack[] = []
 import { MenuMusic } from './menuMusic'
 import { ASSET_BASE } from '../lib/assets'
 import { AmbienceLayer, edgeProximity, type AmbienceKind } from './ambience'
@@ -737,8 +740,9 @@ export class AudioEngine {
     const track = this.desiredTrack
     this.menuMusic.setActive(track === 'menu', g.ctx as AudioContext, g.music, baseUrl())
     this.applyAmbience(track === 'none' ? null : track === 'menu' ? 'menu' : 'match')
-    // Battle stays music-free until its proper soundtrack is ready; keep the match ambience.
-    const synthTrack = track === 'shop' ? 'shop' : 'none'
+    // Shop and battle stay music-free until recorded tracks exist (the synthesized beds read as
+    // placeholder); keep the match ambience. The menu plays its recording above.
+    const synthTrack: MusicTrack | 'none' = SYNTH_MUSIC.includes(track as MusicTrack) ? (track as MusicTrack) : 'none'
     if ((this.current?.track ?? 'none') === synthTrack) {
       if (this.amb && !this.timer) this.timer = setInterval(() => this.pump(), 50)
       return

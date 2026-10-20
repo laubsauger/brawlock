@@ -261,7 +261,7 @@ Auto-detect on first launch from a 3-second GPU timestamp benchmark during the s
 
 - WebAudio graph: master, SFX, music, UI buses; mute and per-bus volume persisted.
 - Positional SFX (pan by screen position, falloff by camera distance), voice limiting per sound, random pitch and variant per play.
-- Music: streamed menu themes and the shop-phase loop. Synthesized combat music is disabled until a proper battle soundtrack is selected; fight SFX and lava ambience remain active.
+- Music: streamed menu themes. Synthesized shop and combat music is disabled until recorded tracks are selected; fight SFX and lava ambience remain active.
 - Sources: CC0 (freesound filtered, Kenney), Sonniss GDC bundles (royalty-free), commissioned later.
 
 ### 5.7 Screens and flow

@@ -565,7 +565,7 @@ describe('audio: lava ambience', () => {
     vi.runAllTimers()
   })
 
-  it('keeps battle music silent before and after unlock, while shop music and menu recordings still play', () => {
+  it('keeps shop and battle free of synthesized music before and after unlock, while the menu recording still plays', () => {
     vi.useFakeTimers()
     ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
     const schedule = vi.spyOn(MusicLayer.prototype, 'schedule')
@@ -579,12 +579,12 @@ describe('audio: lava ambience', () => {
       expect(schedule).not.toHaveBeenCalled()
       expect(m.leakingSources().length).toBeGreaterThan(0) // lava bed remains
 
+      // the synthesized beds read as placeholder music: players hear only the lava ambience
       e.music('shop')
-      vi.advanceTimersByTime(100)
-      expect(schedule).toHaveBeenCalled()
-      schedule.mockClear()
+      vi.advanceTimersByTime(200)
+      expect(schedule).not.toHaveBeenCalled()
+      expect(m.leakingSources().length).toBeGreaterThan(0)
       e.music('fight')
-      expect(release).toHaveBeenCalledWith(1.6)
       m.currentTime += 4
       vi.advanceTimersByTime(200)
       expect(schedule).not.toHaveBeenCalled()
