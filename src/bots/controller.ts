@@ -111,6 +111,10 @@ const SHOT_RADIUS = 35
 const RETARGET_MARGIN = 0.3
 /** FFA: smooth local pressure; this is a falloff scale, never a spacing constraint. */
 const CROWD_FALLOFF = 350
+/** punish: Scourge value (expected enemies caught) that is a sure hit */
+const SURE_SCOURGE = 1
+/** punish: estimated hit chance of a shot the target can hardly avoid */
+const PUNISH_HIT = 0.75
 
 export type BotAction =
   | 'idle'
@@ -439,7 +443,12 @@ export class BotController implements Bot {
         let go = false
         if (p.scourgeMinValue > 0) {
           const v = this.scourgeValue(state, me, enemies, false)
-          go = v.value >= p.scourgeMinValue && (me.hp >= p.scourgeMinHp || v.kills > 0) && this.rng.chance(p.scourgeChance)
+          // punish: a sure or killing blast is seen as such, beyond the per-think rate
+          const sure = p.punish > 0 && (v.kills > 0 || v.value >= SURE_SCOURGE)
+          go =
+            v.value >= p.scourgeMinValue &&
+            (me.hp >= p.scourgeMinHp || v.kills > 0) &&
+            ((sure && this.rng.chance(p.punish)) || this.rng.chance(p.scourgeChance))
         } else {
           go = closestDist <= SCOURGE_RADIUS - 20 && this.rng.chance(p.scourgeChance)
         }
@@ -477,6 +486,17 @@ export class BotController implements Bot {
     if (tpReady && target && p.teleportOffense > 0 && danger < 1 && this.rng.chance(p.teleportOffense)) {
       const spot = this.repositionSpot(state, me, target, threats, safety)
       if (spot) return this.act('reposition', [{ kind: 'cast', slot: tp, x: spot.x, y: spot.y }])
+    }
+
+    // 8e. Punish (new): a target that cannot step aside in time (committed to a cast, rooted,
+    // flying from a hit, cornered at the edge, too close) gets a shot at once with a spell
+    // that is ready, instead of waiting for the castChance roll.
+    if (p.punish > 0 && target && !me.cast && this.rng.chance(p.punish)) {
+      const shot = this.punishShot(state, me, target)
+      if (shot) {
+        this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+        return this.act('shoot', [shot])
+      }
     }
 
     // 9. Shoot a random projectile spell at the target (falls through if not castable). Never
@@ -1034,6 +1054,19 @@ export class BotController implements Bot {
     const edge = Math.max(0, Math.min(1, 1 - (layerRadius(state.arena.layer) - hypot(target.x, target.y)) / 400))
     // a shot at a target near the edge is worth it even if it can step aside: it must
     return Math.max(edge, Math.min(1, r / Math.max(1, room)))
+  }
+
+  /** A ready shot at `target` it can hardly avoid (punish), or null. */
+  private punishShot(state: SimState, me: PawnState, target: PawnState): InputCommand | null {
+    // bolts whose flight it can judge (shotChance), and instant beams
+    const judged = (s: number) => BOT_SPELLS[me.slots[s]!]?.speed !== undefined || BOT_SPELLS[me.slots[s]!]?.hitscan === true
+    const ready = this.slotsWithRole(me, 'projectile').filter((s) => judged(s) && castable(me, s) && !this.bubbleBlocks(me, target, me.slots[s]!))
+    if (ready.length === 0) return null
+    const slot = this.rng.pick(ready)
+    const spell = me.slots[slot]!
+    const aim = this.aimAt(me, target, spell, state)
+    if (!aim || this.shotChance(state, me, target, spell, aim) < PUNISH_HIT) return null
+    return { kind: 'cast', slot, x: aim.x, y: aim.y }
   }
 
   /** The layer the bot plans against: the next one when a shrink is imminent. */

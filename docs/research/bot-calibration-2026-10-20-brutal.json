@@ -1,0 +1,456 @@
+{
+  "measured": "2026-10-20",
+  "source": "2ab87be + this change (Brutal punish 0.1, Hard castChance 0.2)",
+  "command": "npm run bots:elo -- --games 400 --ffa 12 --workers 6 --seed 1",
+  "method": "Round-based Bradley–Terry; Medium = 1000; 500 whole-match bootstrap resamples; display rounded to nearest 25",
+  "duels": {
+    "matches": 4000,
+    "matchesPerPair": 400,
+    "seeds": [
+      1,
+      400
+    ],
+    "completedRounds": 21705,
+    "cappedMatches": 0,
+    "pairs": [
+      {
+        "a": "easy",
+        "b": "medium",
+        "winsA": 42,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.9794,
+        "roundShareB95": [
+          0.9751,
+          0.9852
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "easy",
+        "b": "hard",
+        "winsA": 0,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 1,
+        "roundShareB95": [
+          1,
+          1
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "easy",
+        "b": "brutal",
+        "winsA": 0,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 1,
+        "roundShareB95": [
+          1,
+          1
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "easy",
+        "b": "uber",
+        "winsA": 0,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 1,
+        "roundShareB95": [
+          1,
+          1
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "medium",
+        "b": "hard",
+        "winsA": 43,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.979,
+        "roundShareB95": [
+          0.9718,
+          0.9857
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "medium",
+        "b": "brutal",
+        "winsA": 21,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.9896,
+        "roundShareB95": [
+          0.9847,
+          0.993
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "medium",
+        "b": "uber",
+        "winsA": 9,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.9955,
+        "roundShareB95": [
+          0.9916,
+          0.998
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "hard",
+        "b": "brutal",
+        "winsA": 589,
+        "winsB": 1938,
+        "draws": 0,
+        "roundShareB": 0.7669,
+        "roundShareB95": [
+          0.7495,
+          0.7801
+        ],
+        "matchesA": 28,
+        "matchesB": 372
+      },
+      {
+        "a": "hard",
+        "b": "uber",
+        "winsA": 265,
+        "winsB": 1997,
+        "draws": 0,
+        "roundShareB": 0.8828,
+        "roundShareB95": [
+          0.869,
+          0.8959
+        ],
+        "matchesA": 1,
+        "matchesB": 399
+      },
+      {
+        "a": "brutal",
+        "b": "uber",
+        "winsA": 1007,
+        "winsB": 1794,
+        "draws": 0,
+        "roundShareB": 0.6405,
+        "roundShareB95": [
+          0.6197,
+          0.6576
+        ],
+        "matchesA": 91,
+        "matchesB": 309
+      }
+    ],
+    "elo": {
+      "easy": {
+        "elo": 330.5619962084837,
+        "ci95": 54.49475076285114,
+        "lo": 269.056718271528,
+        "hi": 378.04621979723026
+      },
+      "medium": {
+        "elo": 1000,
+        "ci95": 0,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hard": {
+        "elo": 1634.7398109097762,
+        "ci95": 38.449180850669904,
+        "lo": 1598.63470572947,
+        "hi": 1675.5330674308098
+      },
+      "brutal": {
+        "elo": 1851.7077931596928,
+        "ci95": 42.22695125105156,
+        "lo": 1810.680361850154,
+        "hi": 1895.134264352257
+      },
+      "uber": {
+        "elo": 1960.8952348693574,
+        "ci95": 41.847019368563224,
+        "lo": 1917.9447510729356,
+        "hi": 2001.638789810062
+      }
+    }
+  },
+  "ffa": {
+    "pods": 60,
+    "podsPerCombination": 12,
+    "cappedAt1500Seconds": 7,
+    "note": "Exploratory completed-round placements, not a completed-match win-rate estimate; not used for lobby Elo",
+    "elo": {
+      "easy": {
+        "elo": 612.8197293545312,
+        "ci95": 71.52768901335583,
+        "lo": 532.017118500567,
+        "hi": 675.0724965272786
+      },
+      "medium": {
+        "elo": 1000,
+        "ci95": 0,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hard": {
+        "elo": 1363.0813502670962,
+        "ci95": 49.83627742066187,
+        "lo": 1314.3693331761963,
+        "hi": 1414.04188801752
+      },
+      "brutal": {
+        "elo": 1460.5940902526347,
+        "ci95": 58.32955082077365,
+        "lo": 1407.77341208917,
+        "hi": 1524.4325137307173
+      },
+      "uber": {
+        "elo": 1546.1058849698754,
+        "ci95": 54.372029166024845,
+        "lo": 1497.14896496899,
+        "hi": 1605.8930233010396
+      }
+    }
+  },
+  "change": "Brutal gains punish 0.1 (take clear openings at once: a ready bolt the target can hardly step aside from, a sure or killing Scourge). Hard castChance 0.25 -> 0.2 (the original 1/5). Easy, Medium and Uber unchanged.",
+  "roundShareNote": "roundShareB = share of decided rounds won by b; roundShareB95 = 95% interval from 2,000 bootstrap resamples of whole matches",
+  "before": {
+    "note": "Same harness and seeds 1-400 on the presets before this change",
+    "source": "2ab87be presets, replayed via --params (hardBefore = hard with castChance 0.25, brutalBefore = brutal with punish 0)",
+    "command": "npm run bots:elo -- --games 400 --workers 6 --tiers medium,hardBefore,brutalBefore,uber --params before.json",
+    "pairs": [
+      {
+        "a": "medium",
+        "b": "hardBefore",
+        "winsA": 43,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.979,
+        "roundShareB95": [
+          0.9728,
+          0.9833
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "medium",
+        "b": "brutalBefore",
+        "winsA": 29,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.9857,
+        "roundShareB95": [
+          0.9809,
+          0.9916
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "medium",
+        "b": "uber",
+        "winsA": 9,
+        "winsB": 2000,
+        "draws": 0,
+        "roundShareB": 0.9955,
+        "roundShareB95": [
+          0.9916,
+          0.998
+        ],
+        "matchesA": 0,
+        "matchesB": 400
+      },
+      {
+        "a": "hardBefore",
+        "b": "brutalBefore",
+        "winsA": 1058,
+        "winsB": 1756,
+        "draws": 0,
+        "roundShareB": 0.624,
+        "roundShareB95": [
+          0.6088,
+          0.6414
+        ],
+        "matchesA": 100,
+        "matchesB": 300
+      },
+      {
+        "a": "hardBefore",
+        "b": "uber",
+        "winsA": 369,
+        "winsB": 1973,
+        "draws": 0,
+        "roundShareB": 0.8424,
+        "roundShareB95": [
+          0.8254,
+          0.8545
+        ],
+        "matchesA": 13,
+        "matchesB": 387
+      },
+      {
+        "a": "brutalBefore",
+        "b": "uber",
+        "winsA": 724,
+        "winsB": 1911,
+        "draws": 0,
+        "roundShareB": 0.7252,
+        "roundShareB95": [
+          0.7032,
+          0.7432
+        ],
+        "matchesA": 42,
+        "matchesB": 358
+      }
+    ],
+    "elo": {
+      "medium": {
+        "elo": 1000,
+        "ci95": 0,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hardBefore": {
+        "elo": 1654.3200112725199,
+        "ci95": 37.402251737823235,
+        "lo": 1619.3774191876412,
+        "hi": 1694.1819226632877
+      },
+      "brutalBefore": {
+        "elo": 1749.7607382136507,
+        "ci95": 41.28828236072263,
+        "lo": 1710.2530709946582,
+        "hi": 1792.8296357161034
+      },
+      "uber": {
+        "elo": 1928.6695206052877,
+        "ci95": 39.05981767837898,
+        "lo": 1890.9998696290982,
+        "hi": 1969.119504985856
+      }
+    }
+  },
+  "investigation": {
+    "method": "Paired seeds 1-200 (200 first-to-5 matches per pair, sides alternated), candidate presets via --params, each played against the old Brutal unless noted. Share = rounds won by the variant.",
+    "deaths": "Hard vs old Brutal, 2,846 rounds: 85% of deaths are lava, 90% of them between 75 and 120 s at arena layer 4-6 (radius 300-500); the last non-lava hit was Fireball 55%, Scourge 19%. Death causes, builds and action time shares were nearly identical for both tiers: old Brutal was Hard with faster hands.",
+    "ablations": [
+      {
+        "vs": "old Brutal without edgePressure",
+        "base": "old Brutal",
+        "rounds": 1465,
+        "share": 0.51
+      },
+      {
+        "vs": "Hard with edgePressure",
+        "base": "Hard",
+        "rounds": 1453,
+        "share": 0.53
+      },
+      {
+        "vs": "old Brutal, reaction 0.18 s (Hard)",
+        "base": "old Brutal",
+        "rounds": 1450,
+        "share": 0.39
+      },
+      {
+        "vs": "old Brutal, aim error 0.03 rad (Hard)",
+        "base": "old Brutal",
+        "rounds": 1459,
+        "share": 0.5
+      },
+      {
+        "vs": "old Brutal + frictionLead (Uber)",
+        "base": "old Brutal",
+        "rounds": 1496,
+        "share": 0.51
+      },
+      {
+        "vs": "old Brutal + shotGate 0.3 (Uber)",
+        "base": "old Brutal",
+        "rounds": 1483,
+        "share": 0.51
+      },
+      {
+        "vs": "old Brutal + teleportOffense 0.5 (Uber)",
+        "base": "old Brutal",
+        "rounds": 1493,
+        "share": 0.51
+      },
+      {
+        "vs": "old Brutal + castChance 0.3 (Uber)",
+        "base": "old Brutal",
+        "rounds": 1465,
+        "share": 0.52
+      },
+      {
+        "vs": "old Brutal + castChance 1",
+        "base": "old Brutal",
+        "rounds": 1440,
+        "share": 0.59
+      },
+      {
+        "vs": "old Brutal + scourgeChance 0.5 (Uber)",
+        "base": "old Brutal",
+        "rounds": 1429,
+        "share": 0.59
+      },
+      {
+        "vs": "old Brutal + reaction 0.12 s, aim 0.015 rad (Uber hands)",
+        "base": "old Brutal",
+        "rounds": 1416,
+        "share": 0.61
+      },
+      {
+        "vs": "Uber",
+        "base": "old Brutal",
+        "rounds": 1321,
+        "share": 0.71
+      },
+      {
+        "vs": "old Brutal + punish 1 (always)",
+        "base": "old Brutal",
+        "rounds": 1315,
+        "share": 0.74
+      },
+      {
+        "vs": "old Brutal + punish 0.1",
+        "base": "old Brutal",
+        "rounds": 1468,
+        "share": 0.58
+      },
+      {
+        "vs": "old Brutal + punish 0.1",
+        "base": "Hard (castChance 0.25)",
+        "rounds": 1337,
+        "share": 0.71
+      },
+      {
+        "vs": "Uber",
+        "base": "old Brutal + punish 0.1",
+        "rounds": 1412,
+        "share": 0.65
+      },
+      {
+        "vs": "Hard castChance 0.2",
+        "base": "Hard (castChance 0.25)",
+        "rounds": 1460,
+        "share": 0.44
+      }
+    ],
+    "findings": "In duels the old Brutal edge was entirely its 30 ms faster reaction; edge pressure and the smaller aim error were worth nothing. Firing rate alone (castChance 1) helps less than firing at the right moment: punish keeps the fire rate (about 16 Fireballs a round either way) but raised its Fireball damage per cast against Hard from about 22 to 24 while Hard's fell from about 14 to 12. Without a Hard change, any punish strong enough for a 75% step over Hard left Uber only about 60% over Brutal (punish 0.2: 78% over Hard, Uber 57% over it, 200 matches), so Hard returned to the original cast rate (worth about 35 Elo; Hard still wins 98% of rounds over Medium)."
+  }
+}

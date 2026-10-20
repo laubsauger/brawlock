@@ -9,8 +9,9 @@
  *
  * Calibrated with Elo per ROUND (scripts/bots/elo.ts, BOT_ELO below). Every active tier
  * draws from the same seeded shop-build pool. Difficulty still controls reaction, aim
- * and combat decisions: Hard is Brutal's decision set at slower hands (0.18 s, 0.03 rad),
- * while Brutal adds edge pressure. Easy keeps its beginner reaction and aim settings.
+ * and combat decisions: Hard is Brutal's decision set at slower hands (0.18 s, 0.03 rad) and
+ * the original cast rate, while Brutal adds edge pressure and punishes openings. Easy keeps its
+ * beginner reaction and aim settings.
  *
  * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
  * |------------------|-------|-------|--------|-------|--------|-------|----------|
@@ -19,7 +20,7 @@
  * | aimErrorRad      |   -   | 0.20  | 0.08   | 0.03  | 0.02   | 0.015 | 0        |
  * | leadChance       |   -   | 0.33  | 0.5    | 0.95  | 0.95   | 1     | 1/3      |
  * | leadWindup       |   -   | no    | no     | yes   | yes    | yes   | no       |
- * | castChance/think |   -   | 0.2   | 0.2    | 0.25  | 0.25   | 0.3   | 1/5      |
+ * | castChance/think |   -   | 0.2   | 0.2    | 0.2   | 0.25   | 0.3   | 1/5      |
  * | rangeCheck       |   -   | no    | no     | yes   | yes    | yes   | no       |
  * | dodge (thresh)   |   -   | 3     | 3      | 2.5   | 2.5    | 2.5   | 3        |
  * | scourgeChance    |   -   | 1/6   | 1/6    | 0.3   | 0.3    | 0.5   | 1/6      |
@@ -48,6 +49,7 @@
  * | edgePressure     |   -   | no    | no     | no    | yes    | yes   | -        |
  * | frictionLead     |   -   | no    | no     | no    | no     | yes   | -        |
  * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
+ * | punish           |   -   | 0     | 0      | 0     | 0.1    | 0     | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
@@ -78,6 +80,15 @@
  * and Scourge upgrades, then what the build is about) and buys to it as gold allows each shop
  * phase. Uber only: frictionLead leads knocked targets with their decaying slide;
  * shotGate skips shots a target can easily walk out of.
+ *
+ * punish (Brutal): chance per think, on top of castChance, to take an opening at once: a ready
+ * bolt at a target that can hardly step aside (estimated hit chance >= 0.75: committed to a
+ * cast, rooted, flying from a hit, cornered at the edge, or too close to react), or a sure or
+ * killing Scourge. Same aim error and reaction delay; it changes when Brutal fires, not how
+ * well. Paired-seed calibration (docs/research/bot-calibration-2026-10-20-brutal.json) found
+ * the old Brutal only 61% of rounds over Hard: in duels its edge pressure was worth nothing,
+ * aim error 0.02 vs 0.03 nothing, and the 30 ms of reaction all of it. Hard's cast rate went
+ * back to the original 1/5: it had Brutal's raised 0.25 and sat 98% of rounds over Medium.
  *
  * targetSense (FFA, 2+ enemies): local opportunities beyond distance: finishing chances,
  * threats, fading retaliation, and third-party pushes, weighed against nearby competition.
@@ -178,6 +189,11 @@ export interface BotParams {
   /** minimum estimated hit chance to take a shot (0 = always) */
   shotGate: number
   /**
+   * chance per think to take a clear opening at once (a ready shot the target can hardly avoid,
+   * a sure or killing Scourge) instead of waiting for the castChance / scourgeChance roll
+   */
+  punish: number
+  /**
    * shop: 'random' = original one random spell per 40 s, 'plan' = a build drawn per bot
    * (plan.ts), a build id = always that build (tuning)
    */
@@ -221,6 +237,7 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   edgePressure: false,
   frictionLead: false,
   shotGate: 0,
+  punish: 0,
   buildPlan: 'random',
 }
 
@@ -262,7 +279,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     aimErrorRad: 0.03,
     leadChance: 0.95,
     leadWindup: true,
-    castChance: 0.25,
+    // the original 1/5 (Easy, Medium), not Brutal's 0.25: see punish above
+    castChance: 0.2,
     rangeCheck: true,
     dodgeThreshold: 2.5,
     scourgeChance: 0.3,
@@ -319,6 +337,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
     edgePressure: true,
+    punish: 0.1,
     buildPlan: 'plan',
   },
   uber: {
@@ -363,14 +382,16 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * Round-based Elo per difficulty (Medium = 1000), measured by `npm run bots:elo`: Bradley–Terry
  * fit over seeded 1v1 rounds, rounded to 25 (table and intervals: docs/PLAN.md §7). Rounds, not
  * matches, are the unit: a first-to-5 match turns a 75% round edge into about 90% of matches.
- * Measured 2026-10-20 after all active tiers moved to seeded builds. These are estimates,
- * not the target tier gaps; see docs/research/bot-calibration-2026-10-20.json.
+ * Measured 2026-10-20 (400 matches per pair) after Brutal learned to punish openings and Hard
+ * went back to the original cast rate; see docs/research/bot-calibration-2026-10-20-brutal.json.
+ * Easy and Uber did not change; their labels moved with the larger sample and the weaker Hard
+ * (the tiers above Medium connect to it only through 98-100% pairs, so labels carry about ±40).
  * Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
-  easy: 350,
+  easy: 325,
   medium: 1000,
   hard: 1625,
-  brutal: 1725,
-  uber: 1875,
+  brutal: 1850,
+  uber: 1950,
 }

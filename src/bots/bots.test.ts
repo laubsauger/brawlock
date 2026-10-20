@@ -828,6 +828,37 @@ describe('bots: Scourge timing', () => {
   })
 })
 
+describe('bots: punishing openings (Brutal)', () => {
+  // Why: Brutal's step over Hard is meant to come from taking openings, not from faster hands.
+  // With castChance 0 the only shots left are punish shots, so each case shows what counts as
+  // an opening, and that the shot still waits for the preset's reaction delay.
+  const PUNISHER = { ...BOT_PRESETS.brutal, castChance: 0, punish: 1 }
+  function firstShot(enemyX: number, enemy: Partial<Parameters<typeof makePawn>[3]> = {}, ticks = 30) {
+    const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, enemyX, 0, enemy)])
+    const bot = new BotController(BOT, 'brutal', 7, PUNISHER)
+    const { log } = runKinematic(bot, state, ticks)
+    return log.find((l) => l.cmds.some((c) => c.kind === 'cast' && c.slot === FIREBALL_SLOT))?.tick ?? null
+  }
+
+  it('fires at once at a target committed to a Scourge windup, after the reaction delay', () => {
+    const tick = firstShot(500, { cast: { slot: 7, spell: 'scourge', ticksLeft: 50, x: 500, y: 0, started: true } })
+    expect(tick).not.toBeNull()
+    // the first decision is at tick 0: the order lands exactly one reaction delay later
+    expect(tick).toBe(Math.round(BOT_PRESETS.brutal.reactionDelay / DT))
+  })
+
+  it('holds fire at a free target far enough to step aside: that is not an opening', () => {
+    expect(firstShot(900)).toBeNull()
+  })
+
+  it('Hard and Uber do not punish; Brutal does, at a human rate, not every think', () => {
+    expect(BOT_PRESETS.hard.punish).toBe(0)
+    expect(BOT_PRESETS.uber.punish).toBe(0)
+    expect(BOT_PRESETS.brutal.punish).toBeGreaterThan(0)
+    expect(BOT_PRESETS.brutal.punish).toBeLessThan(0.5)
+  })
+})
+
 describe('bots: seeded shop builds', () => {
   const tiers = ['easy', 'medium', 'hard', 'brutal', 'uber'] as const
   const lobby = (difficulty: BotDifficulty, seed: number, n = 8) =>

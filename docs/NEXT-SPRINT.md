@@ -15,11 +15,7 @@ Deployment is established by release receipts, not by implementation status here
    proposed activity checkpoints. Operational aborts/crashes still grant no fabricated result
    or Embers. Decide checkpoint cadence, counters, retention and UI labels before adding
    partial combat aggregates; that additional aggregation remains unimplemented.
-2. **Hard–Brutal spacing.** The fresh calibration found Brutal wins 61% of rounds against Hard,
-   below the intended roughly 75% step. Investigate builds/decisions with paired seeds before
-   retuning; preserve Easy/Medium accessibility and keep Uber as the reference. Current Elo
-   labels describe measured strength rather than pretending the target gaps are achieved.
-3. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
+2. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
    disabled in both deliberately; the menu recording and combat SFX remain. Selection still needs a listening
    decision; it is not a reason to restore the synth or generate arbitrary tracks.
 
@@ -29,11 +25,18 @@ Deployment is established by release receipts, not by implementation status here
 - Retired the old “not started” list for replays, hover previews, Move cancels cast, bot builds
   and the dedicated platform. Reduced-motion support follows the OS preference; a separate
   settings override is not implemented.
-- Remeasured all five active bot tiers after the shared seeded-build changes: **2,000 complete
-  duels, 10,995 rounds**, plus 60 exploratory FFA pods. Updated lobby Elo estimates to
-  Easy **350**, Medium **1000**, Hard **1625**, Brutal **1725**, Uber **1875**. Bot behavior is
-  unchanged. Seven FFA pods reached the time cap; their placements are not full-match wins.
-  See [the measurement](research/bot-calibration-2026-10-20.json) and [PLAN.md §7](PLAN.md#7-bots).
+- Remeasured all five active bot tiers after the shared seeded-build changes (2,000 duels,
+  [measurement](research/bot-calibration-2026-10-20.json)): Brutal won only 61% of rounds over
+  Hard, below the intended roughly 75% step.
+- Widened Hard–Brutal with paired-seed investigation first: the old Brutal's whole duel edge
+  was its 30 ms faster reaction; edge pressure and its smaller aim error were worth nothing.
+  Brutal now **punishes openings** (a ready bolt the target can hardly step aside from, a sure
+  or killing Scourge, taken at once; same aim and reaction), and Hard is back on the original
+  1/5 cast rate. Remeasured with **4,000 duels, 21,705 rounds**: Brutal **77%** of rounds over
+  Hard (75–78%, was 62% on the same seeds), Uber **64%** over Brutal (62–66%, was 73%),
+  Medium–Hard unchanged at 98%. Lobby estimates: Easy **325**, Medium **1000**, Hard **1625**,
+  Brutal **1850**, Uber **1950**; Easy, Medium and Uber behavior unchanged. See
+  [the measurement](research/bot-calibration-2026-10-20-brutal.json) and [PLAN.md §7](PLAN.md#7-bots).
 
 ## Shipped in v0.1.0-alpha.6
 
