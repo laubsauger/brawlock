@@ -35,7 +35,12 @@ Deployment is established by release receipts, not by implementation status here
   1/5 cast rate. Remeasured with **4,000 duels, 21,705 rounds**: Brutal **77%** of rounds over
   Hard (75–78%, was 62% on the same seeds), Uber **64%** over Brutal (62–66%, was 73%),
   Medium–Hard unchanged at 98%. Lobby estimates: Easy **325**, Medium **1000**, Hard **1625**,
-  Brutal **1850**, Uber **1950**; Easy, Medium and Uber behavior unchanged. See
+  Brutal **1850**, Uber **1950**; Easy, Medium and Uber behavior unchanged.
+- Widened Brutal–Uber slightly: Uber also punishes openings, at Brutal's rate (paired-seed
+  probes: 0.05 gave 67%, 0.1 69%, 0.15 71% of rounds over Brutal). Remeasured all tiers at 400
+  matches per pair: Uber **69%** over Brutal (67–71%, was 64%), **91%** over Hard (was 88%);
+  other pairs unchanged. Lobby estimates now Easy **325**, Medium **1000**, Hard **1650** (fit
+  drift across a rounding boundary, behavior unchanged), Brutal **1850**, Uber **2000**. See
   [the measurement](research/bot-calibration-2026-10-20-brutal.json) and [PLAN.md §7](PLAN.md#7-bots).
 
 ## Shipped in v0.1.0-alpha.6

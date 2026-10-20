@@ -10,8 +10,8 @@
  * Calibrated with Elo per ROUND (scripts/bots/elo.ts, BOT_ELO below). Every active tier
  * draws from the same seeded shop-build pool. Difficulty still controls reaction, aim
  * and combat decisions: Hard is Brutal's decision set at slower hands (0.18 s, 0.03 rad) and
- * the original cast rate, while Brutal adds edge pressure and punishes openings. Easy keeps its
- * beginner reaction and aim settings.
+ * the original cast rate, while Brutal adds edge pressure and punishes openings (Uber does too).
+ * Easy keeps its beginner reaction and aim settings.
  *
  * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
  * |------------------|-------|-------|--------|-------|--------|-------|----------|
@@ -49,7 +49,7 @@
  * | edgePressure     |   -   | no    | no     | no    | yes    | yes   | -        |
  * | frictionLead     |   -   | no    | no     | no    | no     | yes   | -        |
  * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
- * | punish           |   -   | 0     | 0      | 0     | 0.1    | 0     | -        |
+ * | punish           |   -   | 0     | 0      | 0     | 0.1    | 0.1   | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
@@ -81,7 +81,7 @@
  * phase. Uber only: frictionLead leads knocked targets with their decaying slide;
  * shotGate skips shots a target can easily walk out of.
  *
- * punish (Brutal): chance per think, on top of castChance, to take an opening at once: a ready
+ * punish (Brutal, Uber): chance per think, on top of castChance, to take an opening at once: a ready
  * bolt at a target that can hardly step aside (estimated hit chance >= 0.75: committed to a
  * cast, rooted, flying from a hit, cornered at the edge, or too close to react), or a sure or
  * killing Scourge. Same aim error and reaction delay; it changes when Brutal fires, not how
@@ -89,6 +89,9 @@
  * the old Brutal only 61% of rounds over Hard: in duels its edge pressure was worth nothing,
  * aim error 0.02 vs 0.03 nothing, and the 30 ms of reaction all of it. Hard's cast rate went
  * back to the original 1/5: it had Brutal's raised 0.25 and sat 98% of rounds over Medium.
+ * Uber takes openings at Brutal's rate too: the Brutal–Uber step had narrowed to 64% of rounds,
+ * and paired seeds put Uber at 67% with punish 0.05, 69% with 0.1, 71% with 0.15 (400 matches).
+ * 0.1 is the slight widening asked for; Uber's lead still comes from its other settings.
  *
  * targetSense (FFA, 2+ enemies): local opportunities beyond distance: finishing chances,
  * threats, fading retaliation, and third-party pushes, weighed against nearby competition.
@@ -374,6 +377,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     edgePressure: true,
     frictionLead: true,
     shotGate: 0.3,
+    // Brutal's rate: widens the Brutal–Uber step a little (64% -> 69% of rounds); see punish above
+    punish: 0.1,
     buildPlan: 'plan',
   },
 }
@@ -382,16 +387,17 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * Round-based Elo per difficulty (Medium = 1000), measured by `npm run bots:elo`: Bradley–Terry
  * fit over seeded 1v1 rounds, rounded to 25 (table and intervals: docs/PLAN.md §7). Rounds, not
  * matches, are the unit: a first-to-5 match turns a 75% round edge into about 90% of matches.
- * Measured 2026-10-20 (400 matches per pair) after Brutal learned to punish openings and Hard
- * went back to the original cast rate; see docs/research/bot-calibration-2026-10-20-brutal.json.
- * Easy and Uber did not change; their labels moved with the larger sample and the weaker Hard
- * (the tiers above Medium connect to it only through 98-100% pairs, so labels carry about ±40).
+ * Measured 2026-10-20 (400 matches per pair) after Brutal learned to punish openings, Hard went
+ * back to the original cast rate and Uber took up punish too; see
+ * docs/research/bot-calibration-2026-10-20-brutal.json ("uberStep"). Hard did not change in the
+ * last step; its label moved by rounding (1635 -> 1642): the tiers above Medium connect to it
+ * only through 98-100% pairs, so labels carry about ±40.
  * Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
   easy: 325,
   medium: 1000,
-  hard: 1625,
+  hard: 1650,
   brutal: 1850,
-  uber: 1950,
+  uber: 2000,
 }

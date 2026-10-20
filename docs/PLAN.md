@@ -339,24 +339,28 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 - Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
 - Calibration: `npm run bots:elo` (scripts/bots/elo.ts) plays a seeded 1v1 round-robin of full first-to-5 matches on the real sim (about 40 s for 200 matches per pair, plus optional 4-player FFA pods). The unit is the **round**, the unit a player feels; a match turns a 75% round edge into about 90% of matches. Elo is the Bradley–Terry maximum-likelihood fit over all rounds (Medium = 1000); 95% intervals come from a bootstrap over whole matches, because rounds of one match share gold and items.
 - FFA (2+ enemies): bots pick the best opportunity, not the weakest player on the map (distance, kill chance discounted by travel, an easy hit, who threatens them, a grudge, third-party pushes, minus targets others are already on and their crossfire), hold a target for a while, stand where it is least crowded and back off at low HP; a seeded personality varies this per bot (`targetSense` and the notes in `src/bots/presets.ts`). `npx vite-node scripts/bots/ffa.ts` measures 8-bot FFA spread; 8 Brutal bots went from 2.6 bots per target and a 4+ mob in 52% of samples to 1.5 and 3%.
-- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber target about 75% round win rate per step (150–250 Elo), with Uber as the top reference; current measured gaps are shown below. Hard is Brutal's decision set with slower hands and the original 1/5 cast rate; Brutal adds **punish** (takes clear openings at once: a ready bolt the target can hardly step aside from, a sure or killing Scourge) at the same aim error and reaction delay. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60–88% (Brutal over Hard) or 55–88% (Uber over Brutal) of rounds. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 325, Medium 1000, Hard 1625, Brutal 1850, Uber 1950) for the lobby’s approximate strength labels. Human ratings keep their existing Medium = 1000 anchor.
+- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber target about 75% round win rate per step (150–250 Elo), with Uber as the top reference; current measured gaps are shown below. Hard is Brutal's decision set with slower hands and the original 1/5 cast rate; Brutal adds **punish** (takes clear openings at once: a ready bolt the target can hardly step aside from, a sure or killing Scourge) at the same aim error and reaction delay; Uber punishes at the same rate on top of its own settings. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60–88% of rounds. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 325, Medium 1000, Hard 1650, Brutal 1850, Uber 2000) for the lobby’s approximate strength labels. Human ratings keep their existing Medium = 1000 anchor.
 
   | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | Lobby estimate |
   |---|---|---|---|---|---|
-  | Easy | 331 | 269–378 | — | — | 325 |
+  | Easy | 331 | 270–379 | — | — | 325 |
   | Medium | 1000 | anchor | 98% over Easy | 100% | 1000 |
-  | Hard | 1635 | 1599–1676 | 98% over Medium | 100% | 1625 |
-  | Brutal | 1852 | 1811–1895 | 77% over Hard (75–78%) | 93% | 1850 |
-  | Uber | 1961 | 1918–2002 | 64% over Brutal (62–66%) | 77% | 1950 |
+  | Hard | 1642 | 1609–1687 | 98% over Medium | 100% | 1650 |
+  | Brutal | 1860 | 1820–1907 | 77% over Hard (75–79%) | 93% | 1850 |
+  | Uber | 2011 | 1972–2056 | 69% over Brutal (67–71%) | 86% | 2000 |
 
-  Measured 2026-10-20 on `2ab87be` plus the Brutal/Hard change: 400 completed first-to-5
-  matches per pair, seeds 1–400, sides alternated; 4,000 duels and 21,705 completed rounds, no
-  capped duels. Ratings are Bradley–Terry fits with Medium fixed at 1000; intervals resample
-  whole matches 500 times (step intervals: 2,000 match resamples). Easy, Medium and Uber did
-  not change, yet their ratings moved: the tiers above Medium connect to it only through 98–100%
-  pairs, so the fit places them mostly through the neighbouring steps (about ±40). Uber's label
-  rose because it now beats the weaker Hard more often (88% of rounds, was 84%).
-  [Measurement](research/bot-calibration-2026-10-20-brutal.json) keeps counts, intervals, the
+  Measured 2026-10-20 on `d39c8df` plus Uber's punish: 400 completed first-to-5 matches per
+  pair, seeds 1–400, sides alternated; 4,000 duels and 21,545 completed rounds, no capped duels.
+  Ratings are Bradley–Terry fits with Medium fixed at 1000; intervals resample whole matches
+  500 times (step intervals: 2,000 match resamples). Only Uber changed in this step: Uber over
+  Brutal went from 64% of rounds (62–66%) to 69% (67–71%), Uber over Hard from 88% to 91%;
+  Uber's rating rose 1961 → 2011. Paired-seed probes against Brutal: punish 0.05 gave 67%,
+  0.1 69%, 0.15 71%, 0.3 76% (about +4 Elo per 0.01); 0.1, Brutal's own rate, was the slight
+  widening asked for. Hard and Brutal ratings moved by a few points with the fit (the tiers
+  above Medium connect to it only through 98–100% pairs, about ±40); Hard's label crosses a
+  rounding boundary (1635 → 1642, label 1625 → 1650).
+  [Measurement](research/bot-calibration-2026-10-20-brutal.json) (`uberStep`) keeps counts,
+  intervals and the probes. The Brutal step before it, in the same file: the
   same harness on the old presets (Brutal 62% over Hard, Uber 73% over Brutal at 400 matches)
   and the paired-seed ablations. Findings: 85% of deaths are lava in the late shrink; the old
   Brutal's whole edge in duels was its 30 ms faster reaction (edge pressure and the smaller aim
@@ -364,8 +368,8 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
   fire rate but picks the moments. A punish strong enough for 75% over the old Hard left Uber
   only about 60% over Brutal (punish 0.2: 78% over Hard, Uber 57% over it), so Hard returned
   to the original cast rate (about −35 Elo; Medium–Hard unchanged at 98%). 60 FFA pods are
-  exploratory: seven hit the 1,500-second cap, so their placement evidence is not presented as
-  completed-match win rates or used for the estimates. The earlier measurement on `2c51430`
+  exploratory (seven hit the 1,500-second cap before Uber's change, none after), so their
+  placement evidence is not presented as completed-match win rates or used for the estimates. The earlier measurement on `2c51430`
   (200 matches per pair) is [kept for reference](research/bot-calibration-2026-10-20.json).
 - Historical M0 used the original danger-field/lead-aim AI. The current M3 difficulty system, shared seeded builds and calibration harness are implemented.
 
@@ -458,7 +462,8 @@ Implemented in the current source:
   race fix that keeps the chosen visibility in the opened lobby.
 - Required reload before stale clients can enter/start games; game UI/chat layout fixes.
 - Fresh bot calibration, then the Hard–Brutal step widened (Brutal punishes openings, Hard on
-  the original cast rate) and remeasured; see §7.
+  the original cast rate) and the Brutal–Uber step slightly (Uber punishes too), remeasured;
+  see §7.
 
 Still relevant engineering:
 
