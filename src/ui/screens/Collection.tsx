@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { equipCosmetic, loadProgression, purchaseCosmetic, type MatchProgression, type ProgressionReward, type ProgressionSnapshot } from '../../game/progression'
 import { useAccount } from '../../game/accountState'
-import type { Cosmetic, CosmeticSlot } from '../../game/progressionCatalog'
+import { getProfile } from '../../game/profile'
+import { COSMETICS, COSMETIC_SLOTS, EMPTY_EQUIPMENT, type Cosmetic, type CosmeticEquipment, type CosmeticId, type CosmeticSlot, type VictoryCosmeticId } from '../../game/progressionCatalog'
+import { WardrobeStage, type StageControls, type StagePose, type ThumbRequest, type WardrobeView } from '../../render/WardrobeStage'
+import { NO_OUTFIT, type Outfit } from '../../render/character/wardrobe'
+import { victoryStyle, type VictoryStyle } from '../../render/character/victoryPose'
 import { Button, Modal, Segmented } from '../widgets'
 
 export function EmberMark({ size = 20 }: { size?: number }) {
@@ -26,76 +30,198 @@ function CosmeticMark({ item }: { item: Cosmetic }) {
   </svg>
 }
 
-function refreshLabel(remaining: number): string {
-  const minutes = Math.max(0, Math.ceil(remaining / 60_000))
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+const SLOT_LABEL: Record<CosmeticSlot, string> = { head: 'Head', back: 'Back', robe: 'Robe', emblem: 'Emblem', staff: 'Staff', victory: 'Victory' }
+const SLOT_NONE: Record<CosmeticSlot, { name: string; description: string }> = {
+  head: { name: 'Bare hood', description: 'Nothing on your head.' },
+  back: { name: 'Nothing', description: 'A clean silhouette.' },
+  robe: { name: 'Original robe', description: 'The classic warlock cloth.' },
+  emblem: { name: 'Plain cape', description: 'Nothing printed on your back.' },
+  staff: { name: 'Bare hands', description: 'Spells leave from your palms.' },
+  victory: { name: 'Classic celebrations', description: 'Your original mix of dances, summons and flourishes.' },
+}
+/** where the stage looks while browsing a slot */
+const SLOT_VIEW: Record<CosmeticSlot, WardrobeView> = { head: 'head', back: 'back', robe: 'full', emblem: 'back', staff: 'full', victory: 'full' }
+
+function StageIcon({ d }: { d: string }) {
+  return <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 }
 
-export function Collection({ onClose }: { onClose: () => void }) {
+const POSES: { value: StagePose; label: string }[] = [{ value: 'idle', label: 'Idle' }, { value: 'walk', label: 'Walk' }, { value: 'run', label: 'Run' }, { value: 'cast', label: 'Cast' }, { value: 'victory', label: 'Victory' }]
+const TURN = Math.PI / 4
+
+const toOutfit = (e: CosmeticEquipment): Outfit => ({ head: e.head, back: e.back, robe: e.robe, emblem: e.emblem, staff: e.staff })
+
+/**
+ * The wardrobe: your warlock in 3D wearing what you try on, every piece with a rendered
+ * picture, and buying and equipping in one place. Guests can browse and try everything on;
+ * Embers and ownership need an account.
+ */
+export function Collection({ onClose, onSignIn }: { onClose: () => void; onSignIn?: () => void }) {
+  const signedIn = useAccount((s) => !!s.player)
   const [state, setState] = useState<ProgressionSnapshot | null>(null)
-  const [tab, setTab] = useState<'selection' | 'owned'>('selection')
-  const [busy, setBusy] = useState(true)
+  const [slot, setSlot] = useState<CosmeticSlot>('head')
+  const [busy, setBusy] = useState(signedIn)
   const [problem, setProblem] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [elapsed, setElapsed] = useState(0)
-  const receivedAt = useRef(0)
+  const [view, setView] = useState<WardrobeView>('head')
+  const [pose, setPose] = useState<StagePose>('idle')
+  const stage = useRef<StageControls | null>(null)
+  // the outfit on the stage: equipped pieces, with whatever you clicked tried on top
+  const [tryOn, setTryOn] = useState<Partial<Record<CosmeticSlot, CosmeticId | null>>>({})
+  const [pics, setPics] = useState<Record<string, string>>({})
   const pendingKeys = useRef(new Map<string, string>())
   const live = useRef(true)
-  const publish = (next: ProgressionSnapshot) => { receivedAt.current = performance.now(); setElapsed(0); setState(next) }
   const run = async (action: () => Promise<ProgressionSnapshot>, success?: string) => {
     setBusy(true); setProblem(null); setNotice(null)
-    try { const next = await action(); if (live.current) { publish(next); if (success) setNotice(success) } }
-    catch (error) { if (live.current) setProblem(error instanceof Error ? error.message : 'Collection request failed.') }
+    try { const next = await action(); if (live.current) { setState(next); if (success) setNotice(success) } }
+    catch (error) { if (live.current) setProblem(error instanceof Error ? error.message : 'Wardrobe request failed.') }
     finally { if (live.current) setBusy(false) }
   }
   useEffect(() => {
     live.current = true
-    void run(loadProgression)
-    const timer = window.setInterval(() => setElapsed(performance.now() - receivedAt.current), 30_000)
-    return () => { live.current = false; window.clearInterval(timer) }
-  }, [])
-  const remaining = state ? state.refreshAt - state.serverNow - elapsed : 0
-  const buy = (item: Cosmetic) => {
-    if (!state) return
-    const requestKey = `${state.offerId}:${item.id}`
+    if (signedIn) void run(loadProgression)
+    return () => { live.current = false }
+  }, [signedIn])
+  const catalog = state?.catalog ?? COSMETICS
+  const owned = new Set(state?.owned ?? [])
+  const equipped: CosmeticEquipment = state?.equipped ?? EMPTY_EQUIPMENT
+  const worn = { ...equipped, ...tryOn } as CosmeticEquipment
+  const outfit = useMemo(() => toOutfit(worn), [worn.head, worn.back, worn.robe, worn.emblem, worn.staff])
+  const color = getProfile().color ?? 0xff7700
+  const thumbs = useMemo<ThumbRequest[]>(() => COSMETICS.filter((c) => c.slot !== 'victory').map((c) => ({
+    key: c.id,
+    outfit: { ...NO_OUTFIT, [c.slot]: c.id },
+    view: c.slot === 'head' ? 'head' : c.slot === 'robe' || c.slot === 'staff' ? 'full' : 'back',
+  })), [])
+  const pick = (next: CosmeticSlot) => {
+    setSlot(next)
+    setView(SLOT_VIEW[next])
+    // the victory tab plays the pose; leaving it stops the celebration
+    if (next === 'victory') setPose('victory')
+    else if (pose === 'victory') setPose('idle')
+  }
+  const selectedId = worn[slot]
+  const selected = catalog.find((c) => c.id === selectedId) ?? null
+  // one request id per offer and item, so a retried purchase is never charged twice
+  const purchase = (offerId: string, item: Cosmetic) => {
+    const requestKey = `${offerId}:${item.id}`
     let requestId = pendingKeys.current.get(requestKey)
     if (!requestId) { requestId = crypto.randomUUID(); pendingKeys.current.set(requestKey, requestId) }
-    void run(() => purchaseCosmetic({ itemId: item.id, offerId: state.offerId, requestId }), `${item.name} unlocked.`)
+    return purchaseCosmetic({ itemId: item.id, offerId, requestId })
   }
-  const equip = (slot: CosmeticSlot, item: Cosmetic | null) => void run(() => equipCosmetic({ slot, itemId: item?.id ?? null }), item ? `${item.name} equipped for your next game.` : 'Starter style equipped for your next game.')
+  const buy = (item: Cosmetic) => {
+    if (!state) return
+    void run(() => purchase(state.offerId, item), `${item.name} unlocked. Equip it to wear it.`)
+  }
+  const equip = (target: CosmeticSlot, item: Cosmetic | null) => void run(async () => {
+    const next = await equipCosmetic({ slot: target, itemId: item?.id ?? null })
+    setTryOn((t) => ({ ...t, [target]: undefined }))
+    return next
+  }, item ? `${item.name} equipped. It shows from your next game.` : `${SLOT_NONE[target].name} equipped.`)
+  // the tried-on look: every slot that differs from what is equipped, and what it costs to own
+  const lookSlots = COSMETIC_SLOTS.filter((k) => tryOn[k] !== undefined && tryOn[k] !== equipped[k])
+  const tryOnChanged = lookSlots.length > 0
+  const toUnlock = lookSlots.map((k) => catalog.find((c) => c.id === tryOn[k])).filter((c): c is Cosmetic => !!c && !owned.has(c.id))
+  const lookCost = toUnlock.reduce((sum, c) => sum + c.price, 0)
+  const wearLook = () => {
+    if (!state) return
+    const { offerId } = state
+    void run(async () => {
+      try {
+        for (const item of toUnlock) await purchase(offerId, item)
+        let next = state
+        for (const k of lookSlots) next = await equipCosmetic({ slot: k, itemId: tryOn[k] ?? null })
+        setTryOn({})
+        return next
+      } catch (error) {
+        // part of the look may already be bought or worn: show what the authority has now
+        const now = await loadProgression().catch(() => null)
+        if (now && live.current) setState(now)
+        throw error
+      }
+    }, toUnlock.length > 0 ? `Unlocked ${toUnlock.length === 1 ? toUnlock[0].name : `${toUnlock.length} pieces`} and wore this look. It shows from your next game.` : 'Look equipped. It shows from your next game.')
+  }
 
-  return <Modal title="Collection" onClose={onClose} width="max-w-2xl" className="h-[min(650px,92dvh)]">
-    <div className="flex h-full min-h-0 flex-col gap-4" aria-busy={busy}>
+  const itemCard = (item: Cosmetic | null) => {
+    const id = item?.id ?? null
+    const isWorn = worn[slot] === id
+    const isEquipped = equipped[slot] === id
+    const has = !item || owned.has(item.id)
+    return <button key={id ?? 'none'} type="button" onClick={() => setTryOn((t) => ({ ...t, [slot]: id }))}
+      aria-pressed={isWorn} aria-label={`${item?.name ?? SLOT_NONE[slot].name}${isEquipped ? ', equipped' : has ? ', owned' : `, ${item!.price} Embers`}`}
+      className={`group relative flex flex-col overflow-hidden rounded-md border text-left transition ${isWorn ? 'border-gold bg-[#2a1c12]' : 'border-[#ffa85a]/15 bg-black/30 hover:border-[#ffa85a]/45'}`}>
+      <div className="relative aspect-square w-full bg-[#0d0a0a]">
+        {item && pics[item.id] ? <img src={pics[item.id]} alt="" className="h-full w-full object-cover" draggable={false} />
+          : item?.slot === 'victory' ? <div className="flex h-full items-center justify-center"><CosmeticMark item={item} /></div>
+          : <div className="flex h-full items-center justify-center text-xs text-ash">{item ? 'Rendering…' : '—'}</div>}
+        {isEquipped && <span className="absolute top-1 left-1 rounded bg-[#1d3a1f]/90 px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wider text-[#b9e8b1] uppercase">Equipped</span>}
+      </div>
+      <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+        <span className="truncate text-sm font-semibold text-bone">{item?.name ?? SLOT_NONE[slot].name}</span>
+        {item && !has && <span className="flex shrink-0 items-center gap-0.5 text-xs text-[#ffe0a6]"><EmberMark size={12} />{item.price}</span>}
+      </div>
+    </button>
+  }
+
+  return <Modal title="Wardrobe" onClose={onClose} width="max-w-6xl" className="h-[min(780px,94dvh)]">
+    <div className="flex h-full min-h-0 flex-col gap-3" aria-busy={busy}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ffa85a]/15 pb-3">
         <div className="flex items-center gap-2 text-[#ffe0a6]"><EmberMark size={26} /><span className="tabular text-2xl font-bold">{state ? state.balance.toLocaleString() : '—'}</span><span className="text-sm text-ash">Embers</span></div>
-        <Segmented label="Collection view" value={tab} onChange={setTab} options={[{ value: 'selection', label: 'Daily selection' }, { value: 'owned', label: 'Your collection' }]} />
+        <Segmented label="Wardrobe slot" value={slot} onChange={pick} options={COSMETIC_SLOTS.map((v) => ({ value: v, label: SLOT_LABEL[v] }))} />
       </div>
       {problem && <div role="alert" className="flex items-center justify-between gap-3 rounded border border-red-400/30 bg-red-950/30 px-3 py-2 text-sm text-red-200"><span>{problem}</span><Button size="sm" disabled={busy} onClick={() => void run(loadProgression)}>Refresh</Button></div>}
-      {notice && <p role="status" className="text-sm text-[#b9d8b1]">{notice}</p>}
-      {!state ? <p role="status" className="text-sm text-ash">{busy ? 'Opening your collection…' : 'Your collection could not be loaded.'}</p> : <>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {tab === 'selection' ? <>
-            <div className="mb-3 flex items-center justify-between gap-3 text-xs text-ash"><span>Permanent cosmetics · no combat bonuses</span><span>{remaining > 0 ? `Refreshes in ${refreshLabel(remaining)} · UTC` : 'New selection available'}{remaining <= 0 && <Button size="sm" disabled={busy} className="ml-2" onClick={() => void run(loadProgression)}>Refresh</Button>}</span></div>
-            {state.offers.map((item) => {
-              const owned = state.owned.includes(item.id)
-              return <div key={item.id} className="flex items-center gap-3 border-t border-[#ffa85a]/10 py-3">
-                <CosmeticMark item={item} />
-                <div className="min-w-0 flex-1"><div className="text-xs uppercase tracking-wider text-ash">{item.slot === 'victory' ? 'Victory pose' : 'Robe cloth'}</div><h3 className="text-lg font-semibold text-bone">{item.name}</h3><p className="max-w-sm text-sm leading-snug text-ash">{item.description}</p></div>
-                {owned ? <span className="min-w-20 text-center text-sm text-[#b9d8b1]">Owned</span> : <Button size="sm" disabled={busy || state.balance < item.price || remaining <= 0} aria-label={`Unlock ${item.name} for ${item.price} Embers`} onClick={() => buy(item)}><span className="flex items-center gap-1.5"><EmberMark size={16} />{item.price}</span></Button>}
-              </div>
-            })}
-          </> : <>
-            {(['victory', 'robe'] as const).map((slot) => <div key={slot} className="mb-5">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#d7b181]">{slot === 'victory' ? 'Victory poses' : 'Robe cloth'}</h3>
-              <div className="mb-1 flex items-center justify-between gap-3 border-t border-[#ffa85a]/10 py-2"><div><div className="font-semibold text-bone">{slot === 'victory' ? 'Classic celebrations' : 'Original weave'}</div><p className="text-xs text-ash">{slot === 'victory' ? 'Your original mix of dances, summons and flourishes.' : 'The original warlock cloth.'}</p></div><Button size="sm" disabled={busy || state.equipped[slot] === null} onClick={() => equip(slot, null)}>{state.equipped[slot] === null ? 'Equipped' : 'Equip'}</Button></div>
-              {state.catalog.filter((item) => item.slot === slot && state.owned.includes(item.id)).map((item) => <div key={item.id} className="flex items-center gap-3 border-t border-[#ffa85a]/10 py-1.5"><CosmeticMark item={item} /><div className="min-w-0 flex-1"><div className="font-semibold text-bone">{item.name}</div><p className="text-xs text-ash">{item.description}</p></div><Button size="sm" disabled={busy || state.equipped[slot] === item.id} onClick={() => equip(slot, item)}>{state.equipped[slot] === item.id ? 'Equipped' : 'Equip'}</Button></div>)}
-            </div>)}
-          </>}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="relative min-h-64 overflow-hidden rounded-md border border-[#ffa85a]/15">
+          <WardrobeStage className="absolute inset-0" color={color} outfit={outfit} view={view} pose={pose} victory={victoryPreview(worn.victory)} controls={stage} thumbs={thumbs} onThumbs={setPics} />
+          <div className="absolute top-2 right-2 left-2 flex flex-wrap items-start justify-between gap-2">
+            <Segmented label="Pose" value={pose} onChange={setPose} options={POSES} />
+            <div className="flex gap-1" title="Drag to turn, scroll to zoom">
+              <Button size="sm" variant="ghost" aria-label="Turn left" onClick={() => stage.current?.turn(-TURN)}><StageIcon d="M15 5 8 12l7 7" /></Button>
+              <Button size="sm" variant="ghost" aria-label="Turn right" onClick={() => stage.current?.turn(TURN)}><StageIcon d="m9 5 7 7-7 7" /></Button>
+              <Button size="sm" variant="ghost" aria-label="Zoom out" onClick={() => stage.current?.zoom(1 / 1.25)}><StageIcon d="M5 12h14" /></Button>
+              <Button size="sm" variant="ghost" aria-label="Zoom in" onClick={() => stage.current?.zoom(1.25)}><StageIcon d="M5 12h14M12 5v14" /></Button>
+            </div>
+          </div>
+          <div className="absolute right-2 bottom-2 left-2 flex flex-wrap items-center justify-between gap-2">
+            <Segmented label="Camera" value={view} onChange={setView} options={[{ value: SLOT_VIEW[slot] === 'full' ? 'full' : SLOT_VIEW[slot], label: 'Close' }, ...(SLOT_VIEW[slot] !== 'full' ? [{ value: 'full' as const, label: 'Full' }] : []), { value: 'game', label: 'In game' }]} />
+            {tryOnChanged && <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setTryOn({})}>Back to equipped</Button>
+              {signedIn && state && <Button size="sm" variant="primary" disabled={busy || state.balance < lookCost} onClick={wearLook}
+                aria-label={lookCost > 0 ? `Unlock ${toUnlock.length} pieces for ${lookCost} Embers and wear this look` : 'Wear this look'}
+                title={state.balance < lookCost ? `${lookCost - state.balance} more Embers needed` : undefined}>
+                {lookCost > 0 ? <span className="flex items-center gap-1.5">Get this look <EmberMark size={16} />{lookCost}</span> : 'Wear this look'}
+              </Button>}
+            </div>}
+          </div>
         </div>
-        <p className="border-t border-[#ffa85a]/15 pt-3 text-xs leading-relaxed text-ash">Earn Embers by finishing official Casual or Ranked games. A played loss earns a base reward; round wins and match victories add a little more. Cosmetics apply when you enter your next game.</p>
-      </>}
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto pr-1 lg:grid-cols-4">
+            {itemCard(null)}
+            {catalog.filter((c) => c.slot === slot).map((c) => itemCard(c))}
+          </div>
+          <div className="rounded-md border border-[#ffa85a]/15 bg-black/30 p-3">
+            <div className="text-xs tracking-wider text-ash uppercase">{SLOT_LABEL[slot]}</div>
+            <h3 className="text-lg font-semibold text-bone">{selected?.name ?? SLOT_NONE[slot].name}</h3>
+            <p className="mb-3 text-sm leading-snug text-ash">{selected?.description ?? SLOT_NONE[slot].description}</p>
+            {notice && <p role="status" className="mb-2 text-sm text-[#b9d8b1]">{notice}</p>}
+            {!signedIn ? <div className="flex flex-wrap items-center gap-3">
+                {onSignIn && <Button size="sm" variant="primary" onClick={onSignIn}>Sign in</Button>}
+                <p className="text-sm text-[#f0d9b8]">{onSignIn ? 'to' : 'Sign in to'} earn Embers and unlock pieces. Try anything on.</p>
+              </div>
+              : !selected ? <Button size="sm" disabled={busy || equipped[slot] === null} onClick={() => equip(slot, null)}>{equipped[slot] === null ? 'Equipped' : `Wear ${SLOT_NONE[slot].name.toLowerCase()}`}</Button>
+              : owned.has(selected.id) ? <Button size="sm" variant="primary" disabled={busy || equipped[slot] === selected.id} onClick={() => equip(slot, selected)}>{equipped[slot] === selected.id ? 'Equipped' : 'Equip'}</Button>
+              : <Button size="sm" variant="primary" disabled={busy || !state || state.balance < selected.price} aria-label={`Unlock ${selected.name} for ${selected.price} Embers`} onClick={() => buy(selected)}><span className="flex items-center gap-1.5">Unlock <EmberMark size={16} />{selected.price}</span></Button>}
+            {signedIn && state && selected && !owned.has(selected.id) && state.balance < selected.price && <p className="mt-2 text-xs text-ash">{selected.price - state.balance} more Embers needed.</p>}
+          </div>
+        </div>
+      </div>
+      <p className="border-t border-[#ffa85a]/15 pt-2 text-xs leading-relaxed text-ash">Looks only: same hitbox, no combat effect, glow in your player color. Embers come from official Casual and Ranked games.</p>
     </div>
   </Modal>
+}
+
+function victoryPreview(id: CosmeticId | null): VictoryStyle {
+  return victoryStyle(0, 0, id as VictoryCosmeticId | null)
 }
 
 /** A confirmed server receipt, never a client-calculated reward or optimistic balance. */

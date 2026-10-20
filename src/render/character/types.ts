@@ -4,6 +4,7 @@ import type { CastFrom, WarlockStyle } from './config'
 import type { StaffVariant } from './geometry'
 import type { WorldCtx } from '../scene/world'
 import type { VictoryStyle } from './victoryPose'
+import type { Outfit } from './wardrobe'
 
 /**
  * Death looks (deathFx). Picked automatically from the sim 'death' event's
@@ -67,7 +68,8 @@ export interface WarlockHandle {
   /** Colour of the current cast glow (hand, sleeve runes, staff crystal). Default: player colour. */
   setCastColor(color: number | null): void
   setColor(color: number): void
-  setRobe(item: 'robe-cinder' | 'robe-moon' | null): void
+  /** Worn cosmetic shapes and robe cut (wardrobe.ts); rebuilt only when it changes. */
+  setOutfit(outfit: Outfit): void
   setStaff(variant: StaffVariant | null): void
   setCastFrom(from: CastFrom): void
   /** Extra cloth kick (game-space direction, strength ~ knockback speed). Damage events already do this. */

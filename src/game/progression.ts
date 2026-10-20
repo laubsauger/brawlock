@@ -1,5 +1,7 @@
 import type { ProgressionEquip, ProgressionPurchase, ProgressionSnapshot } from '../../server/progression.mjs'
 
+import { rememberEquipment } from './wardrobe'
+
 export type { ProgressionReward, ProgressionSnapshot } from '../../server/progression.mjs'
 export interface MatchProgression { matchId: string; status: 'pending' | 'awarded' | 'ineligible' | 'unavailable' }
 
@@ -10,7 +12,9 @@ async function request(path: string, body?: ProgressionEquip | ProgressionPurcha
   })
   const result = await response.json()
   if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'Could not load your collection.')
-  return result as ProgressionSnapshot
+  const snapshot = result as ProgressionSnapshot
+  rememberEquipment(snapshot.equipped)
+  return snapshot
 }
 
 export const loadProgression = () => request('')

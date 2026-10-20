@@ -686,10 +686,14 @@ export function buildVoid(head: THREE.Vector3): THREE.BufferGeometry {
 
 export type StaffVariant = 'gnarled' | 'iron' | 'bone'
 
-/** Staff geometry along +Y with the grip at the origin; aPart 0 wood, 1 metal, 2 crystal. */
+/**
+ * Staff geometry along +Y with the grip at the origin; aPart 0 wood, 1 metal, 2 crystal.
+ * Sized for the gameplay camera (rig metres, before CC0_SCALE): ~2 m long, a
+ * shaft ~6 cm thick and a chunky head, so it reads at ~70 px per warlock.
+ */
 export interface StaffGeometry {
   geometry: THREE.BufferGeometry
-  /** crystal centre (staff space) */
+  /** emit point: centre of the glowing crystal / orb (staff space). Charge, release flash and spells start here. */
   tip: THREE.Vector3
   /** distance from the grip down to the foot */
   below: number
@@ -704,17 +708,25 @@ export function buildStaff(variant: StaffVariant): StaffGeometry {
     if (!ng.getAttribute('uv')) ng.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2))
     parts.push(ng)
   }
-  const below = 0.62
-  const above = variant === 'iron' ? 0.62 : 0.58
-  // shaft: tapered, slightly bent, gnarled for wood
+  // grip -> foot hangs just above the floor from a hand carried at the hip (any longer
+  // and it digs into the feet and robe when tilted by a cast); the head clears the hood
+  // (rig: hand ~1.0 m up in the carry pose, hood top 1.87 m)
+  const below = 0.8
+  const above = variant === 'iron' ? 0.86 : 0.82
+  // shaft: tapered, slightly bent (straight through the fist), gnarled for wood
   {
-    const segs = 14
+    const segs = 18
+    const g0 = below / (below + above)
+    const bendX = (t: number) => (variant === 'gnarled' ? Math.sin(t * 5.1) * 0.022 : 0)
+    const bendZ = (t: number) => (variant === 'gnarled' ? Math.cos(t * 3.3) * 0.014 : 0)
     const pts: THREE.Vector3[] = []
     for (let i = 0; i <= segs; i++) {
       const t = i / segs
       const y = -below + t * (below + above)
-      const bend = variant === 'gnarled' ? Math.sin(t * 5.1) * 0.012 : 0
-      pts.push(new THREE.Vector3(bend, y, Math.cos(t * 3.3) * (variant === 'gnarled' ? 0.008 : 0)))
+      // the bend fades out around the grip so the shaft runs through the hand, and at the top
+      // so the collar, prongs and crystal sit on the shaft's axis
+      const k = Math.min(1, Math.abs(t - g0) / 0.12, (1 - t) / 0.15)
+      pts.push(new THREE.Vector3((bendX(t) - bendX(g0)) * k, y, (bendZ(t) - bendZ(g0)) * k))
     }
     const curve = new THREE.CatmullRomCurve3(pts)
     const tube = new THREE.TubeGeometry(curve, 28, 1, 7, false)
@@ -724,9 +736,9 @@ export function buildStaff(variant: StaffVariant): StaffGeometry {
     for (let i = 0; i <= 28; i++) {
       const t = i / 28
       const c = curve.getPointAt(t)
-      let r = lerp(0.017, 0.012, t)
-      if (variant === 'gnarled') r *= 1 + 0.18 * Math.sin(t * 37) * Math.sin(t * 11)
-      if (variant === 'bone') r *= 1 + 0.35 * Math.pow(Math.abs(Math.sin(t * Math.PI * 4)), 6)
+      let r = lerp(0.032, 0.026, t)
+      if (variant === 'gnarled') r *= 1 + 0.16 * Math.sin(t * 37) * Math.sin(t * 11)
+      if (variant === 'bone') r *= 1 + 0.3 * Math.pow(Math.abs(Math.sin(t * Math.PI * 5)), 6)
       for (let k = 0; k < ring; k++) {
         const vi = i * ring + k
         const dx = pos.getX(vi) - c.x
@@ -738,49 +750,55 @@ export function buildStaff(variant: StaffVariant): StaffGeometry {
     tube.computeVertexNormals()
     tag(tube, variant === 'iron' ? 1 : 0)
   }
-  // foot cap and bands
+  // foot cap, bands either side of the fist, collar under the head
   {
-    const cap = new THREE.ConeGeometry(0.019, 0.07, 8)
+    const cap = new THREE.ConeGeometry(0.036, 0.1, 8)
     cap.rotateX(Math.PI)
-    cap.translate(0, -below - 0.02, 0)
+    cap.translate(0, -below - 0.03, 0)
     tag(cap, 1)
-    for (const y of [above - 0.12, above - 0.17, 0.1, -0.1]) {
-      const band = new THREE.TorusGeometry(0.0165, 0.005, 5, 12)
+    for (const y of [above - 0.2, 0.1, -0.1]) {
+      const band = new THREE.TorusGeometry(0.031, 0.009, 5, 12)
       band.rotateX(Math.PI / 2)
       band.translate(0, y, 0)
       tag(band, 1)
     }
+    const collar = new THREE.CylinderGeometry(0.046, 0.03, 0.1, 10)
+    collar.translate(0, above - 0.06, 0)
+    tag(collar, 1)
   }
-  const tip = new THREE.Vector3(0, above + 0.075, 0)
+  // emit point: the crystal / orb centre
+  const tip = new THREE.Vector3(0, above + (variant === 'iron' ? 0.14 : 0.15), 0)
   if (variant === 'iron') {
     // ring head with an orb
-    const ringG = new THREE.TorusGeometry(0.075, 0.009, 6, 24)
-    ringG.translate(0, above + 0.075, 0)
+    const ringG = new THREE.TorusGeometry(0.13, 0.017, 6, 24)
+    ringG.translate(tip.x, tip.y, tip.z)
     tag(ringG, 1)
-    const orb = new THREE.IcosahedronGeometry(0.038, 1)
+    const orb = new THREE.IcosahedronGeometry(0.068, 1)
     orb.translate(tip.x, tip.y, tip.z)
     tag(orb, 2)
   } else {
-    // prongs curling around a crystal
-    const prongs = variant === 'bone' ? 2 : 3
+    // prongs (wood claws / bone horns) curling around a crystal
+    const bone = variant === 'bone'
+    const prongs = bone ? 2 : 3
     for (let k = 0; k < prongs; k++) {
       const a = (k / prongs) * Math.PI * 2 + 0.3
+      const out = bone ? 0.12 : 0.085
       const c = new THREE.CatmullRomCurve3([
         new THREE.Vector3(0, above - 0.1, 0),
-        new THREE.Vector3(Math.cos(a) * 0.035, above + 0.0, Math.sin(a) * 0.035),
-        new THREE.Vector3(Math.cos(a) * 0.05, above + 0.08, Math.sin(a) * 0.05),
-        new THREE.Vector3(Math.cos(a + 0.6) * (variant === 'bone' ? 0.06 : 0.02), above + 0.17, Math.sin(a + 0.6) * 0.02),
+        new THREE.Vector3(Math.cos(a) * 0.06, above + 0.02, Math.sin(a) * 0.06),
+        new THREE.Vector3(Math.cos(a) * out, above + 0.15, Math.sin(a) * out),
+        new THREE.Vector3(Math.cos(a + 0.6) * (bone ? 0.1 : 0.035), above + 0.32, Math.sin(a + 0.6) * (bone ? 0.05 : 0.035)),
       ])
-      const tube = new THREE.TubeGeometry(c, 10, variant === 'bone' ? 0.008 : 0.0065, 5, false)
-      tag(tube, variant === 'bone' ? 0 : 1)
+      const tube = new THREE.TubeGeometry(c, 12, bone ? 0.017 : 0.014, 6, false)
+      tag(tube, bone ? 0 : 1)
     }
-    const crystal = new THREE.OctahedronGeometry(0.034, 0)
-    crystal.scale(1, variant === 'bone' ? 1.9 : 2.2, 1)
+    const crystal = new THREE.OctahedronGeometry(0.066, 0)
+    crystal.scale(1, bone ? 1.8 : 2.0, 1)
     crystal.translate(tip.x, tip.y, tip.z)
     tag(crystal, 2)
   }
   const geometry = mergeGeometries(parts, false)
   if (!geometry) throw new Error('warlock: staff merge failed')
   geometry.computeBoundingSphere()
-  return { geometry, tip, below: below + 0.055 }
+  return { geometry, tip, below: below + 0.08 }
 }

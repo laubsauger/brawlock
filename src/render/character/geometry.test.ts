@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three/webgpu'
-import { buildCloth, KIND, type RigRest } from './geometry'
+import { buildCloth, buildStaff, KIND, type RigRest } from './geometry'
 
 function rig(backDepth: number): RigRest {
   const bones: Record<string, Vector3> = {
@@ -66,4 +66,37 @@ describe('shoulder mantle drape', () => {
       expect(rows[i].z).toBeLessThan(rows[i - 1].z - 0.0005)
     }
   })
+})
+
+describe('staff', () => {
+  for (const variant of ['gnarled', 'iron', 'bone'] as const) {
+    it(`${variant}: long and thick enough to read at the gameplay camera, emit point at the head`, () => {
+      const s = buildStaff(variant)
+      const pos = s.geometry.getAttribute('position')
+      const part = s.geometry.getAttribute('aPart')
+      let minY = Infinity
+      let maxY = -Infinity
+      let gripR = 0
+      let crystal = 0
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+        // shaft radius where the fist closes (the shaft runs through the grip origin)
+        if (Math.abs(y) < 0.03) gripR = Math.max(gripR, Math.hypot(pos.getX(i), pos.getZ(i)))
+        if (part.getX(i) === 2) crystal++
+      }
+      // grip carried at ~1 m: the foot hangs near the floor without digging into the feet,
+      // the head clears the hood (1.87 m)
+      expect(maxY - minY).toBeGreaterThan(1.8)
+      expect(s.below).toBeGreaterThan(0.7)
+      expect(s.below).toBeLessThan(0.9)
+      expect(gripR).toBeGreaterThan(0.025)
+      expect(gripR).toBeLessThan(0.045)
+      // spells, charge and release flash start at a glowing crystal / orb at the top
+      expect(crystal).toBeGreaterThan(0)
+      expect(s.tip.y).toBeGreaterThan(0.8)
+      expect(maxY - s.tip.y).toBeLessThan(0.25)
+    })
+  }
 })

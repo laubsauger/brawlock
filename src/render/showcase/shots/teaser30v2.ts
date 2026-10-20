@@ -74,7 +74,7 @@ export const TEASER30V2_SHOTS: ShotSpec[] = [
     id: 's32_winner', dur: 3.0, players: [HERO], layer: 8, theme: 1, level: 3,
     setup(s) {
       s.put(0, -280, 220, -.9)
-      s.state.slots[0].cosmetics = { victory: 'victory-ascendant', robe: null }
+      s.state.slots[0].cosmetics = { victory: 'victory-ascendant', head: null, back: null, robe: null, emblem: null, staff: null }
     },
     script: [
       [.03, s => s.cast(0, 'scourge', -280, 220)],

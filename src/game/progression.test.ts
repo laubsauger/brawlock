@@ -76,18 +76,20 @@ describe('shared account progression', () => {
   it('charges exactly once, refuses key reuse and cannot overspend across authority connections', () => {
     const { store, file } = fixture()
     for (let i = 0; i < 5; i++) store.recordMatch(receipt(`funding-${i}`))
-    const initial = store.snapshot('account-a'), item = initial.offers[0]
+    // 100 Embers: an 80-Ember pose leaves too little for anything else in the catalog
+    const initial = store.snapshot('account-a'), item = initial.offers.find((v) => v.id === 'victory-revel')!
     const request = { itemId: item.id, offerId: initial.offerId, requestId: 'purchase-0001' }
     const bought = store.purchase('account-a', request)
     expect(bought.balance).toBe(100 - item.price)
     expect(bought.owned).toContain(item.id)
     expect(store.purchase('account-a', request).balance).toBe(bought.balance)
-    expect(() => store.purchase('account-a', { ...request, itemId: initial.offers[1].id })).toThrow(/already used/)
+    const pricier = initial.offers.find((v) => v.price > bought.balance)!
+    expect(() => store.purchase('account-a', { ...request, itemId: pricier.id })).toThrow(/already used/)
     expect(() => store.purchase('account-a', { ...request, requestId: 'purchase-0002' })).toThrow(/already own/)
     const connection = openTestDatabase(file)
     cleanups.push(() => connection.close())
     const other = createProgression(connection, { now: () => initial.serverNow })
-    expect(() => other.purchase('account-a', { ...request, itemId: initial.offers[1].id, requestId: 'purchase-0003' })).toThrow(/more Embers/)
+    expect(() => other.purchase('account-a', { ...request, itemId: pricier.id, requestId: 'purchase-0003' })).toThrow(/more Embers/)
     expect(store.snapshot('account-a').balance).toBe(bought.balance)
   })
 
@@ -120,7 +122,7 @@ describe('shared account progression', () => {
     const initial = store.snapshot('account-b')
     expect(initial.balance).toBe(0); expect(initial.owned).toEqual([]); expect(initial.recentRewards).toEqual([])
     expect(() => store.purchase('account-b', { itemId: initial.offers[0].id, offerId: initial.offerId, requestId: 'purchase-0001', price: 0 } as never)).toThrow(/Invalid purchase/)
-    expect(() => store.equip('account-b', { slot: 'robe', itemId: 'robe-cinder', owned: true } as never)).toThrow(/Invalid cosmetic/)
-    expect(store.equipment('account-b')).toEqual({ victory: null, robe: null })
+    expect(() => store.equip('account-b', { slot: 'robe', itemId: 'robe-emberveil', owned: true } as never)).toThrow(/Invalid cosmetic/)
+    expect(store.equipment('account-b')).toEqual({ victory: null, head: null, back: null, robe: null, emblem: null, staff: null })
   })
 })

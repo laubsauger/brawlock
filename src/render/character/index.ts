@@ -8,7 +8,7 @@
  *   w.update(pawn, prevPawn, alpha, dt, newEvents)
  *   w.castOrigin(v)                              // palm(s) (or staff crystal), world space
  *   w.castArm(arm, hand?)                        // shoulder / elbow / wrist / palm / dir of a casting arm
- *   w.castHands                                  // 'left' | 'right' | 'both' for the current / last spell
+ *   w.castHands                                  // 'left' | 'right' | 'both' for the current / last spell ('left' = staff hand when casting from a staff)
  *   w.castCharge                                 // 0..1 over the windup, 0 when released / cancelled
  *   w.setCastColor(0xff7a1a)                     // spell colour for hands, sleeve runes, emblem (null = player colour)
  *   w.deathFx('lava') / w.tumble(dx, dy)         // optional overrides (both also happen automatically)
@@ -57,9 +57,13 @@
  *   vertex shader, pendulum-clamped so hems never invert, pushed out of leg /
  *   torso / arm capsules from the live bones; front panels follow a spring-
  *   smoothed per-leg envelope so they swing over striding legs.
- * - Staff: KNOWN ISSUE, shelved: no grip / animations yet. Off by default
- *   (warlockParams.staff); variants 'gnarled' | 'iron' | 'bone' via setStaff();
- *   castFrom 'palm' | 'staff'.
+ * - Staff: off by default (warlockParams.staff); variants 'gnarled' | 'iron' |
+ *   'bone' via setStaff(). Held in the closed left fist (grip socket, wrist
+ *   turned to the shaft), carried upright beside the robe and kept clear of it,
+ *   raised / thrust by the cast poses, falls along the body on tumble / death.
+ *   castFrom 'staff' (default): every spell is cast by the staff hand, the
+ *   charge, release flash and castOrigin sit at the head crystal and castArm
+ *   runs up the shaft; 'palm' keeps the hand casts.
  * - Performance: geometry, materials and clips are shared; per-pawn values are
  *   per-object uniforms (gpuState.ts). One mixer and one skeleton per warlock,
  *   2 draws (outfit + hands, cloth + hood void), ~12.1k triangles. update()

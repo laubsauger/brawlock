@@ -3,6 +3,7 @@
  *   npx vite --port 5191  ->  http://localhost:5191/src/render/dev/preview.html
  * Params: ?view=match|menu  &q=low|medium|high|ultra  &fx=0..1  &inspect
  *         &mock (fake sim instead of the real one)  &mode=ffa|teams|shuffle  &bots=1..9  &bot=easy|medium|hard  &slow=0.25
+ *         &wear=head-ram+shoulders-spiked+robe-tattered,head-party,...  (cosmetics per player, comma separated)
  */
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -18,6 +19,7 @@ import { cullFlags } from '../frameCull'
 import { startSimDriver } from './simDriver'
 import { tweakParams } from '../tweaks'
 import { cameraParams, cameraZoomParam, devCamera } from '../cameraRig'
+import { COSMETICS, EMPTY_EQUIPMENT, type CosmeticEquipment } from '../../game/progressionCatalog'
 
 // dev handles for look-dev from the console
 ;(window as unknown as Record<string, unknown>).__brawlock = { tweaks: tweakParams, camera: cameraParams, zoom: cameraZoomParam, devCamera, stats: renderStats, devTime, perfProbe, input, store: useGame, warlock: warlockParams, cull: cullFlags }
@@ -29,6 +31,20 @@ const style = params.get('style')
 if (style === 'procedural' || style === 'cc0') warlockParams.style = style
 if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
 if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(params.get('fx')) })
+
+/** ?wear: one '+'-joined list of cosmetic ids per player, comma separated */
+function wear(): CosmeticEquipment[] | undefined {
+  const raw = params.get('wear')
+  if (!raw) return undefined
+  return raw.split(',').map((list) => {
+    const eq: CosmeticEquipment = { ...EMPTY_EQUIPMENT }
+    for (const id of list.split('+')) {
+      const item = COSMETICS.find((c) => c.id === id)
+      if (item) (eq as unknown as Record<string, string>)[item.slot] = item.id
+    }
+    return eq
+  })
+}
 
 function Perf() {
   const [txt, setTxt] = useState('')
@@ -60,6 +76,7 @@ function Preview() {
         bots: Number(params.get('bots') ?? 1),
         difficulty: (params.get('bot') as 'easy' | 'medium' | 'hard' | null) ?? 'medium',
         teamMode: (params.get('mode') as 'ffa' | 'teams' | 'shuffle' | null) ?? 'ffa',
+        cosmetics: wear(),
       })
     let stop = start()
     // dev: start a second match in the same view (match reset path)

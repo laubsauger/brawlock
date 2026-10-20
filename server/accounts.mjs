@@ -10,7 +10,7 @@ import { passkey } from '@better-auth/passkey'
 import { oneTimeToken } from 'better-auth/plugins/one-time-token'
 import { ACCOUNT_REGIONS_SCHEMA, ACCOUNT_CONTROL_SCHEMA, ACCOUNT_STARTED_SCHEMA, accountRegions } from './account-regions.mjs'
 import { accountRatingKey } from '../src/net/accounts.ts'
-import { PROGRESSION_SCHEMA, ProgressionError, createProgression } from './progression.mjs'
+import { PROGRESSION_SCHEMA, PROGRESSION_V7_MIGRATION, ProgressionError, createProgression } from './progression.mjs'
 import { PLAYER_COLORS } from '../src/net/lobbyColors.ts'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { createPresence } from './presence.mjs'
@@ -97,8 +97,8 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
     const plan = await getMigrations(options)
     if (plan.schemaProblems.length || plan.unsafeChanges.length) throw new Error('Account schema requires a reviewed migration')
     const version = Number(db.prepare('PRAGMA user_version').get().user_version)
-    if (![0, 1, 2, 3, 4, 5, 6].includes(version)) throw new Error('Unsupported account profile schema version')
-    const pending = plan.toBeCreated.length || plan.toBeAdded.length || plan.toBeAddedIndexes.length || version !== 6
+    if (![0, 1, 2, 3, 4, 5, 6, 7].includes(version)) throw new Error('Unsupported account profile schema version')
+    const pending = plan.toBeCreated.length || plan.toBeAdded.length || plan.toBeAddedIndexes.length || version !== 7
     if (pending && !migrate) throw new Error('Account schema is not ready; run accounts:migrate before starting')
     if (migrate) {
       await plan.runMigrations()
@@ -108,6 +108,8 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
       if (version < 4) db.exec(`BEGIN IMMEDIATE; ${ACCOUNT_CONTROL_SCHEMA} PRAGMA user_version = 4; COMMIT;`)
       if (version < 5) db.exec(`BEGIN IMMEDIATE; ${PLAY_SCHEMA} PRAGMA user_version = 5; COMMIT;`)
       if (version < 6) db.exec(`BEGIN IMMEDIATE; ${ACCOUNT_STARTED_SCHEMA} PRAGMA user_version = 6; COMMIT;`)
+      // wardrobe slots and the retired colour robes' refund (progression.mjs)
+      if (version < 7) db.exec(`BEGIN IMMEDIATE; ${PROGRESSION_V7_MIGRATION} PRAGMA user_version = 7; COMMIT;`)
     }
     const auth = betterAuth(options)
     // The library starts this check in the background. Await it explicitly so a

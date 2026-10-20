@@ -13,6 +13,10 @@ export class WarlockGpu {
   readonly team = new THREE.Color()
   /** Account cloth tint; neutral leaves the starter robe unchanged. */
   readonly clothTint = new THREE.Color(1, 1, 1)
+  /** robe cut (wardrobe.ts ROBE_STYLE): 0 plain, 1 tattered hem, 2 tattered with ember veins */
+  robeStyle = 0
+  /** cape emblem atlas cell (emblems.ts), -1 = plain cape */
+  emblem = -1
   clothBlend = 0
   /** colour of the current cast (defaults to the team colour; render may set a spell colour) */
   readonly castColor = new THREE.Color()
@@ -127,6 +131,8 @@ export const U = {
   team: uc((s) => s.team),
   clothTint: uc((s) => s.clothTint),
   clothBlend: uf((s) => s.clothBlend),
+  robeStyle: uf((s) => s.robeStyle),
+  emblem: uf((s) => s.emblem),
   castColor: uc((s) => s.castColor),
   castCharge: uf((s) => s.castCharge),
   castFlare: uf((s) => s.castFlare),

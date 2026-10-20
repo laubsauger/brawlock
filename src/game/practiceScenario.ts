@@ -20,9 +20,9 @@ export class PracticeScenario {
   view: PracticeView = { step: 'move', target: WALK_TARGET, retries: 0 }
   private lavaHit = false
 
-  constructor(player: { name: string; color: number | null }) {
+  constructor(player: { name: string; color: number | null; cosmetics?: PlayerSlot['cosmetics'] | null }) {
     const slots: PlayerSlot[] = [
-      { id: 0, name: player.name, color: player.color ?? 0xff7700, kind: 'human', team: 0 },
+      { id: 0, name: player.name, color: player.color ?? 0xff7700, kind: 'human', team: 0, ...(player.cosmetics ? { cosmetics: player.cosmetics } : {}) },
       { id: 1, name: 'Training dummy', color: 0x2e7bff, kind: 'bot', difficulty: 'dummy', team: 1 },
     ]
     this.state = createMatch({ ...DEFAULT_SETTINGS, shopSeconds: 0, winScore: 99, startGold: TELEPORT_COST,

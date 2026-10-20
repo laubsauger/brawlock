@@ -16,6 +16,8 @@ import { frame } from '../../game/frame'
 import { syncFootprint } from './debug'
 import { DeathMotion, LaunchMotion, deathHop } from './impactMotion'
 import { newVictoryPose, sampleVictoryPose, type VictoryStyle } from './victoryPose'
+import { ROBE_STYLE, STAFF_VARIANT, type Outfit } from './wardrobe'
+import { emblemIndex } from './emblems'
 
 const TAU = Math.PI * 2
 function angDiff(a: number, b: number): number {
@@ -36,6 +38,33 @@ const ENTER_LEN = 0.53
 /** OverhandThrow: arm at its highest (s) */
 const THROW_PEAK = 0.34
 type CastPhase = 'none' | 'windup' | 'release' | 'backswing'
+
+/**
+ * Robe hem / hips / mantle / hood radius about the body axis by height (rig
+ * metres, before CC0_SCALE; hem half-width HEM_RX_M plus sway). A round,
+ * conservative profile: the staff shaft is kept outside it.
+ */
+const BODY_R: readonly (readonly [number, number])[] = [
+  [0, 0.5],
+  [0.45, 0.4],
+  [0.9, 0.3],
+  [1.2, 0.3],
+  [1.42, 0.42],
+  [1.58, 0.22],
+  [1.95, 0.16],
+]
+function bodyRadius(y: number): number {
+  if (y <= BODY_R[0][0]) return BODY_R[0][1]
+  for (let i = 1; i < BODY_R.length; i++) {
+    const [y1, r1] = BODY_R[i]
+    if (y > y1) continue
+    const [y0, r0] = BODY_R[i - 1]
+    return r0 + ((r1 - r0) * (y - y0)) / (y1 - y0)
+  }
+  return BODY_R[BODY_R.length - 1][1]
+}
+/** points along the shaft checked against the body: fractions of the foot (< 0) / tip (> 0) distance */
+const STAFF_SAMPLES = [-1, -0.75, -0.5, -0.25, 0.3, 0.55, 0.8] as const
 
 /** sim death cause -> look */
 export function deathKindFor(cause: string | undefined, kb: number): DeathKind {
@@ -131,8 +160,18 @@ export class CC0Warlock implements WarlockHandle {
   private palm = { l: new THREE.Object3D(), r: new THREE.Object3D() }
   private eyeSocket = new THREE.Object3D()
   private staffMesh: THREE.Mesh | null = null
+  private outfitMesh: THREE.SkinnedMesh | null = null
+  private outfitKey = '||'
+  /** staff the warlock was created with (dev toggle), worn when the outfit has none */
+  private baseStaff: StaffVariant | null = null
+  private staffVariant: StaffVariant | null = null
   private staffTip = new THREE.Object3D()
   private staffBelow = 0
+  /** staff fist (left hand): grip centre socket, shaft direction in the hand bone's frame */
+  private gripSocket = new THREE.Object3D()
+  private gripAxis = new THREE.Vector3()
+  /** left-hand finger bones: relaxed and closed-around-the-shaft local rotations */
+  private fist: { bone: THREE.Bone; open: THREE.Quaternion; closed: THREE.Quaternion }[] = []
   private castFrom: CastFrom = 'palm'
   private castColorOverride: number | null = null
   private footprint: THREE.Object3D | null = null
@@ -161,6 +200,8 @@ export class CC0Warlock implements WarlockHandle {
   // state machine
   private castPhase: CastPhase = 'none'
   private castCat: CastCategory = 'directional'
+  /** the spell's own category is 'sky' (kept when a staff cast re-maps it) */
+  private castSky = false
   private hands: CastHands = 'left'
   /** smoothed procedural cast poses (0..1) */
   private pose = { overhead: 0, cross: 0, flare: 0, beam: 0, ground: 0, sky: 0 }
@@ -234,6 +275,9 @@ export class CC0Warlock implements WarlockHandle {
     socket(this.bone.hand_l, asset.rest.palmL, this.palm.l)
     socket(this.bone.hand_r, asset.rest.palmR, this.palm.r)
     socket(this.bone.Head, asset.rest.eyes, this.eyeSocket)
+    socket(this.bone.hand_l, asset.rest.gripL, this.gripSocket)
+    this.gripAxis.copy(asset.rest.gripAxisL).applyQuaternion(this.modelQuat(this.bone.hand_l, this.qb).invert())
+    this.buildFist(asset.rest.curlAxisL)
 
     // bigger hands read better from the gameplay camera (the casting hand most)
     this.bone.hand_l.scale.setScalar(1.18)
@@ -242,6 +286,7 @@ export class CC0Warlock implements WarlockHandle {
     this.anim.full('idle', { fade: 0.001 })
     this.gpu.phase = Math.random() * 100
     this.setColor(color)
+    this.baseStaff = staff
     this.setStaff(staff)
     this.castFrom = castFrom
   }
@@ -250,13 +295,34 @@ export class CC0Warlock implements WarlockHandle {
     return this.gpu.castCharge
   }
 
-  setRobe(item: 'robe-cinder' | 'robe-moon' | null): void {
-    // Near-unit luminance palettes affect untrimmed cloth only. Player-colored
-    // trims, the woven shoulder cue and cast effects are composed afterward.
-    this.gpu.clothBlend = item === null ? 0 : 1
-    if (item === 'robe-cinder') this.gpu.clothTint.setRGB(1.22, 0.96, 0.8)
-    else if (item === 'robe-moon') this.gpu.clothTint.setRGB(0.76, 1.01, 1.55)
-    else this.gpu.clothTint.setRGB(1, 1, 1)
+  setOutfit(outfit: Outfit): void {
+    this.gpu.robeStyle = outfit.robe ? ROBE_STYLE[outfit.robe] : 0
+    this.gpu.emblem = emblemIndex(outfit.emblem)
+    // a worn staff; none worn falls back to the dev default the warlock was built with
+    const staff = outfit.staff ? STAFF_VARIANT[outfit.staff] : this.baseStaff
+    if (staff !== this.staffVariant) this.setStaff(staff)
+    const key = `${outfit.head ?? ''}|${outfit.back ?? ''}`
+    if (key === this.outfitKey) return
+    this.outfitKey = key
+    this.outfitMesh?.removeFromParent()
+    this.outfitMesh = null
+    const geometry = this.asset.outfit(outfit)
+    if (!geometry) return
+    // rigid pieces on the shared skeleton, bound like the cloth (same parent, same bind matrix)
+    let cloth: THREE.SkinnedMesh | null = null
+    this.model.traverse((o) => {
+      if (!cloth && (o as THREE.SkinnedMesh).isSkinnedMesh && o.name === 'WarlockCloth') cloth = o as THREE.SkinnedMesh
+    })
+    const ref = cloth as THREE.SkinnedMesh | null
+    if (!ref?.parent) return
+    const mesh = new THREE.SkinnedMesh(geometry, this.asset.trinketMaterial)
+    mesh.name = 'WarlockTrinkets'
+    mesh.castShadow = true
+    mesh.frustumCulled = false
+    mesh.userData.wl = this.gpu
+    ref.parent.add(mesh)
+    mesh.bind(ref.skeleton, ref.bindMatrix)
+    this.outfitMesh = mesh
   }
 
   setColor(color: number): void {
@@ -278,7 +344,11 @@ export class CC0Warlock implements WarlockHandle {
     if (this.staffMesh) {
       this.staffMesh.removeFromParent()
       this.staffMesh = null
+      for (const f of this.fist) f.bone.quaternion.copy(f.open)
     }
+    this.staffInit = false
+    this.staffLie = this.staffSlide = 0
+    this.staffVariant = variant
     if (!variant) return
     const s = this.asset.staffs[variant]
     const mesh = new THREE.Mesh(s.geometry, this.asset.staffMaterial)
@@ -288,11 +358,48 @@ export class CC0Warlock implements WarlockHandle {
     mesh.add(this.staffTip)
     this.staffTip.position.copy(s.tip)
     this.staffBelow = s.below
-    this.model.add(mesh)
+    // beside the model, not under it: the model's uneven scale (CC0_SCALE) would shear a tilted
+    // staff (the crystal and ring skew off the shaft); placeStaff maps model space by hand
+    this.yawG.add(mesh)
     this.staffMesh = mesh
   }
 
-  /** Hand(s) of the current / last cast: 'both' for aoe, buff and beam spells. */
+  /**
+   * Fist around the staff: the left hand's fingers curled about the knuckle
+   * axis, in the bind pose (relaxed fingers baked in by the asset). Only the
+   * cast clips animate fingers; with a staff the closed pose is written over
+   * them every frame (end of the stance layer).
+   */
+  private buildFist(curlAxisModel: THREE.Vector3): void {
+    // radians per joint (01 knuckle, 02, 03); the thumb folds over the shaft
+    const curl: [string, number[]][] = [
+      ['index', [1.2, 1.35, 0.9]],
+      ['middle', [1.25, 1.35, 0.9]],
+      ['ring', [1.3, 1.35, 0.9]],
+      ['pinky', [1.35, 1.3, 0.9]],
+      ['thumb', [0.25, 0.55, 0.6]],
+    ]
+    for (const [finger, angles] of curl) {
+      angles.forEach((angle, j) => {
+        const bone = this.bone[`${finger}_0${j + 1}_l`]
+        if (!bone) return
+        const open = bone.quaternion.clone()
+        this.modelQuat(bone.parent!, this.qb)
+        this.axis.copy(curlAxisModel).applyQuaternion(this.qb.invert()).normalize()
+        // applied down the chain so the next joint's frame includes this one
+        bone.quaternion.premultiply(this.qt.setFromAxisAngle(this.axis, angle))
+        this.fist.push({ bone, open, closed: bone.quaternion.clone() })
+      })
+    }
+    for (const f of this.fist) f.bone.quaternion.copy(f.open)
+  }
+
+  /** Spells leave from the staff crystal (staff equipped and castFrom 'staff'). */
+  private get staffCast(): boolean {
+    return this.staffMesh !== null && this.castFrom === 'staff'
+  }
+
+  /** Hand(s) of the current / last cast: 'both' for aoe, buff and beam spells; the staff hand (left) when casting from a staff. */
   get castHands(): CastHands {
     return this.hands
   }
@@ -304,7 +411,7 @@ export class CC0Warlock implements WarlockHandle {
   }
 
   castOrigin(out: THREE.Vector3): THREE.Vector3 {
-    if (this.castFrom === 'staff' && this.staffMesh) return this.staffTip.getWorldPosition(out)
+    if (this.staffCast) return this.staffTip.getWorldPosition(out)
     if (this.hands === 'both') {
       this.worldPos(this.palm.l, out)
       return out.add(this.worldPos(this.palm.r, this.v3)).multiplyScalar(0.5)
@@ -314,6 +421,19 @@ export class CC0Warlock implements WarlockHandle {
 
   castArm(out: CastArm, hand?: 'left' | 'right'): CastArm {
     const l = (hand ?? (this.hands === 'right' ? 'right' : 'left')) === 'left'
+    if (l && this.staffCast) {
+      // staff: the chain runs up the shaft (fist -> crystal), so the shared
+      // windup rings / spiral gather toward the tip instead of an empty palm
+      const m = this.staffMesh!
+      m.updateWorldMatrix(true, false)
+      const tipY = this.staffTip.position.y
+      m.localToWorld(out.shoulder.set(0, 0, 0))
+      m.localToWorld(out.elbow.set(0, tipY * 0.45, 0))
+      m.localToWorld(out.wrist.set(0, tipY * 0.8, 0))
+      m.localToWorld(out.palm.copy(this.staffTip.position))
+      out.dir.subVectors(out.palm, out.wrist).normalize()
+      return out
+    }
     const b = this.bone
     this.worldPos(l ? b.upperarm_l : b.upperarm_r, out.shoulder)
     this.worldPos(l ? b.lowerarm_l : b.lowerarm_r, out.elbow)
@@ -471,6 +591,13 @@ export class CC0Warlock implements WarlockHandle {
   private setCategory(spell: string): void {
     this.castCat = castCategory(spell)
     this.hands = CAST_HANDS[this.castCat]
+    this.castSky = this.castCat === 'sky'
+    if (this.staffCast) {
+      // every spell leaves from the staff in the left hand; the overhand
+      // throw (right arm) becomes a staff raised to the sky, then thrust
+      if (this.castSky) this.castCat = 'directional'
+      this.hands = 'left'
+    }
     this.gpu.castSide = this.hands === 'left' ? 1 : this.hands === 'right' ? -1 : 0
   }
 
@@ -961,24 +1088,42 @@ export class CC0Warlock implements WarlockHandle {
         this.rotBone('upperarm_l', Z, 0.13 * k * (1 - useL))
         this.rotBone('upperarm_r', Z, -0.13 * k * (1 - useR))
       }
+      // staff carry: the left forearm comes forward and out, fist thumb-up,
+      // so the shaft stands beside the robe (the clip's arm swing stays on top)
+      const carry = this.staffMesh && !victory ? k * (1 - useL) : 0
+      if (carry > 1e-3) {
+        this.rotBone('upperarm_l', Z, 0.2 * carry)
+        this.rotBone('upperarm_l', X, -0.22 * carry)
+        this.rotBone('lowerarm_l', X, -0.85 * carry)
+      }
+      // celebrating with a staff: the left hand plants it beside the body like a banner, fist at
+      // shoulder height, and sits the gesture out (the right arm celebrates alone): following
+      // the cross / overhead poses would swing the shaft across the face
+      const planted = this.staffMesh && victory ? 1 : 0
+      const vl = 1 - planted
+      if (planted) {
+        this.rotBone('upperarm_l', Z, 0.65)
+        this.rotBone('upperarm_l', X, -0.3)
+        this.rotBone('lowerarm_l', X, -1.15)
+      }
       if (P.overhead > 1e-3) {
         // both hands rise overhead (a V), slightly forward
-        this.rotBone('upperarm_l', Z, 2.75 * P.overhead)
+        this.rotBone('upperarm_l', Z, 2.75 * P.overhead * vl)
         this.rotBone('upperarm_r', Z, -2.75 * P.overhead)
-        this.rotBone('upperarm_l', X, -0.45 * P.overhead)
+        this.rotBone('upperarm_l', X, -0.45 * P.overhead * vl)
         this.rotBone('upperarm_r', X, -0.45 * P.overhead)
         this.rotBone('spine_03', X, -0.12 * P.overhead)
       }
       if (P.cross > 1e-3) {
-        this.rotBone('upperarm_l', X, -1.1 * P.cross)
+        this.rotBone('upperarm_l', X, -1.1 * P.cross * vl)
         this.rotBone('upperarm_r', X, -1.1 * P.cross)
-        this.rotBone('upperarm_l', Y, -0.6 * P.cross)
+        this.rotBone('upperarm_l', Y, -0.6 * P.cross * vl)
         this.rotBone('upperarm_r', Y, 0.6 * P.cross)
       }
       if (P.flare > 1e-3) {
-        this.rotBone('upperarm_l', Z, 1.5 * P.flare)
+        this.rotBone('upperarm_l', Z, 1.5 * P.flare * vl)
         this.rotBone('upperarm_r', Z, -1.5 * P.flare)
-        this.rotBone('upperarm_l', X, 0.35 * P.flare)
+        this.rotBone('upperarm_l', X, 0.35 * P.flare * vl)
         this.rotBone('upperarm_r', X, 0.35 * P.flare)
         this.rotBone('spine_03', X, -0.15 * P.flare)
       }
@@ -1002,22 +1147,26 @@ export class CC0Warlock implements WarlockHandle {
         this.rotBone('thigh_r', X, -victory.knee)
         this.rotBone('calf_l', X, Math.max(0, -victory.knee) * 0.8)
         this.rotBone('calf_r', X, Math.max(0, victory.knee) * 0.8)
-        this.rotBone('upperarm_l', X, victory.armWave)
+        this.rotBone('upperarm_l', X, victory.armWave * vl)
         this.rotBone('upperarm_r', X, -victory.armWave)
-        this.rotBone('lowerarm_l', X, -victory.elbowL)
+        this.rotBone('lowerarm_l', X, -victory.elbowL * vl)
         this.rotBone('lowerarm_r', X, -victory.elbowR)
       }
       // facing cue: standing idle, both hands come up in front of the robe (a
       // ready stance) with a faint glow; from above they point the way
       const ih = g.idleHands
       if (ih > 1e-3) {
-        this.rotBone('upperarm_l', X, -0.42 * ih)
+        // the staff hand keeps its carry pose
+        const ihL = this.staffMesh ? 0 : ih
+        this.rotBone('upperarm_l', X, -0.42 * ihL)
         this.rotBone('upperarm_r', X, -0.42 * ih)
-        this.rotBone('lowerarm_l', X, -0.75 * ih)
+        this.rotBone('lowerarm_l', X, -0.75 * ihL)
         this.rotBone('lowerarm_r', X, -0.75 * ih)
-        this.rotBone('upperarm_l', Y, -0.18 * ih)
+        this.rotBone('upperarm_l', Y, -0.18 * ihL)
         this.rotBone('upperarm_r', Y, 0.18 * ih)
       }
+      // fingers closed around the staff (over the cast clips' open palm)
+      if (this.staffMesh) for (const f of this.fist) f.bone.quaternion.copy(f.closed)
     }
 
     // ---- bones -> capsules (model metres), from local matrices of just these
@@ -1059,8 +1208,8 @@ export class CC0Warlock implements WarlockHandle {
       g.flutter += (fTarget - g.flutter) * damp(5, dt)
     }
 
-    // ---- staff: follows the right hand, stays upright-ish, leans out from the robe
-    if (this.staffMesh) this.placeStaff()
+    // ---- staff: through the left fist, carried upright beside the robe, aimed by casts
+    if (this.staffMesh) this.placeStaff(dt)
 
     this.fxTick(p, dt)
   }
@@ -1220,38 +1369,144 @@ export class CC0Warlock implements WarlockHandle {
     this.envInit = true
   }
 
-  private grip = new THREE.Vector3()
-  private up = new THREE.Vector3()
-  private staffQ = new THREE.Quaternion()
-  private Y = new THREE.Vector3(0, 1, 0)
+  /** drop a memoized model matrix (its pose changed after it was read this frame) */
+  private dirty(o: THREE.Object3D): void {
+    const e = this.mm.get(o)
+    if (e) e.f = -1
+  }
 
-  private placeStaff(): void {
+  private grip = new THREE.Vector3()
+  private fistAxis = new THREE.Vector3()
+  private fistAvg = new THREE.Vector3()
+  private staffAim = new THREE.Vector3()
+  private staffDir = new THREE.Vector3(0, 1, 0)
+  private sv = new THREE.Vector3()
+  private Y = new THREE.Vector3(0, 1, 0)
+  /** 0 carried upright .. 1 lying along the spine (tumbling / dead), damped */
+  private staffLie = 0
+  /** shaft offset through the fist along its axis (model metres, damped) */
+  private staffSlide = 0
+  private staffInit = false
+
+  /**
+   * The staff hangs off the left fist: the grip socket sits inside the closed
+   * fingers and the shaft runs along the knuckle line. Each frame the wanted
+   * shaft direction is built (carried upright beside the robe and swaying with
+   * the fist, aimed by the cast pose, lying along the spine when the body
+   * falls), kept clear of the robe, smoothed, and then the wrist is turned so
+   * the fist's axis matches it: the staff never leaves the hand.
+   */
+  private placeStaff(dt: number): void {
     const m = this.staffMesh!
-    // grip point in model-local metres (staff is a child of the model)
-    this.grip.setFromMatrixPosition(this.modelMatrixOf(this.bone.hand_r))
-    const pelvis = this.gpu.pelvis
-    // outward from the body axis, upright, a little forward
-    const ox = this.grip.x - pelvis.x
-    const oz = this.grip.z - pelvis.z
+    const g = this.gpu
+    const hand = this.bone.hand_l
+    // fist axis as the clips and pose layer left it (model space)
+    const A = this.fistAxis.copy(this.gripAxis).applyQuaternion(this.modelQuat(hand, this.qb)).normalize()
+    this.grip.setFromMatrixPosition(this.modelMatrixOf(this.gripSocket))
+    // carried: upright and leaning out from the body (sideways reads best from
+    // the high camera; a forward lean foreshortens it), swaying with the fist:
+    // the fist axis minus its slow average adds the clip's arm swing
+    const ox = this.grip.x - g.pelvis.x
+    const oz = this.grip.z - g.pelvis.z
     const ol = Math.hypot(ox, oz) || 1
-    this.up.set((ox / ol) * 0.22, 1, (oz / ol) * 0.22 + 0.08).normalize()
-    if (this.castFrom === 'staff' && this.castPhase !== 'none') {
-      // staff casting: tip swings toward the target with the charge / release
-      const k = Math.max(this.gpu.castCharge * 0.6, this.castPhase === 'release' ? 1 : 0)
-      this.up.lerp(this.v3.set(0, 0.55, 1).normalize(), k).normalize()
+    if (!this.staffInit) this.fistAvg.copy(A)
+    else this.fistAvg.lerp(A, damp(1.5, dt))
+    const aim = this.staffAim.set((ox / ol) * 0.3, 1, (oz / ol) * 0.1 - 0.04)
+    // a third of the fist's swing, capped at ~17 degrees: the run cycle's full arm swing tips the
+    // shaft diagonally through the torso and the trailing cape
+    this.sv.copy(A).sub(this.fistAvg).multiplyScalar(0.35)
+    if (this.sv.length() > 0.3) this.sv.setLength(0.3)
+    aim.add(this.sv).normalize()
+    // casting: raised over the windup, thrust at the target on release
+    if (this.castArmK > 1e-3) aim.lerp(this.staffCastDir(this.sv), this.castArmK).normalize()
+    // celebrating: planted upright beside the body like a banner, leaning out a little
+    const vp = this.victory && !this.tumbling ? this.victoryPose : null
+    if (vp) aim.copy(this.sv.set((ox / ol) * 0.12, 1, 0.04).normalize())
+    // tumbling / dead: the staff falls with the body, along the spine
+    this.staffLie += ((this.dead || this.tumbling ? 1 : 0) - this.staffLie) * damp(6, dt)
+    if (this.staffLie > 1e-3) aim.lerp(this.sv.subVectors(g.chest, g.pelvis).normalize(), this.staffLie).normalize()
+    if (this.staffLie < 0.5) this.clearBody(this.grip, aim, this.staffSlide)
+    // smoothed: no jitter from clip blends or tick-stepped poses
+    if (!this.staffInit) this.staffDir.copy(aim)
+    else this.staffDir.lerp(aim, damp(this.castPhase === 'release' ? 30 : 16, dt)).normalize()
+    this.staffInit = true
+    // turn the wrist so the shaft runs through the fist along staffDir
+    const ang = A.angleTo(this.staffDir)
+    if (ang > 1e-4 && ang < Math.PI - 1e-3) {
+      this.rotBone('hand_l', this.sv.crossVectors(A, this.staffDir).normalize(), ang)
+      this.dirty(hand)
+      this.dirty(this.gripSocket)
+      this.dirty(this.palm.l)
+      this.grip.setFromMatrixPosition(this.modelMatrixOf(this.gripSocket))
     }
-    // keep it at least 0.3 m off the body axis so it never cuts the coat
-    if (ol < 0.3) {
-      this.grip.x = pelvis.x + (ox / ol) * 0.3
-      this.grip.z = pelvis.z + (oz / ol) * 0.3
+    // thrusts slide the shaft forward through the fist (held nearer the foot,
+    // so a levelled staff does not poke out behind); the aoe slam stamps it down
+    const slam = this.castCat === 'aoe' && (this.castPhase === 'release' || this.castPhase === 'backswing')
+    // planted: slid through the fist until its foot rests on the floor
+    const slideT = vp ? this.staffBelow - (this.grip.y - 0.02) / Math.max(0.3, this.staffDir.y) : this.castArmK * (slam ? -0.4 : 0.55 * (1 - Math.abs(this.staffDir.y)))
+    this.staffSlide += (slideT - this.staffSlide) * damp(slam ? 30 : 14, dt)
+    this.grip.addScaledVector(this.staffDir, this.staffSlide)
+    if (this.staffLie < 0.5) {
+      // never below the floor: slide the staff up through the fist
+      const footY = this.grip.y - this.staffDir.y * this.staffBelow
+      if (footY < 0.02) this.grip.addScaledVector(this.staffDir, (0.02 - footY) / Math.max(0.2, this.staffDir.y))
     }
-    // never below the floor: slide the staff up through the hand
-    const footY = this.grip.y - this.up.y * this.staffBelow
-    if (footY < 0.02) this.grip.addScaledVector(this.up, (0.02 - footY) / Math.max(0.2, this.up.y))
-    this.staffQ.setFromUnitVectors(this.Y, this.up)
-    // the staff is a child of the model: model-local metres, scaled with the rig
-    m.position.copy(this.grip)
-    m.quaternion.copy(this.staffQ)
+    // model space -> the yaw group (the model is only scaled): the shaft keeps the rig's length
+    // along its own axis and the rig's girth across it, so nothing shears when it tilts
+    const sc = this.model.scale
+    m.position.copy(this.grip).multiply(sc)
+    this.sv.copy(this.staffDir).multiply(sc)
+    m.scale.set(sc.x, this.sv.length(), sc.z)
+    m.quaternion.setFromUnitVectors(this.Y, this.sv.normalize())
+  }
+
+  /** Staff direction for the current cast pose (model space, +Z forward, unit). */
+  private staffCastDir(out: THREE.Vector3): THREE.Vector3 {
+    const rel = this.castPhase === 'release' || this.castPhase === 'backswing'
+    switch (this.castCat) {
+      case 'aoe':
+        // raised overhead, then stamped down upright in front
+        return (rel ? out.set(0, 1, 0.25) : out.set(0, 1, 0.08)).normalize()
+      case 'buff':
+        return out.set(0.15, 1, 0.35).normalize()
+      case 'beam':
+        // levelled at the target
+        return out.set(0, 0.35, 1).normalize()
+      case 'ground':
+        return (rel ? out.set(0, -0.3, 1) : out.set(0, 0.9, 0.5)).normalize()
+      default:
+        // directional / move; meteor raises it to the sky before the thrust
+        if (this.castSky && !rel) return out.set(0, 1, 0.05).normalize()
+        return (rel ? out.set(0, 0.6, 1) : out.set(0, 0.85, 0.55)).normalize()
+    }
+  }
+
+  /** Tilt the shaft about the grip until its sample points are outside the robe / mantle / hood. */
+  private clearBody(grip: THREE.Vector3, dir: THREE.Vector3, slide: number): void {
+    const px = this.gpu.pelvis.x
+    const pz = this.gpu.pelvis.z
+    for (let it = 0; it < 3; it++) {
+      let fx = 0
+      let fz = 0
+      for (const f of STAFF_SAMPLES) {
+        // distance from the fist along the shaft (the shaft is slid through it)
+        const s = (f < 0 ? f * this.staffBelow : f * this.staffTip.position.y) + slide
+        if (Math.abs(s) < 0.1) continue
+        const x = grip.x + dir.x * s - px
+        const z = grip.z + dir.z * s - pz
+        const r = Math.hypot(x, z) || 1e-3
+        const need = bodyRadius(grip.y + dir.y * s) - r
+        // move this point out by `need`: the direction changes by need / s (sign: which side of the grip)
+        if (need > 0) {
+          fx += ((x / r) * need) / s
+          fz += ((z / r) * need) / s
+        }
+      }
+      if (fx === 0 && fz === 0) break
+      dir.x += fx
+      dir.z += fz
+      dir.normalize()
+    }
   }
 
   dispose(): void {

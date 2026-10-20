@@ -4,7 +4,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { KIND, buildCloth, buildStaff, buildVoid, setCalfRadiusHint, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
-import { clothParams, createClothMaterial, createOutfitMaterial, createStaffMaterial } from './materials'
+import { clothParams, createClothMaterial, createOutfitMaterial, createStaffMaterial, createTrinketMaterial } from './materials'
+import { buildOutfit, type Outfit } from './wardrobe'
 
 /**
  * Loads public/models/warlock/warlock.glb (CC0 Quaternius rig + outfit parts +
@@ -37,8 +38,21 @@ export interface WarlockAsset {
   additive: Record<string, THREE.AnimationClip>
   staffs: Record<StaffVariant, StaffGeometry>
   staffMaterial: THREE.Material
+  /** worn cosmetic shapes (wardrobe.ts): merged geometry per outfit, built on first use */
+  outfit(o: Outfit): THREE.BufferGeometry | null
+  trinketMaterial: THREE.Material
   /** rest-pose positions (model metres) used by the runtime */
-  rest: { height: number; palmL: THREE.Vector3; palmR: THREE.Vector3; gripR: THREE.Vector3; eyes: THREE.Vector3 }
+  rest: {
+    height: number
+    palmL: THREE.Vector3
+    palmR: THREE.Vector3
+    /** staff hand (left): centre of the closed fist and the shaft direction through it (unit, thumb side) */
+    gripL: THREE.Vector3
+    gripAxisL: THREE.Vector3
+    /** left-hand finger curl axis (unit): +angle closes the fingers toward the palm */
+    curlAxisL: THREE.Vector3
+    eyes: THREE.Vector3
+  }
   /** triangles per warlock (for the budget readout) */
   triangles: number
 }
@@ -289,6 +303,13 @@ async function build(url: string): Promise<WarlockAsset> {
   addSkinned(outfitGeo, createOutfitMaterial(outfitSrc, gloveSrc, rig.pos('hand_l').x), 'WarlockOutfit')
   const palmL = rig.pos('hand_l').add(new THREE.Vector3(0.085, -0.025, 0.01))
   const palmR = rig.pos('hand_r').add(new THREE.Vector3(-0.085, -0.025, 0.01))
+  // staff fist (bind pose: T-pose, palms down, thumbs forward): the shaft runs
+  // through the curled fingers along the knuckle line (pinky -> index)
+  const fingersL = rig.pos('middle_01_l').sub(rig.pos('hand_l')).normalize()
+  const palmDown = new THREE.Vector3(0, -1, 0)
+  const gripL = rig.pos('hand_l').addScaledVector(fingersL, 0.1).addScaledVector(palmDown, 0.032)
+  const gripAxisL = rig.pos('index_01_l').sub(rig.pos('pinky_01_l')).normalize()
+  const curlAxisL = new THREE.Vector3().crossVectors(fingersL, palmDown).normalize()
   // ---- cloth + the hood void / eyes (skinned 100 % to the Head bone) in one draw
   {
     const vg = buildVoid(rig.pos('Head'))
@@ -362,13 +383,20 @@ async function build(url: string): Promise<WarlockAsset> {
 
   const staffs = { gnarled: buildStaff('gnarled'), iron: buildStaff('iron'), bone: buildStaff('bone') }
   const box = new THREE.Box3().setFromBufferAttribute(opos as THREE.BufferAttribute)
+  const outfits = new Map<string, THREE.BufferGeometry | null>()
   return {
+    outfit(o) {
+      const key = `${o.head ?? ''}|${o.back ?? ''}`
+      if (!outfits.has(key)) outfits.set(key, buildOutfit(rig, o))
+      return outfits.get(key)!
+    },
+    trinketMaterial: createTrinketMaterial(),
     template,
     clips,
     additive,
     staffs,
     staffMaterial: createStaffMaterial(),
-    rest: { height: box.max.y, palmL, palmR, gripR: rig.pos('hand_r').add(new THREE.Vector3(-0.05, -0.03, 0.0)), eyes: rig.pos('Head').add(new THREE.Vector3(0, 0.068, 0.068)) },
+    rest: { height: box.max.y, palmL, palmR, gripL, gripAxisL, curlAxisL, eyes: rig.pos('Head').add(new THREE.Vector3(0, 0.068, 0.068)) },
     triangles,
   }
 }

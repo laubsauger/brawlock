@@ -6,7 +6,7 @@ import type { ProgressionReceipt } from '../../server/progression.mjs'
 
 const token = 'public-test-regional-secret-0123456789abcdef'
 const connection = { device: '1'.repeat(64), controller: 'a'.repeat(64), takeover: false }
-const account = { connection, id: 'account-first', name: 'AshMage', color: 0x2e7bff, ratingKey: 'a_account-first', cosmetics: { victory: null, robe: null } }
+const account = { connection, id: 'account-first', name: 'AshMage', color: 0x2e7bff, ratingKey: 'a_account-first', cosmetics: { victory: null, head: null, back: null, robe: null, emblem: null, staff: null } }
 const proof = `${'A'.repeat(30)}-_`
 const clients: ReturnType<typeof regionalAccounts>[] = []
 const cleanups: (() => void)[] = []

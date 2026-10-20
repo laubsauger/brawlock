@@ -1,6 +1,7 @@
 import type { Cosmetic, CosmeticEquipment, CosmeticId, CosmeticSlot } from '../src/game/progressionCatalog'
 export const PROGRESSION_POLICY: 1
 export const PROGRESSION_SCHEMA: string
+export const PROGRESSION_V7_MIGRATION: string
 export class ProgressionError extends Error { status: number }
 export interface ProgressionParticipant {
   accountId: string

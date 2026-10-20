@@ -2,7 +2,6 @@ import * as THREE from 'three/webgpu'
 import {
   Fn,
   abs,
-  atan,
   attribute,
   clamp,
   cross,
@@ -46,6 +45,7 @@ import {
 import type { Node } from 'three/webgpu'
 import { U } from './gpuState'
 import { facingUniform, lookUniform } from './config'
+import { EMBLEM_COLS, emblemAtlas } from './emblems'
 
 /*
  * Warlock look (art/brand/splash.png): near-black fabric tinted toward the
@@ -338,9 +338,8 @@ export function createOutfitMaterial(src: THREE.MeshStandardMaterial, gloveSrc: 
   const handMask = smoothstep(palmLeftX - 0.04, palmLeftX + 0.06, sideX)
   const flicker = sin(tF.mul(53)).mul(0.5).add(0.5)
   const charge = U.castCharge.mul(U.castCharge).add(U.castFlare.mul(2.5)).add(U.castFizzle.mul(flicker).mul(0.8))
-  // facing cue: in the idle ready pose both palms glow faintly in the player colour
-  const palms = smoothstep(palmLeftX - 0.04, palmLeftX + 0.06, abs(pg.x))
-  const emG = v3(U.castColor.mul(charge.mul(2.2)).mul(handMask).add(U.team.mul(palms.mul(U.idleHands).mul(1.1))).add(rim(0.6)))
+  // hands glow only while casting: the robe already carries the player colour
+  const emG = v3(U.castColor.mul(charge.mul(2.2)).mul(handMask).add(rim(0.6)))
   applyFx(m, base, v3(mix(emO, emG, gl)), f(positionLocal.y), v2(attribute('aCover', 'vec2')))
   return m
 }
@@ -475,16 +474,33 @@ export function createClothMaterial(chevronZ = 0): THREE.MeshPhysicalNodeMateria
   const uvn = uv()
   const rowW = f(aD.x)
   const len = f(aD.y)
-  const fromHem = f(float(1).sub(uvn.y).mul(len))
+  const fromHem0 = f(float(1).sub(uvn.y).mul(len))
   const fromTop = f(uvn.y.mul(len))
   const fromSide = f(min(uvn.x, float(1).sub(uvn.x)).mul(rowW))
   const um = f(uvn.x.mul(rowW))
+  // robe cut (wardrobe.ts): a torn hem of hanging tongues. Each tooth hangs to a point; the
+  // cut between points is a random depth. The hem trim and every hem effect follow the cut.
+  const tattered = step(0.5, U.robeStyle)
+  const ember = step(1.5, U.robeStyle)
+  const tornK = f(isCoat.add(isCape).add(isTabard).add(isSleeve.mul(0.45)).add(isMantle.mul(0.5)).mul(tattered))
+  // strips of uneven width (warped cells) and uneven length, each a tongue with small notches
+  const MAX_TEAR = 0.17
+  const stripU = um.div(0.05).add(sin(um.mul(17).add(kind)).mul(0.45))
+  const stripId = floor(stripU)
+  const stripX = fract(stripU)
+  const hS = hash(stripId.add(kind.mul(13.7)))
+  const tongue = float(0.03).add(pow(hS, 1.5).mul(0.12))
+  const notch = hash(floor(um.div(0.011)).add(kind.mul(3.3))).mul(0.014)
+  const jag = f(tongue.mul(pow(abs(stripX.mul(2).sub(1)), 0.55)).add(notch).mul(tornK))
+  const fromHem = f(fromHem0.sub(jag))
+  // the hem trim stays whole, above the tear: only plain cloth is torn
+  const fromTrim = f(fromHem0.sub(tornK.mul(MAX_TEAR)))
   const isFabric = f(float(1).sub(isMedal).sub(isVoid))
   // which edges carry trim: hem everywhere; slit / vent edges on the coat, all
   // sides on tabard / cape / panel, the front opening on the mantle; sleeves the cuff
   const sideTrim = isCoat.add(isTabard).add(isCape).add(isMantle).add(isPanel)
   // distance to the nearest trimmed edge: hem (not the panel), sides, top (sash only)
-  const dHem = f(fromHem.add(isPanel.mul(9)))
+  const dHem = f(fromTrim.add(isPanel.mul(9)))
   const dSide = f(fromSide.add(float(1).sub(sideTrim).mul(9)))
   const dTop = f(fromTop.add(float(1).sub(isSash).mul(9)))
   const across = f(min(min(dHem, dSide), dTop))
@@ -513,16 +529,16 @@ export function createClothMaterial(chevronZ = 0): THREE.MeshPhysicalNodeMateria
   const owned = step(0.001, dot(accentC, vec3(1, 1, 1)))
   const colG = f(colGAll.mul(float(1).sub(isTabard.mul(owned))))
   const colAccent = f(colGAll.mul(isTabard).mul(owned))
-  // cape back sigil: two rings with runes between them and one at the centre
-  const capeC = vec2(um.sub(rowW.mul(0.5)), fromTop.sub(0.4))
-  const cr = length(capeC)
-  const aaS = fwidth(cr).mul(1.5)
-  const ringS = (r: number, wdt: number) => float(1).sub(smoothstep(float(wdt).sub(aaS), float(wdt).add(aaS), abs(cr.sub(r))))
-  const ang = atan(capeC.y, capeC.x).div(Math.PI * 2).add(0.5)
-  const sigGp = vec2(fract(ang.mul(8)), cr.sub(0.083).div(0.03))
-  const sigRunes = f(glyph(floor(ang.mul(8)).add(500), sigGp).mul(step(0, sigGp.y)).mul(step(sigGp.y, 1)))
-  const sigCore = f(glyph(float(777), capeC.div(0.07).add(0.5)).mul(step(cr, 0.05)))
-  const sigil = f(max(max(ringS(0.12, 0.0022), ringS(0.078, 0.0013)), max(sigRunes, sigCore)).mul(isCape))
+  // the cape's back is the emblem slot (emblems.ts): one big single-colour print centred on
+  // the back, or plain cloth when none is worn
+  const EMBLEM_SIZE = 0.62
+  // cape u runs right-to-left seen from behind: mirror it so text reads
+  const eUv = vec2(rowW.mul(0.5).sub(um), fromTop.sub(0.56)).div(EMBLEM_SIZE).add(0.5)
+  const eIn = step(0, eUv.x).mul(step(eUv.x, 1)).mul(step(0, eUv.y)).mul(step(eUv.y, 1))
+  const eCell = vec2(U.emblem.mod(EMBLEM_COLS), floor(U.emblem.div(EMBLEM_COLS)))
+  const eTex = texture(emblemAtlas(), eCell.add(clamp(eUv, 0.002, 0.998)).div(EMBLEM_COLS)).r
+  const worn = step(-0.5, U.emblem)
+  const sigil = f(eTex.mul(eIn).mul(step(0, faceDirection)).mul(1.15).mul(worn).mul(isCape))
   // edge lines brightest, runes softer; a slow pulse travels along the trims
   const pulse = sin(along.mul(9).sub(tF.mul(1.8)).add(U.phase)).mul(0.5).add(0.5)
   const runeMask = f(
@@ -592,6 +608,8 @@ export function createClothMaterial(chevronZ = 0): THREE.MeshPhysicalNodeMateria
   const trimCol = mix(U.team.mul(0.05).add(vec3(0.01, 0.008, 0.011)), U.team.mul(0.42).add(vec3(0.015, 0.014, 0.016)), L)
   base = v3(mix(base, trimCol, band.mul(float(1).sub(back))))
   base = v3(mix(base, DUST, smoothstep(0.14, 0.0, fromHem).mul(0.55).mul(wear.mul(0.5).add(0.5)).mul(isCoat.add(isCape).add(isTabard))))
+  // torn cloth: frayed, scorched edges, darker toward the tear
+  base = v3(base.mul(mix(float(1), float(0.35), smoothstep(0.035, 0.0, fromHem).mul(step(0.01, tornK)))))
   // medallions: gold rim, glowing player-colour gem
   const r01 = f(aD.x.div(max(aD.y, 1e-4)))
   const gem = f(float(1).sub(smoothstep(0.5, 0.6, r01)))
@@ -647,8 +665,41 @@ export function createClothMaterial(chevronZ = 0): THREE.MeshPhysicalNodeMateria
   // casting arm fabric warms up under the runes
   em = v3(em.add(U.castColor.mul(castArm.mul(0.045)).mul(isFabric)))
   em = v3(em.add(rim(0.8)).add(eyeSpill(0.25).mul(isMantle)))
+  {
+    // Emberveil: charred cloth up from the torn hem, cracked into plates whose seams glow in the
+    // player colour, hottest at the torn edge; reads as smouldering, not as a pattern
+    const cp = vec2(um, fromHem0.mul(1.3)).div(0.09)
+    const ci = floor(cp)
+    const cf = fract(cp)
+    let d1: F = f(float(9))
+    let d2: F = f(float(9))
+    let near: F = f(float(0))
+    for (let oy = -1; oy <= 1; oy++)
+      for (let ox = -1; ox <= 1; ox++) {
+        const cell = ci.add(vec2(ox, oy))
+        const seed = cell.x.add(cell.y.mul(57)).add(kind.mul(7.7))
+        const pt = vec2(ox, oy).add(vec2(hash(seed), hash(seed.add(19.1))).mul(0.8).add(0.1))
+        const dd = length(cf.sub(pt))
+        d2 = f(select(dd.lessThan(d1), d1, min(d2, dd)))
+        near = f(select(dd.lessThan(d1), seed, near))
+        d1 = f(min(d1, dd))
+      }
+    const edgeD = d2.sub(d1)
+    const aaS = fwidth(edgeD).mul(1.5)
+    // only some plates' edges are cracked open: broken lines, never a full net
+    const open = step(0.45, hash(near.add(3.1)))
+    const seam = float(1).sub(smoothstep(float(0.05).sub(aaS), float(0.05).add(aaS), edgeD)).mul(open)
+    // long cloth only (the capelet and sleeves are too short to carry it), fading up from the tear
+    const heat = isCoat.add(isCape).add(isTabard).mul(pow(smoothstep(0.5, 0.0, fromHem), 1.5))
+    const breathe = sin(tF.mul(1.7).add(U.phase).add(ci.x.mul(1.3))).mul(0.3).add(0.7)
+    const veinC = mix(U.team, vec3(1, 0.8, 0.5), 0.2)
+    const tip = smoothstep(0.025, 0.0, fromHem).mul(isCoat.add(isCape).add(isTabard))
+    em = v3(em.add(veinC.mul(seam.mul(heat).mul(2.6).add(tip.mul(1.8)).mul(breathe).mul(ember).mul(isFabric).mul(float(1).sub(isUnder)))))
+  }
   em = v3(em.mul(float(1).sub(isVoid)).add(eyeGlow().mul(isEye)))
   applyFx(m, base, em, f(positionLocal.y), undefined, f(float(1).sub(isVoid)))
+  // the torn hem: drop what lies below the cut (alpha-tested with the death dissolve)
+  m.opacityNode = f(m.opacityNode).mul(step(0, fromHem.add(float(1).sub(tornK).mul(9))))
   return m
 }
 
@@ -665,8 +716,74 @@ export function createStaffMaterial(): THREE.MeshStandardNodeMaterial {
   const base = v3(mix(mix(wood, METAL.mul(0.7), isMetal), U.castColor.mul(0.2), isCrystal))
   m.metalnessNode = isMetal
   m.roughnessNode = mix(mix(float(0.7), float(0.35), isMetal), float(0.1), isCrystal)
-  const charge = U.castCharge.add(U.castFlare.mul(2))
-  const em = v3(U.castColor.mul(isCrystal.mul(float(1.2).add(charge.mul(6)))).add(rim(0.5)))
+  // the crystal always glows in the player colour (reads at the gameplay
+  // camera), swells over the windup and flashes on release
+  const charge = U.castCharge.mul(U.castCharge).add(U.castFlare.mul(2))
+  const em = v3(U.castColor.mul(isCrystal.mul(float(2.6).add(charge.mul(7)))).add(rim(0.5)))
   applyFx(m, base, em, f(positionGeometry.y.add(1)))
+  return m
+}
+
+// ------------------------------------------------------------------ wardrobe (cosmetic shapes)
+
+/**
+ * Cosmetic pieces (wardrobe.ts): neutral materials picked per vertex by `aPart`, and glow only
+ * in the wearer's player colour, so a cosmetic changes the silhouette, never the identity.
+ * `aFlop` pieces follow the cape's sway spring (a hat tip trails the walk), `aT` runs along a
+ * piece for horn gradients and stripes. Shares every warlock effect (hit flash, burn, death).
+ */
+export function createTrinketMaterial(): THREE.MeshStandardNodeMaterial {
+  const m = new THREE.MeshStandardNodeMaterial()
+  m.name = 'WarlockTrinket'
+  // wing membranes and open lantern cages are single sheets
+  m.side = THREE.DoubleSide
+  const part = f(attribute('aPart', 'float'))
+  const t = f(attribute('aT', 'float'))
+  const flop = f(attribute('aFlop', 'float'))
+  const is = (k: number) => f(float(1).sub(step(0.5, abs(part.sub(k)))))
+  const bronze = is(0)
+  const iron = is(1)
+  const bone = is(2)
+  const horn = is(3)
+  const glow = is(4)
+  const felt = is(5)
+  const wood = is(6)
+  const flame = is(7)
+  const stripe = is(8)
+  const feather = is(9)
+  {
+    // sway after skinning (model space), plus a lazy bob at the free end
+    const sway = U.swayCape
+    const bob = sin(time.mul(2.2).add(U.phase)).mul(0.01)
+    m.positionNode = positionLocal.add(vec3(sway.x.mul(0.8), bob, sway.z.mul(0.8)).mul(flop))
+  }
+  const BONE = vec3(0.5, 0.45, 0.36)
+  const grain = sin(positionGeometry.y.mul(160).add(sin(positionGeometry.x.mul(300)).mul(2))).mul(0.2).add(0.8)
+  const ribs = sin(t.mul(70)).mul(0.12).add(0.88)
+  const stripes = step(0.5, fract(t.mul(4)))
+  let base = v3(METAL.mul(0.9).mul(bronze))
+  base = v3(base.add(vec3(0.13, 0.125, 0.135).mul(iron)))
+  base = v3(base.add(BONE.mul(bone)))
+  base = v3(base.add(mix(vec3(0.11, 0.075, 0.05), BONE.mul(1.1), pow(t, 1.4)).mul(ribs).mul(horn)))
+  base = v3(base.add(U.team.mul(0.25).mul(glow.add(flame))))
+  base = v3(base.add(vec3(0.07, 0.062, 0.078).mul(felt)))
+  base = v3(base.add(vec3(0.17, 0.115, 0.07).mul(grain).mul(wood)))
+  base = v3(base.add(mix(METAL.mul(0.9), vec3(0.04, 0.035, 0.04), stripes).mul(stripe)))
+  base = v3(base.add(vec3(0.02, 0.02, 0.026).mul(feather)))
+  const metal = f(bronze.add(iron).add(stripe.mul(float(1).sub(stripes))))
+  m.metalnessNode = metal
+  m.roughnessNode = f(mix(float(0.62), float(0.34), metal).sub(feather.mul(0.25)))
+  // glow follows the player colour, flares with the cast like the trims do
+  const charge = U.castCharge.add(U.castFlare.mul(2))
+  const pulse = sin(tF.mul(2.6).add(U.phase)).mul(0.15).add(0.85)
+  const flick = sin(tF.mul(23).add(t.mul(40))).mul(sin(tF.mul(17.3).add(t.mul(9)))).mul(0.25).add(0.85)
+  // not brighter than the trims: hotter than that, tone mapping washes the colour out to white
+  let em = v3(U.team.mul(glow.mul(float(1.5).add(charge.mul(3))).mul(pulse)))
+  em = v3(em.add(mix(U.team, vec3(1, 0.9, 0.7), 0.35).mul(flame.mul(3.2).mul(flick))))
+  // horn and antler tips burn in the player colour: the one bright spot that reads from above
+  const tip = smoothstep(0.8, 0.97, t).mul(horn.add(bone.mul(step(0.01, t))))
+  em = v3(em.add(mix(U.team, vec3(1, 1, 1), 0.2).mul(tip.mul(float(2).add(charge.mul(2))).mul(pulse))))
+  em = v3(em.add(rim(0.6)))
+  applyFx(m, base, em, f(positionGeometry.y))
   return m
 }

@@ -143,6 +143,8 @@ export interface LocalProfile {
   name: string
   /** preferred 0xRRGGBB, granted when free */
   color: number | null
+  /** the account's last known equipment: shown on this player's own seat when it hosts or plays offline */
+  cosmetics?: PlayerSlot['cosmetics'] | null
 }
 
 export interface SessionDeps {
@@ -859,7 +861,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     ready = {}
     pings = r === 'host' && seat ? { 0: 0 } : {}
     const me = deps.profile()
-    if (seat) addSlot({ name: me.name, kind: 'human', profileId: me.id }, me.color)
+    if (seat) addSlot({ name: me.name, kind: 'human', profileId: me.id, ...(me.cosmetics ? { cosmetics: me.cosmetics } : {}) }, me.color)
     ui.setResult(null)
     // a new lobby never inherits the last room's quick-play / listing state (it would hide the host's Rematch)
     ui.setLobby({ role: r, joinUrl: null, roomCode: null, status, error: null, notice: null, waitingForRound: false, ...NO_ROOM })

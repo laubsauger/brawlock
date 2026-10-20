@@ -41,7 +41,9 @@ export const warlockParams = {
   _style: 'cc0' as WarlockStyle,
   _staff: false,
   _staffVariant: 'gnarled' as StaffVariant,
-  _castFrom: 'palm' as CastFrom,
+  // with a staff, spells leave from its crystal by default ('palm' keeps the
+  // hand casts for comparison); without one this has no effect
+  _castFrom: 'staff' as CastFrom,
   get look(): WarlockLook {
     return lookUniform.value > 0.5 ? 'readable' : 'void'
   },

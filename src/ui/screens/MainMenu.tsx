@@ -410,6 +410,7 @@ export function MainMenu() {
             <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
             {online.configured && <MenuEntry title="Browse games" sub="Choose an existing public game" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
           </div>
+          <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" onClick={() => setCollectionOpen(true)} testId="open-wardrobe" />
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
             <Button className="gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" size="sm" variant="ghost" onClick={tutorial.open} data-testid="how-to-play"><MenuGlyph kind="guide" size={16} /> How to play</Button>
@@ -466,7 +467,7 @@ export function MainMenu() {
       </footer>
       {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
       {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
-      {collectionOpen && account && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} /></Suspense>}
+      {collectionOpen && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} onSignIn={accountsEnabled ? () => { setCollectionOpen(false); openAccount() } : undefined} /></Suspense>}
       {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name
           <input autoFocus aria-label="Display name" className="field" maxLength={NAME_MAX} spellCheck={false} value={draft} onFocus={(e) => e.target.select()} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitName() }} />

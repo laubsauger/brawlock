@@ -61,7 +61,7 @@ function connect(core: ServerCore, code: string, key: string, account?: Verified
   return { messages, send, close: socket.close, closed: () => closed }
 }
 
-const identity = (id: string): VerifiedAccount => ({ id, ratingKey: `a_${id}`, name: id, color: null, cosmetics: { victory: null, robe: null }, connection: { device: '1'.repeat(64), controller: 'a'.repeat(64), takeover: false } })
+const identity = (id: string): VerifiedAccount => ({ id, ratingKey: `a_${id}`, name: id, color: null, cosmetics: { victory: null, head: null, back: null, robe: null, emblem: null, staff: null }, connection: { device: '1'.repeat(64), controller: 'a'.repeat(64), takeover: false } })
 
 describe('persistent regional maintenance', () => {
   it('persists drain across reopen, resets explicitly, and refuses malformed stored state', () => {

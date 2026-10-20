@@ -32,6 +32,7 @@ import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
 import { frame, pushEvents, pushState, resetFrame } from './frame'
 import { input } from './input'
 import { getProfile, safeLocalStorage, setPreferredColor } from './profile'
+import { localEquipment } from './wardrobe'
 import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
 import { BUILD_UPDATE_REQUIRED, ensureCurrentBuild, getBuildUpdate, onBuildUpdate } from '../lib/buildVersion'
@@ -173,7 +174,7 @@ const impl = createSession({
       frame.net.lossPct = lossPct
     },
   },
-  profile: () => getProfile(),
+  profile: () => ({ ...getProfile(), cosmetics: localEquipment() }),
   recorder: createRecorder(),
   input,
   audio,

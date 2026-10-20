@@ -1,4 +1,5 @@
 import { audio } from '../audio'
+import { localEquipment } from './wardrobe'
 import { startClock } from '../net/clock'
 import { TICK_HZ } from '../sim'
 import { input } from './input'
@@ -18,7 +19,7 @@ export function stopPractice(): void {
 /** Reuse the actual match renderer/input/audio, without opening a game session or recording a match. */
 export function startPractice(player: { name: string; color: number | null }, canPlay: () => boolean): void {
   stopPractice()
-  const lesson = new PracticeScenario(player)
+  const lesson = new PracticeScenario({ ...player, cosmetics: localEquipment() })
   const store = useGame.getState()
   for (const key of ['paused', 'shopOpen', 'characterOpen', 'scoreboardOpen'] as const) store.toggle(key, false)
   store.setLobby({ role: 'offline', status: 'open', slots: lesson.state.slots, settings: lesson.state.settings, localPlayer: 0, error: null, notice: null })

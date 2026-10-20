@@ -1,6 +1,6 @@
 // Account-owned Embers and permanent cosmetics. Only the authority records rewards.
 import { createHash } from 'node:crypto'
-import { COSMETICS, EMPTY_EQUIPMENT } from '../src/game/progressionCatalog.ts'
+import { COSMETICS, COSMETIC_SLOTS, EMPTY_EQUIPMENT, RETIRED_COSMETICS } from '../src/game/progressionCatalog.ts'
 
 export const PROGRESSION_POLICY = 1
 export const PROGRESSION_SCHEMA = `
@@ -31,7 +31,7 @@ CREATE TABLE progression_owned (
 );
 CREATE TABLE progression_equipped (
   user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-  slot TEXT NOT NULL CHECK(slot IN ('victory', 'robe')),
+  slot TEXT NOT NULL CHECK(slot IN (${COSMETIC_SLOTS.map((v) => `'${v}'`).join(', ')})),
   item_id TEXT NOT NULL,
   PRIMARY KEY(user_id, slot),
   FOREIGN KEY(user_id, item_id) REFERENCES progression_owned(user_id, item_id)
@@ -45,6 +45,44 @@ CREATE TABLE progression_purchase (
   purchased_at INTEGER NOT NULL,
   PRIMARY KEY(user_id, request_id)
 );
+`
+
+/**
+ * v7 (2026-10-20): the wardrobe gains head, back and emblem slots, and the colour robes retire.
+ * Rebuilds the equipped table with the new slot list, then refunds each retired robe at what its
+ * owner paid (the catalog's 100 when no purchase row exists), unequips and removes it, and keeps
+ * a refund row per item. Purchase rows stay, so a replayed request still cannot buy twice.
+ * Idempotent: a second run finds nothing retired left to refund.
+ */
+export const PROGRESSION_V7_MIGRATION = `
+CREATE TABLE progression_equipped_v7 (
+  user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+  slot TEXT NOT NULL CHECK(slot IN (${COSMETIC_SLOTS.map((v) => `'${v}'`).join(', ')})),
+  item_id TEXT NOT NULL,
+  PRIMARY KEY(user_id, slot),
+  FOREIGN KEY(user_id, item_id) REFERENCES progression_owned(user_id, item_id)
+);
+INSERT INTO progression_equipped_v7 SELECT user_id, slot, item_id FROM progression_equipped WHERE item_id NOT IN (${RETIRED_COSMETICS.map((v) => `'${v}'`).join(', ')});
+DROP TABLE progression_equipped;
+ALTER TABLE progression_equipped_v7 RENAME TO progression_equipped;
+CREATE TABLE IF NOT EXISTS progression_refund (
+  user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  refunded_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  PRIMARY KEY(user_id, item_id)
+);
+INSERT INTO progression_refund
+  SELECT o.user_id, o.item_id,
+    COALESCE((SELECT SUM(p.price) FROM progression_purchase p WHERE p.user_id = o.user_id AND p.item_id = o.item_id), 100),
+    CAST(strftime('%s', 'now') AS INTEGER) * 1000, 'retired colour robe'
+  FROM progression_owned o WHERE o.item_id IN (${RETIRED_COSMETICS.map((v) => `'${v}'`).join(', ')});
+INSERT OR IGNORE INTO progression_wallet(user_id) SELECT DISTINCT user_id FROM progression_refund;
+UPDATE progression_wallet SET balance = balance + COALESCE((SELECT SUM(r.amount) FROM progression_refund r
+  WHERE r.user_id = progression_wallet.user_id AND r.item_id IN (${RETIRED_COSMETICS.map((v) => `'${v}'`).join(', ')})
+  AND r.item_id IN (SELECT item_id FROM progression_owned o WHERE o.user_id = progression_wallet.user_id)), 0);
+DELETE FROM progression_owned WHERE item_id IN (${RETIRED_COSMETICS.map((v) => `'${v}'`).join(', ')});
 `
 
 export class ProgressionError extends Error {
@@ -76,9 +114,8 @@ function validateReceipt(r) {
 
 function daily(now) {
   const day = Math.floor(now / DAY)
-  // Three of four items, shared globally. No per-player offers or local-clock prices.
-  const omitted = ((day % COSMETICS.length) + COSMETICS.length) % COSMETICS.length
-  return { offerId: `embers-v1:${day}`, refreshAt: (day + 1) * DAY, offers: COSMETICS.filter((_, i) => i !== omitted) }
+  // The whole catalog is on sale; the day-stamped offer id keeps purchase retries idempotent.
+  return { offerId: `embers-v2:${day}`, refreshAt: (day + 1) * DAY, offers: COSMETICS }
 }
 
 export function createProgression(db, { now = Date.now } = {}) {
@@ -110,7 +147,10 @@ export function createProgression(db, { now = Date.now } = {}) {
   }
   function getEquipment(id) {
     requireUser(id)
-    return Object.assign({ ...EMPTY_EQUIPMENT }, Object.fromEntries(equipment.all(id).map((r) => [r.slot, r.itemId])))
+    // Only ids this build knows, in their own slot: a stored id the catalog dropped must never
+    // fail a region's validation (that rejects the whole identity and blocks joining).
+    const known = equipment.all(id).filter((r) => COSMETIC_SLOTS.includes(r.slot) && COSMETICS.some((item) => item.id === r.itemId && item.slot === r.slot))
+    return Object.assign({ ...EMPTY_EQUIPMENT }, Object.fromEntries(known.map((r) => [r.slot, r.itemId])))
   }
   function snapshot(id) {
     requireUser(id)
@@ -159,7 +199,7 @@ export function createProgression(db, { now = Date.now } = {}) {
       const at = now(), selection = daily(at)
       if (selection.offerId !== request.offerId) fail(409, 'The daily selection changed. Refresh before buying.')
       const item = selection.offers.find((v) => v.id === request.itemId)
-      if (!item) fail(400, 'This cosmetic is not in the daily selection.')
+      if (!item) fail(400, 'This cosmetic is not for sale.')
       if (owns.get(id, item.id)) fail(409, 'You already own this cosmetic.')
       ensure.run(id)
       if (!debit.run(item.price, id, item.price).changes) fail(409, 'You need more Embers for this cosmetic.')
@@ -170,7 +210,7 @@ export function createProgression(db, { now = Date.now } = {}) {
   }
   function equip(id, request) {
     requireUser(id)
-    if (!only(request, ['slot', 'itemId']) || !['victory', 'robe'].includes(request.slot)) fail(400, 'Invalid cosmetic slot.')
+    if (!only(request, ['slot', 'itemId']) || !COSMETIC_SLOTS.includes(request.slot)) fail(400, 'Invalid cosmetic slot.')
     transaction(() => {
       if (request.itemId === null) { clearEquipment.run(id, request.slot); return }
       if (!COSMETICS.some((item) => item.id === request.itemId && item.slot === request.slot)) fail(400, 'That cosmetic does not fit this slot.')

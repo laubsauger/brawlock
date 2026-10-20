@@ -426,8 +426,12 @@ export class PawnView {
 
   /** Re-read authoritative equipment when a seat changes occupant mid-match. */
   setCosmetics(equipment: PlayerSlot['cosmetics']): void {
-    this.warlock?.setRobe(equipment?.robe ?? null)
+    // called every frame: the slot's equipment object only changes when the seat changes
+    if (equipment === this.equipment) return
+    this.equipment = equipment
+    this.warlock?.setOutfit({ head: equipment?.head ?? null, back: equipment?.back ?? null, robe: equipment?.robe ?? null, emblem: equipment?.emblem ?? null, staff: equipment?.staff ?? null })
   }
+  private equipment: PlayerSlot['cosmetics'] | null = null
 
   /** last physics (knockback) velocity, game units/s, for directional death FX */
   knockX = 0

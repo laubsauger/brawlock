@@ -98,7 +98,7 @@ export class ProceduralWarlock implements WarlockHandle {
   setMotionIntensity(): void {}
   celebrate(): void {}
   /** The procedural diagnostic model has no cloth. */
-  setRobe(): void {}
+  setOutfit(): void {}
   beginRound(): void {}
   hitFlash(): void {}
   setDetail(): void {}

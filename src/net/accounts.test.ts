@@ -87,8 +87,30 @@ describe('account authority', () => {
     const response = await migrated.handler(new Request(`${origin}/api/account`, { headers: user.headers }))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ id: user.id, profile: { name: 'CinderFox' }, game: { region: 'eu', room: 'ABCDE' } })
-    expect(f.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 })
+    expect(f.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 })
     expect(f.db.prepare('SELECT COUNT(*) AS n FROM ranked_devices').get()).toEqual({ n: 0 })
+  })
+  it('schema 7 refunds the retired colour robes at what was paid, once, and keeps the purchase ledger', async () => {
+    // The robes only tinted near-black cloth (invisible in play); owners get their Embers back
+    // to spend on wardrobe pieces, and an equipped robe must never block admission afterwards.
+    const f = await fixture(), user = await f.player('robe-refund@example.com')
+    const at = Date.now()
+    f.db.prepare('INSERT INTO progression_wallet VALUES (?, ?)').run(user.id, 5)
+    for (const item of ['robe-cinder', 'robe-moon', 'victory-revel']) f.db.prepare('INSERT INTO progression_owned VALUES (?, ?, ?)').run(user.id, item, at)
+    f.db.prepare('INSERT INTO progression_purchase VALUES (?, ?, ?, ?, ?, ?)').run(user.id, 'purchase-robe-0001', 'embers-v1:1', 'robe-cinder', 100, at)
+    f.db.prepare('INSERT INTO progression_equipped VALUES (?, ?, ?)').run(user.id, 'robe', 'robe-cinder')
+    f.db.prepare('INSERT INTO progression_equipped VALUES (?, ?, ?)').run(user.id, 'victory', 'victory-revel')
+    const balance = () => (f.db.prepare('SELECT balance FROM progression_wallet WHERE user_id = ?').get(user.id) as { balance: number }).balance
+    for (let run = 0; run < 2; run++) {
+      f.db.exec('PRAGMA user_version=6;')
+      const migrated = await openAccounts({ ...f.config, migrate: true }); cleanups.push(migrated.close)
+      // paid 100 for Cinder; Moon was granted without a purchase row and refunds the old list price
+      expect(balance()).toBe(205)
+    }
+    expect(f.db.prepare('SELECT item_id AS id FROM progression_owned WHERE user_id = ? ORDER BY item_id').all(user.id)).toEqual([{ id: 'victory-revel' }])
+    expect(f.db.prepare('SELECT slot, item_id AS id FROM progression_equipped WHERE user_id = ?').all(user.id)).toEqual([{ slot: 'victory', id: 'victory-revel' }])
+    expect(f.db.prepare('SELECT item_id AS id, amount FROM progression_refund WHERE user_id = ? ORDER BY item_id').all(user.id)).toEqual([{ id: 'robe-cinder', amount: 100 }, { id: 'robe-moon', amount: 100 }])
+    expect(f.db.prepare('SELECT COUNT(*) AS n FROM progression_purchase WHERE user_id = ?').get(user.id)).toEqual({ n: 1 })
   })
   it('requires an explicit schema migration and preserves profiles and sessions through reopen', async () => {
     const dir = tempDir('brawlock-account-migration-')
@@ -114,7 +136,7 @@ describe('account authority', () => {
     const migrated = await openAccounts({ ...f.config, migrate: true }); cleanups.push(migrated.close)
     const current = async () => (await migrated.handler(new Request(`${origin}/api/account`, { headers: user.headers }))).json()
     expect(await current()).toMatchObject({ id: user.id, profile: { name: 'CinderFox' }, game: { region: 'eu', room: 'ABCDE' } })
-    expect(f.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 })
+    expect(f.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 })
     await f.rpc({ op: 'release', region: 'eu', instance: 'instance-eu-1', room: 'ABCDE', accountId: user.id })
     await f.rpc({ op: 'claim', region: 'eu', instance: 'instance-eu-1', accountId: user.id, room: 'FGHIJ' })
     expect((await current()).game).toBeNull()
@@ -407,7 +429,7 @@ describe('ranked admission proof boundary', () => {
     const response = await f.rpc({ op: 'verify', region: 'eu', instance: 'instance-eu-1', token: ticket.token })
     expect(response.status).toBe(200)
     expect(response.headers.has('set-cookie')).toBe(false)
-    expect(await response.json()).toEqual({ account: { id: user.id, name: 'CinderFox', color: 0x2e7bff, ratingKey: `a_${user.id}`, cosmetics: { victory: null, robe: null }, connection: expect.objectContaining({ device: expect.stringMatching(/^[a-f0-9]{64}$/), controller: expect.stringMatching(/^[a-f0-9]{64}$/), takeover: false }) } })
+    expect(await response.json()).toEqual({ account: { id: user.id, name: 'CinderFox', color: 0x2e7bff, ratingKey: `a_${user.id}`, cosmetics: { victory: null, head: null, back: null, robe: null, emblem: null, staff: null }, connection: expect.objectContaining({ device: expect.stringMatching(/^[a-f0-9]{64}$/), controller: expect.stringMatching(/^[a-f0-9]{64}$/), takeover: false }) } })
     expect((await f.rpc({ op: 'verify', region: 'us', instance: 'instance-us-1', token: ticket.token })).status).toBe(401)
     const next = await (await f.request('POST', user.headers, {}, '/api/account/admission')).json() as { token: string }
     const simultaneous = await Promise.all([f.rpc({ op: 'verify', token: next.token }), f.rpc({ op: 'verify', token: next.token })])
@@ -466,7 +488,7 @@ describe('ranked admission proof boundary', () => {
     await Promise.all([eu.register(), us.register()])
     const ticket = await (await f.request('POST', user.headers, {}, '/api/account/admission')).json() as { token: string }
     const identity = await eu.verify(ticket.token)
-    expect(identity).toEqual({ id: user.id, name: 'CinderFox', color: 0x2e7bff, ratingKey: `a_${user.id}`, cosmetics: { victory: null, robe: null }, connection: expect.objectContaining({ device: expect.stringMatching(/^[a-f0-9]{64}$/), controller: expect.stringMatching(/^[a-f0-9]{64}$/), takeover: false }) })
+    expect(identity).toEqual({ id: user.id, name: 'CinderFox', color: 0x2e7bff, ratingKey: `a_${user.id}`, cosmetics: { victory: null, head: null, back: null, robe: null, emblem: null, staff: null }, connection: expect.objectContaining({ device: expect.stringMatching(/^[a-f0-9]{64}$/), controller: expect.stringMatching(/^[a-f0-9]{64}$/), takeover: false }) })
     const [first, other] = await Promise.all([eu.claim(identity.id, 'ABCDE', identity.connection), us.claim(identity.id, 'FGHIJ', identity.connection)])
     expect(first).toEqual({ ok: true })
     expect(other).toEqual({ ok: false, game: { region: 'eu', room: 'ABCDE' } })
