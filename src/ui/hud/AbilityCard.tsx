@@ -350,6 +350,67 @@ function Pips({ level, max }: { level: number; max: number }) {
   )
 }
 
+type LevelStats = { level: number; stats: AbilityStat[] }[]
+
+/** The key numbers at one level; a shop delta shows "now › next". Shared with the spell library. */
+export function AbilityStatList({ stats }: { stats: StatDelta[] }) {
+  if (stats.length === 0) return null
+  return (
+    <dl className="ability-card-stats tabular">
+      {stats.map((s) => (
+        <div key={s.label} className="contents">
+          <dt>{s.label}</dt>
+          <dd>
+            {s.next !== undefined ? (
+              <>
+                <span className="text-ash">{s.value}</span> <span className="text-ember">›</span> <span className="text-heal">{s.next}</span>
+              </>
+            ) : (
+              s.value
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/** Footnotes the stat lines refer to ("Before target damage reduction."), once each. */
+export function abilityNotes(stats: AbilityStat[], progression: LevelStats): string[] {
+  return [...new Set([...stats, ...progression.flatMap((level) => level.stats)].map((s) => s.note).filter((n): n is string => !!n))]
+}
+
+/**
+ * Every level side by side, only the rows that change. Owned (cards): `level` is
+ * what you have and the next level is the next purchase. Browse (spell library):
+ * `level` is just the column being looked at.
+ */
+export function LevelTable({ progression, level, mode = 'owned' }: { progression: LevelStats; level: number; mode?: 'owned' | 'browse' }) {
+  const rows = [...new Set(progression.flatMap((l) => l.stats.map((s) => s.label)))].map((label) => ({
+    label,
+    values: progression.map((l) => l.stats.find((s) => s.label === label)?.value ?? '—'),
+  })).filter((row) => new Set(row.values).size > 1)
+  if (rows.length === 0) return null
+  const next = mode === 'owned' ? level + 1 : -1
+  const caption = mode === 'browse' ? 'All levels' : level > 0 ? 'Owned / next' : 'All future levels'
+  const current = mode === 'browse' ? ', shown' : ', owned'
+  return (
+    <section className="min-h-0 shrink-0 border-t border-white/10 pt-2" aria-label="Full level progression">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[0.72rem]">
+        <h3 className="font-semibold text-bone">Changes by level</h3>
+        <span className="text-right text-ash">{caption}</span>
+      </div>
+      <div aria-label="All ability levels">
+        <table className="tabular w-full table-fixed text-[0.7rem] [overflow-wrap:anywhere]">
+          <colgroup><col style={{ width: '24%' }} />{progression.map((l) => <col key={l.level} />)}</colgroup>
+          <thead><tr><th scope="col" className="pr-1 text-left font-normal text-ash">Level</th>{progression.map((l) => <th key={l.level} scope="col" className={`px-0.5 py-0.5 text-right ${l.level === level ? 'bg-gold/10 text-gold' : l.level === next ? 'bg-heal/10 text-heal' : 'text-ash'}`} aria-label={`Level ${l.level}${l.level === level ? current : l.level === next ? ', next purchase' : ''}`}>{l.level}</th>)}</tr></thead>
+          <tbody>{rows.map((row) => <tr key={row.label}><th scope="row" className="py-0.5 pr-1 text-left font-normal leading-tight text-ash">{row.label}</th>{row.values.map((value, i) => <td key={i} className={`px-0.5 py-0.5 text-right ${progression[i].level === level ? 'bg-gold/10 font-semibold text-gold' : progression[i].level === next ? 'bg-heal/10 text-heal' : 'text-bone'}`}>{value}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 /**
  * The card's preview: the poster at once, the shared clip over it once it
  * plays (Save-Data: poster only). No entry in the clip index, or nothing
@@ -432,11 +493,6 @@ export function AbilityCardPanel({ t }: { t: CardTarget }) {
   }, [t, modelKey])
   if (!model) return null
   const levelText = model.max > 1 ? (model.level > 0 ? `Owned level ${model.level} of ${model.max}` : `Not owned · ${model.max} levels`) : null
-  const progression = [...new Set(model.progression.flatMap((level) => level.stats.map((s) => s.label)))].map((label) => ({
-    label,
-    values: model.progression.map((level) => level.stats.find((s) => s.label === label)?.value ?? '—'),
-  })).filter((row) => new Set(row.values).size > 1)
-  const notes = [...new Set([...model.stats, ...model.progression.flatMap((level) => level.stats)].map((s) => s.note).filter(Boolean))]
   return (
     <div
       ref={(el) => { ref.current = el; cardElement = el }}
@@ -484,38 +540,9 @@ export function AbilityCardPanel({ t }: { t: CardTarget }) {
           )}
         </div>
       </header>
-      {model.stats.length > 0 && (
-        <dl className="ability-card-stats tabular">
-          {model.stats.map((s) => (
-            <div key={s.label} className="contents">
-              <dt>{s.label}</dt>
-              <dd>
-                {s.next !== undefined ? (
-                  <>
-                    <span className="text-ash">{s.value}</span> <span className="text-ember">›</span> <span className="text-heal">{s.next}</span>
-                  </>
-                ) : (
-                  s.value
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {progression.length > 0 && <section className="min-h-0 shrink-0 border-t border-white/10 pt-2" aria-label="Full level progression">
-        <div className="mb-1 flex items-center justify-between gap-2 text-[0.72rem]">
-          <h3 className="font-semibold text-bone">Changes by level</h3>
-          <span className="text-right text-ash">{model.level > 0 ? 'Owned / next' : 'All future levels'}</span>
-        </div>
-        <div aria-label="All ability levels">
-          <table className="tabular w-full table-fixed text-[0.7rem] [overflow-wrap:anywhere]">
-            <colgroup><col style={{ width: '24%' }} />{model.progression.map(({ level }) => <col key={level} />)}</colgroup>
-            <thead><tr><th scope="col" className="pr-1 text-left font-normal text-ash">Level</th>{model.progression.map(({ level }) => <th key={level} scope="col" className={`px-0.5 py-0.5 text-right ${level === model.level ? 'bg-gold/10 text-gold' : level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-ash'}`} aria-label={`Level ${level}${level === model.level ? ', owned' : level === model.level + 1 ? ', next purchase' : ''}`}>{level}</th>)}</tr></thead>
-            <tbody>{progression.map((row) => <tr key={row.label}><th scope="row" className="py-0.5 pr-1 text-left font-normal leading-tight text-ash">{row.label}</th>{row.values.map((value, i) => <td key={i} className={`px-0.5 py-0.5 text-right ${model.progression[i].level === model.level ? 'bg-gold/10 font-semibold text-gold' : model.progression[i].level === model.level + 1 ? 'bg-heal/10 text-heal' : 'text-bone'}`}>{value}</td>)}</tr>)}</tbody>
-          </table>
-        </div>
-      </section>}
-      {notes.map((note) => <p key={note} className="text-[0.72rem] leading-snug text-ash">{note}</p>)}
+      <AbilityStatList stats={model.stats} />
+      <LevelTable progression={model.progression} level={model.level} />
+      {abilityNotes(model.stats, model.progression).map((note) => <p key={note} className="text-[0.72rem] leading-snug text-ash">{note}</p>)}
       {model.desc && <p className="ability-card-desc">{model.desc}</p>}
       {model.action && (
         <p className={`ability-card-action ${model.action.tone === 'ok' ? 'text-[#ffe0ad]' : model.action.tone === 'warn' ? 'text-[#ffb08f]' : 'text-ash'}`}>

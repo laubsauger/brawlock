@@ -24,6 +24,7 @@ import { toggleFullscreen } from './ui/lib/fullscreen'
 import { actionForCode, currentBinds, isTypingTarget } from './ui/lib/keys'
 import { forcedMute, forcedSynth, music, sfx } from './ui/lib/sound'
 import { Tutorial } from './ui/Tutorial'
+import { SpellLibrary } from './ui/SpellLibrary'
 import { RoomChatLayout } from './ui/hud/Chat'
 import { useOnlinePresence } from './ui/lib/presence'
 import { RankedControlPrompt } from './ui/screens/RankedControlPrompt'
@@ -230,6 +231,7 @@ export default function App() {
         </main>
         {settingsOpen && <SettingsModal />}
         <Tutorial />
+        <SpellLibrary />
         <RankedControlPrompt />
         <PlayControlPrompt />
         <AnalyticsConsent />

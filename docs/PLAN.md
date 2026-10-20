@@ -273,6 +273,7 @@ Splash (static HTML that paints before JS; real loading progress, GPU benchmark;
       ├ Host Game     → Lobby (share link, slots)
       ├ Join Game     → Lobby (5-letter room code, or a ?room=CODE link)
       ├ Settings      (video, audio, controls, gameplay, accessibility)
+      ├ Spell library (every spell and item: preview clip, description, numbers per level; also linked from How to play)
       └ Credits
 Lobby: player list with color and cosmetic, bot slots with difficulty, match options (all original lobby options), ready, start
 Match:

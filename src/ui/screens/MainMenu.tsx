@@ -19,6 +19,7 @@ import { staggerIn } from '../lib/motion'
 import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
 import { tutorial } from '../lib/onboarding'
+import { spellLibrary } from '../SpellLibrary'
 import { quickPlayAvailability } from '../lib/quickPlay'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
 import { usePolled } from '../lib/ticker'
@@ -414,6 +415,7 @@ export function MainMenu() {
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
             <Button className="gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" size="sm" variant="ghost" onClick={tutorial.open} data-testid="how-to-play"><MenuGlyph kind="guide" size={16} /> How to play</Button>
+            <Button className="gap-2 text-[#e8c79a] hover:text-[#ffe3b8]" size="sm" variant="ghost" onClick={() => spellLibrary.open('menu')} data-testid="spell-library"><MenuGlyph kind="spells" size={16} /> Spell library</Button>
           </div>
           {joinOpen && <JoinRow onClose={() => setJoinOpen(false)} />}
         </nav>

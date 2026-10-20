@@ -19,6 +19,7 @@ interface Events {
   how_to_play_lesson_view: { lesson: string; entry_point: 'menu' | 'first_play' }
   how_to_play_clip_start: { lesson: string; playback: 'autoplay' | 'manual' }
   guided_practice_click: { entry_point: 'menu' | 'first_play' }
+  spell_library_view: { entry_point: 'menu' | 'how_to_play' }
   tutorial_begin: Record<string, never>
   tutorial_step: { step: string }
   tutorial_complete: Record<string, never>

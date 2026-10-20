@@ -1418,6 +1418,71 @@
   .ability-card-stats dd { text-align: right; font-weight: 700; color: #f3e3cc; white-space: nowrap; }
   .ability-card-desc { font-size: 0.9rem; line-height: 1.35; color: #e6d3b8; }
   .ability-card-action { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 700; border-top: 1px solid rgba(255, 170, 100, 0.12); padding-top: 0.45rem; }
+  /* spell library (main menu): one card per spellbook column, tiles that lift and tip a
+     little on hover, the picked spell's clip on a stage lit in its column colour */
+  .library-group {
+    padding: 0.5rem 0.55rem 0.6rem;
+    border-radius: 10px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--hue) 8%, transparent), rgba(0, 0, 0, 0.22) 70%);
+    box-shadow: inset 0 2px 0 color-mix(in srgb, var(--hue) 40%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--hue) 12%, transparent);
+    transition: box-shadow 0.2s ease;
+  }
+  .library-group[data-current="true"] { box-shadow: inset 0 2px 0 var(--hue), inset 0 0 0 1px color-mix(in srgb, var(--hue) 34%, transparent), 0 0 18px color-mix(in srgb, var(--hue) 10%, transparent); }
+  .library-group-head { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; margin-bottom: 0.35rem; font-size: 1rem; }
+  .library-gem { flex: none; width: 7px; height: 7px; transform: translateY(-1px) rotate(45deg); border-radius: 1px; background: var(--hue); box-shadow: 0 0 6px var(--hue); }
+  .library-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(4.1rem, 1fr)); gap: 0.25rem; }
+  .library-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.1rem 0.4rem;
+    border-radius: 8px;
+    text-align: center;
+    cursor: var(--cursor-lit, pointer);
+    outline: none;
+    transition: background 0.18s ease;
+  }
+  .library-tile .tile-icon { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.18s ease; }
+  .library-tile:hover { background: rgba(255, 150, 80, 0.06); }
+  .library-tile:hover .tile-icon {
+    transform: translateY(-3px) rotate(-3deg);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--hue) 85%, white), inset 0 0 14px rgba(0, 0, 0, 0.45), 0 6px 16px color-mix(in srgb, var(--hue) 40%, transparent);
+  }
+  .library-tile:nth-child(even):hover .tile-icon { transform: translateY(-3px) rotate(3deg); }
+  .library-tile[aria-selected="true"] { background: color-mix(in srgb, var(--hue) 12%, transparent); }
+  .library-tile[aria-selected="true"] .tile-icon {
+    animation: library-pick 0.36s cubic-bezier(0.3, 1.6, 0.5, 1);
+    box-shadow: inset 0 0 0 2px var(--hue), inset 0 0 14px rgba(0, 0, 0, 0.4), 0 0 18px color-mix(in srgb, var(--hue) 60%, transparent);
+  }
+  .library-tile[aria-selected="true"] .tile-name { color: #fff1d6; }
+  .library-tile:focus-visible .tile-icon { box-shadow: inset 0 0 0 2px #ffe3a6, 0 0 0 2px rgba(255, 200, 120, 0.6); }
+  .library-tile:active .tile-icon { transform: scale(0.93); transition-duration: 0.06s; }
+  .library-tile[data-passive="true"] .tile-icon, .library-tile[data-passive="true"] .tile-icon img { border-radius: 50%; }
+  @keyframes library-pick { 0% { transform: scale(0.9); } 60% { transform: scale(1.08) rotate(2deg); } 100% { transform: none; } }
+  .library-detail { padding: 0.75rem; border-radius: 12px; background: rgba(0, 0, 0, 0.28); box-shadow: inset 0 0 0 1px rgba(255, 170, 100, 0.12); scroll-margin-top: 0.5rem; }
+  .library-stage {
+    margin: 0;
+    height: auto;
+    aspect-ratio: 300 / 169;
+    border-radius: 9px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 45%, transparent), 0 10px 28px color-mix(in srgb, var(--hue) 16%, transparent);
+  }
+  /* soft vignette: the 300px clips are upscaled here, the edge fade keeps them from looking like a box */
+  .library-stage::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 45%, transparent), inset 0 0 36px rgba(0, 0, 0, 0.55); }
+  .library-art {
+    position: relative;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--hue) 26%, transparent), transparent 62%), radial-gradient(circle at 20% 80%, color-mix(in srgb, var(--hue) 10%, transparent), transparent 40%), #0b0604;
+  }
+  .library-float { filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px color-mix(in srgb, var(--hue) 35%, transparent)); animation: library-float 3.6s ease-in-out infinite; }
+  .library-art-note { position: absolute; bottom: 0.5rem; left: 0; right: 0; text-align: center; font-size: 0.75rem; color: var(--color-ash); }
+  @keyframes library-float { 0%, 100% { transform: translateY(-4px) rotate(-2deg); } 50% { transform: translateY(5px) rotate(2deg); } }
+  .library-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.45rem; border-radius: 999px; font-weight: 600; color: #e6d3b8; background: rgba(0, 0, 0, 0.35); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 35%, transparent); }
+  .library-swap { animation: library-swap 0.24s cubic-bezier(0.2, 0.9, 0.3, 1); }
+  @keyframes library-swap { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   .lvl-bars { display: flex; gap: 2px; }
   .lvl-bars i { width: 7px; height: 4px; border-radius: 1px; background: rgba(255, 255, 255, 0.14); }
   .lvl-bars i[data-on="true"] { background: #ffc548; }

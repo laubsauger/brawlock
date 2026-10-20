@@ -24,6 +24,7 @@ This change does not create the GA property, register reporting dimensions, or d
 | `how_to_play_lesson_view` | Which overview lesson is shown (`lesson`), with its `entry_point` |
 | `how_to_play_clip_start` | A clip actually emits `playing`, once per lesson visit. `playback` separates autoplay from manual playback; neither proves the full clip was watched |
 | `guided_practice_click` | The player chooses Start guided practice, with its `entry_point`; separate from successfully starting the lesson |
+| `spell_library_view` | Spell library opened from the main menu or from How to play (`entry_point`) |
 | `tutorial_begin` | Guided practice actually starts |
 | `tutorial_step` | A new lesson step: `move`, `fireball`, `shop`, `teleport`, `lava` |
 | `tutorial_complete` | The real lesson reaches its completed state |

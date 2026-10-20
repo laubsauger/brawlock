@@ -8,6 +8,7 @@ import { guidedPractice } from './flow'
 import { Button, Kbd, Modal } from './widgets'
 import { PLAY_REQUIREMENT, usePlaySupported } from './lib/playAccess'
 import { trackEvent } from '../lib/analytics'
+import { spellLibrary } from './SpellLibrary'
 
 const LESSONS = [
   { clip: 'fireball', title: 'Push them into the lava', text: 'Hits push rivals back. More accumulated knockback means a harder push. Be the last warlock standing.', short: 'Push' },
@@ -106,11 +107,12 @@ function Guide({ label }: { label: string | null }) {
         <h3 className="font-display text-xl font-bold text-[#ffe0a9]">{lesson.title}</h3>
         <p className="mt-2 text-[1.05rem] leading-relaxed text-[#e6d3b8]">{lesson.text}</p>
       </div>
-      {index === 3 ? <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="One spell per category">
+      {index === 3 ? <><div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="One spell per category">
         {COLUMNS.map((column) => <div key={column.name} className="rounded border px-1 py-2 text-center text-xs font-semibold" style={{ color: column.hue, borderColor: `${column.hue}50`, background: `${column.hue}12` }}>
           {column.name}<span className="mt-1 block text-bone">Choose 1</span>
         </div>)}
-      </div> : <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ash">
+      </div>
+      <Button size="sm" variant="ghost" className="mt-2 text-[#e8c79a]" onClick={() => spellLibrary.open('how_to_play')}>See every spell in the Spell library <span aria-hidden>→</span></Button></> : <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ash">
         <span><Kbd>Right mouse</Kbd> Move</span>
         <span><Kbd>{slotKeyLabel(binds, 6)}</Kbd> Fireball</span>
         <span><Kbd>{bindLabel(binds, 'shop')}</Kbd> Shop</span>
