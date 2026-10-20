@@ -6,6 +6,7 @@ import { inspectStore } from '../../game/inspect'
 import { REPLAY_SPEEDS, replayViewer, type ViewerView } from '../../game/replay/viewer'
 import { TICK_HZ } from '../../sim'
 import { announce, Killfeed } from '../hud/Announce'
+import { FeedTally } from '../hud/killTags'
 import { Scoreboard } from '../hud/Overlays'
 import { InspectCard } from '../hud/Inspect'
 import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
@@ -69,7 +70,7 @@ export function Replay() {
   }, [])
 
   // kill feed from the replayed events (rewinds with seeks)
-  const feed = useRef({ lastTick: -1 })
+  const feed = useRef({ lastTick: -1, tally: new FeedTally() })
   useTick(() => {
     // until the replay is loaded the frame buffer still holds the match you came from
     if (replayViewer.get().status !== 'ready') {
@@ -79,16 +80,22 @@ export function Replay() {
     const state = frame.curr
     if (!state) return
     const f = feed.current
-    if (state.tick < f.lastTick) f.lastTick = state.tick
+    if (state.tick < f.lastTick) {
+      // a rewind: the feed starts over from here (streaks earned before it are not re-counted)
+      f.lastTick = state.tick
+      f.tally.reset()
+      announce.clearFeed()
+    }
     for (const batch of eventsSince(f.lastTick)) {
       f.lastTick = Math.max(f.lastTick, batch.tick)
       for (const e of batch.events) {
         if (e.type !== 'death') continue
+        const tags = f.tally.death(e.owner, e.killer, batch.tick / TICK_HZ)
         const local = frame.localPlayer
         const victim = { name: slotName(state, e.owner), color: slotColor(state, e.owner), glyph: slotGlyph(state, e.owner) }
         const killer = e.killer != null && e.killer !== e.owner ? { name: slotName(state, e.killer), color: slotColor(state, e.killer), glyph: slotGlyph(state, e.killer) } : null
         const lava = e.cause === 'lava'
-        announce.kill({ killer, victim, cause: lava || !e.cause ? null : e.cause, lava, local: e.owner === local || e.killer === local, myKill: !!killer && e.killer === local })
+        announce.kill({ killer, victim, cause: lava || !e.cause ? null : e.cause, lava, local: e.owner === local || e.killer === local, myKill: !!killer && e.killer === local, tags })
       }
     }
   })

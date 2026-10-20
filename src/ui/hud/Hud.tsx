@@ -22,6 +22,7 @@ import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { ANNOUNCER_TEXT, roundCall } from '../../game/announcer'
 import { DeathFeedback } from './DeathFeedback'
+import { FeedTally } from './killTags'
 
 /**
  * Turns phase changes and sim events into banners, sounds, music, auto shop
@@ -34,6 +35,7 @@ function useDirector() {
     lastTick: -1,
     count: 0,
     gameOverSeen: false,
+    tally: new FeedTally(),
   })
 
   useEffect(() => {
@@ -57,11 +59,13 @@ function useDirector() {
   }
 
   /** One authoritative tick's events. */
-  const onBatch = (events: SimEvent[], state: SimState) => {
+  const onBatch = (events: SimEvent[], tick: number, state: SimState) => {
     const local = frame.localPlayer
     for (const e of events) {
       switch (e.type) {
         case 'death': {
+          // every death counts, as the announcer counts them (a disconnect ends a streak too)
+          const tags = st.current.tally.death(e.owner, e.killer, tick / TICK_HZ)
           if (e.cause === 'disconnect') break
           const victim = { name: slotName(state, e.owner), color: slotColor(state, e.owner), glyph: slotGlyph(state, e.owner) }
           const killer = e.killer != null && e.killer !== e.owner ? { name: slotName(state, e.killer), color: slotColor(state, e.killer), glyph: slotGlyph(state, e.killer) } : null
@@ -72,6 +76,7 @@ function useDirector() {
             lava: e.cause === 'lava',
             local: e.owner === local || e.killer === local,
             myKill: !!killer && e.killer === local,
+            tags,
           })
           // your kill, wherever it happened (an off-screen push into the lava too)
           if (killer && e.killer === local) announce.myKill(victim)
@@ -141,9 +146,11 @@ function useDirector() {
       s.lastTick = -1
       s.phase = null
       s.gameOverSeen = false
+      s.tally.reset()
+      announce.clearFeed()
     }
     for (const batch of eventsSince(s.lastTick)) {
-      onBatch(batch.events, state)
+      onBatch(batch.events, batch.tick, state)
       s.lastTick = Math.max(s.lastTick, batch.tick)
     }
 

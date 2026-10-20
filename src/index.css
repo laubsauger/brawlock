@@ -1076,9 +1076,20 @@
   }
   @media (prefers-reduced-motion: reduce) { .streak-callout { animation-name: streak-fade; } @keyframes streak-fade { 0%, 100% { opacity: 0; } 8%, 85% { opacity: 1; } } }
   .kill-callout-streak { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.06em; color: #ffd27a; }
-  .feed-row[data-out="true"] { animation: feed-out 0.4s ease both; }
-  @keyframes feed-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
-  @keyframes feed-out { to { opacity: 0; transform: translateX(16px); } }
+  /* the feed stays for the match: the newest three read at full strength, older rows step back */
+  .feed-row:nth-child(n+4) { opacity: 0.62; }
+  .feed-row:nth-child(n+6) { opacity: 0.42; }
+  /* accolades on a kill: Double Kill, Shutdown, Rampage, First Blood (lit by the streak tiers) */
+  .feed-tag {
+    font-family: var(--font-display); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; white-space: nowrap;
+    padding: 0.05rem 0.4rem; border-radius: 4px;
+    color: #ffd27a; background: rgba(255, 170, 60, 0.14); box-shadow: inset 0 0 0 1px rgba(255, 197, 72, 0.35);
+  }
+  .feed-tag[data-tier="3"] { color: #ff9a5a; background: rgba(255, 90, 30, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 110, 50, 0.45); }
+  .feed-tag[data-tier="4"] { color: #ffd9f0; background: rgba(190, 80, 255, 0.18); box-shadow: inset 0 0 0 1px rgba(210, 120, 255, 0.5); }
+  /* no `to` frame: the row settles on its own opacity, so older rows can still dim */
+  @keyframes feed-in { from { opacity: 0; transform: translateX(24px); } }
 
   .low-hp-vignette {
     position: absolute; inset: 0;

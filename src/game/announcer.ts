@@ -122,7 +122,7 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
 }
 
 const MULTI_LADDER: readonly AnnouncerLine[] = ['double_kill', 'triple_kill', 'multi_kill', 'mega_kill', 'ultra_kill', 'monster_kill']
-const STREAKS: readonly (readonly [number, AnnouncerLine])[] = [
+export const STREAKS: readonly (readonly [number, AnnouncerLine])[] = [
   [3, 'killing_spree'],
   [5, 'rampage'],
   [7, 'unstoppable'],
@@ -131,7 +131,7 @@ const STREAKS: readonly (readonly [number, AnnouncerLine])[] = [
 /** streak length from which everyone hears it */
 const PUBLIC_STREAK = 5
 /** ending a streak this long is a Shutdown */
-const SHUTDOWN_STREAK = 3
+export const SHUTDOWN_STREAK = 3
 /** a queued line older than this (s) is dropped rather than played late (not round flow) */
 export const STALE_AFTER = 1.5
 /** silence between two lines (s) */

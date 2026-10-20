@@ -4,6 +4,7 @@ import { tweaks } from '../tweaks'
 import { globalSource, type RenderSource } from '../source'
 import { colorForPawn } from '../teamColors'
 import { KillStamps, STAMP_LIFE } from './killStamps'
+import { hudZones, type HudZone } from '../../game/hudZones'
 import type { BetIdentity } from '../../sim/types'
 import { betIdentityMatchesSlot, bountyOf } from '../../sim/bets'
 
@@ -44,6 +45,10 @@ const PLATE_PITCH = 30
 const PLATE_PAD_X = 14
 /** room a kill stamp takes above its plate, for de-collision */
 const STAMP_H = 28
+/** half the width a stamp or a callout usually takes (px), for the HUD-zone test */
+const BADGE_HALF_W = 80
+/** opacity of a stamp or callout under a HUD zone (the big streak line): still there, out of its way */
+const UNDER_HUD_OPACITY = 0.15
 /** horizontal slack: plates may touch at their faint padding before they count as overlapping */
 const PLATE_SLACK_X = 8
 /** a plate moves up at most ~2 plate heights; past that a clump is allowed to overlap */
@@ -96,6 +101,8 @@ interface Plate {
   pips: HTMLDivElement
   lastStampSeq: number
   stampOn: boolean
+  /** the stamp sits under a HUD zone and is dimmed */
+  stampDim: boolean
   lastPips: number
   lastName: string
   lastColor: number
@@ -230,6 +237,9 @@ export class WorldOverlay {
   /** Last credited killer of this viewer, across rounds; never follows a replacement occupant. */
   private rival: BetIdentity | null = null
   private viewer = -1
+  /** the HUD zone last read, and the same in this overlay's coordinates */
+  private zoneSeen: HudZone | null = null
+  private zone: HudZone | null = null
 
   constructor(
     parent: HTMLElement,
@@ -280,7 +290,7 @@ export class WorldOverlay {
       bounty.append(bountyText)
       el.append(stampWrap, nameRow, bar, kb, bounty)
       this.root.appendChild(el)
-      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, stampDim: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -401,6 +411,7 @@ export class WorldOverlay {
     const dt = Math.min(0.1, Math.max(0, now - this.lastNow))
     this.lastNow = now
     this.readKills(now)
+    this.readZone()
     const state = this.source.buf.curr
     const rival = this.rival
     const slot = rival && state?.slots.find((s) => betIdentityMatchesSlot(rival, s))
@@ -580,8 +591,9 @@ export class WorldOverlay {
         continue
       }
       const pop = t < 0.1 ? 0.6 + (t / 0.1) * 0.65 : t < 0.2 ? 1.25 - ((t - 0.1) / 0.1) * 0.25 : 1
-      const op = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1
-      c.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${(this.v.y - 120 - t * 24).toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)}) rotate(-4deg)`
+      const y = this.v.y - 120 - t * 24
+      const op = (t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1) * (this.underZone(this.v.x, y, y + 40) ? UNDER_HUD_OPACITY : 1)
+      c.el.style.transform = `translate3d(${this.v.x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,0) scale(${pop.toFixed(3)}) rotate(-4deg)`
       const ops = op.toFixed(2)
       if (ops !== c.lastOp) {
         c.el.style.opacity = ops
@@ -630,6 +642,25 @@ export class WorldOverlay {
     }
   }
 
+  /** The HUD's streak zone in overlay coordinates (one layout read when it changes). */
+  private readZone(): void {
+    const z = hudZones.streak
+    if (z === this.zoneSeen) return
+    this.zoneSeen = z
+    if (!z) {
+      this.zone = null
+      return
+    }
+    const r = this.root.getBoundingClientRect()
+    this.zone = { left: z.left - r.left, top: z.top - r.top, right: z.right - r.left, bottom: z.bottom - r.top }
+  }
+
+  /** Whether a badge centred at x, spanning top..bottom, would sit under the HUD zone. */
+  private underZone(x: number, top: number, bottom: number): boolean {
+    const z = this.zone
+    return !!z && x + BADGE_HALF_W > z.left && x - BADGE_HALF_W < z.right && bottom > z.top && top < z.bottom
+  }
+
   /** Kill stamp and pips on one plate; DOM writes only when something changed. */
   private drawKills(p: Plate, pawn: number, now: number): void {
     const st = this.kills.stampOf(pawn, now)
@@ -646,6 +677,12 @@ export class WorldOverlay {
     } else if (!st && p.stampOn) {
       p.stampWrap.style.display = 'none'
       p.stampOn = false
+    }
+    // the stamp sits just above the plate's top (p.lastY)
+    const dim = p.stampOn && this.underZone(p.lastX, p.lastY - 3 - STAMP_H, p.lastY - 3)
+    if (dim !== p.stampDim) {
+      p.stampDim = dim
+      p.stampWrap.style.opacity = dim ? String(UNDER_HUD_OPACITY) : ''
     }
     const n = this.kills.pipsOf(pawn)
     if (n !== p.lastPips) {
