@@ -73,8 +73,8 @@ function MenuEntry({
     >
       <span className="flex w-full min-w-0 flex-col items-start gap-0.5 leading-tight">
         <span className="flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className={`menu-entry-badge font-ui flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium tracking-normal ${ready ? 'border-[#ffbf94]/50 bg-[#8c3227]/35 text-[#ffe4c9]' : 'border-white/15 bg-black/20 text-[#d4cbdc]'}`}>{ready ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#ffcd9f]" /> : <MenuGlyph kind="profile" size={13} />}{badge}</span>}</span>
-        <span className={`font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#f1c1bc]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
-        {note && <span className="font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
+        <span className={`menu-entry-sub font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#f1c1bc]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
+        {note && <span className="menu-entry-note font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
     </Button>
   )
@@ -420,7 +420,7 @@ export function MainMenu() {
       </div>
 
       <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
-        <div className="flex flex-col gap-3">
+        <div className="menu-footer-meta flex flex-col gap-3">
           <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
             <ReleaseNotesButton compact />
             <Button size="sm" className="menu-stats gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /><span className="btn-label">Stats</span></Button>
