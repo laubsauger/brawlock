@@ -216,7 +216,8 @@ export default function App() {
       <ActiveRoomStatus />
       <ReleaseNotesDialog />
       <FeedbackDialog />
-      <div className="relative min-h-0 flex-1">
+      {/* sits over the match scene: pass pointer events through (screens and HUD parts opt back in) */}
+      <div className="pointer-events-none relative min-h-0 flex-1">
       <RoomChatLayout screen={screen}>
         {/* in a match the screen passes pointer events through to the scene below (HUD parts opt back in) */}
         <main key={screen} className={`room-screen-content ${screen === 'match' ? 'pointer-events-none' : 'pointer-events-auto'}`}>
