@@ -54,4 +54,9 @@ describe('sound board: generated from the registries', () => {
       else expect(a.note).toMatch(a.asset ? /plays maverick/ : /no voice file/)
     }
   })
+
+  it('Maverick has a recording for every announced line, including round flow and occasional calls', () => {
+    for (const line of Object.keys(ANNOUNCER_TEXT) as AnnouncerLine[])
+      expect(announcerFile('maverick', line), line).toBe(`announcer/maverick_${line}`)
+  })
 })

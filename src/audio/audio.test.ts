@@ -565,6 +565,43 @@ describe('audio: lava ambience', () => {
     vi.runAllTimers()
   })
 
+  it('keeps battle music silent before and after unlock, while shop music and menu recordings still play', () => {
+    vi.useFakeTimers()
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = MockAudioContext
+    const schedule = vi.spyOn(MusicLayer.prototype, 'schedule')
+    const release = vi.spyOn(MusicLayer.prototype, 'release')
+    try {
+      const e = new AudioEngine()
+      e.music('fight')
+      e.unlock()
+      const m = MockAudioContext.instances.at(-1)!
+      vi.advanceTimersByTime(200)
+      expect(schedule).not.toHaveBeenCalled()
+      expect(m.leakingSources().length).toBeGreaterThan(0) // lava bed remains
+
+      e.music('shop')
+      vi.advanceTimersByTime(100)
+      expect(schedule).toHaveBeenCalled()
+      schedule.mockClear()
+      e.music('fight')
+      expect(release).toHaveBeenCalledWith(1.6)
+      m.currentTime += 4
+      vi.advanceTimersByTime(200)
+      expect(schedule).not.toHaveBeenCalled()
+
+      e.music('menu')
+      const menu = MockMedia.instances.find(media => media.src.endsWith('circle-of-ash-1.mp3'))!
+      menu.readyState = 3
+      menu.dispatchEvent(new Event('canplay'))
+      expect(menu.plays).toBeGreaterThan(0)
+      e.music('none')
+      vi.clearAllTimers()
+    } finally {
+      schedule.mockRestore()
+      release.mockRestore()
+    }
+  })
+
   it('the edge sizzle swells as the local pawn nears the lava and stays silent in the middle', () => {
     const m = new MockAudioContext()
     const s = createSynth(asContext(m))
@@ -723,7 +760,7 @@ describe('audio: announcer', () => {
     expect(heard).toEqual(['First Blood!'])
   })
 
-  it('a line with no voice file yet still reaches the HUD (round flow before pack 2 is recorded)', () => {
+  it('a round-flow line reaches the HUD before audio is unlocked', () => {
     const heard: string[] = []
     const off = announcements.subscribe((a) => heard.push(a.text))
     audio.playEvents([{ type: 'phase', phase: 'fight', round: 1 }], { x: 0, y: 0, halfWidth: 1000, localPlayer: 0, state: { pawns: [], tick: 900 } })

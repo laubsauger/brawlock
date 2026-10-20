@@ -6,7 +6,8 @@
  *   Browsers refuse to start audio before a gesture; everything else is a no-op until then.
  * - setVolumes(): at startup with the persisted settings and whenever they change (ramps, no clicks).
  * - music(track): on screen / phase changes ('menu' in menus and lobby, 'shop' in the shop
- *   phase, 'fight' in a round, 'none' to stop). Crossfades; may be called before unlock.
+ *   phase, 'fight' in a round, 'none' to stop). Battle music is currently disabled;
+ *   'fight' keeps match ambience and releases the previous music. May be called before unlock.
  *   The lava ambience follows it (a distant bed in menus, the full bed in shop and fight);
  *   with `localPlayer` and `state.arena` on the listener, an edge sizzle swells and pans
  *   toward the lava as the local pawn nears the edge.

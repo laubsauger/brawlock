@@ -737,7 +737,8 @@ export class AudioEngine {
     const track = this.desiredTrack
     this.menuMusic.setActive(track === 'menu', g.ctx as AudioContext, g.music, baseUrl())
     this.applyAmbience(track === 'none' ? null : track === 'menu' ? 'menu' : 'match')
-    const synthTrack = track === 'menu' ? 'none' : track
+    // Battle stays music-free until its proper soundtrack is ready; keep the match ambience.
+    const synthTrack = track === 'shop' ? 'shop' : 'none'
     if ((this.current?.track ?? 'none') === synthTrack) {
       if (this.amb && !this.timer) this.timer = setInterval(() => this.pump(), 50)
       return
@@ -749,7 +750,7 @@ export class AudioEngine {
     }
     if (synthTrack !== 'none') {
       const layer = new MusicLayer(g.synth, g.music, synthTrack)
-      layer.setIntensity(synthTrack === 'fight' ? this.shrinks / 8 : 0)
+      layer.setIntensity(0)
       layer.fadeTo(1, 2)
       this.current = layer
     }

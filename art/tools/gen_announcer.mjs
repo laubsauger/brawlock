@@ -6,8 +6,10 @@
 // --pack picks one pack's lines (default: every line); --only <id> one line (a probe request);
 // --key-takes gives the pack's key lines (marked `key` below) more takes than the rest.
 //
-// The API key comes from $ELEVENLABS_API_KEY, else from the .env file at $ELEVENLABS_ENV_FILE
-// (default: ../martian-kombat/.env). It is only ever sent as the request header: never printed,
+// Custom narration: --text "Your line." --only line_id --out media/trailer/teaser30/voice/raw
+// The API key comes from $ELEVENLABS_API_KEY (or ELEVEN_LABS_API_KEY), else from the .env file
+// at $ELEVENLABS_ENV_FILE (default: this project's .env). It is only sent as a request header,
+// never printed,
 // logged or written anywhere. Raw takes land in art/archive/audio/announcer/<slug>/ with a
 // .prompt.txt sidecar each. Existing takes are skipped (no re-rolls, no retries): every run costs
 // at most lines x takes requests, and a failed request stops the run.
@@ -52,11 +54,12 @@ export const LINES = [
 ]
 
 function apiKey() {
-  if (process.env.ELEVENLABS_API_KEY) return process.env.ELEVENLABS_API_KEY
-  const file = process.env.ELEVENLABS_ENV_FILE ?? resolve(ROOT, '../martian-kombat/.env')
+  const configured = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY
+  if (configured) return configured
+  const file = process.env.ELEVENLABS_ENV_FILE ?? join(ROOT, '.env')
   if (!existsSync(file)) throw new Error('no ELEVENLABS_API_KEY in the environment and no env file')
   for (const line of readFileSync(file, 'utf8').split('\n')) {
-    const m = line.match(/^\s*ELEVENLABS_API_KEY\s*=\s*(.*)\s*$/)
+    const m = line.match(/^\s*ELEVEN_?LABS_API_KEY\s*=\s*(.*)\s*$/)
     if (m) return m[1].replace(/^['"]|['"]$/g, '')
   }
   throw new Error('ELEVENLABS_API_KEY not found in the env file')
@@ -99,13 +102,16 @@ async function main() {
   const style = Number(arg('--style', '0.7'))
   const stability = Number(arg('--stability', '0.4'))
   if (!voice || !slug) throw new Error('need --voice <id> --name <slug>')
-  const dir = join(OUT, slug)
+  const customText = arg('--text')
+  if (customText && !only) throw new Error('--text requires --only <line_id>')
+  const dir = resolve(arg('--out', join(OUT, slug)))
   mkdirSync(dir, { recursive: true })
   let made = 0
-  for (const [id, text, linePack, key] of LINES) {
+  const lines = customText ? [[only, customText, 0]] : LINES
+  for (const [id, text, linePack, isKeyLine] of lines) {
     if (pack && String(linePack) !== pack) continue
     if (only && id !== only) continue
-    for (let t = 1; t <= (key ? keyTakes : takes); t++) {
+    for (let t = 1; t <= (isKeyLine ? keyTakes : takes); t++) {
       const file = join(dir, `${id}_take${t}.mp3`)
       if (existsSync(file)) continue
       const audio = await tts(key, voice, text, style, stability)
