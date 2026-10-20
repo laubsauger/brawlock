@@ -321,7 +321,7 @@ describe('announcer: round and match end', () => {
 })
 
 describe('announcer: the arena', () => {
-  it('The Arena Shrinks! on the first shrink of each round only, for everyone', () => {
+  it('The Arena Shrinks! once per match: repeating it every round got tiresome', () => {
     const shrink: SimEvent = { type: 'arenaShrink', layer: 14 }
     const out = play(quick(), [
       [1, [fightStart], view()],
@@ -330,7 +330,16 @@ describe('announcer: the arena', () => {
       [40, [fightStart], view()],
       [50, [shrink], view()],
     ], -1)
-    expect(lines(out).filter((l) => l === 'arena_shrinks')).toHaveLength(2)
+    expect(lines(out).filter((l) => l === 'arena_shrinks')).toHaveLength(1)
+  })
+
+  it('a new match calls the first shrink again', () => {
+    const shrink: SimEvent = { type: 'arenaShrink', layer: 14 }
+    const a = quick()
+    play(a, [[1, [fightStart], view()], [11, [shrink], view()]], -1)
+    a.reset()
+    const out = play(a, [[1, [fightStart], view()], [11, [shrink], view()]], -1)
+    expect(lines(out).filter((l) => l === 'arena_shrinks')).toHaveLength(1)
   })
 })
 

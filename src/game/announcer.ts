@@ -21,7 +21,8 @@
  * - Round end: "Round Won!" for the winner's side, "Draw!" for everyone when nobody is left.
  * - Match end: "Victory!" / "Defeat!" for the local player (by team in team mode); a spectator
  *   (local player -1) hears neither.
- * - "The Arena Shrinks!": the first shrink of each round, for everyone.
+ * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
+ *   repeat it seconds into each fight; later shrinks are heard (rumble) and seen (sinking tiles).
  *
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
@@ -246,7 +247,6 @@ export class KillTally {
 interface RoundMemory {
   /** occasional lines started per credited player */
   occasional: Map<PlayerId, number>
-  shrinkCalled: boolean
   closeCallDone: boolean
   /** a close call waiting to be confirmed: the hit's time */
   closeCallAt: number | null
@@ -262,7 +262,6 @@ interface RoundMemory {
 function newRound(): RoundMemory {
   return {
     occasional: new Map(),
-    shrinkCalled: false,
     closeCallDone: false,
     closeCallAt: null,
     starters: 0,
@@ -282,6 +281,8 @@ export class Announcer {
   private round = newRound()
   /** the round number whose countdown call went out */
   private calledRound = -1
+  /** "The Arena Shrinks!" went out this match */
+  private shrinkCalled = false
   /** the local pawn's last snapshot (Teleport saves) */
   private slide: SlideSnapshot | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
@@ -296,6 +297,7 @@ export class Announcer {
     this.lastKiller.clear()
     this.round = newRound()
     this.calledRound = -1
+    this.shrinkCalled = false
     this.slide = null
   }
 
@@ -345,8 +347,8 @@ export class Announcer {
           }
           break
         case 'arenaShrink':
-          if (!this.round.shrinkCalled) {
-            this.round.shrinkCalled = true
+          if (!this.shrinkCalled) {
+            this.shrinkCalled = true
             this.push({ line: 'arena_shrinks', kind: 'arena', player: -1, count: 1, at: now })
           }
           break
