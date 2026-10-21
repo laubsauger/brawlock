@@ -15,7 +15,7 @@ function BuildUpdateNotice() {
   }, [blocked])
   if (!blocked) return null
   return <dialog ref={dialog} aria-labelledby="build-update-title" aria-describedby="build-update-description" aria-modal="true" data-testid="build-update-required"
-    className="panel panel-solid fixed inset-0 m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-gold/60 p-8 text-center text-bone shadow-2xl backdrop:bg-obsidian/90"
+    className="panel panel-solid pointer-events-auto fixed inset-0 m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-gold/60 p-8 text-center text-bone shadow-2xl backdrop:bg-obsidian/90"
     onCancel={(event) => event.preventDefault()} onKeyDown={(event) => event.stopPropagation()}>
     <p className="mb-3 text-sm font-bold tracking-widest text-gold uppercase">Game updated</p>
     <h2 id="build-update-title" className="display text-4xl text-[#ffd890]">Reload to play</h2>
