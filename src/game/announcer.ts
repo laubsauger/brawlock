@@ -18,7 +18,9 @@
  * - At the 3-2-1 countdown (3 s before the fight): "Round N" (rounds 1-9; none above), or
  *   "Final Round!" when every competitor (player, or team in team mode) is one win from the
  *   match, "Match Point!" when only some are. Then "Fight!" on the tick the fight starts.
- * - Round end: "Round Won!" for the winner's side, "Draw!" for everyone when nobody is left.
+ * - Round end: a round-win call for the winner's side (ROUND_WIN_LINES, rotating with your score
+ *   so back-to-back wins sound different; never "Victory!", which is the match's alone),
+ *   "Draw!" for everyone when nobody is left.
  * - Match end: "Victory!" / "Defeat!" for the local player (by team in team mode); a spectator
  *   (local player -1) hears neither.
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
@@ -31,7 +33,6 @@
  * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
- * - "Last Warlock Standing!": you win an FFA round that started with 4+ warlocks, still alive.
  * - "Ace!": in team modes, your team kills every member of an enemy team of 2+ in one round.
  *
  * One line at a time: queued by priority (multi-kill > shutdown > streak > first blood >
@@ -75,6 +76,11 @@ export type AnnouncerLine =
   | 'final_round'
   | 'match_point'
   | 'round_won'
+  | 'round_taken'
+  | 'arena_is_yours'
+  | 'too_hot'
+  | 'still_standing'
+  | 'survivor'
   | 'draw'
   | 'victory'
   | 'defeat'
@@ -84,7 +90,6 @@ export type AnnouncerLine =
   | 'revenge'
   | 'denied'
   | 'close_call'
-  | 'last_standing'
   | 'ace'
 
 /** What the voice says, word for word (the banner shows the same). */
@@ -113,6 +118,11 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   final_round: 'Final Round!',
   match_point: 'Match Point!',
   round_won: 'Round Won!',
+  round_taken: 'Round Taken!',
+  arena_is_yours: 'The Arena Is Yours!',
+  too_hot: 'Too Hot to Handle!',
+  still_standing: 'Still Standing!',
+  survivor: 'Survivor!',
   draw: 'Draw!',
   victory: 'Victory!',
   defeat: 'Defeat!',
@@ -122,7 +132,6 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   revenge: 'Revenge!',
   denied: 'Denied!',
   close_call: 'Close Call!',
-  last_standing: 'Last Warlock Standing!',
   ace: 'Ace!',
 }
 
@@ -149,13 +158,14 @@ export const OCCASIONAL_CAP = 2
 const CLOSE_CALL_HP = 0.08
 /** ... once the player is still alive this long after it (s) */
 export const CLOSE_CALL_CONFIRM = 1
-/** FFA rounds with at least this many starters can end in Last Warlock Standing */
-const LAST_STANDING_STARTERS = 4
+/** Round-win calls in rotation order; the standing ones need your own warlock alive. */
+export const ROUND_WIN_LINES = ['round_won', 'round_taken', 'arena_is_yours', 'too_hot', 'still_standing', 'survivor'] as const satisfies readonly AnnouncerLine[]
+const STANDING: ReadonlySet<AnnouncerLine> = new Set(['still_standing', 'survivor'])
 
 const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, arena: 2, flow: 1 } as const
 export type AnnouncementKind = keyof typeof PRIORITY
 
-const OCCASIONAL: ReadonlySet<AnnouncerLine> = new Set(['shutdown', 'revenge', 'denied', 'close_call', 'last_standing', 'ace'])
+const OCCASIONAL: ReadonlySet<AnnouncerLine> = new Set(['shutdown', 'revenge', 'denied', 'close_call', 'ace'])
 
 export interface Announcement {
   line: AnnouncerLine
@@ -173,6 +183,18 @@ export interface Announcement {
 
 /** The parts of the sim state the announcer reads (all optional: partial states are fine). */
 export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena'>>
+
+/**
+ * The round-win call for `local`, voice and HUD banner alike. The sim adds the round's point
+ * before the event, so each win moves one step along; your id offsets the start. A teammate can
+ * win the round for you while your warlock is dead: then only lines that don't claim you stand.
+ */
+export function roundWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
+  const alive = state.pawns?.some((p) => p.owner === local && p.alive) === true
+  const pool = ROUND_WIN_LINES.filter((line) => alive || !STANDING.has(line))
+  const score = state.scores?.find((sc) => sc.id === local)?.score ?? 0
+  return pool[(score + Math.max(0, local)) % pool.length]
+}
 
 /** Multi-kill line for a chain of `count` kills (2 = Double ... 7+ = Monster). */
 export function multiLine(count: number): AnnouncerLine | null {
@@ -260,8 +282,6 @@ interface RoundMemory {
   closeCallDone: boolean
   /** a close call waiting to be confirmed: the hit's time */
   closeCallAt: number | null
-  /** pawns alive when the fight started */
-  starters: number
   /** team at the fight's start, per player */
   teamAt: Map<PlayerId, number>
   /** per enemy team: its members the local team killed this round */
@@ -275,7 +295,6 @@ function newRound(): RoundMemory {
     hurryCalled: false,
     closeCallDone: false,
     closeCallAt: null,
-    starters: 0,
     teamAt: new Map(),
     wiped: new Map(),
     aced: new Set(),
@@ -338,7 +357,6 @@ export class Announcer {
         case 'phase':
           if (e.phase === 'fight') {
             this.round = newRound()
-            for (const p of pawns) if (p.alive) this.round.starters++
             for (const s of state?.slots ?? []) this.round.teamAt.set(s.id, s.team)
             this.flow('fight', local ?? -1, now)
           }
@@ -369,9 +387,7 @@ export class Announcer {
         case 'roundWin':
           if (e.team === TEAM_DRAW || e.players.length === 0) this.flow('draw', -1, now)
           else if (local !== null && e.players.includes(local)) {
-            // a mutual kill can award the round to a warlock who died in the same tick: not "standing"
-            if (teamMode === 'ffa' && e.players.length === 1 && localPawn?.alive && this.round.starters >= LAST_STANDING_STARTERS) this.occasional('last_standing', local, now)
-            this.flow('round_won', local, now)
+            this.flow(roundWinLine(state ?? {}, local), local, now)
           }
           break
         case 'gameOver':

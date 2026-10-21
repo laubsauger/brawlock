@@ -184,9 +184,13 @@ export const AUDIO_ASSETS = {
   'announcer/maverick_revenge': { loop: false, duration: 1.19, credit: 45 },
   'announcer/maverick_denied': { loop: false, duration: 1.12, credit: 45 },
   'announcer/maverick_close_call': { loop: false, duration: 1.226, credit: 45 },
-  'announcer/maverick_last_standing': { loop: false, duration: 1.995, credit: 45 },
   'announcer/maverick_ace': { loop: false, duration: 1.066, credit: 45 },
   'announcer/maverick_hurry_up': { loop: false, duration: 1.043, credit: 45 },
+  'announcer/maverick_round_taken': { loop: false, duration: 1.494, credit: 45 },
+  'announcer/maverick_arena_is_yours': { loop: false, duration: 1.9, credit: 45 },
+  'announcer/maverick_too_hot': { loop: false, duration: 1.662, credit: 45 },
+  'announcer/maverick_still_standing': { loop: false, duration: 1.459, credit: 45 },
+  'announcer/maverick_survivor': { loop: false, duration: 1.242, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

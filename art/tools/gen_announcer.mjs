@@ -53,6 +53,12 @@ export const LINES = [
   ['ace', 'Ace!', 2],
   // pack 3: the last few tiles
   ['hurry_up', 'Hurry Up!', 3],
+  // pack 4: round-win variety (round_won stays one of them; "Victory!" is the match's alone)
+  ['round_taken', 'Round Taken!', 4],
+  ['arena_is_yours', 'The Arena Is Yours!', 4],
+  ['too_hot', 'Too Hot to Handle!', 4],
+  ['still_standing', 'Still Standing!', 4],
+  ['survivor', 'Survivor!', 4],
 ]
 
 function apiKey() {

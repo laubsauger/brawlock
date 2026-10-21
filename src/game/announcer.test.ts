@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, STALE_AFTER, roundCall, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, ROUND_WIN_LINES, STALE_AFTER, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -296,10 +296,28 @@ describe('announcer: final round vs match point', () => {
 describe('announcer: round and match end', () => {
   const won = (players: number[], team = players[0] ?? TEAM_DRAW): SimEvent => ({ type: 'roundWin', team, players })
 
-  it('Round Won! for the winner only; Draw! for everyone when nobody is left', () => {
+  it('a round-win call for the winner only; Draw! for everyone when nobody is left', () => {
     expect(lines(play(quick(), [[1, [won([ME])], view()]]))).toEqual(['round_won'])
     expect(lines(play(quick(), [[1, [won([FOE])], view()]]))).toEqual([])
     for (const local of [ME, FOE, -1]) expect(lines(play(quick(), [[1, [won([], TEAM_DRAW)], view()]], local))).toEqual(['draw'])
+  })
+
+  it('round wins rotate through every call, so back-to-back wins sound different', () => {
+    const winAt = (score: number, alive = true) => {
+      const v = view()
+      v.scores!.find((sc) => sc.id === ME)!.score = score
+      v.pawns!.find((p) => p.owner === ME)!.alive = alive
+      return v
+    }
+    // the sim adds the point before the event: the first win arrives with score 1
+    const heard = ROUND_WIN_LINES.map((_, i) => lines(play(quick(), [[1, [won([ME])], winAt(i + 1)]]))[0])
+    expect(new Set(heard).size).toBe(ROUND_WIN_LINES.length)
+    // the HUD banner shows the same words as the voice
+    expect(heard[0]).toBe(roundWinLine(winAt(1), ME))
+    // "Victory!" stays the match's: a round win must not sound like the game is over
+    for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/victory/i)
+    // a teammate wins the round while your warlock is dead: no line claims you are standing
+    for (let score = 1; score <= ROUND_WIN_LINES.length; score++) expect(['still_standing', 'survivor']).not.toContain(roundWinLine(winAt(score, false), ME))
   })
 
   it('Victory! / Defeat! for players, by team in team modes; spectators hear neither', () => {
@@ -420,16 +438,6 @@ describe('announcer: occasional lines', () => {
     // a hit that leaves more than 8%: no close call
     const fine = view(2, { pawns: [pawnOf(ME, { hp: 200 }), pawnOf(FOE)] })
     expect(lines(play(quick(), [[2, [hit], fine], [3.2, [], fine]]))).not.toContain('close_call')
-  })
-
-  it('Last Warlock Standing! for your FFA round win with 4+ starters', () => {
-    const four = view(4)
-    expect(lines(play(quick(), [[1, [fightStart], four], [30, [{ type: 'roundWin', team: ME, players: [ME] }], four]]))).toEqual(['fight', 'last_standing', 'round_won'])
-    const three = view(3)
-    expect(lines(play(quick(), [[1, [fightStart], three], [30, [{ type: 'roundWin', team: ME, players: [ME] }], three]]))).toEqual(['fight', 'round_won'])
-    // you and the last foe kill each other in one tick: the round is yours, but nobody is standing
-    const traded = view(4, { pawns: [0, 1, 2, 3].map((id) => pawnOf(id, { alive: false, hp: 0 })) })
-    expect(lines(play(quick(), [[1, [fightStart], four], [30, [{ type: 'roundWin', team: ME, players: [ME] }], traded]]))).toEqual(['fight', 'round_won'])
   })
 
   it('Ace! when your team kills a whole enemy team of 2+ in one round', () => {

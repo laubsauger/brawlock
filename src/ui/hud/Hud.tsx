@@ -21,7 +21,7 @@ import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
-import { ANNOUNCER_TEXT, roundCall } from '../../game/announcer'
+import { ANNOUNCER_TEXT, roundCall, roundWinLine } from '../../game/announcer'
 import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
 
@@ -92,7 +92,7 @@ function useDirector() {
           const round = displayRound(state)
           const sub =
             e.players.length === 1 ? `${slotName(state, e.players[0])} takes round ${round}` : `${teamName(e.team)} team takes round ${round}`
-          announce.banner(mine ? ANNOUNCER_TEXT.round_won : 'Round lost', sub, mine ? 'win' : 'danger', 2600)
+          announce.banner(mine ? ANNOUNCER_TEXT[roundWinLine(state, local)] : 'Round lost', sub, mine ? 'win' : 'danger', 2600)
           sfx(mine ? 'ready' : 'back')
           break
         }
