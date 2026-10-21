@@ -934,7 +934,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (m.t === 'hello') onHello(p, m)
     else if (m.t === 'rename' && p.playerId !== null && typeof m.name === 'string') {
       if (p.t.account) return // Reserved account names come only from the authority.
-      p.name = sanitizeName(p.t.account === null ? `Guest ${m.name}` : m.name)
+      p.name = sanitizeName(m.name)
       renameSlot(p.playerId, p.name)
     }
     else if (m.t === 'input') onInput(p, m)
@@ -1020,7 +1020,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, 'Your player profile is missing or invalid. Reload the game before joining.')
       return
     }
-    p.name = account?.name ?? sanitizeName(p.t.account === null ? `Guest ${m.name}` : m.name)
+    p.name = account?.name ?? sanitizeName(m.name)
     p.key = account?.connection.controller ?? (typeof m.key === 'string' ? m.key.slice(0, 64) : '')
     const device = account?.ratingKey ?? sanitizeProfileId(m.device)
     if (p.t.account === null && (profileId.startsWith('a_') || device?.startsWith('a_'))) {
@@ -1101,7 +1101,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       rejectPeer(p, 'The lobby is full.')
       return
     }
-    const identity = { name: p.name, kind: 'human' as const, profileId, ...(account ? { cosmetics: account.cosmetics } : {}) }
+    // signed-out players on a server with accounts carry a guest mark instead of a name prefix
+    const identity = { name: p.name, kind: 'human' as const, profileId, ...(account ? { cosmetics: account.cosmetics } : {}), ...(p.t.account === null ? { guest: true as const } : {}) }
     // Keep the bot's seat, team, equipment and life state. Joining never resurrects a pawn.
     const color = preferred !== null && !slots.some((s) => s.id !== replace?.id && s.color === preferred) ? preferred : replace?.color
     const slot = replace ? { id: replace.id, color: color!, team: replace.team, ...identity } : addSlot(identity, preferred)

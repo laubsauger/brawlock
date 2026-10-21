@@ -93,6 +93,8 @@ export interface PlayerSlot {
    * shop only.
    */
   takeover?: number
+  /** Joined a server room without signing in. Presentation only (a small mark next to the name). */
+  guest?: true
 }
 
 /**

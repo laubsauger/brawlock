@@ -3,7 +3,7 @@ import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
-import { Button, Crown, Kbd, PingBars } from '../widgets'
+import { Button, Crown, GuestMark, Kbd, PingBars } from '../widgets'
 import { backToLobby, leaveToMenu, newGame, rematch, setReady } from '../flow'
 import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
@@ -18,6 +18,7 @@ interface Row {
   name: string
   color: string
   kind: 'human' | 'bot'
+  guest: boolean
   /** bots: difficulty tag */
   difficulty?: string
   score: number
@@ -48,6 +49,7 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
         // team modes: everyone wears the team colour, as in the match
         color: playerColor(slot, rec?.teamMode),
         kind: slot.kind,
+        guest: !!slot.guest,
         difficulty: slot.kind === 'bot' ? slot.difficulty : undefined,
         score: sc?.score ?? 0,
         kills: sc?.kills ?? 0,
@@ -194,6 +196,7 @@ export function Results() {
                     )}
                     <span className="h-3.5 w-3.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: r.color, boxShadow: `0 0 8px ${r.color}88` }} aria-hidden />
                     <span className="min-w-[3.5rem] truncate font-bold">{r.name}</span>
+                    {r.guest && <GuestMark />}
                     {r.winner && <Crown title="Winner" />}
                     {rec?.firstBlood === r.id && (
                       <span className="chip shrink-0 whitespace-nowrap bg-[rgba(196,26,36,0.22)] text-[#ffb3a6]" title="First Blood: the match's first kill">

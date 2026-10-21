@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BOT_DIFFICULTIES, useGame, type LobbyView } from '../../game/store'
 import { MAX_PLAYERS, session } from '../../game/session'
 import type { BotDifficulty, PlayerSlot, TeamMode } from '../../sim/types'
-import { Button, Crown, Modal, PingBars, Switch } from '../widgets'
+import { Button, Crown, GuestMark, Modal, PingBars, Switch } from '../widgets'
 import { hostGame, hostOnServer, leaveToMenu, setReady, startMatch } from '../flow'
 import { online } from '../../game/session'
 import { pickRegion, regionProblem, regionStatus, useRegionChoice, useRegions } from '../lib/servers'
@@ -180,6 +180,7 @@ function PlayerCard({
             {glyph && <span className="mr-1.5" style={{ color }} aria-hidden>{glyph}</span>}
             {slot.name}
           </span>
+          {slot.guest && <GuestMark />}
           {isHost && <Crown />}
           {isLocal && <span className="chip text-gold">You</span>}
           {ready && <span className="chip pop-in bg-[rgba(127,227,154,0.14)] text-heal">Ready</span>}

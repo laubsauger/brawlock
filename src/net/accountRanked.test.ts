@@ -311,9 +311,10 @@ describe('account-ranked production TCP boundary', () => {
     await ordinary.session.join(casual.code)
     expect(ordinary.lobby().status).toBe('open')
     await until(() => ordinary.lobby().slots.some((s) => s.kind === 'human'), 'the guest lobby snapshot')
-    expect(ordinary.lobby().slots.find((s) => s.kind === 'human')?.name).toMatch(/^Guest ForgedClient/)
+    // no name prefix: the seat carries the guest mark, so a guest cannot pass as a signed-in player
+    expect(ordinary.lobby().slots.find((s) => s.kind === 'human')).toMatchObject({ name: expect.stringMatching(/^ForgedClient/), guest: true })
     ordinary.session.setDisplayName('CinderFox')
-    await until(() => ordinary.lobby().slots.some((s) => s.name === 'Guest CinderFox'), 'guest rename keeps its guest identity')
+    await until(() => ordinary.lobby().slots.some((s) => s.name === 'CinderFox' && s.guest === true), 'guest rename keeps its guest identity')
     f.safeLogs()
   }, 30_000)
 

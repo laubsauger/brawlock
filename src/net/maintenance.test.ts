@@ -113,13 +113,13 @@ describe('persistent regional maintenance', () => {
     expect(newcomer.messages.some((m) => m.t === 'error' && m.message.includes('another region'))).toBe(true)
   })
 
-  it('lets an existing guest reclaim a disconnected match seat and keeps its Guest prefix on rename', async () => {
+  it('lets an existing guest reclaim a disconnected match seat and keeps its guest mark on rename', async () => {
     const f = fixture()
     const room = await f.core.createRoom({ code: 'ABCDE', quick: 'dummy' })
     const first = connect(f.core, room.code, 'original', null)
     first.send({ t: 'rename', name: 'ReservedFox' })
     expect(room.debug().peers).toBe(1)
-    expect(first.messages.some((m) => m.t === 'lobby' && m.slots.some((slot) => slot.name === 'Guest ReservedFox'))).toBe(true)
+    expect(first.messages.some((m) => m.t === 'lobby' && m.slots.some((slot) => slot.name === 'ReservedFox' && slot.guest === true))).toBe(true)
     await f.advance(100)
     expect(room.screen()).toBe('match')
     const keeper = connect(f.core, room.code, 'keeper', null)

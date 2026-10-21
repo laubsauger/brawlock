@@ -345,6 +345,16 @@ export function Crown({ title = 'Host' }: { title?: string }) {
   )
 }
 
+/** Quiet mark next to a guest's name: a player who has not signed in. */
+export function GuestMark() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" role="img" aria-label="Guest" className="shrink-0 text-ash/70" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <title>Guest · not signed in</title>
+      <circle cx="12" cy="8" r="3.5" strokeDasharray="3 2.2" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" strokeDasharray="3 2.2" />
+    </svg>
+  )
+}
+
 /** "F4 / P" as two key caps with a quiet slash. */
 export function KeyCaps({ label }: { label: string }) {
   const keys = label.split(' / ').filter(Boolean)
