@@ -427,6 +427,9 @@ describe('announcer: occasional lines', () => {
     expect(lines(play(quick(), [[1, [fightStart], four], [30, [{ type: 'roundWin', team: ME, players: [ME] }], four]]))).toEqual(['fight', 'last_standing', 'round_won'])
     const three = view(3)
     expect(lines(play(quick(), [[1, [fightStart], three], [30, [{ type: 'roundWin', team: ME, players: [ME] }], three]]))).toEqual(['fight', 'round_won'])
+    // you and the last foe kill each other in one tick: the round is yours, but nobody is standing
+    const traded = view(4, { pawns: [0, 1, 2, 3].map((id) => pawnOf(id, { alive: false, hp: 0 })) })
+    expect(lines(play(quick(), [[1, [fightStart], four], [30, [{ type: 'roundWin', team: ME, players: [ME] }], traded]]))).toEqual(['fight', 'round_won'])
   })
 
   it('Ace! when your team kills a whole enemy team of 2+ in one round', () => {

@@ -31,7 +31,7 @@
  * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
- * - "Last Warlock Standing!": you win an FFA round that started with 4+ warlocks.
+ * - "Last Warlock Standing!": you win an FFA round that started with 4+ warlocks, still alive.
  * - "Ace!": in team modes, your team kills every member of an enemy team of 2+ in one round.
  *
  * One line at a time: queued by priority (multi-kill > shutdown > streak > first blood >
@@ -369,7 +369,8 @@ export class Announcer {
         case 'roundWin':
           if (e.team === TEAM_DRAW || e.players.length === 0) this.flow('draw', -1, now)
           else if (local !== null && e.players.includes(local)) {
-            if (teamMode === 'ffa' && e.players.length === 1 && this.round.starters >= LAST_STANDING_STARTERS) this.occasional('last_standing', local, now)
+            // a mutual kill can award the round to a warlock who died in the same tick: not "standing"
+            if (teamMode === 'ffa' && e.players.length === 1 && localPawn?.alive && this.round.starters >= LAST_STANDING_STARTERS) this.occasional('last_standing', local, now)
             this.flow('round_won', local, now)
           }
           break
