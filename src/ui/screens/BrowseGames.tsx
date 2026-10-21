@@ -117,7 +117,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
         </div>
       </header>
       <section className="panel panel-solid flex min-h-0 flex-1 flex-col p-5" aria-label="Open games">
-        <RegionMaintenance statuses={statuses} />
+        <RegionMaintenance statuses={statuses} className="mb-3" />
         {failed && (
           <p role="alert" className="mb-3 rounded-md border border-[rgba(255,90,70,0.4)] bg-[rgba(90,12,10,0.55)] px-4 py-2 text-[#ffd3c9]">
             Couldn't join that game. {failed}

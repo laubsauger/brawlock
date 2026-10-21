@@ -23,7 +23,7 @@ export function RegionPicker({ statuses, choice, onChange }: {
       </select>
     </label>
     {selected ? <RegionPing s={selected} /> : <span className="text-xs text-ash">Checking…</span>}
-    <RegionMaintenance statuses={statuses} />
+    <RegionMaintenance statuses={statuses} selected={selected ?? null} />
     <div className="flex w-full items-center justify-between gap-3 border-t border-white/8 pt-1.5 text-xs tabular-nums text-[#c9c1b4]">
       <span data-testid="global-player-count" title="People with the game open, including menus. Updates every 30 seconds; departed visitors expire after 90 seconds. Bots excluded.">{presence ? `${presence.total} online` : '— online'}</span>
       <span data-testid="global-in-game-count" title={`Connected humans in games and lobbies. Bots excluded.${population.partial ? ' Some region counts are unavailable.' : ''}`}>{population.total === null ? '— in games' : `${population.total}${population.partial ? '+' : ''} in games`}</span>
