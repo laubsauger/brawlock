@@ -646,7 +646,7 @@ describe('public rooms and quick play (M4.3)', () => {
     b.session.leave()
   }, 65000)
 
-  it('quick play and Browse games reserve bots in a public owner game and play next round', async () => {
+  it('quick play and Browse games reserve bots next round, then admit open seats without bots', async () => {
     const { base, srv } = await start()
     const owner = headlessClient(base, { key: 'public-owner', name: 'Mira', play: true })
     const code = await owner.online.createRoom('test')
@@ -670,7 +670,7 @@ describe('public rooms and quick play (M4.3)', () => {
     expect(quickPlayer.session.debug().netMode).toBe('classic')
     const browserPlayer = headlessClient(base, { key: 'public-browser', name: 'Bob', play: true })
     const listed = (await browserPlayer.online.browse()).find((r) => r.code === code)!
-    expect(listed).toMatchObject({ host: 'Mira', phase: 'match', joinable: 1 })
+    expect(listed).toMatchObject({ host: 'Mira', phase: 'match', joinable: 8 })
     await browserPlayer.session.join(listed.code)
     await until(() => browserPlayer.screen() === 'match' && owner.lobby().slots.every((x) => x.kind === 'human'), 3000, 'browser takeover')
     expect(bots).toContain(browserPlayer.lobby().localPlayer)
@@ -686,13 +686,24 @@ describe('public rooms and quick play (M4.3)', () => {
       return roster?.some((s) => s.id === quickPlayer.lobby().localPlayer && s.name === 'Ann' && s.kind === 'human') === true
         && roster.some((s) => s.id === browserPlayer.lobby().localPlayer && s.name === 'Bob' && s.kind === 'human')
     }), 3000, 'the updated playable roster on every client')
-    expect(srv.core.room(code)!.joinableSeats()).toBe(0)
+    expect(srv.core.room(code)!.joinableSeats()).toBe(7)
     expect(srv.core.stats().rooms).toBe(1)
-    // Empty lobby positions are not playable pawns in a match that has no bots left.
-    const next = await browserPlayer.online.quickPlay('test')
-    expect(next.created).toBe(true)
-    expect(next.code).not.toBe(code)
-    for (const c of [owner, quickPlayer, browserPlayer]) c.session.leave()
+    // Once the bots are replaced, unused capacity still admits a next-round player.
+    await until(() => owner.shown()?.phase === 'fight', 8000, 'combat before reserving an empty seat')
+    const nextFightTick = owner.shown()!.tick
+    await until(() => srv.core.room(code)!.debug().tick >= nextFightTick, 3000, 'confirmed combat before the empty-seat reservation')
+    const emptyPlayer = headlessClient(base, { key: 'public-empty', name: 'Cinder', play: false })
+    expect(await emptyPlayer.online.quickPlay('test')).toEqual({ code, created: false })
+    await emptyPlayer.session.join(code)
+    await until(() => emptyPlayer.screen() === 'match' && emptyPlayer.shown() !== null && owner.lobby().slots.length === 4, 3000, 'an open seat without a replaceable bot')
+    const emptySeat = emptyPlayer.lobby().localPlayer
+    expect(bots).not.toContain(emptySeat)
+    expect(emptyPlayer.lobby().waitingForRound).toBe(true)
+    expect(emptyPlayer.session.debug().netMode).toBe('classic')
+    expect(emptyPlayer.shown()!.pawns.some((p) => p.owner === emptySeat)).toBe(false)
+    expect(srv.core.room(code)!.joinableSeats()).toBe(6)
+    expect(srv.core.stats().rooms).toBe(1)
+    for (const c of [owner, quickPlayer, browserPlayer, emptyPlayer]) c.session.leave()
   }, 65000)
 
   it('quick play avoids owner lobbies that need a manual start', async () => {
@@ -714,7 +725,7 @@ describe('public rooms and quick play (M4.3)', () => {
   it('quick play reserves bot seats before connection and releases them when a waiting player leaves', async () => {
     // Keep this round open: the test cancels a reservation before takeover,
     // rather than racing a bot killing the idle host during the HTTP requests.
-    const { base, srv } = await start(quick({ fill: 2, fillMs: 1000, settings: { winScore: 50, shopSeconds: 10, dmgMultiplier: 0, kbMultiplier: 0, lavaDps: 0 } }))
+    const { base, srv } = await start(quick({ seats: 2, fill: 2, fillMs: 1000, settings: { winScore: 50, shopSeconds: 10, dmgMultiplier: 0, kbMultiplier: 0, lavaDps: 0 } }))
     const owner = headlessClient(base, { key: 'reserve-owner', play: false })
     const first = await owner.online.quickPlay('test')
     await owner.session.join(first.code)
