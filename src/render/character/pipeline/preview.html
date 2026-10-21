@@ -18,12 +18,15 @@
     <label>Camera<select id="camera"><option value="threequarter">Three quarter</option><option value="front">Front</option><option value="rear">Rear</option><option value="side">Side</option><option value="arena">Arena angle</option></select></label>
     <label>Animation<select id="clip"></select></label>
     <button id="play" type="button">Pause</button>
+    <button id="restart" type="button">Restart animation</button>
     <label>Playback speed<select id="speed"><option value="1">Normal</option><option value="0.25">Quarter speed</option></select></label>
     <label>Timeline<input id="timeline" type="range" min="0" max="1" step="0.001" value="0" /></label>
     <label><input id="cloth" type="checkbox" checked />Simulated cloth</label>
+    <label>Eye color <input id="eyeColor" type="color" value="#b365ff" /></label>
     <label><input id="wire" type="checkbox" />Wireframe</label>
     <label><input id="albedo" type="checkbox" checked />Color texture</label>
     <label><input id="normals" type="checkbox" checked /><span id="normalLabel">Baked normal map</span></label>
+    <label><input id="ao" type="checkbox" />Ambient occlusion</label>
     <label><input id="bones" type="checkbox" />Skeleton</label>
     <label><input id="colliders" type="checkbox" />Leg collider outlines</label>
     <label><input id="markers" type="checkbox" />Hand attachment markers</label>

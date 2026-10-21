@@ -72,10 +72,14 @@ def fit_point(point):
     if z < 1.0:
         body_y = y * 0.85 - 0.065
     arm = min(1, max(0, (abs(x) - 0.09) / 0.09)) * min(1, max(0, (z - 1.22) / 0.14))
-    arm_x = math.copysign(interpolate(abs(x), [(0, 0), (0.0314, 0.015), (0.1919, 0.145),
-                                             (0.4429, 0.260), (0.6832, 0.382), (0.9244, 0.483)]) * SCALE, x)
-    arm_y = -0.046 * SCALE + (y - 0.0654) * 0.8
-    return Vector((body_x * (1 - arm) + arm_x * arm, body_y * (1 - arm) + arm_y * arm, height))
+    # Source sleeve cross-sections put the shoulder near X=.19, elbow=.44
+    # and wrist=.74 metres. The previous shoulder was .268m out and .085m
+    # forward, outside the sleeve's deltoid centre, twisting the armpit in idle.
+    arm_x = math.copysign(interpolate(abs(x), [(0, 0), (0.0314, 0.015), (0.1919, 0.105),
+                                             (0.4429, 0.238), (0.6832, 0.400), (0.9244, 0.500)]) * SCALE, x)
+    arm_y = interpolate(abs(x),[(0,-.04),(.1919,-.03),(.4429,-.04),(.6832,-.07),(.9244,-.07)])+(y-.0654)*.8
+    arm_z = interpolate(abs(x),[(0,1.48),(.1919,1.48),(.4429,1.46),(.6832,1.45),(.9244,1.45)])+(z-1.4555)*.8
+    return Vector((body_x * (1 - arm) + arm_x * arm, body_y * (1 - arm) + arm_y * arm, height*(1-arm)+arm_z*arm))
 
 
 # Move each rest joint while retaining its original local axes. This lets the
@@ -159,10 +163,18 @@ def upper_weights(point):
     body = joint_blend(z, [(0.66, 'spine_01'), (0.70, 'spine_02'), (0.76, 'spine_03'),
                            (0.815, 'neck_01'), (0.855, 'Head')])
     side = 'l' if x > 0 else 'r'
-    arm = joint_blend(abs(x), [(0.12, 'clavicle_' + side), (0.17, 'upperarm_' + side),
-                               (0.28, 'lowerarm_' + side)])
-    t = min(1, max(0, (abs(x) - 0.105) / 0.065))
+    distance=abs(x)*SCALE
+    shoulder=min(1,max(0,(distance-.11)/.11))
+    elbow=min(1,max(0,(distance-.36)/.15))
+    shoulder=shoulder*shoulder*(3-2*shoulder)
+    elbow=elbow*elbow*(3-2*elbow)
+    arm={'clavicle_'+side:1-shoulder,'upperarm_'+side:shoulder*(1-elbow),'lowerarm_'+side:shoulder*elbow}
+    t = min(1, max(0, (distance-.105)/.11))
     t = t * t * (3 - 2 * t)
+    # Hood/collar edges can be as wide as the shoulders. Width alone must not
+    # give them arm weights; the sleeve surface ends below 1.575m in this mesh.
+    hood = min(1,max(0,(z*SCALE-1.575)/.05))
+    t *= 1-hood*hood*(3-2*hood)
     result = {bone: weight * (1 - t) for bone, weight in body.items()}
     for bone, weight in arm.items():
         result[bone] = result.get(bone, 0) + weight * t

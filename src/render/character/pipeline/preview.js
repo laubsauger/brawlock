@@ -1,10 +1,15 @@
 // Standalone authoring viewer. No game loader, store, inventory or catalog imports.
 import * as THREE from 'three/webgpu'
-import { Fn, attribute, cross, max, mix, normalLocal, positionLocal, select, smoothstep, uniform, vec3 } from 'three/tsl'
-import { ClothProxy } from './cloth-proxy.js'
+import { Fn, If, attribute, clamp, cross, dot, exp, float, length, max, min, mix, normalLocal, pass, positionLocal, renderOutput, select, smoothstep, sqrt, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { ClothProxy, MAX_CLOTH_STEP, clothPrimaryFreedom } from './cloth-proxy.js'
+import { REAR_CONTACT } from './cloth-leg-contact.js'
+import { deformClothVertex } from './cloth-deformation.js'
+import { attachPreviewFace } from './preview-face.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
+import { ao } from 'three/addons/tsl/display/GTAONode.js'
+import { fxaa } from 'three/addons/tsl/display/FXAANode.js'
 
 const $ = (id) => document.getElementById(id)
 const assetBase = '/art/source/tripo-warlock-v1/'
@@ -31,12 +36,25 @@ for (const [position, color, intensity] of [[[3, 5, 4], 0xffe8d3, 3.5], [[-3, 2,
 const grid = new THREE.GridHelper(8, 32, 0x5b5468, 0x373640)
 scene.add(grid)
 
-const capsuleDefinitions = [
-  ['thigh_l', 'calf_l', 0.125, 'leg'], ['calf_l', 'foot_l', 0.11, 'leg'], ['foot_l', 'ball_l', 0.13, 'leg'],
-  ['thigh_r', 'calf_r', 0.125, 'leg'], ['calf_r', 'foot_r', 0.11, 'leg'], ['foot_r', 'ball_r', 0.13, 'leg'],
-  ['upperarm_l', 'lowerarm_l', 0.065, 'arm'], ['lowerarm_l', 'hand_l', 0.06, 'arm'],
-  ['upperarm_r', 'lowerarm_r', 0.065, 'arm'], ['lowerarm_r', 'hand_r', 0.06, 'arm'],
-]
+// Match the game's depth-derived, half-resolution GTAO without importing its
+// renderer or changing its quality settings. Off keeps the direct render path.
+const aoScenePass=pass(scene,camera,{samples:0})
+const aoEffect=ao(aoScenePass.getTextureNode('depth'),null,camera)
+aoEffect.resolutionScale=.5
+aoEffect.radius.value=.6
+aoEffect.thickness.value=1
+aoEffect.distanceExponent.value=1.5
+const aoPipeline=new THREE.RenderPipeline(renderer)
+// Schedule the producer nodes explicitly instead of relying on their output
+// textures' metadata to keep the scene and occlusion renders in the graph.
+const aoOutput=vec4(aoScenePass.rgb.mul(mix(float(1),aoEffect,.75)),aoScenePass.a)
+if(renderer.getPixelRatio()<1.5) {
+  aoPipeline.outputNode=fxaa(renderOutput(aoOutput))
+  aoPipeline.outputColorTransform=false
+} else aoPipeline.outputNode=aoOutput
+
+let capsuleDefinitions
+
 const clothEnabled = uniform(1)
 let proxyData
 let simulations = []
@@ -45,6 +63,7 @@ let physicsCost = 0
 let model, mixer, skeletonHelper, currentAction, clips, meshes = [], bindings = [], markers = []
 let actors = [], mixers = [], helpers = [], actions = []
 let colliderViews = []
+let faces=[]
 let playing = true
 let clothSeconds = 0
 let lastFrame = performance.now()
@@ -52,6 +71,40 @@ let loading = false
 let loadSerial = 0
 const world = new THREE.Vector3()
 const inverse = new THREE.Matrix4()
+
+// GPU counterpart of clearRearCloth, using the same contact profile constants.
+function clearRearClothNode(position,capsules,direction,weight) {
+  const {edge,radius:padding,gap,layer,release}=REAR_CONTACT
+  for(const {a,b,radius:bodyRadius} of capsules) {
+    const axis=b.sub(a),offset=position.sub(a).toVar()
+    const axisLength=dot(axis,axis),axisAlong=dot(axis,direction),offsetAlong=dot(offset,direction)
+    const planeAxis=axis.sub(direction.mul(axisAlong)),planeOffset=offset.sub(direction.mul(offsetAlong))
+    const t=clamp(dot(planeOffset,planeAxis).div(max(dot(planeAxis,planeAxis),1e-12)),0,1)
+    const distance=length(planeOffset.sub(planeAxis.mul(t))),radius=bodyRadius+padding
+    If(distance.lessThan(radius+edge),()=>{
+      const support=float(1).sub(smoothstep(radius,radius+edge,distance))
+      const far=t.mul(axisAlong).sub(offsetAlong).toVar()
+      const axisOffset=dot(axis,offset),coefA=axisLength.sub(axisAlong.mul(axisAlong))
+      const coefB=axisLength.mul(offsetAlong).sub(axisOffset.mul(axisAlong))
+      const coefC=axisLength.mul(dot(offset,offset)).sub(axisOffset.mul(axisOffset)).sub(axisLength.mul(radius*radius))
+      const discriminant=coefB.mul(coefB).sub(coefA.mul(coefC))
+      If(coefA.greaterThan(axisLength.mul(1e-8)).and(discriminant.greaterThanEqual(0)),()=>{
+        const root=coefB.negate().add(sqrt(discriminant)).div(coefA)
+        const along=axisOffset.add(root.mul(axisAlong))
+        If(along.greaterThanEqual(0).and(along.lessThanEqual(axisLength)),()=>far.assign(max(far,root)))
+      })
+      for(const center of [a,b]) {
+        const relative=position.sub(center),along=dot(relative,direction)
+        const discriminant=along.mul(along).sub(dot(relative,relative)).add(radius*radius)
+        If(discriminant.greaterThanEqual(0),()=>far.assign(max(far,along.negate().add(sqrt(discriminant)))))
+      }
+      const correction=float(0).toVar()
+      If(far.greaterThanEqual(0),()=>correction.assign(far.add(gap).add(float(layer).div(float(1).add(far.div(layer))))))
+        .Else(()=>correction.assign(exp(far.div(release)).mul(gap+layer)))
+      position.assign(position.add(direction.mul(correction.mul(support).mul(weight))))
+    })
+  }
+}
 
 function attachCloth(mesh, actor) {
   const imported = mesh.material
@@ -65,26 +118,82 @@ function attachCloth(mesh, actor) {
   material.metalness = imported.metalness
   material.specularIntensity = imported.specularIntensity ?? 1
   if (imported.specularColor) material.specularColor.copy(imported.specularColor)
+  if(imported.name.startsWith('Tripo_Fabric')) {
+    const albedo=texture(imported.map)
+    const trim=smoothstep(.06,.20,albedo.r.sub(max(albedo.g,albedo.b)))
+    material.roughnessNode=mix(.96,.75,trim)
+    material.specularIntensityNode=mix(.17,.32,trim)
+    material.sheen=.22;material.sheenColor.set('#342a3a');material.sheenRoughness=.9
+  }
   material.side = THREE.DoubleSide
   const simulation = simulations[actors.indexOf(actor)]
+  const legCloth=simulation.legCloth[0]
+  const hemFrame=uniform(legCloth.hemFrame)
+  const legCapsules=simulation.capsules.filter(cap=>cap.kind==='leg').map(cap=>({a:uniform(cap.a),b:uniform(cap.b),radius:cap.radius}))
+  const limbs=legCloth.thighs.map(({cap,matrix,hangingMatrix,hip,knee,calfLength,rearCarry})=>({
+    thigh:uniform(matrix),hanging:uniform(hangingMatrix),rearCarry:uniform(rearCarry),calfLength,hip:hip.y,knee:knee.y,hipX:hip.x,hipZ:hip.z,radius:cap.radius+.025
+  }))
   material.positionNode = Fn(() => {
     const indices = attribute('_wl_proxy_indices', 'vec3')
     const weights = attribute('_wl_proxy_weights', 'vec3')
     const freedom = smoothstep(0, .12, attribute('_wl_proxy_freedom','float'))
+    const primaryFreedom=attribute('_wl_proxy_primary','float')
+    const skirt=attribute('_wl_proxy_skirt','float')
+    const source=attribute('position','vec3')
+    const sourceNormal=attribute('normal','vec3')
+    const primaryLegs=limbs.map(({thigh,hanging,hip,knee,hipX,hipZ,radius,rearCarry,calfLength})=>{
+      const upper=thigh.mul(vec4(source,1)).xyz
+      const radialOffset=vec2(source.x.sub(hipX),source.z.sub(hipZ))
+      const radial=min(1,float(radius).div(max(length(radialOffset),.000001)))
+      const carriedRadial=radialOffset.mul(radial),freeRadial=radialOffset.mul(float(1).sub(radial))
+      const lower=hanging.mul(vec4(float(hipX).add(carriedRadial.x),knee,float(hipZ).add(carriedRadial.y),1)).xyz
+        .add(hemFrame.mul(vec4(freeRadial.x,0,freeRadial.y,0)).xyz).sub(vec3(0,float(knee).sub(source.y),0))
+        .add(rearCarry.mul(float(1).sub(smoothstep(0,.08,source.z))).mul(clamp(float(knee).sub(source.y).div(calfLength),0,1)))
+      const bend=float(1).sub(smoothstep(knee-.07,knee+.07,source.y))
+      const attachment=float(1).sub(smoothstep(hip-.14,hip+.04,source.y))
+      const position=mix(positionLocal,mix(upper,lower,bend),attachment)
+      const limbNormal=mix(thigh.mul(vec4(sourceNormal,0)).xyz,hemFrame.mul(vec4(sourceNormal,0)).xyz,bend).normalize()
+      return {position,normal:mix(normalLocal,limbNormal,attachment).normalize()}
+    })
+    const leftWeight=smoothstep(-.08,.08,source.x)
+    const legPosition=mix(primaryLegs[1].position,primaryLegs[0].position,leftWeight)
+    const legNormal=mix(primaryLegs[1].normal,primaryLegs[0].normal,leftWeight).normalize()
     const offset = simulation.offsetNode.element(indices.x.toUint()).mul(weights.x)
       .add(simulation.offsetNode.element(indices.y.toUint()).mul(weights.y))
       .add(simulation.offsetNode.element(indices.z.toUint()).mul(weights.z))
-    const q = simulation.rotationNode.element(indices.x.toUint()).mul(weights.x)
-      .add(simulation.rotationNode.element(indices.y.toUint()).mul(weights.y))
-      .add(simulation.rotationNode.element(indices.z.toUint()).mul(weights.z)).normalize()
+    const primary=simulation.primaryOffsetNode.element(indices.x.toUint()).mul(weights.x)
+      .add(simulation.primaryOffsetNode.element(indices.y.toUint()).mul(weights.y))
+      .add(simulation.primaryOffsetNode.element(indices.z.toUint()).mul(weights.z))
+    const qa=simulation.rotationNode.element(indices.x.toUint())
+    const qb=simulation.rotationNode.element(indices.y.toUint())
+    const qc=simulation.rotationNode.element(indices.z.toUint())
+    const q=qa.mul(weights.x)
+      .add(qb.mul(weights.y).mul(select(dot(qa,qb).lessThan(0),-1,1)))
+      .add(qc.mul(weights.z).mul(select(dot(qa,qc).lessThan(0),-1,1))).normalize()
     const rotated = normalLocal.add(cross(q.xyz,cross(q.xyz,normalLocal).add(normalLocal.mul(q.w))).mul(2))
-    normalLocal.assign(mix(normalLocal,rotated,freedom).normalize())
+    normalLocal.assign(mix(normalLocal,mix(rotated,legNormal,skirt),primaryFreedom.mul(clothEnabled)).normalize())
     const anchor = simulation.targetNode.element(indices.x.toUint()).mul(weights.x)
       .add(simulation.targetNode.element(indices.y.toUint()).mul(weights.y))
       .add(simulation.targetNode.element(indices.z.toUint()).mul(weights.z))
     const residual = positionLocal.sub(anchor)
     const rotatedResidual = residual.add(cross(q.xyz,cross(q.xyz,residual).add(residual.mul(q.w))).mul(2))
-    const deformed=mix(positionLocal,anchor.add(offset).add(rotatedResidual),freedom.mul(clothEnabled))
+    const primaryDeformation=mix(primary.add(rotatedResidual.sub(residual)),legPosition.sub(positionLocal),skirt)
+    const deformation=offset.sub(primary).mul(freedom).add(primaryDeformation.mul(primaryFreedom))
+    const deformed=positionLocal.add(deformation.mul(clothEnabled)).toVar()
+    If(skirt.mul(primaryFreedom).mul(clothEnabled).greaterThan(0),()=>{
+      const conformed=deformed.toVar()
+      for(const {a,b,radius} of legCapsules) {
+        const axis=b.sub(a),t=clamp(dot(conformed.sub(a),axis).div(dot(axis,axis)),0,1)
+        const nearest=a.add(axis.mul(t)),radial=conformed.sub(nearest).toVar(),distance=length(radial).toVar()
+        const mapped=select(distance.lessThan(radius),float(radius+.003).add(distance.mul(.1)),distance.add(exp(distance.sub(radius).negate().div(.05)).mul(.003+.1*radius)))
+        conformed.assign(nearest.add(radial.mul(mapped.div(distance))))
+      }
+      deformed.assign(mix(deformed,conformed,primaryFreedom.mul(clothEnabled)))
+      const rearWeight=float(1).sub(smoothstep(0,.08,source.z))
+        .mul(float(1).sub(smoothstep(limbs[0].knee,limbs[0].knee+REAR_CONTACT.heightBlend,source.y)))
+        .mul(primaryFreedom)
+      If(rearWeight.greaterThan(0),()=>clearRearClothNode(deformed,legCapsules,hemFrame.mul(vec4(0,0,-1,0)).xyz.normalize(),rearWeight))
+    })
     // Fine hem details can extend below their coarse driver. Enforce the same
     // flat review floor on the final visible surface, including its tips.
     const aboveFloor=select(freedom.greaterThan(0),max(deformed.y,.012),deformed.y)
@@ -101,10 +210,15 @@ function setClip(name) {
   actions = mixers.map((instance) => {
     instance.stopAllAction()
     const action = instance.clipAction(clip)
-    action.reset().play()
+    action.reset()
+    const looping=['idle','walk','run','castLoop'].includes(name)
+    action.setLoop(looping?THREE.LoopRepeat:THREE.LoopOnce,looping?Infinity:1)
+    action.clampWhenFinished=!looping
+    action.play()
     return action
   })
   currentAction = actions[0]
+  if(['hit','hitHead'].includes(name))for(const face of faces)face.blink()
   clothSeconds = 0
   $('timeline').max = clip.duration
   $('timeline').value = '0'
@@ -121,6 +235,7 @@ async function loadAsset(file) {
   const gltf = await new GLTFLoader().loadAsync(assetBase + file)
   if (serial !== loadSerial) return
   if (model) {
+    for(const face of faces) face.dispose()
     for (const view of colliderViews) { scene.remove(view.group); view.geometry.dispose(); view.material.dispose() }
     for (const actor of actors) scene.remove(actor)
     for (const helper of helpers) { scene.remove(helper); helper.dispose() }
@@ -139,18 +254,19 @@ async function loadAsset(file) {
     if (!indices || !weights || !faces || !motion) throw new Error('Cloth bindings are missing')
     // WebGPU guarantees eight vertex buffers. Share one buffer for the four
     // proxy fields instead of spending a separate binding on every attribute.
-    const values=new Float32Array(indices.count*8)
-    for(let i=0;i<indices.count;i++) values.set([indices.getX(i),indices.getY(i),indices.getZ(i),weights.getX(i),weights.getY(i),weights.getZ(i),faces.getX(i),motion.getX(i)],i*8)
-    const buffer=new THREE.InterleavedBuffer(values,8)
-    for(const [name,size,offset] of [['_wl_proxy_indices',3,0],['_wl_proxy_weights',3,3],['_wl_proxy_face',1,6],['_wl_proxy_freedom',1,7]]) geometry.setAttribute(name,new THREE.InterleavedBufferAttribute(buffer,size,offset))
+    const values=new Float32Array(indices.count*10)
+    for(let i=0;i<indices.count;i++) values.set([indices.getX(i),indices.getY(i),indices.getZ(i),weights.getX(i),weights.getY(i),weights.getZ(i),faces.getX(i),motion.getX(i),clothPrimaryFreedom(motion.getX(i),motion.getZ(i)),[1,2].includes(motion.getZ(i))?1:0],i*10)
+    const buffer=new THREE.InterleavedBuffer(values,10)
+    for(const [name,size,offset] of [['_wl_proxy_indices',3,0],['_wl_proxy_weights',3,3],['_wl_proxy_face',1,6],['_wl_proxy_freedom',1,7],['_wl_proxy_primary',1,8],['_wl_proxy_skirt',1,9]]) geometry.setAttribute(name,new THREE.InterleavedBufferAttribute(buffer,size,offset))
   })
   colliderViews = capsuleDefinitions.filter(([, , , kind]) => kind === 'leg').map(([left, right, radius]) => {
     const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(26 * 3),3))
-    const material = new THREE.LineBasicNodeMaterial({ color: left.endsWith('_l') ? 0xffdd44 : 0x44ccff, transparent:true, opacity:.38, depthTest:true })
-    const group = new THREE.LineLoop(geometry,material)
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(104 * 3),3))
+    const material = new THREE.LineBasicNodeMaterial({ color: left.endsWith('_l') ? 0xffdd44 : 0x44ccff, transparent:true, opacity:.85, depthTest:false,depthWrite:false })
+    const group = new THREE.LineSegments(geometry,material)
+    group.frustumCulled=false;group.renderOrder=1000
     group.visible = $('colliders').checked; scene.add(group)
-    return {group,geometry,material,radius,left:model.getObjectByName(left),right:model.getObjectByName(right)}
+    return {group,geometry,material,radius,leftName:left,rightName:right}
   })
   actors = [model]
   for (let i = 1; i < Number($('count').value); i++) actors.push(cloneSkeleton(model))
@@ -161,6 +277,7 @@ async function loadAsset(file) {
     actor.updateMatrixWorld(true)
   }
   simulations = actors.map(actor => new ClothProxy(proxyData, actor, capsuleDefinitions))
+  faces=actors.map((actor,index)=>attachPreviewFace(actor,$('eyeColor').value,index))
   clips = gltf.animations
   if (clips.length !== 13) throw new Error('Expected all 13 original animation clips.')
   mixers = actors.map((actor) => new THREE.AnimationMixer(actor))
@@ -231,26 +348,31 @@ function applyVisibility() {
 function updateBindings() {
   for (const actor of actors) actor.updateMatrixWorld(true)
   const a = new THREE.Vector3(), b = new THREE.Vector3()
+  if(!$('colliders').checked) return
   for (const view of colliderViews) {
-    view.left.getWorldPosition(a); view.right.getWorldPosition(b)
+    const cap=simulations[0].capsules.find(cap=>cap.left.name===view.leftName&&cap.right.name===view.rightName)
+    a.copy(cap.a).applyMatrix4(model.matrixWorld);b.copy(cap.b).applyMatrix4(model.matrixWorld)
     view.group.position.copy(a).add(b).multiplyScalar(.5)
     world.copy(b).sub(a)
-    const length = world.length()
+    const segmentLength=world.length()
     view.group.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),world.normalize())
-    const points = view.geometry.attributes.position
-    for (let i=0;i<26;i++) {
-      const upper = i<13, angle=(upper ? i : i-13)/12*Math.PI + (upper ? 0 : Math.PI)
-      points.setXYZ(i,view.radius*Math.cos(angle),(upper ? length/2 : -length/2)+view.radius*Math.sin(angle),0)
+    const points=view.geometry.attributes.position
+    let index=0
+    for(let plane=0;plane<2;plane++) for(let i=0;i<26;i++) for(const j of [i,(i+1)%26]) {
+      const upper=j<13,angle=(upper ? j : j-13)/12*Math.PI+(upper ? 0 : Math.PI)
+      const radial=view.radius*Math.cos(angle),y=(upper ? segmentLength/2 : -segmentLength/2)+view.radius*Math.sin(angle)
+      points.setXYZ(index++,plane===0 ? radial : 0,y,plane===1 ? radial : 0)
     }
     points.needsUpdate=true
   }
+
 }
 
 function advance(seconds) {
   const start=performance.now()
   // Sample moving bones at physics frequency. Fast knees cannot jump across a
   // panel between two display frames, including during timeline review.
-  const count=Math.max(1,Math.ceil(seconds*60))
+  const count=Math.max(1,Math.ceil(seconds/MAX_CLOTH_STEP))
   for(let step=0;step<count;step++) {
     for(const instance of mixers) instance.update(seconds/count)
     for(const actor of actors) actor.updateMatrixWorld(true)
@@ -259,7 +381,7 @@ function advance(seconds) {
   physicsCost=performance.now()-start
 }
 function seek(time) {
-  for(const action of actions) action.time=0
+  for(const action of actions) action.reset().play()
   for(const instance of mixers) instance.update(0)
   for(const simulation of simulations) simulation.reset()
   // Replay the contact history rather than placing cloth inside a posed leg.
@@ -268,11 +390,13 @@ function seek(time) {
 }
 
 $('clip').addEventListener('change', () => setClip($('clip').value))
+$('restart').addEventListener('click',()=>{setClip($('clip').value);playing=true;$('play').textContent='Pause'})
 $('play').addEventListener('click', () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play' })
 $('timeline').addEventListener('input', () => {
   seek(Number($('timeline').value))
 })
 $('cloth').addEventListener('change',()=>{for(const simulation of simulations) simulation.reset()})
+$('eyeColor').addEventListener('input',()=>{for(const face of faces) face.setColor($('eyeColor').value)})
 for (const id of ['cloth', 'wire', 'albedo', 'normals', 'bones', 'colliders', 'markers', 'outer']) $(id).addEventListener('change', applyVisibility)
 $('asset').addEventListener('change', () => loadAsset($('asset').value).catch(reportError))
 $('count').addEventListener('change', () => loadAsset($('asset').value).catch(reportError))
@@ -291,37 +415,42 @@ window.addEventListener('resize', () => {
 })
 function reportError(error) { $('error').textContent = error.message; console.error(error) }
 window.review = {
+  view(position,target) {camera.position.fromArray(position);orbit.target.fromArray(target);orbit.update()},
+  isolate(name=null) {
+    if(name!==null&&!meshes.some(mesh=>mesh.name===name))throw new Error('Unknown review part: '+name)
+    for(const mesh of meshes)mesh.visible=name===null||mesh.name===name
+  },
+  parts() {return meshes.map(mesh=>mesh.name)},
   surfaceAudit() {
-    const p=new THREE.Vector3(),anchor=new THREE.Vector3(),offset=new THREE.Vector3(),q=new THREE.Quaternion(),r=new THREE.Vector4(),sample=new THREE.Vector4()
+    const p=new THREE.Vector3()
     return meshes.filter(mesh=>mesh.parent && mesh.skeleton===meshes[0].skeleton).map(mesh=>{
       const simulation=simulations[0],attributes=mesh.geometry.attributes
-      let minY=Infinity,maxDisplacement=0
+      let minY=Infinity,maxDisplacement=0,penetrations=0,maxDepth=0
       for(let i=0;i<attributes.position.count;i++) {
         if(attributes._wl_cloth.getX(i)<=0) continue
         p.fromBufferAttribute(attributes.position,i);mesh.applyBoneTransform(i,p)
         const original=p.clone()
-        anchor.set(0,0,0);offset.set(0,0,0);r.set(0,0,0,0)
-        for(let axis=0;axis<3;axis++) {
-          const index=attributes._wl_proxy_indices.getComponent(i,axis),weight=attributes._wl_proxy_weights.getComponent(i,axis)
-          anchor.addScaledVector(simulation.targets[index],weight);offset.addScaledVector(simulation.offsets[index],weight)
-          sample.copy(simulation.rotations[index]).multiplyScalar(weight);r.add(sample)
-        }
-        r.normalize();q.set(r.x,r.y,r.z,r.w)
-        p.sub(anchor).applyQuaternion(q).add(anchor).add(offset)
-        const t=Math.min(1,attributes._wl_cloth.getX(i)/.12),freedom=t*t*(3-2*t)
-        p.lerp(original,1-freedom)
-        if(freedom>0) p.y=Math.max(.012,p.y)
+        deformClothVertex(mesh,i,simulation,p)
         maxDisplacement=Math.max(maxDisplacement,p.distanceTo(original));minY=Math.min(minY,p.y)
+        for(const cap of simulation.capsules) {
+          const sleeve=attributes._wl_cloth.getZ(i)===4
+          if(cap.kind==='arm' && (!sleeve || cap.left.name.endsWith('_l')!==(attributes.position.getX(i)>0))) continue
+          const segment=new THREE.Vector3().subVectors(cap.b,cap.a)
+          const t=Math.max(0,Math.min(1,new THREE.Vector3().subVectors(p,cap.a).dot(segment)/segment.lengthSq()))
+          const nearest=cap.a.clone().addScaledVector(segment,t),depth=cap.radius-p.distanceTo(nearest)
+          if(depth>.003){penetrations++;maxDepth=Math.max(maxDepth,depth)}
+        }
       }
-      return {mesh:mesh.name,minY,maxDisplacement}
+      return {mesh:mesh.name,minY,maxDisplacement,penetrations,maxDepth}
     })
   },
   colliderAudit() {
     const p = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), delta = new THREE.Vector3(), nearest = new THREE.Vector3()
     const measurements = []
-    for (const [left, right, radius, kind] of capsuleDefinitions) {
-      if (kind !== 'leg') continue
-      model.getObjectByName(left).getWorldPosition(a); model.getObjectByName(right).getWorldPosition(b)
+    for (const cap of simulations[0].capsules) {
+      if (cap.kind !== 'leg') continue
+      const left=cap.left.name,right=cap.right.name,radius=cap.radius
+      a.copy(cap.a).applyMatrix4(model.matrixWorld);b.copy(cap.b).applyMatrix4(model.matrixWorld)
       delta.copy(b).sub(a)
       const distances = []
       for (const mesh of meshes.filter((mesh) => mesh.name.includes('Trousers') || mesh.name.includes('Boot_'))) {
@@ -345,7 +474,8 @@ window.review = {
     seek(time)
     playing = false; $('play').textContent = 'Play'
   },
-  physics() { return { cpuMs:physicsCost, actors:simulations.map(s=>s.inspect()) } },
+  timing() { return {cpuMs:physicsCost,simulationMs:simulations.reduce((sum,s)=>sum+s.lastCost,0),actors:simulations.length,time:currentAction.time} },
+  physics(details=false) { return { cpuMs:physicsCost, actors:simulations.map(s=>s.inspect(details)) } },
   inspect() {
     for (const mesh of meshes) mesh.computeBoundingBox()
     const bounds = new THREE.Box3().setFromObject(model)
@@ -359,6 +489,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min((now - lastFrame) / 1000, 0.05)
   lastFrame = now
   if (model && !loading) {
+    for(const face of faces)face.update(dt)
     if (playing) {
       const step = dt * Number($('speed').value)
       advance(step)
@@ -368,7 +499,8 @@ renderer.setAnimationLoop(() => {
     updateBindings()
   }
   orbit.update()
-  renderer.render(scene, camera)
+  if($('ao').checked)aoPipeline.render()
+  else renderer.render(scene, camera)
   if (model && !loading) {
     const triangles = meshes.reduce((sum, mesh) => sum + (mesh.visible ? mesh.geometry.index.count / 3 : 0), 0)
     $('stats').textContent = `${Math.round(triangles).toLocaleString()} triangles · ${meshes.filter((mesh) => mesh.visible).length} meshes\n${actors.length} character${actors.length === 1 ? '' : 's'} · ${renderer.info.render.drawCalls} scene draws\n${currentAction.time.toFixed(2)} / ${currentAction.getClip().duration.toFixed(2)} seconds\n${proxyData.positions.length} cloth points / character · ${physicsCost.toFixed(2)} ms animation + cloth`
@@ -377,4 +509,6 @@ renderer.setAnimationLoop(() => {
 const response = await fetch(assetBase + 'cloth-proxy.json')
 if (!response.ok) throw new Error('Cloth proxy data could not be loaded')
 proxyData = await response.json()
+capsuleDefinitions=proxyData.colliders
+if(!capsuleDefinitions) throw new Error('Fitted body colliders are missing; rebuild the authoring proxy')
 await loadAsset($('asset').value).catch(reportError)
