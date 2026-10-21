@@ -726,6 +726,34 @@ describe('session lobby over the network', () => {
     expect(host.out.states.at(-1)!.slots.find((s) => s.id === id)?.kind).toBe('bot')
   })
 
+  it('hands a reserved bot seat to its new player the moment the fight ends', async () => {
+    // The bot must not keep playing someone's seat through the round-end pause and warm-up:
+    // it looks like the new player's warlock is going haywire before they get control.
+    if (!sim) throw new Error(simMissing)
+    const { host, code, net } = await hostAndClient(sim, { ...LINK, loss: 0 }, { createBot })
+    host.session.updateSettings({ shopSeconds: 3 })
+    host.session.addBot('hard')
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(3400)
+    const waiting = makePeer(net, 'Waiting guest', 'waiting-tab-key', sim, { profileId: 'waiting-profile' })
+    const joined = waiting.session.join(code)
+    await vi.advanceTimersByTimeAsync(400)
+    await joined
+    const id = waiting.store.lobby.localPlayer
+    expect(waiting.store.lobby.waitingForRound).toBe(true)
+    let ended: SimState | undefined
+    for (let t = 0; t < 600 && !ended; t++) {
+      await vi.advanceTimersByTimeAsync(100)
+      // the seat changes hands on the tick the fight ends; the next state carries it
+      ended = host.out.states.filter((st) => st.phase === 'roundEnd')[1]
+    }
+    expect(ended, 'the first round ends').toBeDefined()
+    expect(ended!.slots.find((x) => x.id === id)?.kind).toBe('human')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(waiting.store.lobby.waitingForRound).toBe(false)
+    expect(waiting.out.localPlayer).toBe(id)
+  }, 60000)
+
   it('refuses a new human without a valid profile ID instead of identifying them by name', async () => {
     const net = createMemoryNet(LINK)
     const host = makePeer(net, 'Hosty', 'host-key')

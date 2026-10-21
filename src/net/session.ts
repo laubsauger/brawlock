@@ -1108,7 +1108,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (replace) {
       slots = slots.map((s) => s.id === slot.id ? slot : s)
       if (match) {
-        if (match.state.phase === 'fight' || match.state.phase === 'roundEnd') match.waiting.set(slot.id, replace)
+        if (match.state.phase === 'fight') match.waiting.set(slot.id, replace)
         else activateSeat(match, slot, device ?? undefined)
       }
     }
@@ -1457,8 +1457,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
     rec?.observe(next, next.events)
     if (cur.phase === 'fight' && next.phase !== 'fight') countIdleRound(m)
-    // Attribute the completed tick to its old controller before handing over.
-    if (m.waiting.size && ((next.phase === 'shop' && cur.phase !== 'shop') || next.round > cur.round)) activateWaiting(m)
+    // Attribute the completed tick to its old controller before handing over. Reserved seats
+    // change hands as soon as the fight ends (combat is already off), so the bot never plays
+    // the round-end pause or the warm-up in its new owner's place.
+    if (m.waiting.size && ((cur.phase === 'fight' && next.phase !== 'fight') || (next.phase === 'shop' && cur.phase !== 'shop') || next.round > cur.round)) activateWaiting(m)
     if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
     if (m.netMode !== 'classic' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
     if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
