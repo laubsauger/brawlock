@@ -8,6 +8,7 @@ import { Button, Kbd, Modal } from '../widgets'
 import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, rankedPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
+import { LiveGames } from './LiveGames'
 import { PlaySetup } from './PlaySetup'
 import { online, rejoin, session, type PublicRoom, type ServerProfile } from '../../game/session'
 import { getProfile, setPreferredColor } from '../../game/profile'
@@ -155,13 +156,11 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   </div>
 }
 
-/**
- * Browse games entry with a live count of open games across every region, refreshed
- * every few seconds, so players can see there are games to pick from.
- */
-function BrowseEntry({ onClick }: { onClick: () => void }) {
+/** Every region's public games, refreshed every few seconds while the menu is open (null: not loaded). */
+function useOpenGames(enabled: boolean): PublicRoom[] | null {
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
   useEffect(() => {
+    if (!enabled) return
     let live = true
     let busy = false
     const refresh = async () => {
@@ -175,7 +174,15 @@ function BrowseEntry({ onClick }: { onClick: () => void }) {
     void refresh()
     const timer = window.setInterval(() => void refresh(), 5000)
     return () => { live = false; window.clearInterval(timer) }
-  }, [])
+  }, [enabled])
+  return rooms
+}
+
+/**
+ * Browse games entry with a live count of open games across every region, so players can
+ * see there are games to pick from.
+ */
+function BrowseEntry({ rooms, onClick }: { rooms: PublicRoom[] | null; onClick: () => void }) {
   const known = rooms ? browseAvailability(rooms) : null
   return <MenuEntry
     title="Browse games"
@@ -304,6 +311,7 @@ export function MainMenu() {
   const [joinOpen, setJoinOpen] = useState(false)
   const [profileTab, setProfileTab] = useState<'stats' | 'board' | 'replays' | null>(null)
   const [browseOpen, setBrowseOpen] = useState(false)
+  const openGames = useOpenGames(online.configured && !browseOpen)
   const [nameOpen, setNameOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [accountMode, setAccountMode] = useState<'onboarding' | 'settings'>('onboarding')
@@ -411,6 +419,7 @@ export function MainMenu() {
           onProfile={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }}
           onSignIn={openAccount} onLeaderboard={() => setProfileTab('board')} onCollection={() => setCollectionOpen(true)}
           onRetryAccount={() => { setAccountBusy(true); void refreshAccount().catch(() => {}).finally(() => setAccountBusy(false)) }} />
+        {online.configured && <LiveGames rooms={openGames} onSeeAll={() => setBrowseOpen(true)} />}
       </div>
       {/* soft dark backdrop behind the menu column; the scene stays visible on the right */}
       <div className="menu-scrim pointer-events-none absolute inset-y-0 left-0" aria-hidden />
@@ -448,7 +457,7 @@ export function MainMenu() {
           {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
             <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
-            {online.configured && <BrowseEntry onClick={() => setBrowseOpen(true)} />}
+            {online.configured && <BrowseEntry rooms={openGames} onClick={() => setBrowseOpen(true)} />}
           </div>
           <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" onClick={() => setCollectionOpen(true)} testId="open-wardrobe" />
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">

@@ -546,6 +546,12 @@
   .menu-main { max-width: 500px; padding-block: 1.5rem; }
   .menu-main .brand-mark { max-width: 100%; }
   .menu-identity { position: absolute; top: 1.5rem; right: max(24px, 4vw); width: 340px; max-width: calc(100% - 48px); }
+  /* people playing right now, under the player card (LiveGames) */
+  .menu-live-games {
+    margin-top: 0.75rem; width: 100%; border: 1px solid #b58b554d; border-radius: 5px;
+    background: linear-gradient(135deg, #39261b40, transparent 65%), #140e0bf0;
+    box-shadow: 0 8px 24px #0005, inset 0 1px #efbe7c24;
+  }
   .menu-player-card {
     position: relative; overflow: hidden; width: 100%; border: 1px solid #b58b554d; border-radius: 5px;
     background: linear-gradient(135deg, #39261b40, transparent 65%), #140e0bf5;

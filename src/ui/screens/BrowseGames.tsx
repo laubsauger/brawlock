@@ -29,6 +29,48 @@ export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore
   return r.gameMode === 'rounds' || !r.gameMode ? `${mode} · first to ${r.winScore}` : `${mode} · ${r.gameMode}`
 }
 
+/** "Mira's game", "Casual", "Ranked": how a listed room is named. */
+export function roomTitle(r: PublicRoom): string {
+  return r.ranked ? 'Ranked' : r.quick ? 'Casual' : r.host ? `${r.host}'s game` : 'Custom game'
+}
+
+/** Whether and how a listed room can be entered: the button label, why it is closed, its tooltip. */
+export function roomJoin(r: PublicRoom): { label: string; closed: string | null; title: string | undefined } {
+  const rankedClosed = r.ranked && r.phase !== 'lobby'
+  const draining = r.kind === 'server' && r.region.maintenance?.draining === true
+  const full = r.humans >= r.max || rankedClosed
+  const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
+  const watch = r.phase === 'match' && r.joinable === 0
+  if (draining) return { label: 'Updating', closed: 'updating', title: 'This region is updating. Rejoin your existing game from the main menu, or choose another region.' }
+  if (full) return { label: rankedClosed ? 'In progress' : 'Full', closed: 'full', title: 'This game is full' }
+  if (nextRound) return { label: 'Join next round', closed: null, title: 'Watch this round and take a bot seat for the next round' }
+  if (watch) return { label: 'Watch', closed: null, title: 'Watch now and play from the next match' }
+  return { label: 'Join', closed: null, title: undefined }
+}
+
+/** One-click join of a listed room; a failed join lands in lobby.error and frees the button. */
+export function useRoomJoin(): { joining: string | null; failed: string | null; join: (room: PublicRoom) => void } {
+  const [joining, setJoining] = useState<string | null>(null)
+  const failed = useGame((s) => (s.lobby.status === 'error' ? s.lobby.error : null))
+  const setLobby = useGame((s) => s.setLobby)
+  useEffect(() => {
+    if (failed) setJoining(null)
+  }, [failed])
+  const join = (room: PublicRoom) => {
+    if (!isPlaySupported()) return
+    const code = room.code
+    sfx('click')
+    if (failed) setLobby({ status: 'idle', error: null })
+    setJoining(code)
+    const problem = joinRoom(code, () => setJoining(null), room.kind === 'p2p' ? { kind: 'p2p' } : { kind: 'server', region: room.region.id })
+    if (problem) {
+      setJoining(null)
+      setLobby({ status: 'error', error: problem.problem })
+    }
+  }
+  return { joining, failed, join }
+}
+
 /**
  * Open games on the game servers: who hosts, how full, what mode, waiting /
  * between matches / in a match, and the ping of their region. One click joins.
@@ -39,13 +81,8 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
   const statuses = useRegions(5000)
   const allDraining = statuses.length > 0 && statuses.every((region) => region.maintenance?.draining)
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
-  const [joining, setJoining] = useState<string | null>(null)
   // a join that failed lands back here with lobby.error: say so and allow another try
-  const failed = useGame((s) => (s.lobby.status === 'error' ? s.lobby.error : null))
-  const setLobby = useGame((s) => s.setLobby)
-  useEffect(() => {
-    if (failed) setJoining(null)
-  }, [failed])
+  const { joining, failed, join } = useRoomJoin()
 
   useEffect(() => {
     let alive = true
@@ -63,19 +100,6 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack])
-
-  const join = (room: PublicRoom) => {
-    if (!isPlaySupported()) return
-    const code = room.code
-    sfx('click')
-    if (failed) setLobby({ status: 'idle', error: null })
-    setJoining(code)
-    const problem = joinRoom(code, () => setJoining(null), room.kind === 'p2p' ? { kind: 'p2p' } : { kind: 'server', region: room.region.id })
-    if (problem) {
-      setJoining(null)
-      setLobby({ status: 'error', error: problem.problem })
-    }
-  }
 
   return (
     <div className="screen-in mx-auto flex h-full w-full max-w-[1440px] flex-col px-4 py-6 sm:px-6 lg:px-8">
@@ -108,18 +132,12 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
             {rooms.map((r) => {
               const activity = roomActivity(r)
               const elo = liveEloLabel(r)
-              const rankedClosed = r.ranked && r.phase !== 'lobby'
-              const draining = r.kind === 'server' && r.region.maintenance?.draining === true
-              const full = r.humans >= r.max || rankedClosed
-              const nextRound = r.phase === 'match' && r.joinable !== undefined && r.joinable > 0
-              const watch = r.phase === 'match' && r.joinable === 0
-              const joinLabel = nextRound ? 'Join next round' : watch ? 'Watch' : 'Join'
-              const joinTitle = full ? 'This game is full' : nextRound ? 'Watch this round and take a bot seat for the next round' : watch ? 'Watch now and play from the next match' : undefined
+              const entry = roomJoin(r)
               return (
                 <li key={`${r.kind}:${r.code}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
                   <span className="flex min-w-[12rem] flex-1 flex-col leading-tight">
                     <span className="truncate text-[1.08rem] font-bold">
-                      {r.ranked ? 'Ranked' : r.quick ? 'Casual' : r.host ? `${r.host}'s game` : 'Custom game'}
+                      {roomTitle(r)}
                       {r.kind === 'p2p' && <span className="ml-2 align-middle text-[0.78rem] font-semibold tracking-wide text-ash uppercase">Player-hosted</span>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.86rem] text-ash">
@@ -144,8 +162,8 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
                       <RegionPing s={r.region} withName />
                     )}
                   </span>
-                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={!playSupported || full || draining || joining !== null} onClick={() => join(r)} title={!playSupported ? PLAY_REQUIREMENT : draining ? 'This region is updating. Rejoin your existing game from the main menu, or choose another region.' : joinTitle}>
-                    {joining === r.code ? 'Joining…' : draining ? 'Updating' : rankedClosed ? 'In progress' : full ? 'Full' : joinLabel}
+                  <Button size="sm" variant={r.phase === 'match' ? 'default' : 'primary'} disabled={!playSupported || !!entry.closed || joining !== null} onClick={() => join(r)} title={!playSupported ? PLAY_REQUIREMENT : entry.title}>
+                    {joining === r.code ? 'Joining…' : entry.label}
                   </Button>
                 </li>
               )
