@@ -43,7 +43,7 @@ export interface StreamTick {
   /** per input player: the highest own input seq applied (client players only) */
   acks?: Map<PlayerId, number>
   patches?: [PlayerId, boolean][]
-  /** Seat identity changes, applied before this step; team remains the current match team. */
+  /** Seat identity changes or between-round additions, applied before this step. */
   slots?: PlayerSlot[]
 }
 

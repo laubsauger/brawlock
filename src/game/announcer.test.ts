@@ -50,6 +50,7 @@ describe('announcer: first blood', () => {
     ])
     expect(lines.filter((l) => l.line === 'first_blood')).toHaveLength(1)
     expect(lines.find((l) => l.line === 'first_blood')!.player).toBe(FOE)
+    expect(lines.find((l) => l.line === 'first_blood')!.victim).toBe(ME)
     // a new match restarts the sim clock: first blood is up for grabs again
     expect(run(a, [[2, [death(FOE, ME)]]]).map((l) => l.line)).toContain('first_blood')
   })
@@ -389,12 +390,14 @@ describe('announcer: occasional lines', () => {
     expect(lines(play(quick(), [[1, [death(ME, FOE)], view(3)], [5, [death(FOE, ME)], view(3)]], OTHER))).not.toContain('revenge')
   })
 
-  it('Denied! for your Teleport out of the lava, not for an ordinary blink', () => {
-    const inLava = view(2, { pawns: [pawnOf(ME, { x: 5000, lavaTicks: 8 }), pawnOf(FOE)] })
+  it('Denied! for a threatening lava escape, not for an ordinary blink or healthy lava hop', () => {
+    const inLava = view(2, { pawns: [pawnOf(ME, { x: 5000, lavaTicks: 8, hp: 200 }), pawnOf(FOE)] })
     const onGround = view(2, { pawns: [pawnOf(ME, { x: 200 }), pawnOf(FOE)] })
     const tp = (toX: number): SimEvent => ({ type: 'teleport', pawn: 100 + ME, fromX: 0, fromY: 0, toX, toY: 0 })
     expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround]]))).toEqual(['denied'])
     expect(lines(play(quick(), [[1, [], onGround], [1.02, [tp(0)], onGround]]))).toEqual([])
+    const healthyLava = view(2, { pawns: [pawnOf(ME, { x: 5000, lavaTicks: 8 }), pawnOf(FOE)] })
+    expect(lines(play(quick(), [[1, [], healthyLava], [1.02, [tp(0)], onGround]]))).toEqual([])
     // somebody else's save is not yours
     expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround]], FOE))).toEqual([])
   })

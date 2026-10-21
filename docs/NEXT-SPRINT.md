@@ -1,6 +1,6 @@
 # Next sprint
 
-Audited against the source on **2026-10-20**. This is the active backlog; the original
+Audited against the source on **2026-10-21**. This is the active backlog; the original
 milestones in [PLAN.md](PLAN.md) and older design documents are not a list of missing features.
 Deployment is established by release receipts, not by implementation status here.
 
@@ -11,6 +11,17 @@ Deployment is established by release receipts, not by implementation status here
    decision; it is not a reason to restore the synth or generate arbitrary tracks.
 
 ## Completed in this planning pass
+
+- **Custom seats and match consent:** ten open/occupied seats by default, host close/open
+  controls, and empty-seat admission between rounds without a bot to replace. Custom starts
+  count down for three seconds; rematches in all room types require every human's Ready
+  and a cancellable ten-second grace period. Network, replay and desktop proof are recorded
+  in [SESSION-RECOVERY.md](SESSION-RECOVERY.md#open-seats-and-starting-another-match).
+- **Spectator/UI follow-up:** locked bets retain live estimated chances, health and pool
+  shares; gold votes offer Low/Current/High relative to the entered setting. Solo/Online
+  creates a custom lobby directly, and identity/setup dialogs omit duplicate feedback links.
+  First Blood names the victim as well as the killer; Denied requires a threatening escape,
+  while the broader Teleport saves statistic keeps its existing definition.
 
 - **Partial combat from unfinished games** counts toward the same profile totals, scoped to
   human-controlled intervals: aborted and unrated ranked games, bot takeovers, reconnects and
@@ -113,7 +124,10 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.7**, source `2ab87bea7700`, on 2026-10-20: a hotfix for
+The latest rollout is **v0.1.0-alpha.8**, source `7efb8d65a323`, on 2026-10-21:
+[verified fleet, website and admin rollout](../deploy/releases/2026-10-21-alpha8.md).
+The newer source work above is not proof of another deployment.
+**v0.1.0-alpha.7**, source `2ab87bea7700`, on 2026-10-20 was a hotfix for
 match clicks (a layout wrapper covered the canvas). **v0.1.0-alpha.6**, source `37bba9b15def`,
 shipped earlier the same day with account schema 7 (one retired-cosmetic refund). Both tags
 are published on GitHub; their receipts stay in the release tool's journal, not in

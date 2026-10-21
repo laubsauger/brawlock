@@ -75,7 +75,8 @@ describe('personal betting presentation', () => {
     state.slots[1].name = 'Replacement'
     pushState(state)
     expect(markup()).toContain('Your bet: Player 1 · 1 gold placed')
-    expect(markup()).not.toContain('Replacement')
+    expect(markup()).not.toContain('Your bet: Replacement')
+    expect(markup()).not.toContain('data-selected="true"')
   })
 
   it('never shows the previous occupant’s settlement as the new player’s winnings', () => {
@@ -171,6 +172,40 @@ describe('personal betting presentation', () => {
     placeSpectateBet(state, 0, 1, 1)
     pushState(state)
     expect(markup()).toContain('Your bet: Player 1 · 1 gold placed<span class="text-gold"> · pays 2 gold if right</span>')
+  })
+
+  it('keeps live odds, health and pool shares after placing a bet and after betting closes', () => {
+    const state = setup()
+    placeSpectateBet(state, 0, 1, 1)
+    pushState(state)
+    const before = markup()
+    expect(before).toContain('Live odds')
+    expect(before).toContain('data-testid="bet-live-contender" data-selected="true"')
+    expect(before).toContain('Your pick · 1 bet')
+    expect(before).toContain('Pot: 1 gold')
+    expect(before).not.toContain('aria-label="Bet 1 gold on')
+    state.pawns[1].hp *= 0.1
+    placeSpectateBet(state, 3, 1, 2)
+    pushState(state)
+    const after = markup()
+    expect(after).toContain('Pot: 2 gold')
+    expect(after).toContain('pays 2 gold if right')
+    const chance = /Player 1: (\d+)% estimated win chance/
+    expect(Number(after.match(chance)?.[1])).toBeLessThan(Number(before.match(chance)?.[1]))
+    state.pawns[4].alive = false // No more bets: two surviving contenders.
+    pushState(state)
+    expect(markup()).toContain('Live odds')
+    expect(markup()).toContain('Player 2:')
+    expect(markup()).not.toContain('Player 4:')
+    state.pawns[1].alive = false
+    pushState(state)
+    expect(markup()).toContain('Your pick is out')
+    expect(markup()).toContain('Player 2:')
+    settleSpectateBets(state, [2])
+    state.phase = 'roundEnd'
+    pushState(state)
+    expect(markup()).toContain('You lost your 1 gold bet')
+    expect(markup()).not.toContain('bet-live-contender')
   })
 
 })

@@ -28,7 +28,7 @@
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
  * - "Revenge!": you kill the player who last killed you.
- * - "Denied!": your Teleport save (the stats' definition, game/teleportSave.ts).
+ * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
  * - "Last Warlock Standing!": you win an FFA round that started with 4+ warlocks.
@@ -43,7 +43,7 @@ import { MULTI_WINDOW } from '../render/overlay/killStamps'
 import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
 import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
-import { isTeleportSave, slideDecay, slideSnapshot, type SlideSnapshot } from './teleportSave'
+import { isDeniedEscape, slideDecay, slideSnapshot, type SlideSnapshot } from './teleportSave'
 
 export const ROUND_LINES = [
   'round_one',
@@ -163,6 +163,8 @@ export interface Announcement {
   kind: AnnouncementKind
   /** who earned it (round flow: the local player, -1 for lines about nobody) */
   player: PlayerId
+  /** First Blood's victim, retained with the queued announcement. */
+  victim?: PlayerId
   /** kills in the chain (multi) or the streak (streak, shutdown); otherwise 1 */
   count: number
   /** sim time (s) it was earned */
@@ -293,7 +295,7 @@ export class Announcer {
   /** "The Arena Shrinks!" went out this match */
   private shrinkCalled = false
   /** the local pawn's last snapshot (Teleport saves) */
-  private slide: SlideSnapshot | null = null
+  private slide: (SlideSnapshot & { hp: number; maxHp: number }) | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
   lineLength: (line: AnnouncerLine) => number = () => 1.1
 
@@ -350,9 +352,9 @@ export class Announcer {
           }
           break
         case 'teleport':
-          if (local !== null && localPawn && e.pawn === localPawn.id && this.slide && state?.phase === 'fight') {
+          if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight') {
             const layer = state.arena?.layer ?? 0
-            if (isTeleportSave(this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction))) this.occasional('denied', local, now)
+            if (isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) this.occasional('denied', local, now)
           }
           break
         case 'arenaShrink':
@@ -396,7 +398,7 @@ export class Announcer {
           this.occasional('close_call', local, now)
         }
       }
-      this.slide = localPawn ? slideSnapshot(localPawn) : null
+      this.slide = localPawn ? { ...slideSnapshot(localPawn), hp: localPawn.hp, maxHp: localPawn.maxHp } : null
     }
     return this.next(now)
   }
@@ -427,7 +429,7 @@ export class Announcer {
     }
     if (!kill) return
     const k = kill.killer
-    if (kill.firstBlood) this.push({ line: 'first_blood', kind: 'first', player: k, count: 1, at: now })
+    if (kill.firstBlood) this.push({ line: 'first_blood', kind: 'first', player: k, victim: e.owner, count: 1, at: now })
     const multi = multiLine(kill.chain)
     if (multi && k === local) this.push({ line: multi, kind: 'multi', player: k, count: kill.chain, at: now })
     const hit = STREAKS.find(([n]) => n === kill.streak)

@@ -49,6 +49,14 @@ export function isTeleportSave(before: SlideSnapshot, toX: number, toY: number, 
   return !isLocationSafeAtLayer(layer, before.x + before.kbx / decay, before.y + before.kby / decay)
 }
 
+/** Announce an actual escape from danger, rather than every routine lava blink. */
+export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp' | 'maxHp'>, toX: number, toY: number, layer: number, decay: number, lavaDps: number): boolean {
+  if (lavaDps <= 0 || !isTeleportSave(before, toX, toY, layer, decay)) return false
+  const slidingOut = Math.hypot(before.kbx, before.kby) >= SAVE_SLIDE_SPEED && decay > 0 &&
+    !isLocationSafeAtLayer(layer, before.x + before.kbx / decay, before.y + before.kby / decay)
+  return slidingOut || (before.inLava && (pawn.hp <= pawn.maxHp * 0.35 || pawn.hp / lavaDps <= 1.5))
+}
+
 function n(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }

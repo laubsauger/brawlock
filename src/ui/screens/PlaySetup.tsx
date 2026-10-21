@@ -7,32 +7,35 @@ import { RegionPing } from '../RegionPing'
 import { Button, Modal } from '../widgets'
 
 /** A single setup entry for solo play and hosting. Opening it never creates a room. */
-export function PlaySetup({ initialOnline, onClose }: { initialOnline: boolean; onClose: () => void }) {
-  const [multiplayer, setMultiplayer] = useState(initialOnline)
+export function PlaySetup({ onClose }: { onClose: () => void }) {
   const [location, setLocation] = useState<'server' | 'pc'>(online.configured ? 'server' : 'pc')
   const [listed, setListed] = useState(true)
   const regions = useRegions(5000)
   const choice = useRegionChoice()
   const setSettings = useGame((s) => s.setSettings)
   const region = pickRegion(regions, choice)
-  const problem = multiplayer && location === 'server' ? regionProblem(region) : null
-  const create = () => {
+  const problem = location === 'server' ? regionProblem(region) : null
+  const create = (multiplayer: boolean) => {
+    if (multiplayer && problem) return
     onClose()
     if (!multiplayer) playOffline()
     else if (location === 'pc') hostGame(listed)
     else if (region) hostOnServer(choice === 'auto' ? 'auto' : region.id, listed)
   }
-  return <Modal title="Custom game" onClose={onClose} width="max-w-lg" footer={<Button variant="primary" className="w-full" disabled={!!problem} onClick={create}>Create game</Button>}>
+  return <Modal title="Custom game" onClose={onClose} width="max-w-lg" help={false}>
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3" role="group" aria-label="Players">
-        <Button variant={!multiplayer ? 'primary' : 'default'} aria-pressed={!multiplayer} onClick={() => setMultiplayer(false)} className="min-h-16 flex-col gap-1">
+        <Button onClick={() => create(false)} className="min-h-16 flex-col gap-1" data-testid="custom-solo">
           Solo <span className="font-ui text-sm font-normal text-ash">Practice with bots</span>
         </Button>
-        <Button variant={multiplayer ? 'primary' : 'default'} aria-pressed={multiplayer} onClick={() => setMultiplayer(true)} className="min-h-16 flex-col gap-1">
+        <Button variant="primary" disabled={!!problem} onClick={() => create(true)} className="min-h-16 flex-col gap-1" data-testid="custom-online">
           Online <span className="font-ui text-sm font-normal text-ash">Invite or meet players</span>
         </Button>
       </div>
-      {multiplayer && <>
+      {problem && <p role="status" className="text-sm text-[#ffb08a]">{problem}</p>}
+      <details className="text-sm text-ash">
+        <summary className="cursor-pointer rounded py-1 focus-visible:outline-2 focus-visible:outline-gold">Online options · {location === 'pc' ? 'This computer' : region?.label ?? 'Game server'} · {listed ? 'Public' : 'Private'}</summary>
+        <div className="mt-3 flex flex-col gap-4">
         <label className="flex flex-col gap-2 text-sm font-semibold text-ash">Host location
           <select className="field w-full text-base text-bone" value={location} onChange={(e) => setLocation(e.target.value as 'server' | 'pc')}>
             {online.configured && <option value="server">Game server</option>}
@@ -47,14 +50,14 @@ export function PlaySetup({ initialOnline, onClose }: { initialOnline: boolean; 
             </select>
           </label>}
           {region && <RegionPing s={region} withName />}
-          {problem && <p role="status" className="text-sm text-[#ffb08a]">{problem}</p>}
         </div> : <p className="text-sm leading-snug text-ash">You host the room. Keep this tab open while your friends play.</p>}
         {online.configured && <label className="flex cursor-pointer items-center gap-3 text-sm text-bone">
           <input type="checkbox" className="h-4 w-4 accent-[#ffc548]" checked={listed} onChange={(e) => setListed(e.target.checked)} />
           List in Browse games
         </label>}
-      </>}
-      <p className="text-sm leading-snug text-ash">{multiplayer ? 'Share the room code, then choose bots and rules in the lobby.' : 'Choose your bots and rules in the lobby.'}</p>
+        </div>
+      </details>
+      <p className="text-sm leading-snug text-ash">Choose your bots, open seats and rules in the lobby.</p>
     </div>
   </Modal>
 }

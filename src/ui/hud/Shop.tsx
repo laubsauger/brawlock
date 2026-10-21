@@ -243,6 +243,7 @@ function IconTile({
 }
 
 export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
+  const waitingForRound = useGame((s) => s.lobby.waitingForRound)
   const v = usePolled(readShop, (x) => JSON.stringify(x), 10)
   const binds = useBinds()
   const characterOpen = useGame((s) => s.characterOpen)
@@ -282,7 +283,7 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
   if (!v.ready) {
     return (
       <div className="dock dock-right">
-        <div className="panel p-6 text-ash">Your warlock is not in the arena yet.</div>
+        <div className="panel p-6 text-ash">{waitingForRound ? 'Your seat is reserved. You can shop when this round ends.' : 'Your warlock is not in the arena yet.'}</div>
       </div>
     )
   }

@@ -4,7 +4,8 @@ import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
 import { Button, Crown, GuestMark, Kbd, PingBars } from '../widgets'
-import { backToLobby, leaveToMenu, newGame, rematch, setReady } from '../flow'
+import { backToLobby, leaveToMenu, newGame, setReady } from '../flow'
+import { AutoStart } from './Lobby'
 import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
 import { isTypingTarget } from '../lib/keys'
@@ -85,7 +86,8 @@ export function Results() {
   const quick = useGame((s) => !!s.lobby.quick)
   const ranked = useGame((s) => !!s.lobby.ranked)
   const maintenance = useGame((s) => s.lobby.maintenance ?? null)
-  const isHost = role !== 'client'
+  const autoStart = useGame((s) => s.lobby.autoStart)
+  const currentSlots = useGame((s) => s.lobby.slots)
   const rec = useMemo(() => (result ? recordFor(result) : null), [result])
   // the replay is saved a moment after the match (compressed): the button appears then
   const replayIds = useReplayIds()
@@ -93,19 +95,18 @@ export function Results() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [collectionOpen, setCollectionOpen] = useState(false)
 
-  // Enter = rematch, the one-click loop
+  // Enter changes only this player's consent; it never forces the room past results.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const lobby = useGame.getState().lobby
       if (e.key !== 'Enter' || e.repeat || collectionOpen || isTypingTarget(e.target) || useGame.getState().settingsOpen || lobby.maintenance) return
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       e.preventDefault()
-      if (isHost && !lobby.quick) rematch()
-      else setReady(!useGame.getState().lobby.ready?.[useGame.getState().lobby.localPlayer])
+      setReady(!useGame.getState().lobby.ready?.[useGame.getState().lobby.localPlayer])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [isHost, collectionOpen])
+  }, [collectionOpen])
 
   if (!result) {
     return (
@@ -138,7 +139,7 @@ export function Results() {
   const roundsMode = rec ? rec.gameMode === 'rounds' : true
   const secs = result.ticks ? result.ticks / TICK_HZ : rec?.durationSec
   const online = role !== 'offline'
-  const humans = rows.filter((r) => r.kind === 'human')
+  const humans = currentSlots.filter((r) => r.kind === 'human')
   const readyCount = humans.filter((r) => ready?.[r.id]).length
   const localReady = !!ready?.[local]
 
@@ -284,6 +285,10 @@ export function Results() {
       )}
       </div>
 
+      {!maintenance && autoStart && <section className="mt-3 shrink-0 rounded-lg border border-gold/50 bg-[#281d13] px-5 py-3 text-center" role="status" aria-live="polite" data-testid="rematch-countdown">
+        <p className="font-display text-xl font-bold text-gold"><AutoStart at={autoStart.at} fill={false} between /></p>
+        <p className="mt-1 text-sm text-bone">Everyone is ready. Choose “Keep reviewing results” to stop the countdown.</p>
+      </section>}
       {maintenance ? <div className="mt-4 flex max-w-3xl shrink-0 flex-col items-center gap-3 rounded-lg border border-gold/30 bg-[#281d13] px-5 py-4 text-center" role="status" data-testid="results-maintenance">
         <p className="font-semibold text-gold">Region updating · match complete</p>
         <p className="text-sm text-bone">{maintenance}</p>
@@ -291,8 +296,8 @@ export function Results() {
       </div> : quick ? (
         <div className="mt-3 flex shrink-0 flex-col items-center gap-1.5">
           <div className="flex flex-wrap items-center justify-center gap-4">
-            <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus data-testid="quick-ready">
-              {localReady ? 'Not ready' : ranked ? 'Ready for the next ranked game' : 'Ready for the next match'} {!localReady && <Kbd>Enter</Kbd>}
+            <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} aria-pressed={localReady} autoFocus data-testid="quick-ready">
+              {localReady ? 'Keep reviewing results' : ranked ? 'Ready for the next ranked game' : 'Ready for rematch'} {!localReady && <Kbd>Enter</Kbd>}
             </Button>
             {humans.length > 1 && (
               <Button size="lg" onClick={newGame} title={ranked ? 'Leave this room and queue for another ranked game' : 'Leave this room for another casual game'} data-testid="new-game">
@@ -311,21 +316,15 @@ export function Results() {
           <p className="text-[0.98rem] text-ash" aria-live="polite" data-testid="quick-ready-status">
             {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}
             {localReady
-              ? ranked ? 'Back to the ranked lobby when everyone is ready.' : 'Starting when everyone is ready.'
+              ? autoStart ? 'You can still opt out before the countdown ends.' : 'Waiting for everyone to be ready.'
               : 'Take your time: nothing starts until you press Ready.'}
           </p>
         </div>
       ) : (
       <div className="mt-3 flex shrink-0 flex-wrap items-center justify-center gap-3">
-        {isHost ? (
-          <Button variant="primary" size="lg" sound="ready" onClick={rematch} autoFocus>
-            Rematch <Kbd>Enter</Kbd>
-          </Button>
-        ) : (
-          <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus>
-            {localReady ? 'Waiting for the host…' : 'Rematch'} {!localReady && <Kbd>Enter</Kbd>}
-          </Button>
-        )}
+        <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} aria-pressed={localReady} autoFocus data-testid="custom-rematch-ready">
+          {localReady ? 'Keep reviewing results' : 'Ready for rematch'} {!localReady && <Kbd>Enter</Kbd>}
+        </Button>
         <Button size="lg" onClick={backToLobby}>
           Back to lobby
         </Button>
@@ -339,9 +338,9 @@ export function Results() {
         </Button>
       </div>
       )}
-      {online && !quick && !maintenance && humans.length > 1 && (
+      {!quick && !maintenance && (
         <p className="mt-2 shrink-0 text-[0.98rem] text-ash" aria-live="polite">
-          {isHost ? `${readyCount} of ${humans.length - 1} ${humans.length - 1 === 1 ? 'opponent wants' : 'players want'} a rematch.` : localReady ? 'The host sees that you are ready.' : 'The host starts the rematch.'}
+          {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}{localReady ? autoStart ? 'You can still opt out before the countdown ends.' : 'Waiting for everyone to be ready.' : 'Take your time: nothing starts until you press Ready.'}
         </p>
       )}
       {collectionOpen && <Collection onClose={() => setCollectionOpen(false)} />}

@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, type GameMode, type MatchSettings, type TeamMode } fr
 import { session } from '../../game/session'
 import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
-import { LOBBY_VOTE_SETTINGS, type LobbyVoteSetting, type LobbyVoteView } from '../../net/lobbyVotes'
+import { LOBBY_VOTE_SETTINGS, lobbyVoteValues, type LobbyVoteSetting, type LobbyVoteView } from '../../net/lobbyVotes'
 
 /**
  * Every original lobby option (docs/research/systems.md §6.1), editable by
@@ -51,7 +51,7 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
   }
   const ro = !editable
   const goldControl = (key: LobbyVoteSetting) => <div className="flex items-center gap-2">
-    {voting && <Button size="sm" variant="ghost" disabled={!!activeVote} onClick={() => session.startLobbyVote(key)} title={`Ask players: ${Object.entries(LOBBY_VOTE_SETTINGS[key].values).map(([name, value]) => `${name} ${value}`).join(' / ')} gold. Voting lasts 10 seconds.`} aria-label={`Ask lobby to vote on ${LOBBY_VOTE_SETTINGS[key].label}`}>Vote</Button>}
+    {voting && <Button size="sm" variant="ghost" disabled={!!activeVote} onClick={() => session.startLobbyVote(key)} title={`Ask players: ${Object.entries(lobbyVoteValues(settings[key])).map(([name, value]) => `${name === 'medium' ? 'current' : name} ${value}`).join(' / ')} gold. Voting lasts 10 seconds.`} aria-label={`Ask lobby to vote on ${LOBBY_VOTE_SETTINGS[key].label}`}>Vote</Button>}
     <NumberField label={LOBBY_VOTE_SETTINGS[key].label} value={settings[key]} min={0} max={9999} disabled={ro || activeVote?.setting === key} onCommit={(value) => set({ [key]: value })} />
   </div>
   const isDefault = (Object.keys(DEFAULT_SETTINGS) as (keyof MatchSettings)[]).every((k) => settings[k] === DEFAULT_SETTINGS[k])

@@ -116,8 +116,10 @@ export interface LobbyView {
    * a bot took over", join retries). Written by the session, cleared after a few seconds.
    */
   notice?: string | null
-  /** A bot seat is reserved; the player watches until the current round finishes. */
+  /** An open or bot seat is reserved; watch until the current round finishes. */
   waitingForRound?: boolean
+  /** Total occupied and open seats (ten by default). */
+  maxPlayers?: number
   /** round-trip ping per player in ms, measured by the host (host 0, bots absent). ~1 Hz. */
   pings: Record<number, number>
   /** players who asked for a rematch on the results screen; reset when a match starts */

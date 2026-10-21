@@ -240,6 +240,10 @@ export function StreakCallout() {
               {slotName(state, shown.player)}
             </b>
           )}
+          {shown.line === 'first_blood' && shown.victim !== undefined && <>
+            <span className="mx-2 text-ash">eliminated</span>
+            <b style={{ color: slotColor(state, shown.victim) }}>{shown.victim === frame.localPlayer ? 'You' : slotName(state, shown.victim)}</b>
+          </>}
         </div>
       )}
     </div>

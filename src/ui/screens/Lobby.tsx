@@ -97,7 +97,7 @@ export function AutoStart({ at, fill, between = false }: { at: number; fill: boo
       ref.current.dataset.startingSoon = String(soon)
     }
   })
-  return <span ref={ref} className="tabular" title={between ? undefined : 'Bots fill empty seats until replaced by players'} data-testid="auto-start" />
+  return <span ref={ref} className="tabular" title={fill ? 'Bots fill empty seats until replaced by players' : undefined} data-testid="auto-start" />
 }
 
 /** a room hosted from your PC that has not opened after this long offers the game server instead */
@@ -343,7 +343,10 @@ export function Lobby() {
   const anyoneReady = lobby.slots.some((s) => s.kind === 'human' && lobby.ready?.[s.id])
   const automatic = (lobby.quick || lobby.ranked) && lobby.status === 'open' && !lobby.error && !lobby.maintenance
   const status = statusLine(lobby, humans)
-  const full = lobby.slots.length >= MAX_PLAYERS
+  const maxPlayers = lobby.maxPlayers ?? MAX_PLAYERS
+  const full = lobby.slots.length >= maxPlayers
+  const openSeats = Math.max(0, maxPlayers - lobby.slots.length)
+  const canChangeSeats = canEdit && !lobby.quick && !lobby.autoStart && lobby.status === 'open'
   const ready = !lobby.maintenance && lobby.slots.length >= 2 && lobby.status !== 'error' && (lobby.role !== 'host' || lobby.status === 'open')
 
   return (
@@ -385,6 +388,10 @@ export function Lobby() {
         <p className="mt-1 text-sm text-bone">{lobby.maintenance}</p>
         <Button className="mt-3" onClick={leaveToMenu}>Choose another region</Button>
       </section>}
+      {!lobby.quick && lobby.autoStart && <section className="rounded-lg border border-gold/50 bg-[#281d13] px-5 py-4 text-center" role="status" aria-live="polite" data-testid="custom-start-countdown">
+        <p className="font-display text-3xl font-bold text-gold"><AutoStart at={lobby.autoStart.at} fill={false} /></p>
+        <p className="mt-1 text-sm text-bone">Get ready · shop and prepare your warlock next</p>
+      </section>}
       {automatic && <section
         className={`lobby-auto-status shrink-0 rounded-lg border text-center ${lobby.ranked ? 'border-[#bfc3d3]/40 bg-[linear-gradient(110deg,rgba(68,48,74,.75),rgba(23,18,29,.94),rgba(77,35,44,.65))] shadow-[inset_0_1px_0_rgba(221,212,244,.12),0_0_24px_rgba(158,89,96,.08)]' : 'border-[#e7a656]/35 bg-[linear-gradient(110deg,rgba(68,40,15,.65),rgba(28,18,13,.94),rgba(68,40,15,.65))] shadow-[inset_0_1px_0_rgba(255,216,144,.12),0_0_24px_rgba(255,150,50,.06)]'}`}
         aria-label="Automatic match start"
@@ -422,7 +429,7 @@ export function Lobby() {
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="section-title lobby-roster-title">Warlocks</h2>
             <span className="tabular text-ash">
-              {lobby.slots.length} / {lobby.ranked ? 8 : MAX_PLAYERS}
+              {lobby.slots.length} / {maxPlayers}
             </span>
           </div>
           <ul className="lobby-roster-list flex min-h-0 flex-1 flex-col overflow-y-auto pr-1" aria-label="Warlock roster">
@@ -432,7 +439,7 @@ export function Lobby() {
                 slot={s}
                 isLocal={s.id === lobby.localPlayer}
                 isHost={online && !lobby.quick && s.id === HOST_ID}
-                canEdit={canEdit}
+                canEdit={canEdit && !lobby.autoStart}
                 teamMode={lobby.settings?.teamMode}
                 online={online}
                 ping={lobby.pings?.[s.id]}
@@ -444,8 +451,20 @@ export function Lobby() {
               />
             ))}
             {lobby.slots.length === 0 && <li className="py-6 text-ash">{lobby.status === 'error' ? 'No players.' : 'Setting up the lobby…'}</li>}
+            {!lobby.quick && lobby.status === 'open' && Array.from({ length: openSeats }, (_, i) => (
+              <li key={`open-${i}`} className="lobby-player flex shrink-0 items-center justify-between rounded-lg border border-dashed border-gold/20 px-3 py-2" data-testid="open-seat">
+                <span className="text-ash">Open seat <span className="text-xs text-ash/70">· {online ? 'Anyone can join' : 'Add a bot to play'}</span></span>
+                {canChangeSeats && <Button size="sm" variant="ghost" onClick={() => session.setMaxPlayers(maxPlayers - 1)} aria-label={`Close open seat ${i + 1}`}>Close</Button>}
+              </li>
+            ))}
+            {!lobby.quick && lobby.status === 'open' && maxPlayers < MAX_PLAYERS && (
+              <li className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-sm text-ash" data-testid="closed-seats">
+                <span>{MAX_PLAYERS - maxPlayers} closed {MAX_PLAYERS - maxPlayers === 1 ? 'seat' : 'seats'}</span>
+                {canChangeSeats && <Button size="sm" variant="ghost" onClick={() => session.setMaxPlayers(maxPlayers + 1)}>Open seat</Button>}
+              </li>
+            )}
           </ul>
-          {canEdit && (
+          {canEdit && !lobby.autoStart && (
             <div className="lobby-bot-controls flex flex-wrap items-center gap-2 border-t border-[rgba(255,170,100,0.1)]">
               <select
                 className="field w-32"
@@ -463,7 +482,7 @@ export function Lobby() {
               <Button disabled={full || lobby.status === 'error'} onClick={() => session.addBot(botLevel)}>
                 Add bot
               </Button>
-              {full && <span className="text-sm text-ash">The arena holds ten.</span>}
+              {full && <span className="text-sm text-ash">All {maxPlayers} seats are occupied.</span>}
             </div>
           )}
         </section>
@@ -482,7 +501,7 @@ export function Lobby() {
                 <Switch label="Listed publicly" checked={lobby.quick || lobby.ranked ? true : !!lobby.public} disabled={!!lobby.quick || !!lobby.ranked} onChange={(v) => session.setPublic(v)} />
               </div>
             )}
-            <MatchOptions settings={lobby.settings} editable={canEdit} voting={canEdit && lobby.role === 'host' && !lobby.quick && humans >= 2 && lobby.status === 'open'} activeVote={lobby.vote ?? null} />
+            <MatchOptions settings={lobby.settings} editable={canEdit && !lobby.autoStart} voting={canEdit && !lobby.autoStart && lobby.role === 'host' && !lobby.quick && humans >= 2 && lobby.status === 'open'} activeVote={lobby.vote ?? null} />
           </div>
         </section>
       </div>
@@ -503,8 +522,8 @@ export function Lobby() {
             <Button
               variant="primary"
               size="lg"
-              disabled={!ready || !warm.ready || !!lobby.vote}
-              sound="ready"
+              disabled={!ready || !warm.ready || !!lobby.vote || !!lobby.autoStart}
+              sound="click"
               onClick={startMatch}
               title={lobby.vote ? 'Wait for the lobby vote to finish' : !ready ? 'Add a bot or wait for a friend' : !warm.ready ? 'Loading the arena so the match starts without a hitch' : undefined}
               data-testid="start-match"
@@ -516,7 +535,7 @@ export function Lobby() {
                   Preparing arena…
                 </>
               ) : (
-                'Start match'
+                lobby.autoStart ? 'Starting…' : 'Start match'
               )}
             </Button>
           ) : (

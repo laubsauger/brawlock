@@ -62,7 +62,7 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
   }
   const editingSettings = settingsView && !!player?.profile
 
-  return <Modal title={player ? editingSettings ? 'Account settings' : 'Set up your player' : 'Sign in'} onClose={onClose} width={player ? 'max-w-3xl' : 'max-w-md'}>
+  return <Modal title={player ? editingSettings ? 'Account settings' : 'Set up your player' : 'Sign in'} onClose={onClose} width={player ? 'max-w-3xl' : 'max-w-md'} help={false}>
     <div className={player ? 'grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]' : ''}>
     {player && <PlayerPreview name={name} color={color} onWardrobe={editingSettings ? onWardrobe : undefined} />}
     <div className="flex min-h-72 flex-col gap-4" aria-busy={busy}>

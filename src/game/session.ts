@@ -607,11 +607,13 @@ export const session: GameSession = {
   startLobbyVote: impl.startLobbyVote,
   castLobbyVote: impl.castLobbyVote,
   addBot: impl.addBot,
+  setMaxPlayers: impl.setMaxPlayers,
   removeSlot: impl.removeSlot,
   setBotDifficulty: impl.setBotDifficulty,
   setTeam: impl.setTeam,
   updateSettings: impl.updateSettings,
   startMatch() { withCurrentBuild(() => impl.startMatch()) },
+  requestMatchStart() { withCurrentBuild(() => impl.requestMatchStart()) },
   rematch() { withCurrentBuild(() => impl.rematch()) },
   backToLobby: impl.backToLobby,
   setReady(ready) {
@@ -667,7 +669,7 @@ function listingTarget(): ReturnType<typeof p2pListingTarget> {
   const set = l.settings ?? DEFAULT_SETTINGS
   return p2pListingTarget({ listed, role: l.role, status: l.status, code: l.roomCode, public: !!l.public,
     transport: impl.transport(), slots: l.slots, settings: set, screen: sessionScreen, host: getProfile().name,
-    max: MAX_PLAYERS, joinable: impl.joinableSeats(), progress: listingProgress })
+    max: l.maxPlayers ?? MAX_PLAYERS, joinable: impl.joinableSeats(), progress: listingProgress })
 }
 
 function syncListing(): void {

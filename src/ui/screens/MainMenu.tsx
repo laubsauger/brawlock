@@ -407,7 +407,7 @@ export function MainMenu() {
   if (profileTab) return <Profile initialTab={profileTab} initialBoardScope={online.configured ? 'global' : 'device'} onBack={() => setProfileTab(null)} />
   if (browseOpen) return <>
     <BrowseGames onBack={() => setBrowseOpen(false)} onHost={() => setPlayMode('online')} />
-    {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
+    {playSupported && playMode && <PlaySetup onClose={() => setPlayMode(null)} />}
   </>
 
   return (
@@ -516,10 +516,10 @@ export function MainMenu() {
           </span>
         </div>
       </footer>
-      {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
+      {playSupported && playMode && <PlaySetup onClose={() => setPlayMode(null)} />}
       {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onWardrobe={() => { setAccountOpen(false); setCollectionOpen(true) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
       {collectionOpen && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} onSignIn={accountsEnabled ? () => { setCollectionOpen(false); openAccount() } : undefined} /></Suspense>}
-      {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
+      {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" help={false} footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name
           <input autoFocus aria-label="Display name" className="field" maxLength={NAME_MAX} spellCheck={false} value={draft} onFocus={(e) => e.target.select()} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitName() }} />
         </label>

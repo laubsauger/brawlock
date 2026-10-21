@@ -8,6 +8,7 @@ import { createSession, type MatchRecorder, type NetMode, type SessionDeps } fro
 import { createBot } from '../bots'
 import type { NetFactory } from './transport'
 import type { ChatLine } from './chat'
+import { killPawn } from '../sim/combat'
 
 /** what people said: the room's join / leave lines left out */
 const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
@@ -205,6 +206,153 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('shares a three-second custom start, prevents edits/restarts during it and then starts once', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client } = await hostAndClient(sim, { latencyMs: 1 })
+    client.session.requestMatchStart()
+    await vi.advanceTimersByTimeAsync(20)
+    expect(host.store.lobby.autoStart).toBeNull()
+    host.session.requestMatchStart()
+    const at = host.store.lobby.autoStart!.at
+    await vi.advanceTimersByTimeAsync(20)
+    expect(client.store.lobby.autoStart!.at).toBeCloseTo(at, -1)
+    host.session.updateSettings({ startGold: 500 })
+    host.session.setMaxPlayers(2)
+    host.session.requestMatchStart()
+    expect(host.store.lobby.settings!.startGold).toBe(30)
+    expect(host.store.lobby.maxPlayers).toBe(10)
+    expect(host.store.lobby.autoStart!.at).toBe(at)
+    await vi.advanceTimersByTimeAsync(2900)
+    expect(host.store.screen).toBe('lobby')
+    expect(client.store.screen).toBe('lobby')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.store.screen).toBe('match')
+    expect(client.store.screen).toBe('match')
+    expect(host.store.lobby.autoStart).toBeNull()
+    expect(host.stats.started).toBe(1)
+    expect(client.store.lobby.notice).toContain('Match started')
+    host.session.leave(); client.session.leave()
+  })
+
+  it('cancels the custom countdown when leaving or opening another room', async () => {
+    if (!sim) throw new Error(simMissing)
+    const host = makePeer(createMemoryNet(), 'Host', 'host', sim)
+    host.session.openOffline()
+    host.session.addBot('dummy')
+    host.session.requestMatchStart()
+    expect(host.store.lobby.autoStart).not.toBeNull()
+    host.session.leave()
+    host.session.openOffline()
+    await vi.advanceTimersByTimeAsync(3200)
+    expect(host.store.screen).toBe('lobby')
+    expect(host.store.lobby.autoStart).toBeNull()
+    expect(host.stats.started).toBe(0)
+    host.session.leave()
+  })
+
+  it('keeps unfilled custom seats open, lets hosts close/reopen them, and leaves removed bot seats open', async () => {
+    const { host, client, net, code } = await hostAndClient(noSim, { latencyMs: 1 })
+    expect(host.session.joinableSeats()).toBe(8)
+    expect(client.store.lobby.maxPlayers).toBe(10)
+    client.session.setMaxPlayers(2) // P2P guests cannot change the room.
+    await vi.advanceTimersByTimeAsync(20)
+    expect(host.session.roomState().maxPlayers).toBe(10)
+    for (const invalid of [NaN, 0, 1, 11, 2.5]) host.session.setMaxPlayers(invalid)
+    expect(host.session.roomState().maxPlayers).toBe(10)
+    host.session.setMaxPlayers(2)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(client.store.lobby.maxPlayers).toBe(2)
+    expect(host.session.joinableSeats()).toBe(0)
+    const late = makePeer(net, 'Late', 'late-key')
+    let joining = late.session.join(code)
+    await vi.advanceTimersByTimeAsync(50)
+    await joining
+    expect(late.store.lobby.error).toMatch(/full/i)
+    host.session.setMaxPlayers(3)
+    host.session.addBot('hard')
+    expect(host.session.joinableSeats()).toBe(1)
+    host.session.removeSlot(host.store.lobby.slots.find((s) => s.kind === 'bot')!.id)
+    expect(host.session.joinableSeats()).toBe(1)
+    joining = late.session.join(code)
+    await vi.advanceTimersByTimeAsync(50)
+    await joining
+    expect(late.store.lobby.status).toBe('open')
+    expect(late.store.lobby.maxPlayers).toBe(3)
+    host.session.leave(); client.session.leave(); late.session.leave()
+  })
+
+  it.each(['classic', 'predict'] as const)('admits a player without bots between rounds, with usable purchases and matching %s states', async (netMode) => {
+    if (!sim) throw new Error(simMissing)
+    // End the first fight at a fixed tick so the real round/shop flow is reproducible.
+    const api: SimApi = { ...sim, step(state, inputs) {
+      if (state.phase === 'fight' && state.round === 1 && state.tick >= 360) {
+        for (const pawn of state.pawns) if (pawn.owner !== 0 && pawn.alive) killPawn(state, pawn, null, 'lava')
+      }
+      sim.step(state, inputs)
+    } }
+    const { host, client, code, net } = await hostAndClient(api, { latencyMs: 10 }, { netMode }, { netMode })
+    host.session.updateSettings({ shopSeconds: 3 })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(host.out.states.at(-1)!.phase).toBe('fight')
+    expect(host.session.joinableSeats()).toBe(8)
+    const late = makePeer(net, 'Late', 'late-key', api, { netMode })
+    const joined = late.session.join(code)
+    await vi.advanceTimersByTimeAsync(300)
+    await joined
+    const id = late.store.lobby.localPlayer
+    expect(late.store.lobby.waitingForRound).toBe(true)
+    expect(late.out.localPlayer).toBe(-1)
+    expect(host.out.states.at(-1)!.pawns.some((p) => p.owner === id)).toBe(false)
+    expect(host.store.lobby.chat?.some((line) => line.text.includes('Late is waiting to join next round'))).toBe(true)
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(late.store.lobby.waitingForRound).toBe(false)
+    expect(late.out.localPlayer).toBe(id)
+    const active = host.out.states.at(-1)!
+    expect(active.phase).toBe('shop')
+    expect(active.pawns.find((p) => p.owner === id)?.alive).toBe(true)
+    expect(active.slots.find((s) => s.id === id)?.takeover).toBeUndefined()
+    expect(active.scores.find((s) => s.id === id)?.gold).toBe(40)
+    late.pending.push({ kind: 'buySpell', spell: 'lightning' })
+    await vi.advanceTimersByTimeAsync(600)
+    expect(host.out.states.at(-1)!.pawns.find((p) => p.owner === id)?.slots).toContain('lightning')
+    expect(late.out.states.at(-1)!.pawns.find((p) => p.owner === id)?.slots).toContain('lightning')
+    if (netMode === 'predict') {
+      expect(late.session.debug().netMode).toBe('predict')
+      expect(late.session.debug().streamChecks).toBeGreaterThan(0)
+      expect(late.session.debug().streamDesyncs).toBe(0)
+      expect(client.session.debug().streamDesyncs).toBe(0)
+    }
+    host.session.leave(); client.session.leave(); late.session.leave()
+  })
+
+  it('releases an empty-seat reservation on disconnect and preserves it on same-tab refresh', async () => {
+    if (!sim) throw new Error(simMissing)
+    const { host, client, net, code } = await hostAndClient(sim, { latencyMs: 1 })
+    host.session.updateSettings({ shopSeconds: 3 })
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(3400)
+    const late = makePeer(net, 'Waiting', 'wait-key', sim)
+    let joining = late.session.join(code)
+    await vi.advanceTimersByTimeAsync(100)
+    await joining
+    const id = late.store.lobby.localPlayer
+    expect(host.session.joinableSeats()).toBe(7)
+    const refreshed = makePeer(net, 'Waiting', 'wait-key', sim)
+    joining = refreshed.session.join(code)
+    await vi.advanceTimersByTimeAsync(100)
+    await joining
+    expect(refreshed.store.lobby.localPlayer).toBe(id)
+    expect(refreshed.store.lobby.waitingForRound).toBe(true)
+    expect(host.store.lobby.slots).toHaveLength(3)
+    refreshed.session.leave()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(host.session.joinableSeats()).toBe(8)
+    expect(host.store.lobby.slots).toHaveLength(2)
+    expect(host.out.states.at(-1)!.pawns).toHaveLength(2)
+    host.session.leave(); client.session.leave()
+  })
+
   it('accepts wait requests only for the sender in a casual quick lobby, with Ready taking priority', async () => {
     const net = createMemoryNet({ latencyMs: 1 })
     let send: (data: string) => void = () => { throw new Error('client not connected') }
@@ -470,11 +618,11 @@ describe('session lobby over the network', () => {
     expect(host.store.lobby.settings!.startGold).toBe(30)
     await vi.advanceTimersByTimeAsync(300)
     expect(host.store.lobby.vote).toBeNull()
-    expect(host.store.lobby.voteResult).toMatchObject({ reason: 'won', value: 60 })
-    expect(client.store.lobby.settings!.startGold).toBe(60)
+    expect(host.store.lobby.voteResult).toMatchObject({ reason: 'won', value: 45 })
+    expect(client.store.lobby.settings!.startGold).toBe(45)
     host.session.castLobbyVote(id, 'low')
     await vi.advanceTimersByTimeAsync(200)
-    expect(host.store.lobby.settings!.startGold).toBe(60)
+    expect(host.store.lobby.settings!.startGold).toBe(45)
     host.session.leave(); client.session.leave()
   })
 
@@ -517,7 +665,7 @@ describe('session lobby over the network', () => {
     await vi.advanceTimersByTimeAsync(200)
     expect(host.store.lobby.vote!.votes).toEqual({ 0: 'high' })
     await vi.advanceTimersByTimeAsync(9500)
-    expect(host.store.lobby.settings!.roundGold).toBe(20)
+    expect(host.store.lobby.settings!.roundGold).toBe(26)
     expect(late.store.lobby.voteResult?.reason).toBe('won')
     host.session.leave(); late.session.leave()
   })
@@ -671,7 +819,8 @@ describe('session lobby over the network', () => {
     await vi.advanceTimersByTimeAsync(500)
     await joined
     expect(other.store.lobby.localPlayer).not.toBe(id)
-    expect(other.out.localPlayer).toBe(-1)
+    expect(other.out.localPlayer).toBe(other.store.lobby.localPlayer)
+    expect(host.out.states.at(-1)!.pawns.some((p) => p.owner === other.store.lobby.localPlayer)).toBe(true)
     expect(host.store.lobby.slots.find((s) => s.id === id)?.profileId).toBe('profile-Clienta')
     expect(host.out.states.at(-1)!.scores.find((s) => s.id === id)?.connected).toBe(false)
   })
@@ -1002,38 +1151,72 @@ describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () 
     client.session.leave()
   })
 
-  /**
-   * Why: the results → rematch → match loop must be one host click and zero client
-   * clicks, with the same lineup and settings but a fresh seed (a new arena roll,
-   * not a replay).
-   */
-  it('rematch keeps slots and settings, draws a new seed, and clients follow without clicking', async () => {
+  it('rematch preserves results until everyone consents, supports opting out of the countdown, and then draws a new seed', async () => {
     const calls: { slots: PlayerSlot[]; settings: MatchSettings; seed: number }[] = []
     const spy: SimApi = {
       createMatch: (st, sl, seed) => {
         calls.push({ settings: structuredClone(st), slots: structuredClone(sl), seed })
         return sim!.createMatch(st, sl, seed)
       },
-      step: sim!.step,
+      step: (state, inputs) => {
+        if (state.phase === 'fight' && state.round === 1 && state.tick >= 180) {
+          for (const pawn of state.pawns) if (pawn.owner !== 0 && pawn.alive) killPawn(state, pawn, null, 'lava')
+        }
+        sim!.step(state, inputs)
+      },
     }
-    const { host, client } = await hostAndClient(spy)
+    const { host, client, net, code } = await hostAndClient(spy)
     host.session.addBot('easy')
-    host.session.updateSettings({ winScore: 5 })
+    host.session.updateSettings({ winScore: 1, shopSeconds: 1 })
     host.session.startMatch()
-    await advance(1000)
-
-    // host sends everyone back to the lobby; a client flags "wants rematch"
-    host.session.backToLobby()
-    await advance(300)
-    expect(host.store.screen).toBe('lobby')
-    expect(client.store.screen).toBe('lobby')
+    await advance(7500)
+    expect(host.store.screen).toBe('results')
+    expect(client.store.screen).toBe('results')
+    const result = client.store.result
+    host.session.rematch()
+    await advance(500)
+    expect(client.store.screen).toBe('results')
+    expect(client.store.result).toBe(result)
+    expect(host.store.lobby.autoStart).toBeNull()
+    expect(calls).toHaveLength(1)
     client.session.setReady(true)
     await advance(300)
-    expect(host.store.lobby.ready).toEqual({ 1: true })
-    expect(client.store.lobby.ready).toEqual({ 1: true })
+    expect(host.store.lobby.ready).toEqual({ 0: true, 1: true })
+    expect(client.store.lobby.autoStart).not.toBeNull()
+    const countdown = host.store.lobby.autoStart!.at
+    host.session.rematch() // Repeated host clicks must not reset or bypass the deadline.
+    expect(host.store.lobby.autoStart!.at).toBe(countdown)
+    await advance(2000)
+    client.session.setReady(false)
+    await advance(300)
+    expect(host.store.lobby.autoStart).toBeNull()
+    expect(client.store.lobby.autoStart).toBeNull()
+    await advance(11_000)
+    expect(client.store.screen).toBe('results')
+    expect(client.store.result).toBe(result)
+    expect(calls).toHaveLength(1)
+    host.session.startMatch() // Even the host's direct start path cannot override consent.
+    await advance(300)
+    expect(calls).toHaveLength(1)
 
-    host.session.rematch()
-    await advance(600)
+    const arriving = makePeer(net, 'Arrival', 'new-arrival', spy)
+    const joined = arriving.session.join(code)
+    await advance(300)
+    await joined
+    const newSeat = arriving.store.lobby.localPlayer
+    expect(host.store.lobby.ready[newSeat]).toBeUndefined()
+    arriving.session.setReady(true)
+    await advance(300)
+    expect(host.store.lobby.ready[newSeat]).toBe(true)
+    arriving.session.leave()
+    await advance(300)
+    expect(host.store.lobby.ready[newSeat]).toBeUndefined()
+    host.session.addBot('easy') // Restore the bot this temporary visitor replaced.
+
+    client.session.setReady(true)
+    await advance(9000)
+    expect(host.store.screen).toBe('results')
+    await advance(1400)
     expect(host.store.screen).toBe('match')
     expect(client.store.screen).toBe('match')
     expect(calls).toHaveLength(2)
@@ -1046,14 +1229,13 @@ describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () 
     // the client is playing the new match, not the old one
     expect(client.out.states[client.out.states.length - 1].tick).toBeLessThan(40)
 
-    // rematch straight out of a running match restarts it
+    // Rematch cannot interrupt an active match either.
     host.session.rematch()
     await advance(600)
-    expect(calls).toHaveLength(3)
-    expect(calls[2].seed).not.toBe(calls[1].seed)
+    expect(calls).toHaveLength(2)
     expect(client.store.screen).toBe('match')
-    // aborted matches never reach local stats
-    expect(host.stats.results).toEqual([])
+    expect(host.stats.results).toHaveLength(1)
+    host.session.leave(); client.session.leave()
   })
 
   it('everyone sees every player ping, the host at 0', async () => {

@@ -3,7 +3,7 @@ import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
 import { BET_STAKE, BET_TWO_STARTER_SECONDS, betIdentityMatchesSlot, canSpectateBet, poolPayoutIfRight, spectateBetWindow } from '../../sim/bets'
-import { teamOf, TICK_HZ } from '../../sim'
+import { isRoundParticipant, teamOf, TICK_HZ } from '../../sim'
 import { usePolled } from '../lib/ticker'
 import { playerColor, teamName } from '../lib/view'
 import { Button } from '../widgets'
@@ -27,7 +27,8 @@ function read() {
   const pick = bet ? state.slots.find((s) => betIdentityMatchesSlot(bet.pick, s)) : null
   const teams = new Set<number>()
   const choices = state.pawns.filter((p) => {
-    if (!p.alive || !canSpectateBet(state, local, p.owner)) return false
+    // Watching contenders is independent of whether this spectator can still place a bet.
+    if (!p.alive || !isRoundParticipant(state, p.owner) || !state.scores.find((s) => s.id === p.owner)?.connected) return false
     const team = teamOf(state, p.owner)
     if (teams.has(team)) return false
     teams.add(team)
@@ -52,7 +53,12 @@ function read() {
       kos: state.settings.teamMode === 'ffa' ? score?.kills ?? 0 : null,
       health: members.reduce((a, m) => a + Math.max(0, m.hp), 0) / Math.max(1, members.reduce((a, m) => a + m.maxHp, 0)),
       // pool share a correct bet placed now would collect if the round ended now
-      pays: poolPayoutIfRight(state, p.owner, true),
+      pays: poolPayoutIfRight(state, p.owner, !bet),
+      selected: !!pick && teamOf(state, pick.id) === teamOf(state, p.owner),
+      backers: state.betting.bets.filter((b) => {
+        const backed = state.slots.find((s) => betIdentityMatchesSlot(b.pick, s))
+        return backed && teamOf(state, backed.id) === teamOf(state, p.owner)
+      }).length,
     }
   })
   // rough win chance: Elo strength (logistic, as in the ladder) weighted by health left
@@ -94,6 +100,7 @@ function BetPanel({ value }: { value: BetView }) {
   const [expanded, setExpanded] = useState(true)
   const result = value.payout
   const open = value.window === 'open' && value.affordable && !value.selected && !result && value.choices.length > 0
+  const tracking = !!value.selected && !result && value.phase === 'fight'
   const status = result ? 'Settled' : value.selected ? 'Bet locked' : value.window !== 'open' ? 'Betting closed' : !value.affordable ? 'Not enough gold' : 'Betting open'
   const closedReason = value.window === 'roundEnded' ? 'Betting closed for this round'
     : value.window === 'timedOut' ? `Betting closed: the first ${BET_TWO_STARTER_SECONDS} seconds are over`
@@ -135,14 +142,14 @@ function BetPanel({ value }: { value: BetView }) {
         : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed{value.selectedPays !== null && value.phase === 'fight' && <span className="text-gold"> · pays {value.selectedPays} gold if right</span>}</p>
           : value.window !== 'open' ? <p className="mt-1 text-ash">{closedReason}</p>
             : !value.affordable ? <p className="mt-1 text-ash">You need {BET_STAKE} gold to bet</p> : null}
-      {open && <>
+      {(open || tracking) && <>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <p className="text-xs text-bone">Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold <span className="text-gold">· correct bets split the {value.pot > 0 ? `${value.pot} gold ` : ''}pot</span></p>
-          <button type="button" className="min-h-9 shrink-0 rounded px-2 text-xs text-gold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-gold" aria-expanded={expanded} aria-controls="spectator-bet-choices" onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide picks' : 'Show picks'}</button>
+          <p className="text-xs text-bone">{tracking ? <>Live odds <span className="text-gold">· Pot: {value.pot} gold</span></> : <>Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold <span className="text-gold">· correct bets split the {value.pot > 0 ? `${value.pot} gold ` : ''}pot</span></>}</p>
+          <button type="button" className="min-h-9 shrink-0 rounded px-2 text-xs text-gold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-gold" aria-expanded={expanded} aria-controls="spectator-bet-choices" onClick={() => setExpanded(!expanded)}>{expanded ? tracking ? 'Hide odds' : 'Hide picks' : tracking ? 'Show odds' : 'Show picks'}</button>
         </div>
-        {expanded && <div id="spectator-bet-choices" className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-4">{value.choices.map((choice) => <Button key={choice.player} size="sm" className="min-h-11 min-w-0 !px-2 !py-1 !text-left" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. If right, it pays ${choice.pays} gold at the current pot; more bets change that. One bet per round; it cannot be changed.`} aria-label={`Bet ${BET_STAKE} gold on ${choice.name}: pays ${choice.pays} gold if right, ${choice.chance}% win chance`}>
-          <span className="flex w-full min-w-0 flex-col gap-0.5">
-            <span className="flex w-full min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} aria-hidden /><span className="min-w-0 flex-1 truncate text-sm">{choice.name}</span><span className="tabular shrink-0 text-xs font-bold text-gold" title="Gold a correct bet collects at the current pot">pays {choice.pays}</span></span>
+        {expanded && <div id="spectator-bet-choices" className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-4">{value.choices.map((choice) => {
+          const content = <span className="flex w-full min-w-0 flex-col gap-0.5">
+            <span className="flex w-full min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} aria-hidden /><span className="min-w-0 flex-1 truncate text-sm">{choice.name}</span><span className="tabular shrink-0 text-xs font-bold text-gold" title="Gold a correct bet collects at the current pot">{tracking && !choice.backers ? 'No bets' : `pays ${choice.pays}`}</span></span>
             <span className="tabular truncate font-ui text-[0.68rem] tracking-normal text-ash normal-case">
               <span className="text-bone" title="Rough win chance: Elo and health left">{choice.chance}% win</span>
               {' · '}{choice.elo !== null ? `${choice.elo} Elo` : 'Unrated'}
@@ -150,9 +157,12 @@ function BetPanel({ value }: { value: BetView }) {
               {choice.kos !== null && ` · ${choice.kos} KO`}
             </span>
             <span className="block h-0.5 w-full overflow-hidden rounded bg-black/40" aria-hidden><span className="block h-full" style={{ width: `${Math.round(choice.health * 100)}%`, background: choice.color }} /></span>
+            {tracking && <span className="text-[0.68rem] text-gold">{choice.selected ? 'Your pick · ' : ''}{choice.backers} {choice.backers === 1 ? 'bet' : 'bets'}</span>}
           </span>
-        </Button>)}</div>}
-        <p className="mt-1 text-xs text-ash">{value.secondsLeft === null ? 'Closes when two warlocks remain.' : `Closes in ${value.secondsLeft}s.`} One pick per round.</p>
+          return tracking ? <div key={choice.player} className={`min-w-0 rounded border px-2 py-1 ${choice.selected ? 'border-gold/60 bg-gold/10' : 'border-gold/15 bg-black/20'}`} data-testid="bet-live-contender" data-selected={choice.selected} aria-label={`${choice.name}: ${choice.chance}% estimated win chance`}>{content}</div>
+            : <Button key={choice.player} size="sm" className="min-h-11 min-w-0 !px-2 !py-1 !text-left" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. If right, it pays ${choice.pays} gold at the current pot; more bets change that. One bet per round; it cannot be changed.`} aria-label={`Bet ${BET_STAKE} gold on ${choice.name}: pays ${choice.pays} gold if right, ${choice.chance}% win chance`}>{content}</Button>
+        })}</div>}
+        <p className="mt-1 text-xs text-ash">{tracking ? value.selectedPays === null ? 'Your pick is out. Follow the remaining contenders until settlement.' : 'Your pick is locked. Estimates and pool shares update live.' : `${value.secondsLeft === null ? 'Closes when two warlocks remain.' : `Closes in ${value.secondsLeft}s.`} One pick per round.`}</p>
       </>}
       <details className="mt-1 text-xs text-ash">
         <summary className="cursor-pointer rounded py-1 focus-visible:outline-2 focus-visible:outline-gold">Payout rules <span className="ml-2 font-normal">· Pot: {value.pot} gold</span></summary>

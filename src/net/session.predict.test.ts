@@ -1312,16 +1312,17 @@ describe('input stream (M4.2)', () => {
     }
   }, 60000)
 
-  /** Why: spectators (joined mid-match) need no stream state; they watch the host's snapshots. */
-  it('a mid-match joiner spectates on snapshots and sees the host state', async () => {
-    // No bot seat to reserve: this is a spectator, rather than a next-round entrant.
+  /** A reserved empty seat watches confirmed snapshots until the fight ends. */
+  it('a mid-match entrant watches snapshots while waiting for the next round', async () => {
     const r = await room(RTT80, 1)
+    r.host.session.updateSettings({ shopSeconds: 1 })
     r.host.session.startMatch()
     await vi.advanceTimersByTimeAsync(5000)
     const late = makePeer(r.net, 'Late', 'late-key', {})
     const joined = late.session.join(r.code)
     await vi.advanceTimersByTimeAsync(800)
     await joined
+    expect(late.store.lobby.waitingForRound).toBe(true)
     await vi.advanceTimersByTimeAsync(3000)
     expect(late.session.debug().netMode).toBe('classic')
     expect(late.session.debug().streamTick).toBe(-1)

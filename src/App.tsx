@@ -166,13 +166,15 @@ export function ActiveRoomStatus() {
   useTick((now) => {
     const cue = startingCue.current
     const code = lobby.roomCode ?? ''
-    if (cue.code !== code || !room.active || room.phase !== 'lobby' || lobby.status !== 'open' || !lobby.quick || lobby.maintenance || !lobby.autoStart) {
+    const offlineLobby = lobby.role === 'offline' && (screen === 'lobby' || screen === 'results')
+    if (cue.code !== code || (!room.active && !offlineLobby) || (!offlineLobby && room.phase !== 'lobby' && room.phase !== 'results') || lobby.status !== 'open' || lobby.maintenance || !lobby.autoStart) {
+      if (cue.warned && !lobby.quick && screen === 'match') sfx('fight')
       Object.assign(cue, { code, warned: false, second: 0 })
       return
     }
     const second = Math.max(0, Math.ceil((lobby.autoStart.at - now) / 1000))
     if (second === 0 || second > 10) return
-    if (!cue.warned) { sfx('ready'); cue.warned = true }
+    if (!cue.warned) { sfx(lobby.quick ? 'ready' : 'countdown'); cue.warned = true }
     else if (second <= 3 && second !== cue.second) sfx('countdown')
     cue.second = second
   })

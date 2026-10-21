@@ -183,12 +183,12 @@ export function joinRoom(text: string, onCancel?: () => void, route?: RoomRoute)
 
 export function startMatch(): void {
   closeOverlays()
-  session.startMatch()
+  session.requestMatchStart()
 }
 
 /**
- * Results screen, one click. Host / offline: new match with the same slots and
- * settings. Client: flags "ready for a rematch" for the host to see.
+ * Results: opt into a rematch. Everyone keeps reviewing until all humans are ready,
+ * then gets a countdown they can cancel by withdrawing readiness.
  */
 export function rematch(): void {
   closeOverlays()

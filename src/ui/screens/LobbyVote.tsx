@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { session } from '../../game/session'
 import { useGame } from '../../game/store'
-import { LOBBY_VOTE_CHOICES, LOBBY_VOTE_SETTINGS } from '../../net/lobbyVotes'
+import { LOBBY_VOTE_CHOICES, LOBBY_VOTE_SETTINGS, lobbyVoteValues } from '../../net/lobbyVotes'
 import { useTick } from '../lib/ticker'
 import { sfx } from '../lib/sound'
 
@@ -29,6 +29,7 @@ export function LobbyVote() {
   const eligible = vote.eligible.includes(local)
   const selected = vote.votes[local]
   const definition = LOBBY_VOTE_SETTINGS[vote.setting]
+  const values = lobbyVoteValues(vote.current)
   const cast = vote.eligible.filter((id) => vote.votes[id]).length
   return <section className="panel mb-3 flex flex-wrap items-center justify-between gap-3 border-gold/50 px-4 py-3" aria-label="Lobby vote" role="region">
     <div>
@@ -36,8 +37,8 @@ export function LobbyVote() {
       <p className="text-xs text-ash">{cast}/{vote.eligible.length} voted · Tie or no votes keeps {vote.current} gold.{!eligible && ' You joined after this vote opened.'}</p>
     </div>
     <div className="flex flex-wrap gap-2" role="group" aria-label={`Vote on ${definition.label}`}>
-      {LOBBY_VOTE_CHOICES.map((choice) => <button key={choice} type="button" disabled={!eligible} aria-pressed={selected === choice} className={`rounded border px-3 py-2 text-sm disabled:opacity-40 ${selected === choice ? 'border-gold bg-gold/15 text-gold' : 'border-bone/20 bg-black/20 hover:border-gold/70'}`} onClick={() => { sfx('click'); session.castLobbyVote(vote.id, choice) }}>
-        <span className="capitalize">{choice}</span> <strong>{definition.values[choice]}</strong>
+      {LOBBY_VOTE_CHOICES.filter((choice) => choice === 'medium' || values[choice] !== values.medium).map((choice) => <button key={choice} type="button" disabled={!eligible} aria-pressed={selected === choice} className={`rounded border px-3 py-2 text-sm disabled:opacity-40 ${selected === choice ? 'border-gold bg-gold/15 text-gold' : 'border-bone/20 bg-black/20 hover:border-gold/70'}`} onClick={() => { sfx('click'); session.castLobbyVote(vote.id, choice) }}>
+        <span className="capitalize">{choice === 'medium' ? 'Current' : choice}</span> <strong>{values[choice]}</strong>
       </button>)}
     </div>
   </section>

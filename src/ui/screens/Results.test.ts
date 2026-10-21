@@ -32,6 +32,21 @@ function present(winners: number[]): string {
 }
 
 describe('final-round results', () => {
+  it.each(['host', 'client'] as const)('keeps %s results readable and exposes readiness with a countdown opt-out', (role) => {
+    present([1])
+    useGame.getState().setLobby({ role, slots: useGame.getState().result!.slots, ready: { 1: true }, autoStart: { at: 10_000, fill: false } })
+    const html = renderToStaticMarkup(createElement(Results))
+    expect(html).toContain('data-testid="rematch-countdown"')
+    expect(html).toContain('Keep reviewing results')
+    expect(html).toContain('stop the countdown')
+    expect(html).toContain('You can still opt out')
+    expect(html).toContain('results-board')
+    useGame.getState().setLobby({ ready: {}, autoStart: null })
+    const reviewing = renderToStaticMarkup(createElement(Results))
+    expect(reviewing).toContain('Take your time: nothing starts until you press Ready.')
+    expect(reviewing).not.toContain('data-testid="rematch-countdown"')
+  })
+
   it('puts the final winner first while preserving scoring wins and normal standings for everyone else', () => {
     const html = present([1])
     expect(html).toContain('Victory')

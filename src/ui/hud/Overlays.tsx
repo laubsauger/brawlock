@@ -91,9 +91,10 @@ function Tile({ label, value, sub, children }: { label: string; value: string; s
 
 /** Stats content, shared by the standalone sheet and the shop's Stats tab. */
 export function CharacterBody() {
+  const waitingForRound = useGame((s) => s.lobby.waitingForRound)
   const s = usePolled(readSheet, (x) => JSON.stringify(x), 6)
   const binds = useBinds()
-  if (!s.ready) return <p className="py-4 text-ash">Your warlock is not in the arena yet.</p>
+  if (!s.ready) return <p className="py-4 text-ash">{waitingForRound ? 'Your seat is reserved. You’ll enter after this round.' : 'Your warlock is not in the arena yet.'}</p>
   const mult = kbMultiplier(s.kb)
   const hpFrac = s.maxHp > 0 ? Math.min(1, (s.alive ? s.hp : 0) / s.maxHp) : 0
   return (

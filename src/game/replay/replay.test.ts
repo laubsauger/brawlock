@@ -10,6 +10,7 @@ import { createBot } from '../../bots'
 import { cloneState, createMatch, step } from '../../sim'
 import { killPawn } from '../../sim/combat'
 import { startRound } from '../../sim/mode'
+import { applyRosterChanges } from '../../sim/roster'
 import type { InputCommand, MatchSettings, PlayerInput, PlayerSlot, SimState } from '../../sim/types'
 import { codeFromSearch, roomLink } from '../../net/code'
 import { createMemoryNet, mulberry32, type LinkOptions } from '../../net/memory'
@@ -271,6 +272,32 @@ describe('seeking and verification', () => {
       expect(replayHash(player.state)).toBe(hashes.get(tick))
     }
     expect(player.desync).toBeNull()
+  })
+
+  it('replays an empty-seat entrant with exact pawn, economy and seek state', async () => {
+    const slots: PlayerSlot[] = [0, 1].map((id) => ({ id, name: `Player ${id}`, color: id + 1, team: id, kind: 'human' }))
+    const state = createMatch(SETTINGS, slots, 11)
+    const entrant: PlayerSlot = { id: 2, name: 'Late', color: 3, team: 2, kind: 'human', profileId: 'profile-late' }
+    const recorder = new ReplayRecorder()
+    recorder.begin({ localPlayer: 0, slots, settings: state.settings, seed: 11 })
+    const hashes = new Map([[state.tick, replayHash(state)]])
+    for (let tick = 0; tick < 90; tick++) {
+      const added = tick === 20 ? [entrant] : undefined
+      recorder.step(state, [], undefined, added)
+      if (added) applyRosterChanges(state, added)
+      step(state, [])
+      recorder.observe(state, state.events)
+      hashes.set(state.tick, replayHash(state))
+    }
+    const data = recorder.finish('late-entrant', NET_ID, [])!
+    const player = new ReplayPlayer((await decodeReplay(await encodeReplay(data)))!, NET_ID)
+    for (const tick of [20, 21, data.endTick, 0, 21, data.endTick]) {
+      player.seek(tick)
+      expect(replayHash(player.state)).toBe(hashes.get(tick))
+      expect(player.state.pawns).toHaveLength(tick <= 20 ? 2 : 3)
+    }
+    expect(player.desync).toBeNull()
+    expect(data.slots).toHaveLength(3)
   })
 
   it('retains stable profile IDs across a rename and uses the latest label only in replay summaries', async () => {

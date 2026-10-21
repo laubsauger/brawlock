@@ -90,6 +90,8 @@ export type { TickEvents }
 
 /** A dedicated-server room's listing and quick-play state (lobby message). */
 export interface RoomState {
+  /** Total occupied and open seats; unfilled seats need no bot. */
+  maxPlayers?: number
   /** listed in the public room browser (GET /rooms?public=1) */
   public: boolean
   /** a quick-play room: the server runs it (no owner), it starts and refills by itself */
@@ -127,7 +129,8 @@ export type Msg =
     }
   | {
       t: 'ctl'
-      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby' | 'visibility' | 'vote'
+      op: 'addBot' | 'removeSlot' | 'setBotDifficulty' | 'setTeam' | 'settings' | 'start' | 'rematch' | 'lobby' | 'visibility' | 'vote' | 'capacity' | 'countdown'
+      maxPlayers?: number
       setting?: LobbyVoteSetting
       player?: PlayerId
       difficulty?: BotDifficulty

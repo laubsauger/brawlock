@@ -48,3 +48,28 @@ exact routes, failed retries, identity changes, and live-tab protection.
 The `automatic room last-human cleanup` cases in `src/net/dedicated.test.ts`
 cover quick/ranked lobby and match closure, transport loss, pending reservation
 arrival/expiry, stopped sessions, removed listings, and retained custom rooms.
+
+## Open seats and starting another match
+
+Custom rooms default to ten occupied/open seats. The host can close or reopen vacant
+seats in the lobby; bots occupy seats but are not required to keep them joinable.
+Capacity is authoritative and appears in both server and P2P listings. During a fight,
+an arrival reserves either a bot seat or an empty seat and watches until the round ends.
+Empty-seat arrivals receive a real pawn and the starting budget plus completed rounds'
+guaranteed gold, without inheriting kills, wins or bot equipment. Roster additions pass
+through the same deterministic patch in the host, confirmed input stream and replays.
+Disconnecting before activation releases the reservation. Ranked admission stays locked
+after the match begins.
+
+The custom Start button has a shared three-second countdown. Results have a different
+contract: every human, including the host, must explicitly be ready, followed by ten
+seconds of visible/audible warning. Withdrawing readiness cancels that countdown and
+keeps the results available. Repeated Rematch clicks and the direct Start path cannot
+skip consent or the deadline. Casual results use the same grace period; ranked results
+return to their matchmaking lobby afterward, where the two-human minimum still applies.
+Readiness belongs to the occupant and clears on departure, new admission and match start.
+
+Proof: `src/sim/roster.test.ts`, `src/net/session.test.ts`,
+`src/net/dedicated.test.ts`, `src/game/replay/replay.test.ts` and
+`src/ui/screens/Results.test.ts`; ignored desktop captures live in
+`artifacts/casual-lobby-wait/`.

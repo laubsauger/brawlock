@@ -193,7 +193,6 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   let accept: ((t: Transport) => void) | null = null
   const backlog: Transport[] = []
   let startTimer: ReturnType<typeof setTimeout> | null = null
-  let rankedLobbyTimer: ReturnType<typeof setTimeout> | null = null
   let closed = false
   let maintenance: string | null = null
 
@@ -298,8 +297,8 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   function rematch(): void {
     startTimer = null
     if (closed || maintenance || screen !== 'results') return
-    if (humans() === 0) session.backToLobby()
-    else session.rematch()
+    session.backToLobby()
+    if (humans() > 0) session.startMatch()
   }
 
   // ---- quick play ------------------------------------------------------------------
@@ -332,19 +331,13 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       return
     }
     if (opts.ranked && screen === 'results') {
-      if (quickAt !== null) setQuickTimer(null, false)
       // The result stays up until every human pressed Ready; then back to the ranked lobby,
       // the queue for the next game.
       if (n === 0 || readyHumans() < n) {
-        if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
-        rankedLobbyTimer = null
+        if (quickAt !== null) setQuickTimer(null, false)
         return
       }
-      // Never return synchronously: finishMatch broadcasts end after setScreen.
-      if (rankedLobbyTimer === null) rankedLobbyTimer = setTimeout(() => {
-        rankedLobbyTimer = null
-        if (!closed && screen === 'results') session.backToLobby()
-      }, 1)
+      if (quickAt === null) setQuickTimer(deps.now() + READY_START_MS, false)
       return
     }
     // Ranked players can see the full bot table while waiting for another human.
@@ -372,15 +365,23 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       if (readyHumans() >= n && quickAt !== null && quickAt > soon) setQuickTimer(soon, quickFill)
     } else if (screen === 'results') {
       // the next match only once every human pressed Ready
-      if (readyHumans() >= n) setQuickTimer(now, false)
-      else if (quickAt !== null) setQuickTimer(null, false)
+      if (readyHumans() >= n) {
+        if (quickAt === null) setQuickTimer(now + READY_START_MS, false)
+      } else if (quickAt !== null) setQuickTimer(null, false)
     } else if (quickAt !== null && screen === 'match') setQuickTimer(null, false)
   }
 
   function quickFire(): void {
     startTimer = null
     quickAt = null
-    if (closed || maintenance || !quick || humans() < (quick.minHumans ?? 1) || session.debug().peers === 0) return
+    if (closed || maintenance || !quick || session.debug().peers === 0) return
+    if (screen === 'results' && readyHumans() < humans()) { session.setRoom({ auto: null }); return }
+    if (opts.ranked && screen === 'results') {
+      session.backToLobby()
+      if (quickAt === null) session.setRoom({ auto: null })
+      return
+    }
+    if (humans() < (quick.minHumans ?? 1)) return
     if (screen === 'results') session.backToLobby()
     else if (screen !== 'lobby') return
     rebalance(true)
@@ -474,7 +475,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         host: ownerSlot?.name ?? null,
         humans: humans(),
         bots: lobby.slots.length - humans(),
-        max: quick ? Math.min(quick.seats, MAX_PLAYERS) : MAX_PLAYERS,
+        max: lobby.maxPlayers ?? MAX_PLAYERS,
         joinable: joinableSeats(),
         phase: screen,
         progress: screen === 'match' || screen === 'results' ? progress : null,
@@ -494,8 +495,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     setMaintenance(message) {
       maintenance = message
       if (startTimer) clearTimeout(startTimer)
-      if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
-      startTimer = null; rankedLobbyTimer = null; quickAt = null
+      startTimer = null; quickAt = null
       session.setRoom({ maintenance: message, auto: null })
       if (!message) schedule()
     },
@@ -504,7 +504,6 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     close() {
       closed = true
       if (startTimer) clearTimeout(startTimer)
-      if (rankedLobbyTimer !== null) clearTimeout(rankedLobbyTimer)
       clearInterval(empty)
       session.leave()
     },

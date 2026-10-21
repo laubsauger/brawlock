@@ -9,6 +9,7 @@
  * re-simulates the rest, so it lands on exactly the state forward play reaches.
  */
 import { cloneState, step as simStep } from '../../sim'
+import { applyRosterChanges } from '../../sim/roster'
 import type { PlayerInput, SimEvent, SimState } from '../../sim/types'
 import { checkReplay, decodeInputs, type ReplayCheck, type ReplayData, type ReplayStep } from './format'
 import { replayHash } from './recorder'
@@ -71,10 +72,7 @@ export class ReplayPlayer {
     const resync = this.resyncs.get(t)
     if (resync) this.cur = cloneState(resync)
     const rec = this.steps.get(t)
-    if (rec?.[3]) {
-      const slots = new Map(rec[3].map((s) => [s.id, { ...s }]))
-      this.cur.slots = this.cur.slots.map((s) => slots.get(s.id) ?? s)
-    }
+    if (rec?.[3]) applyRosterChanges(this.cur, rec[3])
     if (rec?.[2]) {
       for (const [id, on] of rec[2]) {
         const sc = this.cur.scores.find((s) => s.id === id)
