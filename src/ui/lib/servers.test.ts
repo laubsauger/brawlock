@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GRADE_LIMITS } from '../../net/netstats'
-import { pickRegion, pingGrade, regionProblem, type RegionStatus } from './servers'
+import { pickRegion, pingGrade, queueRegion, regionProblem, type RegionStatus } from './servers'
 
 const r = (id: string, state: RegionStatus['state'], rttMs: number | null): RegionStatus => ({ id, label: id.toUpperCase(), url: `wss://${id}`, state, rttMs, samples: [], healthy: null, versionOk: null, players: null, rooms: null, at: 0 })
 
@@ -27,6 +27,22 @@ describe('game-server region choice', () => {
     expect(pickRegion(s, 'auto')?.id).toBe('us-west')
     expect(regionProblem(pickRegion(s, 'eu'))).toBe(draining.maintenance.message)
     expect(regionProblem(pickRegion([draining], 'auto'))).toBe(draining.maintenance.message)
+  })
+
+  it('never moves a player off their region for maintenance until they accept the other one', () => {
+    const eu = { ...r('eu', 'up', 30), maintenance: { draining: true, message: null } }
+    const s = [eu, r('us-west', 'up', 170)]
+    // Auto alone would pick US West; the menu holds Europe (shown as paused) and offers US West
+    expect(pickRegion(s, 'auto')?.id).toBe('us-west')
+    expect(queueRegion(s, 'auto', '', [])).toMatchObject({ region: { id: 'eu' }, home: { id: 'eu' }, detour: { id: 'us-west' }, held: true })
+    expect(queueRegion(s, 'auto', '', ['eu'])).toMatchObject({ region: { id: 'us-west' }, held: false })
+    // the region you last played in counts as home even when another one pings lower
+    const us = { ...r('us-west', 'up', 170), maintenance: { draining: true, message: null } }
+    expect(queueRegion([r('eu', 'up', 30), us], 'auto', 'us-west', [])).toMatchObject({ region: { id: 'us-west' }, detour: { id: 'eu' }, held: true })
+    // no detour to offer: an open home, an explicit choice, or every region paused
+    expect(queueRegion([r('eu', 'up', 30), us], 'auto', '', [])).toMatchObject({ region: { id: 'eu' }, detour: null, held: false })
+    expect(queueRegion(s, 'eu', '', [])).toMatchObject({ region: { id: 'eu' }, detour: null, held: false })
+    expect(queueRegion([eu], 'auto', '', [])).toMatchObject({ detour: null, held: false })
   })
 
   it('says why a server cannot host: down, another version, still checking', () => {

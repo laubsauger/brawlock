@@ -6,6 +6,7 @@
  * regions, and every caller hides.
  */
 import { useEffect, useState } from 'react'
+import { create } from 'zustand'
 import { online, type RegionStatus } from '../../game/session'
 import { useGame } from '../../game/store'
 import { gradeOf, type NetGrade } from './netstats'
@@ -27,6 +28,32 @@ export function pickRegion(statuses: RegionStatus[], choice: string): RegionStat
   const up = statuses.filter((s) => s.state === 'up' && !s.maintenance?.draining)
   if (up.length) return up.reduce((a, b) => ((a.rttMs ?? Infinity) <= (b.rttMs ?? Infinity) ? a : b))
   return statuses[0] ?? null
+}
+
+/** Where this player plays: their last server region, else the lowest ping, maintenance or not. */
+export function homeRegion(statuses: RegionStatus[], last: string): RegionStatus | null {
+  const up = statuses.filter((s) => s.state === 'up')
+  return up.find((s) => s.id === last) ?? (up.length ? up.reduce((a, b) => ((a.rttMs ?? Infinity) <= (b.rttMs ?? Infinity) ? a : b)) : null)
+}
+
+/** Regions whose maintenance the player chose to play around, for this visit only. */
+export const useRegionDetours = create<{ ids: string[]; accept: (id: string) => void }>((set) => ({
+  ids: [],
+  accept: (id) => set((s) => (s.ids.includes(id) ? s : { ids: [...s.ids, id] })),
+}))
+
+/**
+ * Auto's region for the menu queues. When maintenance would move the player off their home
+ * region, it holds the home region (games there show as paused) until they accept the
+ * other region, so nobody lands somewhere else without being told. `detour` is the region
+ * Auto would use instead.
+ */
+export function queueRegion(statuses: RegionStatus[], choice: string, last: string, accepted: readonly string[]): { region: RegionStatus | null; home: RegionStatus | null; detour: RegionStatus | null; held: boolean } {
+  const region = pickRegion(statuses, choice)
+  const home = choice === 'auto' ? homeRegion(statuses, last) : null
+  const detour = home?.maintenance?.draining && region && region.id !== home.id && !region.maintenance?.draining ? region : null
+  const held = !!detour && !accepted.includes(home!.id)
+  return { region: held ? home : region, home, detour, held }
 }
 
 /** Ping grade with the netcode's thresholds (GRADE_LIMITS via gradeOf). */

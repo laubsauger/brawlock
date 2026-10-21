@@ -13,7 +13,7 @@ import { PlaySetup } from './PlaySetup'
 import { online, rejoin, session, type PublicRoom, type ServerProfile } from '../../game/session'
 import { getProfile, setPreferredColor } from '../../game/profile'
 import { PreferredColorPicker } from './PlayerColorPicker'
-import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
+import { pickRegion, queueRegion, regionProblem, useRegionChoice, useRegionDetours, useRegions, type RegionStatus } from '../lib/servers'
 import { RegionPicker } from '../RegionPicker'
 import { sfx } from '../lib/sound'
 import { chooseName, NAME_MAX } from '../lib/name'
@@ -98,7 +98,10 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const setSettings = useGame((s) => s.setSettings)
   const statuses = useRegions(5000)
   const choice = useRegionChoice()
-  const region = pickRegion(statuses, choice)
+  const lastRegion = useGame((s) => s.settings.lastServerRegion)
+  const accepted = useRegionDetours((s) => s.ids)
+  const route = queueRegion(statuses, choice, lastRegion, accepted)
+  const region = route.region
   const problem = regionProblem(region)
   const maintenance = region?.maintenance?.draining === true
   const regionId = region?.state === 'up' ? region.id : null
@@ -130,7 +133,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const accountError = useAccount((s) => s.error)
   const rankedReady = playSupported && !problem && accountsEnabled && accountLoaded && !accountError && !!account?.profile
   return <div className="menu-queues">
-    <RegionPicker statuses={statuses} choice={choice} onChange={(value) => setSettings({ serverRegion: value })} />
+    <RegionPicker statuses={statuses} choice={choice} onChange={(value) => setSettings({ serverRegion: value })} route={route} />
     <MenuEntry
       primary
       title="Casual"

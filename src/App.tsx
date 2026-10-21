@@ -220,6 +220,12 @@ export default function App() {
   // connection stats at 4 Hz for the HUD indicator, net graph and warnings
   useEffect(() => startNetMonitor(), [])
 
+  // remember where you play: the menu asks before Auto moves you off it for maintenance
+  useEffect(() => {
+    const id = screen === 'lobby' || screen === 'match' || screen === 'results' ? session.region()?.id : undefined
+    if (id && id !== useGame.getState().settings.lastServerRegion) useGame.getState().setSettings({ lastServerRegion: id })
+  }, [screen])
+
   // menu music everywhere outside a match; the HUD drives shop / fight music
   useEffect(() => {
     if (screen === 'menu' || screen === 'lobby' || screen === 'credits' || screen === 'results') music('menu')

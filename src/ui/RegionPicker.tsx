@@ -1,16 +1,20 @@
-import { pickRegion, regionPlayerLabel, regionPopulation, type RegionStatus } from './lib/servers'
+import { pickRegion, regionPlayerLabel, regionPopulation, useRegionDetours, type queueRegion, type RegionStatus } from './lib/servers'
 import { RegionPing } from './RegionPing'
 import { useOnlinePopulation } from './lib/presence'
 import { RegionMaintenance } from './RegionMaintenance'
 import { MenuGlyph } from './icons'
+import { Button } from './widgets'
 
 /** Online visitors and connected game humans have separate, explicit labels. */
-export function RegionPicker({ statuses, choice, onChange }: {
+export function RegionPicker({ statuses, choice, onChange, route }: {
   statuses: RegionStatus[]
   choice: string
   onChange: (region: string) => void
+  /** menu queues: Auto may be holding the home region through its maintenance */
+  route?: ReturnType<typeof queueRegion>
 }) {
-  const selected = pickRegion(statuses, choice)
+  const selected = route ? route.region : pickRegion(statuses, choice)
+  const accept = useRegionDetours((s) => s.accept)
   const population = regionPopulation(statuses)
   const presence = useOnlinePopulation()
   const onlineLabel = (id: string) => presence ? `${presence.regions[id] ?? '—'} online` : '— online'
@@ -23,7 +27,12 @@ export function RegionPicker({ statuses, choice, onChange }: {
       </select>
     </label>
     {selected ? <RegionPing s={selected} /> : <span className="text-xs text-ash">Checking…</span>}
-    <RegionMaintenance statuses={statuses} selected={selected ?? null} />
+    {route?.held && route.home && route.detour ? <div role="status" data-testid="region-detour" className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 text-xs leading-snug text-[#f3d3a1]">
+      <span className="flex min-w-0 flex-1 items-center gap-2"><span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffb347]" />{route.home.label}, where you play, is under maintenance. Wait here, or switch for now.</span>
+      <Button size="sm" variant="primary" onClick={() => accept(route.home!.id)} data-testid="region-detour-accept">Play on {route.detour.label}{route.detour.rttMs != null ? ` · ${route.detour.rttMs} ms` : ''}</Button>
+    </div> : route?.detour && route.home ? <p role="status" className="flex w-full items-center gap-2 text-xs leading-snug text-ash">
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffb347]" />Playing on {route.detour.label} while {route.home.label} is under maintenance
+    </p> : <RegionMaintenance statuses={statuses} selected={selected ?? null} />}
     <div className="flex w-full items-center justify-between gap-3 border-t border-white/8 pt-1.5 text-xs tabular-nums text-[#c9c1b4]">
       <span data-testid="global-player-count" title="People with the game open, including menus. Updates every 30 seconds; departed visitors expire after 90 seconds. Bots excluded.">{presence ? `${presence.total} online` : '— online'}</span>
       <span data-testid="global-in-game-count" title={`Connected humans in games and lobbies. Bots excluded.${population.partial ? ' Some region counts are unavailable.' : ''}`}>{population.total === null ? '— in games' : `${population.total}${population.partial ? '+' : ''} in games`}</span>

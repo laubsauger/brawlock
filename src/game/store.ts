@@ -45,6 +45,8 @@ export interface Settings {
   edgePanSpeed: number
   /** game-server region for hosting on the server: 'auto' (lowest ping) or a region id */
   serverRegion: string
+  /** region of your last server game ('' before one): Auto never moves you off it for maintenance without asking */
+  lastServerRegion: string
   /** point at the screen edge to pan the camera (render prefs) */
   edgePan: boolean
   masterVolume: number
@@ -186,6 +188,7 @@ const defaultSettings: Settings = {
   cameraReach: 'normal',
   edgePanSpeed: 1,
   serverRegion: 'auto',
+  lastServerRegion: '',
   edgePan: true,
   masterVolume: 0.8,
   sfxVolume: 1,
