@@ -1,14 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { accountAuth, accountCallbackURL, accountProviders, refreshAccount, saveAccountProfile, signOutAccount, type AccountProvider } from '../../game/account'
 import { useAccount } from '../../game/accountState'
 import { getProfile } from '../../game/profile'
 import { Button, Modal } from '../widgets'
 import { PreferredColorPicker } from './PlayerColorPicker'
 import { beginAccountReturn, cancelAccountReturn } from '../../game/accountReturn'
+import { localEquipment } from '../../game/wardrobe'
+import { EMPTY_EQUIPMENT } from '../../game/progressionCatalog'
+import { WardrobeStage } from '../../render/WardrobeStage'
+import { EmblemBadge } from '../EmblemBadge'
 
 const PROVIDER_LABEL = { google: 'Google', discord: 'Discord', microsoft: 'Microsoft' }
 
-export function Account({ onClose, rankedRegion, onContinue, initialProblem, mode }: { onClose: () => void; rankedRegion?: string; onContinue?: () => void; initialProblem?: string; mode?: 'onboarding' | 'settings' }) {
+/** Your warlock as others will see it: equipped look, the color being picked, emblem and name. */
+function PlayerPreview({ name, color, onWardrobe }: { name: string; color: number | null; onWardrobe?: () => void }) {
+  const [worn] = useState(() => localEquipment() ?? EMPTY_EQUIPMENT)
+  const outfit = useMemo(() => ({ head: worn.head, back: worn.back, robe: worn.robe, emblem: worn.emblem, staff: worn.staff }), [worn])
+  // the wardrobe's fallback when no preferred color is set
+  const shown = color ?? 0xff7700
+  return <div className="relative min-h-80 overflow-hidden rounded-md border border-[#ffa85a]/15" data-testid="account-preview">
+    <WardrobeStage className="absolute inset-0" color={shown} outfit={outfit} view="full" />
+    <div className="pointer-events-none absolute right-2 bottom-2 left-2 flex items-center gap-2 rounded bg-black/55 px-3 py-2">
+      {worn.emblem && <EmblemBadge emblem={worn.emblem} color={`#${shown.toString(16).padStart(6, '0')}`} size={28} />}
+      <span className="min-w-0 flex-1 truncate text-lg font-bold text-bone">{name.trim() || 'Your name'}</span>
+      {onWardrobe && <Button size="sm" variant="ghost" className="pointer-events-auto" onClick={onWardrobe}>Wardrobe</Button>}
+    </div>
+  </div>
+}
+
+export function Account({ onClose, rankedRegion, onContinue, initialProblem, mode, onWardrobe }: { onClose: () => void; rankedRegion?: string; onContinue?: () => void; initialProblem?: string; mode?: 'onboarding' | 'settings'; onWardrobe?: () => void }) {
   const player = useAccount((state) => state.player)
   const [settingsView] = useState(() => mode === 'settings' || (!mode && !!player?.profile && !rankedRegion))
   const [providers, setProviders] = useState<AccountProvider[]>([])
@@ -42,7 +62,9 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
   }
   const editingSettings = settingsView && !!player?.profile
 
-  return <Modal title={player ? editingSettings ? 'Account settings' : 'Set up your player' : 'Sign in'} onClose={onClose} width="max-w-md">
+  return <Modal title={player ? editingSettings ? 'Account settings' : 'Set up your player' : 'Sign in'} onClose={onClose} width={player ? 'max-w-3xl' : 'max-w-md'}>
+    <div className={player ? 'grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]' : ''}>
+    {player && <PlayerPreview name={name} color={color} onWardrobe={editingSettings ? onWardrobe : undefined} />}
     <div className="flex min-h-72 flex-col gap-4" aria-busy={busy}>
       {problem && <p role="alert" className="rounded border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-200">{problem}</p>}
       {notice && <p role="status" className="text-sm text-[#a5d6ce]">{notice}</p>}
@@ -91,6 +113,7 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
         </div></details> : <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => { await signOutAccount(); setName(getProfile().name); setColor(getProfile().color) })}>Use another account</Button>}
       </>}
       {busy && <p role="status" className="text-xs text-ash">Please wait…</p>}
+    </div>
     </div>
   </Modal>
 }

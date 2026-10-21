@@ -508,7 +508,7 @@ export function MainMenu() {
         </div>
       </footer>
       {playSupported && playMode && <PlaySetup initialOnline={playMode === 'online'} onClose={() => setPlayMode(null)} />}
-      {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
+      {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onWardrobe={() => { setAccountOpen(false); setCollectionOpen(true) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
       {collectionOpen && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} onSignIn={accountsEnabled ? () => { setCollectionOpen(false); openAccount() } : undefined} /></Suspense>}
       {nameOpen && <Modal title="Your player" onClose={() => { setDraft(name); setNameOpen(false) }} width="max-w-sm" footer={<Button variant="primary" onClick={commitName}>Save player</Button>}>
         <label className="flex flex-col gap-2 text-sm text-ash">Display name
