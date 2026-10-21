@@ -371,6 +371,14 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
   exploratory (seven hit the 1,500-second cap before Uber's change, none after), so their
   placement evidence is not presented as completed-match win rates or used for the estimates. The earlier measurement on `2c51430`
   (200 matches per pair) is [kept for reference](research/bot-calibration-2026-10-20.json).
+- Shield timing (2026-10-21, every tier): a bot holds a shot until the target's bubble will be
+  gone 0.1 s before the bolt's front could reach it, counting both pawns closing in; it holds a
+  Drain at a ready Shield as it does a Homing missile (stolen, both seek out their caster).
+  Against the shield turtle of `src/bots/shield.test.ts` (600 runs, all tiers) own shots back
+  fell from 111 to 4, none of them released into a raised bubble (was 83). Remeasured with the
+  same 400 matches per pair: every pair stayed inside its interval above (Brutal 77% over Hard,
+  Uber 69% over Brutal, Medium–Hard identical), ratings within 2 points, labels unchanged
+  (`shieldFix` in the same measurement file).
 - Historical M0 used the original danger-field/lead-aim AI. The current M3 difficulty system, shared seeded builds and calibration harness are implemented.
 
 ## 8. Assets and licensing

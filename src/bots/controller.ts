@@ -99,10 +99,17 @@ const BUBBLES = new Set(['shield', 'alteration'])
 const UNREFLECTED = new Set(['swap', 'gravity', 'warpzone', 'meteor'])
 /** flight speed assumed for shots whose speed the bot does not track (curving, accelerating) */
 const DEFAULT_SHOT_SPEED = 900
-/** a bubble that drops this close to our shot's arrival counts as gone */
-const BUBBLE_MARGIN = 0.05
+/**
+ * a bubble must be gone this long before our shot would reach it (think and reaction rounding,
+ * a target that starts walking at us): released any closer, the shot comes back
+ */
+const BUBBLE_MARGIN = 0.1
+/** untracked shots that a bubble turns back, timed as the fastest (Homing: 1000 from 64 ahead) */
+const BUBBLE_SHOT_SPEED = 1100
 /** units from an enemy whose Shield may be up: a shot it sends back can be walked out of */
 const SHIELD_STANDOFF = 700
+/** stolen by a Shield, they seek out their old caster (sim: spells/homing.ts, drain.ts) */
+const TURN_ON_CASTER = new Set(['homing', 'drain'])
 /** reflected but kept by the caster: they come back harmless (Boomerang returns anyway) */
 const NOT_STOLEN = new Set(['boomerang', 'link'])
 /** a typical bolt's radius (Fireball 25) plus a little slack, for the sidestep it takes */
@@ -836,22 +843,26 @@ export class BotController implements Bot {
     if (!info || info.bubbleProof) return false
     const sh = target.slots.indexOf('shield')
     const def = sh >= 0 ? spellDef('shield') : undefined
+    // the shot leaves the hand after our reaction and the windup; until then the gap shrinks as
+    // fast as we are closing in
+    const release = this.params.reactionDelay + info.castPoint
+    const d = Math.max(1, dist(me, target))
+    const closing = Math.max(0, ((target.x - me.x) * (me.vx - target.vx) + (target.y - me.y) * (me.vy - target.vy)) / d)
+    const gap = d - closing * release
     if (def && !info.hitscan && !NOT_STOLEN.has(spell)) {
       const lv = target.levels[sh] || 1
       const seen = this.shieldCast.get(target.owner)
-      // ready again by the time our shot gets there
-      const arrive = (this.params.reactionDelay + info.castPoint + dist(me, target) / (info.speed ?? DEFAULT_SHOT_SPEED)) * TICK_HZ
+      // ready again by the time our shot gets there (with the bubble margin: a target flying
+      // away from us lengthens the flight)
+      const arrive = (release + d / (info.speed ?? DEFAULT_SHOT_SPEED) + BUBBLE_MARGIN) * TICK_HZ
       const ready = seen === undefined || this.lastTick - seen + arrive >= cooldownSeconds(def, lv) * TICK_HZ
       // the stolen shot flies back from the bubble's edge; stepping out of its path takes our
-      // reaction plus a walk of its width plus ours. The gap when it leaves the hand: now,
-      // minus how fast we are closing in over the reaction and the windup.
-      const d = Math.max(1, dist(me, target))
-      const closing = ((target.x - me.x) * (me.vx - target.vx) + (target.y - me.y) * (me.vy - target.vy)) / d
-      const gap = d - Math.max(0, closing) * (this.params.reactionDelay + info.castPoint)
+      // reaction plus a walk of its width plus ours
       const back = (gap - attr(def, 'radius', lv) - PAWN_BODY) / (info.speed ?? DEFAULT_SHOT_SPEED)
       const sidestep = this.params.reactionDelay + (SHOT_RADIUS + PAWN_BODY + 10) / Math.max(1, me.moveSpeed)
-      // a stolen Homing missile turns on its caster: there is no stepping aside from it
-      if (ready && (spell === 'homing' || back < sidestep + 0.1)) return true
+      // a stolen Homing missile turns on its caster, and so does a stolen Drain (it re-aims
+      // once at the closest pawn but its new owner): there is no stepping aside from them
+      if (ready && (TURN_ON_CASTER.has(spell) || back < sidestep + 0.1)) return true
     }
     let left = -Infinity
     let radius = 0
@@ -864,8 +875,11 @@ export class BotController implements Bot {
       }
     }
     if (left === -Infinity) return false
-    const flight = info.hitscan ? 0 : Math.max(0, dist(me, target) - radius) / (info.speed ?? DEFAULT_SHOT_SPEED)
-    return left > this.params.reactionDelay + info.castPoint + flight - BUBBLE_MARGIN
+    // in flight the bolt's front (not its centre) meets the bubble's edge, which comes toward it
+    // as fast as the target walks at us. Untracked speeds count as the fastest such shot.
+    const toward = Math.max(0, ((target.x - me.x) * target.vx + (target.y - me.y) * target.vy) / -d)
+    const flight = info.hitscan ? 0 : Math.max(0, gap - radius - SHOT_RADIUS) / ((info.speed ?? BUBBLE_SHOT_SPEED) + toward)
+    return left + BUBBLE_MARGIN > release + flight
   }
 
   /** Whether `target` owns a Shield it may raise within `within` seconds (not seen used within its cooldown). */

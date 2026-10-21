@@ -42,6 +42,12 @@ Deployment is established by release receipts, not by implementation status here
   other pairs unchanged. Lobby estimates now Easy **325**, Medium **1000**, Hard **1650** (fit
   drift across a rounding boundary, behavior unchanged), Brutal **1850**, Uber **2000**. See
   [the measurement](research/bot-calibration-2026-10-20-brutal.json) and [PLAN.md §7](PLAN.md#7-bots).
+- Bots no longer shoot into a Shield bubble just before it drops: the release waits until the
+  bubble will be gone 0.1 s before the shot arrives (closing speed and the bolt's front
+  counted), and a Drain is held at a ready Shield like Homing. Own shots back against the shield
+  test's turtle: 111 → 4 over 600 runs, none into a raised bubble; `shield.test.ts` is strict
+  again (0 into a bubble, at most 1 in all). Tier pairs unchanged within their intervals,
+  labels unchanged.
 
 ## Shipped in v0.1.0-alpha.6
 
