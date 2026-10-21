@@ -155,6 +155,37 @@ describe('dedicated departure settlement', () => {
     expect(f.store.history('device-alpha', { limit: 10 })[0].outcome).toBe(counted ? 'forfeit' : 'loss')
   })
 
+  it('keeps a sub-minute departure’s played combat in the profile totals without a loss, Elo or player row', async () => {
+    const f = fixture()
+    const { room, a, b } = await f.battle()
+    await f.advance(30_000)
+    a.close(); b.close()
+    await vi.waitFor(() => expect(f.core.room(room.code)).toBeNull())
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.store.players(['device-alpha', 'device-bravo']).size).toBe(0)
+    for (const device of ['device-alpha', 'device-bravo']) {
+      const activity = f.store.activity(device)?.detail
+      expect(activity?.matches).toBe(1)
+      expect(activity?.seconds).toBeGreaterThanOrEqual(30)
+    }
+  })
+
+  it('folds the combat of a match closed without a result once, with no result, history or Elo', async () => {
+    const f = fixture()
+    const { room } = await f.battle()
+    await f.advance(30_000)
+    room.close()
+    await vi.waitFor(() => expect(f.store.activity('device-alpha')).not.toBeNull())
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.record.mock.calls[0][0]).toMatchObject({ queue: 'ranked', match: { aborted: true, ranked: [] } })
+    expect(f.store.activity('device-bravo')?.detail.matches).toBe(1)
+    expect(f.store.players(['device-alpha', 'device-bravo']).size).toBe(0)
+    expect(f.store.history('device-alpha', { limit: 10 })).toEqual([])
+    await f.advance(1000)
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.store.activity('device-alpha')?.detail.matches).toBe(1)
+  })
+
   it('preserves an authoritative victory when the last connection closes during the result linger', async () => {
     const f = fixture()
     const { room, a, b } = await f.battle()

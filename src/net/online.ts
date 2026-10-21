@@ -51,7 +51,10 @@ function profileBody(value: unknown): (Omit<ServerProfile, 'region'> & { found: 
     || !Number.isSafeInteger(coverage.totalMatches) || coverage.totalMatches < 0
     || !Number.isSafeInteger(coverage.detailedMatches) || coverage.detailedMatches < 0 || coverage.detailedMatches > coverage.totalMatches
     || coverage.totalMatches !== body.matches
-    || (coverage.detailedMatches === 0 ? body.detail !== null : body.detail?.matches !== coverage.detailedMatches)) {
+    || (coverage.detailedMatches === 0 ? body.detail !== null : body.detail?.matches !== coverage.detailedMatches)
+    // Older servers omit activity; a present one is folded games, never an empty aggregate.
+    || (body.activity !== undefined && body.activity !== null
+      && (typeof body.activity !== 'object' || !Number.isSafeInteger(body.activity.matches) || body.activity.matches < 1))) {
     throw new ServerError('error', 'The server returned invalid player profile data.')
   }
   return body as Omit<ServerProfile, 'region'> & { found: true }
@@ -123,6 +126,8 @@ export interface ServerProfile extends PublicBoardRow {
   firstAt: number
   coverage: PublicProfileCoverage
   detail: PublicProfileDetail | null
+  /** Unfinished and partly played ranked games, human-controlled part only (absent: older server). */
+  activity?: PublicProfileDetail | null
   /** latest counted matches, newest first */
   recent: { at: number; region: string; won: boolean; roundsPlayed: number; roundsWon: number; kills: number; deaths: number; delta: number; rating: number }[]
 }

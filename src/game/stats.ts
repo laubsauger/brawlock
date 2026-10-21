@@ -577,6 +577,23 @@ export class MatchTracker {
     }
   }
 
+  /** The match's first-blood killer so far (null: no credited kill yet). */
+  firstBloodBy(): PlayerId | null {
+    return this.firstBlood
+  }
+
+  /**
+   * The local player's part of a match that ends without a result (left, aborted, host
+   * gone). Null for spectators and when nothing was played: no fight time and no death.
+   */
+  unfinishedPart(): { stats: PlayerMatchStats; seconds: number } | null {
+    const self = this.info.localPlayer
+    if (self < 0 || !this.accs.has(self)) return null
+    const stats = this.statsOf(self)
+    if (!(stats.aliveSec > 0) && Object.keys(stats.deathsByCause).length === 0) return null
+    return { stats, seconds: Math.round(Math.max(0, this.lastTick - this.firstTick) / TICK_HZ) }
+  }
+
   /** Detached last observed build; callers cannot mutate the tracker's snapshot. */
   buildOf(player: PlayerId): InspectedKit | null {
     const build = this.builds.get(player)
@@ -1251,6 +1268,84 @@ export function addRecordedMatch(detail: RecordedProfileDetail, stats: PlayerMat
   }
 }
 
+/**
+ * One seat's human-controlled pieces of a match as one record: counters add up, bests
+ * (longest flight, streak, multi-kill) keep the larger piece, the top spell the higher level.
+ */
+export function mergeMatchStats(a: PlayerMatchStats, b: PlayerMatchStats): PlayerMatchStats {
+  const add = (x: Record<string, number>, y: Record<string, number>) => {
+    const out = { ...x }
+    for (const [k, v] of Object.entries(y)) out[k] = (out[k] ?? 0) + v
+    return out
+  }
+  const spells: Record<string, [number, number]> = {}
+  for (const s of [a.spells, b.spells]) {
+    for (const [id, [casts, hits]] of Object.entries(s)) {
+      const previous = spells[id] ?? [0, 0]
+      spells[id] = [previous[0] + casts, previous[1] + hits]
+    }
+  }
+  const r1 = (v: number) => Math.round(v * 10) / 10
+  const top = !a.topSpell ? b.topSpell : !b.topSpell || a.topSpell[1] > b.topSpell[1] ? a.topSpell : b.topSpell
+  return {
+    walked: a.walked + b.walked,
+    pushed: a.pushed + b.pushed,
+    longestFlight: Math.max(a.longestFlight, b.longestFlight),
+    teleported: a.teleported + b.teleported,
+    damageDealt: a.damageDealt + b.damageDealt,
+    damageTaken: a.damageTaken + b.damageTaken,
+    knockbacksDealt: a.knockbacksDealt + b.knockbacksDealt,
+    knockbacksTaken: a.knockbacksTaken + b.knockbacksTaken,
+    killsByCause: add(a.killsByCause, b.killsByCause),
+    deathsByCause: add(a.deathsByCause, b.deathsByCause),
+    selfKills: a.selfKills + b.selfKills,
+    lastHitKills: a.lastHitKills + b.lastHitKills,
+    firstBlood: a.firstBlood || b.firstBlood,
+    bestStreak: Math.max(a.bestStreak, b.bestStreak),
+    bestMulti: Math.max(a.bestMulti, b.bestMulti),
+    spells,
+    scourgeHits: a.scourgeHits + b.scourgeHits,
+    teleportSaves: a.teleportSaves + b.teleportSaves,
+    shieldReflects: a.shieldReflects + b.shieldReflects,
+    pillarsDestroyed: a.pillarsDestroyed + b.pillarsDestroyed,
+    aliveSec: r1(a.aliveSec + b.aliveSec),
+    lavaSec: r1(a.lavaSec + b.lavaSec),
+    lavaDamage: a.lavaDamage + b.lavaDamage,
+    roundsSurvived: a.roundsSurvived + b.roundsSurvived,
+    goldEarned: a.goldEarned + b.goldEarned,
+    goldSpent: a.goldSpent + b.goldSpent,
+    topSpell: top ? [top[0], top[1]] : null,
+  }
+}
+
+/**
+ * Two folded aggregates as one: complete-match detail plus the unfinished/partly played
+ * activity. `matches` adds both counts; callers that show coverage keep the parts.
+ */
+export function mergeRecordedDetail(a: RecordedProfileDetail | null, b: RecordedProfileDetail | null): RecordedProfileDetail | null {
+  if (!a || !b) {
+    const one = a ?? b
+    return one ? structuredClone(one) : null
+  }
+  const out = structuredClone(a)
+  out.matches += b.matches
+  out.seconds += b.seconds
+  out.damage += b.damage
+  for (const k of TOTAL_KEYS) out.totals[k] += b.totals[k]
+  for (const key of ['killsByCause', 'deathsByCause'] as const) {
+    for (const [cause, n] of Object.entries(b.totals[key])) out.totals[key][cause] = (out.totals[key][cause] ?? 0) + n
+  }
+  for (const [id, [casts, hits]] of Object.entries(b.spells)) {
+    const previous = out.spells[id] ?? [0, 0]
+    out.spells[id] = [previous[0] + casts, previous[1] + hits]
+  }
+  for (const [key, entry] of Object.entries(b.hallOfFame) as [HallOfFameKey, HallOfFameEntry][]) {
+    const previous = out.hallOfFame[key]
+    if (!previous || entry.value > previous.value || (entry.value === previous.value && entry.date < previous.date)) out.hallOfFame[key] = { ...entry }
+  }
+  return out
+}
+
 /** Only this device's retained, identified match records; never inferred from names. */
 export function recordedProfileStats(records: readonly MatchRecord[], profileId: string): { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null } {
   const coverage: RecordedProfileCoverage = { detailedMatches: 0, totalMatches: 0, firstDetailedAt: null, lastDetailedAt: null }
@@ -1346,6 +1441,33 @@ export function recordMatch(rec: MatchRecord, selfProfileId: string, kv: KV | nu
     }
   }
 
+  saveDb(kv, db)
+  for (const cb of listeners) cb()
+}
+
+/**
+ * Fold the local player's part of a match that ended without a result (MatchTracker.
+ * unfinishedPart) into the career's combat totals: kills, deaths, damage, time, counters and
+ * personal bests. Games, wins, losses, rounds, streaks, ratings, encounters and history stay
+ * untouched: an unfinished game has no outcome, so it never changes a win rate's denominator.
+ */
+export function recordUnfinishedMatch(part: { stats: PlayerMatchStats; seconds: number; date: number }, selfProfileId: string, kv: KV | null = safeLocalStorage()): void {
+  const db = loadDb(kv)
+  const c: Career = db.career ?? cleanCareer({})!
+  const s = part.stats
+  c.profileId = selfProfileId
+  c.kills += totalKills(s)
+  c.deaths += Object.entries(s.deathsByCause).reduce((n, [cause, count]) => (cause === 'disconnect' ? n : n + count), 0)
+  c.damage += s.damageDealt
+  c.seconds += part.seconds
+  if (!c.firstPlayed) c.firstPlayed = part.date
+  c.lastPlayed = Math.max(c.lastPlayed, part.date)
+  addTotals(c.totals, s)
+  const matchId = `unfinished-${randomId()}`
+  for (const [k, v] of Object.entries(hallOfFameValues({ stats: s })) as [HallOfFameKey, number][]) {
+    if (v > 0 && v > (c.hallOfFame[k]?.value ?? 0)) c.hallOfFame[k] = { value: v, date: part.date, matchId }
+  }
+  db.career = c
   saveDb(kv, db)
   for (const cb of listeners) cb()
 }

@@ -16,6 +16,7 @@ import {
   emptyTotals,
   addRecordedMatch,
   recordedProfileStats,
+  recordUnfinishedMatch,
 } from './stats'
 
 function memKV(init: Record<string, string> = {}): KV & { data: Record<string, string> } {
@@ -380,6 +381,37 @@ describe('local stats', () => {
     expect(getCareer(kv)).toBeNull()
     expect(getEncounters(kv)).toEqual([])
     expect(getLocalLeaderboard(ME, kv)).toHaveLength(2)
+  })
+
+  /** Why: leaving or losing a match mid-way must not erase the fighting done, nor count as a game and lower the win rate. */
+  it('adds an unfinished match’s combat to career totals without a game, win, loss, rating, encounter or history', () => {
+    const kv = memKV()
+    const me = slot(0, 'Me', ME)
+    const alice = slot(1, 'Alice', ALICE)
+    recordMatch(playMatch([me, alice], [0], [score(0, 3, 1, 0), score(1, 0, 0, 1)], [[0, 1]], [[0, 1, 40]], 1000), ME, kv)
+    const before = getCareer(kv)!
+    const board = getLocalLeaderboard(ME, kv)
+    const encounters = getEncounters(kv)
+    const t = new MatchTracker({ localPlayer: 0, slots: [me, alice], settings })
+    expect(t.unfinishedPart()).toBeNull() // nothing observed yet
+    t.observe(state(1, [0, 1]), [])
+    t.observe(state(2, [0, 1]), [{ type: 'damage', target: 101, amount: 25, source: 0, x: 0, y: 0, kb: 0 }])
+    t.observe(state(3, [0, 1]), [{ type: 'death', pawn: 101, owner: 1, killer: 0, cause: 'fireball' }])
+    t.observe(state(4, [0, 1]), [{ type: 'death', pawn: 100, owner: 0, killer: 1, cause: 'lava' }])
+    const part = t.unfinishedPart()!
+    recordUnfinishedMatch({ ...part, date: 2000 }, ME, kv)
+    const after = getCareer(kv)!
+    expect(after).toMatchObject({ games: before.games, wins: before.wins, losses: before.losses, rounds: before.rounds,
+      winStreak: before.winStreak, vsHumans: before.vsHumans, vsBots: before.vsBots,
+      kills: before.kills + 1, deaths: before.deaths + 1, damage: before.damage + 25, lastPlayed: 2000 })
+    expect(after.totals.killsByCause.fireball).toBe((before.totals.killsByCause.fireball ?? 0) + 1)
+    expect(after.totals.deathsByCause.lava).toBe((before.totals.deathsByCause.lava ?? 0) + 1)
+    expect(getMatchHistory(5, kv)).toHaveLength(1)
+    expect(getLocalLeaderboard(ME, kv)).toEqual(board)
+    expect(getEncounters(kv)).toEqual(encounters)
+    const spectator = new MatchTracker({ localPlayer: -1, slots: [me, alice], settings })
+    spectator.observe(state(1, [0, 1]), [{ type: 'death', pawn: 101, owner: 1, killer: 0 }])
+    expect(spectator.unfinishedPart()).toBeNull()
   })
 
   /** Why: a broken localStorage (manual edits, old versions, quota, private mode) must never crash the game. */

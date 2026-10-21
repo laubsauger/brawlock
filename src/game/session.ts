@@ -36,7 +36,7 @@ import { localEquipment } from './wardrobe'
 import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
 import { BUILD_UPDATE_REQUIRED, ensureCurrentBuild, getBuildUpdate, onBuildUpdate } from '../lib/buildVersion'
-import { MatchTracker, recordMatch, updateProfileNames } from './stats'
+import { MatchTracker, recordMatch, recordUnfinishedMatch, updateProfileNames } from './stats'
 import type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
 export type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
 import { createReplayHook } from './replay/hook'
@@ -139,6 +139,10 @@ function createRecorder(): MatchRecorder {
     },
     abort: () => {
       if (tracker && analyticsMode) trackEvent('match_exit', { mode: analyticsMode })
+      // Combat played before leaving still counts toward career totals, never as a game.
+      // The tracker is dropped here, so a repeated abort or a later finish cannot add it twice.
+      const part = tracker?.unfinishedPart()
+      if (part) recordUnfinishedMatch({ ...part, date: Date.now() }, getProfile().id)
       tracker = null
       analyticsMode = null
       replay.abort()

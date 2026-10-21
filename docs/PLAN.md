@@ -463,8 +463,9 @@ Implemented in the current source:
 - Local replay recording/library/playback, ability hover videos, the Move cancels cast
   setting, system reduced-motion support and effect/shake controls. A separate in-game
   reduced-motion override is not implemented; the existing support follows the OS preference.
-- Private analytics with trends and region/build breakdowns; completed-match player details.
-  These do not preserve combat counters from aborted games.
+- Private analytics with trends and region/build breakdowns; completed-match player details,
+  plus the human-controlled combat of aborted, unrated and partly played ranked games in the
+  same profile totals (kept apart from complete-match coverage; no result, Elo or Embers).
 - Shared seeded builds for all active bot tiers, cast-cancel readability, recorded death/kill
   sounds, the completed Maverick library, and streamed menu music. Combat synth music is
   intentionally disabled while a proper battle soundtrack remains unselected.
@@ -477,10 +478,11 @@ Implemented in the current source:
 
 Still relevant engineering:
 
-- Separate human-only activity checkpoints remain future work; do not fold partial counters
-  into completed-match detail. Qualifying departures now settle as losses after 60 seconds of
-  combat, with ranked Elo and durable queue-filtered history/builds. Operational aborts remain
-  distinct. See [NEXT-SPRINT.md](NEXT-SPRINT.md) for the current scope.
+- Partial combat is folded once per match end, not checkpointed: a crashed server loses its
+  running matches' activity. Partial counters stay out of completed-match detail. Qualifying
+  departures settle as losses after 60 seconds of combat, with ranked Elo and durable
+  queue-filtered history/builds; operational aborts grant no result. See
+  [PLAYER-PROFILES.md](PLAYER-PROFILES.md#unfinished-and-partly-played-ranked-games).
 - Select/integrate a real combat soundtrack; the present intentional silence is not a bug.
 - P2P host migration, delayed competitive spectating, map pings and WebTransport remain later
   platform work, not prerequisites to the already working dedicated game.

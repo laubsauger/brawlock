@@ -123,6 +123,26 @@ describe('recorded profile detail', () => {
     expect(html).not.toContain('<button') // Foreign Hall IDs never open a local match.
   })
 
+  /** Why: unfinished games add the combat a human played to the same totals, not to a separate section or to match counts. */
+  it('adds partial ranked activity into the one set of totals while match counts stay complete matches', () => {
+    const totals = emptyTotals()
+    Object.assign(totals, { casts: 10, hits: 4, killsByCause: { fireball: 3 } })
+    const detail: RecordedProfileDetail = { matches: 2, seconds: 200, damage: 451, totals, spells: { fireball: [10, 4] }, hallOfFame: {} }
+    const partialTotals = emptyTotals()
+    Object.assign(partialTotals, { casts: 5, hits: 5, killsByCause: { fireball: 2 } })
+    const activity: RecordedProfileDetail = { matches: 1, seconds: 40, damage: 49, totals: partialTotals, spells: { fireball: [5, 5] }, hallOfFame: {} }
+    const html = renderToStaticMarkup(createElement(DetailedProfileStats, { coverage, detail, activity, source: 'server' }))
+    expect(html).toContain('2 of 8 ranked matches have detailed stats')
+    expect(html).toContain('human-controlled part of 1 game left unfinished or partly played')
+    expect(html).toContain('+ 1 partial')
+    expect(html).toContain('15 casts · 9 hits · 60%')
+    expect(html).toContain('>500</span>') // damage tile: 451 + 49
+    expect(html).toContain('from 2 complete and 1 partial games')
+    const only = renderToStaticMarkup(createElement(DetailedProfileStats, { coverage: { ...coverage, detailedMatches: 0, firstDetailedAt: null, lastDetailedAt: null }, detail: null, activity, source: 'server' }))
+    expect(only).not.toContain('No detailed stats are available')
+    expect(only).toContain('5 casts · 5 hits · 100%')
+  })
+
   it('labels local rival detail as retained device records rather than a global career', () => {
     const html = renderToStaticMarkup(createElement(DetailedProfileStats, { coverage, detail: null, source: 'device' }))
     expect(html).toContain('Recorded on this device')

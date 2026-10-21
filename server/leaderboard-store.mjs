@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS match_history_seats (
 );
 CREATE INDEX IF NOT EXISTS match_history_device ON match_history_seats(device, match_id);
 CREATE INDEX IF NOT EXISTS match_history_at ON match_history(at DESC, id DESC);
+-- Unfinished and partly played ranked combat (src/net/leaderboard.ts unfinishedActivity):
+-- the same folded aggregate as player_details, kept apart so complete-match coverage stays
+-- exact. No players FK: activity may precede a player's first rated result.
+CREATE TABLE IF NOT EXISTS player_activity (
+  device TEXT PRIMARY KEY, detail TEXT NOT NULL,
+  first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ranked_result_flags (
   match_id INTEGER NOT NULL, device TEXT NOT NULL, forfeited INTEGER NOT NULL CHECK(forfeited IN (0, 1)),
   PRIMARY KEY(match_id, device),
@@ -138,6 +145,10 @@ export function openLeaderboard(file) {
   const upDetails = db.prepare(`INSERT INTO player_details (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
       first_at = MIN(player_details.first_at, excluded.first_at), last_at = MAX(player_details.last_at, excluded.last_at)`)
+  const getActivity = db.prepare('SELECT detail, first_at, last_at FROM player_activity WHERE device = ?')
+  const upActivity = db.prepare(`INSERT INTO player_activity (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
+      first_at = MIN(player_activity.first_at, excluded.first_at), last_at = MAX(player_activity.last_at, excluded.last_at)`)
   const insResultFlags = db.prepare('INSERT INTO ranked_result_flags(match_id, device, forfeited) VALUES (?, ?, ?)')
   const insHistory = db.prepare(`INSERT INTO match_history
     (receipt_key, public_id, at, region, room, queue, ticks, rounds, team_mode, game_mode, roster)
@@ -177,6 +188,17 @@ export function openLeaderboard(file) {
       // room token, device ID or client profile ID.
       addRecordedMatch(detail, r.stats, Math.round(m.ticks / 60), m.at, String(id))
       upDetails.run(r.device, JSON.stringify(detail), m.at, m.at)
+    }
+  }
+
+  // Runs only inside a receipt transaction, so a retried submission never folds twice.
+  function writeActivity({ at, rows }) {
+    for (const { device, stats, seconds } of rows) {
+      const previous = getActivity.get(device)
+      const detail = previous ? JSON.parse(previous.detail) : { matches: 0, seconds: 0, damage: 0, totals: emptyTotals(), spells: {}, hallOfFame: {} }
+      // Hall of Fame references stay opaque ordinals, never receipt keys or rooms.
+      addRecordedMatch(detail, stats, seconds, at, `partial-${detail.matches + 1}`)
+      upActivity.run(device, JSON.stringify(detail), at, at)
     }
   }
 
@@ -278,6 +300,7 @@ export function openLeaderboard(file) {
         const settled = calculate()
         if (settled.commit) writeMatch(...settled.commit)
         if (settled.history) writeHistory(key, settled.history)
+        if (settled.activity) writeActivity(settled.activity)
         insReceipt.run(key, fingerprint, JSON.stringify(settled.rating))
         db.exec('COMMIT')
         return settled.rating
@@ -334,6 +357,11 @@ export function openLeaderboard(file) {
 
     details(device) {
       const row = getDetails.get(device)
+      return row ? { detail: JSON.parse(row.detail), firstAt: row.first_at, lastAt: row.last_at } : null
+    },
+
+    activity(device) {
+      const row = getActivity.get(device)
       return row ? { detail: JSON.parse(row.detail), firstAt: row.first_at, lastAt: row.last_at } : null
     },
 

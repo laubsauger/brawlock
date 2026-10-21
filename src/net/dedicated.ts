@@ -59,6 +59,8 @@ export interface RoomOptions {
   onMatch?: (m: FinishedMatch, result: MatchResult) => void | Promise<void>
   onMatchStart?: MatchRecorder['start']
   onMatchAbort?: () => void
+  /** ranked only: the human-controlled combat of a match that ended without a result */
+  onMatchActivity?: (m: FinishedMatch) => Promise<unknown>
   onMatchJoin?: (device: string) => void
   /** Pending connection reservations keep a transferring player's active match intact. */
   hasPendingConnections?: () => boolean
@@ -208,7 +210,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
 
   const humans = () => lobby.slots.filter((s) => s.kind === 'human').length
   const readyHumans = () => lobby.slots.filter((s) => s.kind === 'human' && lobby.ready?.[s.id]).length
-  const tracker = opts.onMatch ? new ServerMatchTracker(opts.onMatch, opts.onName) : undefined
+  const tracker = opts.onMatch ? new ServerMatchTracker(opts.onMatch, opts.onName, { partial: opts.ranked === true, onAbort: opts.onMatchActivity }) : undefined
 
   const session = createSession({
     ui: {

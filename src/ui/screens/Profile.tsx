@@ -1,7 +1,7 @@
 import { FeedbackButton } from '../FeedbackButton'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { getHallOfFame, getMatchHistory, recordedProfileStats, type Career, type CareerTotals, type Encounter, type HallOfFameKey, type MatchRecord, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
+import { getHallOfFame, getMatchHistory, mergeRecordedDetail, recordedProfileStats, type Career, type CareerTotals, type Encounter, type HallOfFameKey, type MatchRecord, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
 import { getProfile } from '../../game/profile'
 import { Sigil } from '../icons'
 import { displayName } from '../data/catalog'
@@ -477,28 +477,35 @@ function RecordedStatsGroups({ totals: t, kills, damage, spells, spellCaption, h
   </>
 }
 
-/** The same counter definitions for covered server matches and retained local records. */
-export function DetailedProfileStats({ coverage, detail, source }: { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null; source: 'server' | 'device' }) {
+/** The same counter definitions for covered server matches and retained local records.
+ * `activity` (server only): the human-controlled part of unfinished or partly played ranked
+ * games, added into the same totals; match counts and results stay complete matches only. */
+export function DetailedProfileStats({ coverage, detail, activity = null, source }: { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null; activity?: RecordedProfileDetail | null; source: 'server' | 'device' }) {
+  const shown = mergeRecordedDetail(detail, activity)
+  const partial = activity?.matches ?? 0
+  const complete = detail?.matches ?? 0
   const spells: { list: [string, [number, number]][]; matches: number } = {
-    list: detail ? Object.entries(detail.spells).filter(([, [casts]]) => casts > 0).sort((a, b) => b[1][0] - a[1][0]) : [],
+    list: shown ? Object.entries(shown.spells).filter(([, [casts]]) => casts > 0).sort((a, b) => b[1][0] - a[1][0]) : [],
     matches: coverage.detailedMatches,
   }
+  const games = (n: number) => `${n} ${n === 1 ? 'game' : 'games'}`
   return <div className="flex flex-col gap-5" data-testid="recorded-profile-stats">
     <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-sm">
       <p className="font-semibold text-bone">{source === 'server' ? 'Recorded by the game server' : 'Recorded on this device'}</p>
-      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.</p>
+      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.{partial > 0 && ` The totals also include the human-controlled part of ${games(partial)} left unfinished or partly played.`}</p>
       <p className="mt-1 text-xs text-ash">{source === 'server'
-        ? 'Complete ranked matches played as a human from start to finish. These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
+        ? 'Complete ranked matches played as a human from start to finish, plus the time a human controlled the seat in aborted, unrated or partly played ranked games (those add no result, Elo or Embers). These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
         : 'Only retained match records are included, with details kept for the latest 30 matches on this device. These are observed match stats, including bot combat.'}</p>
     </div>
-    {!detail ? <p className="text-sm text-ash">No detailed stats are available in this coverage yet.</p> : <>
+    {!shown ? <p className="text-sm text-ash">No detailed stats are available in this coverage yet.</p> : <>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Tile label="Detailed matches" value={String(detail.matches)} />
-        <Tile label="Recorded match time" value={duration(detail.seconds)} />
-        <Tile label="Damage dealt" value={Math.round(detail.damage).toLocaleString()} />
-        <Tile label="Accuracy" value={percent(detail.totals.casts ? detail.totals.hits / detail.totals.casts : null)} />
+        <Tile label="Detailed matches" value={String(complete)} sub={partial > 0 ? `+ ${partial} partial` : undefined} />
+        <Tile label="Recorded match time" value={duration(shown.seconds)} />
+        <Tile label="Damage dealt" value={Math.round(shown.damage).toLocaleString()} />
+        <Tile label="Accuracy" value={percent(shown.totals.casts ? shown.totals.hits / shown.totals.casts : null)} />
       </div>
-      <RecordedStatsGroups totals={detail.totals} kills={Object.values(detail.totals.killsByCause).reduce((a, b) => a + b, 0)} damage={detail.damage} spells={spells} spellCaption={`from ${detail.matches} recorded ${detail.matches === 1 ? 'match' : 'matches'}`} hall={detail.hallOfFame} />
+      <RecordedStatsGroups totals={shown.totals} kills={Object.values(shown.totals.killsByCause).reduce((a, b) => a + b, 0)} damage={shown.damage} spells={spells}
+        spellCaption={partial > 0 ? `from ${complete} complete and ${partial} partial ${partial + complete === 1 ? 'game' : 'games'}` : `from ${complete} recorded ${complete === 1 ? 'match' : 'matches'}`} hall={shown.hallOfFame} />
     </>}
   </div>
 }
@@ -546,7 +553,7 @@ function PublicProfile({ publicId, name, onClose }: { publicId: string; name: st
         <h3 className="section-title text-lg">Recent matches</h3>
         <ServerMatches publicId={publicId} />
       </section>
-      {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} source="server" />}
+      {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} activity={profile.activity ?? null} source="server" />}
     </>}
   </Modal>, document.body)
 }

@@ -6,21 +6,21 @@ Deployment is established by release receipts, not by implementation status here
 
 ## Next engineering work
 
-1. **Partial combat activity from unfinished games.** Completed-match profiles currently omit
-   aborted games, late joins and seats with bot-controlled intervals. Add separate idempotent
-   activity checkpoints, scoped to human-controlled intervals. Cover disconnect/reconnect,
-   late admission, bot takeover, room closure and retry without double counting. Keep the
-   existing completed-match detail unchanged. **Qualifying departures are now settled as
-   losses** after 60 seconds of combat, including ranked Elo; that is separate from these
-   proposed activity checkpoints. Operational aborts/crashes still grant no fabricated result
-   or Embers. Decide checkpoint cadence, counters, retention and UI labels before adding
-   partial combat aggregates; that additional aggregation remains unimplemented.
-2. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
+1. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
    disabled in both deliberately; the menu recording and combat SFX remain. Selection still needs a listening
    decision; it is not a reason to restore the synth or generate arbitrary tracks.
 
 ## Completed in this planning pass
 
+- **Partial combat from unfinished games** counts toward the same profile totals, scoped to
+  human-controlled intervals: aborted and unrated ranked games, bot takeovers, reconnects and
+  departures on the server profile (`player_activity`, folded in the receipt transaction),
+  and games left without a result in device-local career stats. Wins, losses, Elo, match
+  counts, history and Embers ignore it, so unfinished games never enter a win-rate
+  denominator; qualifying departures stay 60-second losses. See
+  [PLAYER-PROFILES.md](PLAYER-PROFILES.md#unfinished-and-partly-played-ranked-games).
+  Release needs the US authority first (new optional submission fields). Still open:
+  crash-time activity (no periodic checkpoints) and server aggregates for casual games.
 - Spectator bets pay from a pool instead of a fixed 2-gold return: correct bets split every
   stake of the round equally, so long shots pay more. Each pick shows what a correct bet would
   pay at the current pot next to its rough win chance. Rules in [PLAN.md §3.4](PLAN.md#34-modes-and-lobby-options).

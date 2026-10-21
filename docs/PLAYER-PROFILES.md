@@ -15,9 +15,46 @@
 - Only seats controlled by a human continuously from match start through finish receive
   detail. Late joins and any bot takeover omit detail for that match, even after reconnect.
   A recovered connection can finish normally, but the interrupted detailed counters stay
-  outside complete-match coverage. An eligible unrecovered departure is recorded as a loss.
+  outside complete-match coverage; their human-controlled part counts as activity (below).
+  An eligible unrecovered departure is recorded as a loss.
 - Detail includes combat against bots. The existing leaderboard K/D and Elo remain
   human-only; the UI labels these scopes separately.
+
+## Unfinished and partly played ranked games
+
+- Combat that complete-match detail leaves out still counts toward the same profile totals
+  (damage, kills by cause, spells and accuracy, movement, survival, economy, time played,
+  Hall of Fame): aborted games, unrated ranked games (too short, one human, no round between
+  humans), bot-controlled intervals, reconnects and departures. Only intervals a human
+  controlled the seat count. Casual/custom games feed no server aggregate, as before.
+- `ServerMatchTracker` keeps each seat's human-controlled pieces: the match tracker covers a
+  seat until its first bot takeover; each return gets a fresh tracker that sees only that
+  interval. Pieces merge with `mergeMatchStats` (counters add, bests keep the larger piece).
+  First blood counts only if the human drew it. Seats send `partialStats` and `controlTicks`
+  (human-controlled ticks, every phase) and never together with complete `stats`.
+- A ranked match that ends without any result (room closed mid-match, simulation failure,
+  operational stop) hands its activity once to the authority as an `aborted` submission:
+  no Elo, result, history row, player row or Embers. The tracker reports only while its
+  match is active, so a second abort, an abort after finish or the next start cannot repeat
+  it; a new start while a match is still active reports that match first.
+- The authority folds activity in the same receipt transaction as the match, into a separate
+  `player_activity` aggregate. Retried deliveries (same key and payload) fold nothing again;
+  a changed payload under the same key is rejected. Devices in more than one seat and seats
+  without human fight time are excluded. A seat whose complete stats were already folded as
+  detail for that match is never folded again as activity.
+- Wins, losses, Elo, `matches`, rounds, K/D, history and rewards ignore activity entirely.
+  An unfinished game is therefore not a game in any denominator: win rate stays wins over
+  counted results, so an aborted or crashed game cannot lower it. Qualifying departures keep
+  their existing rule: after 60 seconds of combat they are counted results and losses.
+- Profile reads add `activity` (the same aggregate shape as `detail`, or `null`). `detail` and
+  `coverage` keep their complete-match meaning. The profile UI shows one set of totals
+  (detail plus activity) and says how many partial games they include.
+- Device-local career stats do the same for games that end without a result on this browser
+  (leaving, host gone, aborted): kills, deaths, damage, time, counters and personal bests are
+  added; games, wins, losses, rounds, streaks, local ratings, encounters and history are not.
+- Not covered: a crashed server process loses the activity of its running matches (no
+  periodic checkpoints), and a hard shutdown can close the US store before an aborted
+  match's activity is written. Regional outbox submissions are durable once queued.
 - `coverage.detailedMatches` counts complete recorded matches, `totalMatches` counts all
   counted ranked results, and the two detail timestamps describe actual coverage.
   No detail means `detail:null`, zero covered matches and null timestamps. Historical
@@ -28,15 +65,16 @@
 
 ## Storage and rollout
 
-- SQLite adds `player_public_ids`, `player_details`, `match_history`, `match_history_seats`
-  and `ranked_result_flags`; existing schemas and rows are preserved. Normal completed-match
+- SQLite adds `player_public_ids`, `player_details`, `match_history`, `match_history_seats`,
+  `ranked_result_flags` and `player_activity`; existing schemas and rows are preserved. Normal completed-match
   Elo remains unchanged; qualifying departures use the explicit forfeit rule below. Existing players receive public IDs on upgrade;
   reopening preserves those IDs. Detail folds commit inside the existing receipt transaction.
 - EU sends optional per-seat `stats` through its existing authenticated durable outbox to
   the US authority. Both regions forward public reads to that same authority. Retries keep
   the original payload/fingerprint and cannot double-count detail or Elo.
 - Upgrade the US authority before EU writers and public readers: an old authority's strict
-  validator rejects the new optional detail field. Legacy submissions/outbox rows without
+  validator rejects the new optional detail field, and likewise the activity fields
+  (`partialStats`, `controlTicks`, `aborted`); a rejected payload stalls the FIFO outbox. Legacy submissions/outbox rows without
   detail remain accepted. Deploy the authority without overlapping old/new authority writers.
 - For rollback, drain and acknowledge new-detail outboxes against the new authority first,
   then roll regions back before the authority. Alternatively stop delivery and preserve the

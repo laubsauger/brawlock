@@ -23,7 +23,7 @@
  * turns that into rating changes. Storage is server/leaderboard-store.mjs (node:sqlite).
  */
 import type { MatchResult } from '../game/store'
-import { MatchTracker, type PlayerMatchStats, type RecordedProfileCoverage, type RecordedProfileDetail } from '../game/stats'
+import { MatchTracker, mergeMatchStats, type PlayerMatchStats, type RecordedProfileCoverage, type RecordedProfileDetail } from '../game/stats'
 import { hashString } from '../sim/snapshot'
 import { TICK_HZ, type GameMode, type MatchSettings, type PlayerId, type PlayerSlot, type SimEvent, type SimState, type TeamMode } from '../sim/types'
 import type { MatchRecorder } from './session'
@@ -55,6 +55,11 @@ export interface SeatStats {
   /** All combat (bots included), only when a human controlled this seat for the complete match.
    * Absent on legacy submissions, late joins and any bot-controlled interval. */
   stats?: PlayerMatchStats
+  /** Human-controlled combat of a seat without complete coverage (late join, bot interval,
+   * departure, aborted match): only the intervals a human played, merged. Never with `stats`. */
+  partialStats?: PlayerMatchStats
+  /** Ticks (every phase) this seat was human-controlled; sent with `partialStats`. */
+  controlTicks?: number
   forfeited?: boolean
   combatTicks?: number
   build?: InspectedKit
@@ -78,6 +83,9 @@ export interface FinishedMatch {
   ranked: RoundRanking[]
   roster?: HistoryPlayer[]
   abandoned?: boolean
+  /** Ended without any result (operational stop, simulation failure, room closed mid-match):
+   * carries only partial combat activity; never rated, never history, never rewards. */
+  aborted?: boolean
   /** Overlapping combat participation by distinct human seats; bounded to 45 pairs. */
   combatPairs?: { players: [PlayerId, PlayerId]; ticks: number }[]
 }
@@ -112,6 +120,30 @@ function qualifyingForfeitPairs(m: FinishedMatch): { players: [PlayerId, PlayerI
   return (m.combatPairs ?? []).filter(({ players, ticks }) => ticks >= LB_FORFEIT_SECONDS * TICK_HZ
     && players.every((p) => (seats.get(p)?.combatTicks ?? 0) >= LB_FORFEIT_SECONDS * TICK_HZ)
     && players.some((p) => seats.get(p)?.forfeited === true))
+}
+
+/** One unique human's combat from a ranked game that has no complete-match detail for them. */
+export interface UnfinishedActivity {
+  device: string
+  stats: PlayerMatchStats
+  /** human-controlled time, whole seconds */
+  seconds: number
+}
+
+/**
+ * Ranked combat that complete-match detail leaves out: aborted games, unrated games, late
+ * joins, bot-controlled intervals and departures. Only human-controlled intervals (the
+ * tracker's `partialStats`; a complete but unrated seat's `stats`), only devices in exactly
+ * one seat, only seats with human fight time. `covered`: devices whose complete stats were
+ * folded as detail for this same match. Wins, Elo, match counts and rewards never read this.
+ */
+export function unfinishedActivity(m: FinishedMatch, covered: ReadonlySet<string>): UnfinishedActivity[] {
+  return [...seatsByPlayer(m).values()].flatMap((s) => {
+    if (covered.has(s.device) || !((s.combatTicks ?? 0) > 0)) return []
+    const stats = s.stats ?? s.partialStats
+    if (!stats) return []
+    return [{ device: s.device, stats, seconds: Math.round((s.stats ? m.ticks : (s.controlTicks ?? 0)) / TICK_HZ) }]
+  })
 }
 
 function ratingParticipants(m: FinishedMatch): Set<PlayerId> {
@@ -208,10 +240,22 @@ export class ServerMatchTracker implements MatchRecorder {
   private lastPhase: SimState['phase'] | null = null
   private combatPairs = new Map<string, { players: [PlayerId, PlayerId]; ticks: number }>()
   private roster = new Map<PlayerId, HistoryPlayer>()
+  /** Closed human-controlled pieces of seats that lost complete coverage. */
+  private pieces = new Map<PlayerId, PlayerMatchStats[]>()
+  /** The open human-controlled piece of such a seat: a tracker that only saw this interval. */
+  private intervals = new Map<PlayerId, MatchTracker>()
+  private controlTicks = new Map<PlayerId, number>()
+  /** First blood counts for a seat only if its human, not a replacement bot, drew it. */
+  private firstBloodHuman: PlayerId | null = null
+  private slots: PlayerSlot[] = []
+  private round = 0
 
   constructor(
     private readonly onDone: (m: FinishedMatch, result: MatchResult) => void | Promise<void>,
     private readonly onName?: (device: string, name: string) => void,
+    /** `partial`: record human-controlled pieces (default on). `onAbort`: a match that ends
+     * without a result hands its partial activity here, once. */
+    private readonly opts: { partial?: boolean; onAbort?: (m: FinishedMatch) => void | Promise<unknown> } = {},
   ) {}
 
   displayName(slot: PlayerSlot, device?: string): void {
@@ -222,6 +266,14 @@ export class ServerMatchTracker implements MatchRecorder {
   }
 
   start(info: { slots: PlayerSlot[]; settings: MatchSettings; devices?: Record<PlayerId, string> }): void {
+    // A new match never silently drops the activity of one that did not end.
+    if (this.active) this.abort()
+    this.pieces.clear()
+    this.intervals.clear()
+    this.controlTicks.clear()
+    this.firstBloodHuman = null
+    this.slots = info.slots
+    this.round = 0
     this.seats.clear()
     this.botted.clear()
     this.deaths = []
@@ -250,10 +302,44 @@ export class ServerMatchTracker implements MatchRecorder {
   control(player: PlayerId, by: 'human' | 'bot'): void {
     if (!this.active) return
     if (by === 'bot') {
+      this.closePiece(player)
       this.botted.add(player)
       this.detailedSeats.delete(player)
+    } else {
+      this.botted.delete(player)
+      this.openPiece(player)
     }
-    else this.botted.delete(player)
+  }
+
+  private get partial(): boolean {
+    return this.opts.partial !== false
+  }
+
+  /** The human hands the seat to a bot: keep what they played so far as one piece. */
+  private closePiece(player: PlayerId): void {
+    if (!this.partial || !this.seats.has(player)) return
+    const open = this.intervals.get(player)
+    const piece = open ? open.statsOf(player)
+      : this.detailedSeats.has(player) && this.details && this.observedDetails ? this.details.statsOf(player) : null
+    this.intervals.delete(player)
+    if (piece) this.pieces.set(player, [...(this.pieces.get(player) ?? []), piece])
+  }
+
+  /** A human (back or new) controls the seat: a fresh tracker sees only this interval. */
+  private openPiece(player: PlayerId): void {
+    if (!this.partial || !this.settings || !this.seats.has(player) || this.detailedSeats.has(player) || this.intervals.has(player)) return
+    this.intervals.set(player, new MatchTracker({ slots: this.slots, settings: this.settings, localPlayer: -1 }))
+  }
+
+  /** All human-controlled pieces of a seat merged; `whole`: include complete coverage too. */
+  private partialOf(player: PlayerId, whole: boolean): PlayerMatchStats | null {
+    const parts = [...(this.pieces.get(player) ?? [])]
+    const open = this.intervals.get(player)
+    if (open) parts.push(open.statsOf(player))
+    if (whole && this.detailedSeats.has(player) && this.details && this.observedDetails) parts.push(this.details.statsOf(player))
+    if (parts.length === 0) return null
+    // Interval trackers each see their own "first" kill; the whole match has one first blood.
+    return { ...parts.reduce(mergeMatchStats), firstBlood: this.firstBloodHuman === player }
   }
 
   /** A bot seat becomes human between rounds; its earlier bot rounds stay excluded. */
@@ -270,9 +356,15 @@ export class ServerMatchTracker implements MatchRecorder {
   observe(state: SimState, events: readonly SimEvent[]): void {
     if (!this.active) return
     if (this.details) {
+      const before = this.details.firstBloodBy()
       this.details.observe(state, events)
       this.observedDetails = true
+      const by = this.details.firstBloodBy()
+      if (before === null && by !== null && this.seats.has(by) && !this.botted.has(by)) this.firstBloodHuman = by
     }
+    for (const interval of this.intervals.values()) interval.observe(state, events)
+    if (Array.isArray(state.slots)) this.slots = state.slots
+    if (Number.isSafeInteger(state.round)) this.round = state.round
     // The final roster is selected during round 5's ending. That scoring round still
     // belongs to everyone; membership applies only once the extra fight has started.
     this.roundParticipants = state.rankedFinal && state.round > (this.settings?.rankedRounds ?? 0)
@@ -280,6 +372,7 @@ export class ServerMatchTracker implements MatchRecorder {
       : null
     const elapsed = Math.max(0, state.tick - this.lastTick)
     this.lastTick = state.tick
+    if (elapsed > 0) for (const p of this.seats.keys()) if (!this.botted.has(p)) this.controlTicks.set(p, (this.controlTicks.get(p) ?? 0) + elapsed)
     if (this.lastPhase === 'fight' && elapsed > 0) {
       // Dead players still participate as spectators until they leave. Alive
       // time would incorrectly excuse a player who watched then rage-quit.
@@ -375,9 +468,14 @@ export class ServerMatchTracker implements MatchRecorder {
       teamMode: this.settings.teamMode,
       gameMode: this.settings.gameMode,
       bots: this.bots,
-      seats: [...this.seats.values()].map((s) => ({ ...s,
-        ...(this.details && this.observedDetails && this.detailedSeats.has(s.player) ? { stats: this.details.statsOf(s.player) } : {}),
-      })),
+      seats: [...this.seats.values()].map((s) => {
+        const complete = !!this.details && this.observedDetails && this.detailedSeats.has(s.player)
+        const partial = complete ? null : this.partialOf(s.player, false)
+        return { ...s,
+          ...(complete ? { stats: this.details!.statsOf(s.player) } : {}),
+          ...(partial ? { partialStats: partial, controlTicks: Math.min(this.controlTicks.get(s.player) ?? 0, result.ticks ?? 0) } : {}),
+        }
+      }),
       ranked: this.ranked,
       combatPairs: [...this.combatPairs.values()],
       ...(abandoned ? { abandoned: true } : {}),
@@ -391,9 +489,30 @@ export class ServerMatchTracker implements MatchRecorder {
   }
 
   abort(): void {
+    const activity = this.active && this.settings && this.partial && this.opts.onAbort ? this.abortedActivity(this.settings) : null
     this.active = false
     this.details = null
     this.detailedSeats.clear()
+    this.intervals.clear()
+    this.pieces.clear()
+    if (activity) {
+      // Abort is synchronous teardown; delivery (and its own error logging) runs after it.
+      void Promise.resolve().then(() => this.opts.onAbort!(activity))
+        .catch((error) => { console.error('[leaderboard] saving unfinished match activity failed', error) })
+    }
+  }
+
+  /** The human-controlled combat of a match that ends without a result; no outcome at all. */
+  private abortedActivity(settings: MatchSettings): FinishedMatch | null {
+    const seats = [...this.seats.values()].flatMap((s) => {
+      const partial = this.partialOf(s.player, true)
+      return partial && (s.combatTicks ?? 0) > 0
+        ? [{ ...s, won: false, partialStats: partial, controlTicks: Math.min(this.controlTicks.get(s.player) ?? 0, this.lastTick) }]
+        : []
+    })
+    if (seats.length === 0) return null
+    return { ticks: this.lastTick, rounds: this.round, teamMode: settings.teamMode, gameMode: settings.gameMode,
+      bots: this.bots, seats, ranked: [], aborted: true }
   }
 }
 
@@ -521,6 +640,8 @@ export interface LeaderboardStore {
   /** Persistent opaque public identity; the private device id stays server-side. */
   publicDevice(publicId: string): string | null
   details(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
+  /** Folded unfinished/partly played ranked combat (unfinishedActivity), separate from complete detail. */
+  activity(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
   history(device: string, options: { queue?: HistoryQueue; limit: number }): MatchHistoryEntry[]
   close(): void
 }

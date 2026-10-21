@@ -1,5 +1,5 @@
 /** One server-side rating authority. Regions submit finished simulations, never client scores. */
-import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue } from './leaderboard'
+import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, unfinishedActivity, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue, type UnfinishedActivity } from './leaderboard'
 import type { MatchRating } from './rating'
 import { PASSIVE_ITEMS, SPELL_IDS } from '../sim/spells/data'
 import type { PlayerMatchStats } from '../game/stats'
@@ -31,7 +31,7 @@ export interface RatingReceiptStore extends LeaderboardStore {
   rememberReceipt(key: string, fingerprint: string, rating: MatchRating): void
   commitReceipt(key: string, fingerprint: string, rating: MatchRating, ...args: Parameters<LeaderboardStore['commit']>): void
   /** Calculation reads and the write share the same lock, including across rolling processes. */
-  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']>; history?: StoredMatchHistory }): MatchRating
+  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']>; history?: StoredMatchHistory; activity?: { at: number; rows: UnfinishedActivity[] } }): MatchRating
 }
 
 const DEVICE = /^[A-Za-z0-9_-]{8,64}$/
@@ -79,15 +79,19 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
     || !integer(v.at, 9_000_000_000_000) || !integer(v.minSeconds, 3600)) return false
   if (v.queue !== undefined && !['ranked', 'casual', 'custom'].includes(v.queue as string)) return false
   const m = v.match
-  if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked', 'roster', 'abandoned', 'combatPairs'])
+  if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked', 'roster', 'abandoned', 'aborted', 'combatPairs'])
     || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000) || !integer(m.bots, 10)
     || typeof m.teamMode !== 'string' || !['ffa', 'teams', 'shuffle'].includes(m.teamMode)
     || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch'].includes(m.gameMode)
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false
   if (m.abandoned !== undefined && typeof m.abandoned !== 'boolean') return false
+  // An aborted ranked game carries activity only: no result, round, winner or forfeit.
+  if (m.aborted !== undefined && (typeof m.aborted !== 'boolean'
+    || (m.aborted && (v.queue !== 'ranked' || m.abandoned !== undefined || m.ranked.length > 0 || m.roster !== undefined || m.combatPairs !== undefined
+      || m.seats.some((s) => !object(s) || s.won !== false || s.forfeited !== undefined))))) return false
   const players = new Set<number>()
   for (const s of m.seats) {
-    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'stats', 'forfeited', 'combatTicks', 'build'])
+    if (!object(s) || !only(s, ['player', 'device', 'name', 'roundsPlayed', 'roundsWon', 'kills', 'deaths', 'won', 'stats', 'partialStats', 'controlTicks', 'forfeited', 'combatTicks', 'build'])
       || !integer(s.player, 9) || players.has(s.player as number)
       || typeof s.device !== 'string' || !DEVICE.test(s.device)
       || typeof s.name !== 'string' || s.name.length === 0 || s.name.length > 24 || /[\u0000-\u001f\u007f]/.test(s.name)
@@ -96,7 +100,10 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
       || (s.forfeited !== undefined && (typeof s.forfeited !== 'boolean' || (s.forfeited && s.won)))
       || (s.combatTicks !== undefined && !integer(s.combatTicks, m.ticks as number))
       || (s.build !== undefined && !validHistoryBuild(s.build))
-      || (Object.hasOwn(s, 'stats') && !validStats(s.stats, m.ticks as number))) return false
+      || (Object.hasOwn(s, 'stats') && !validStats(s.stats, m.ticks as number))
+      || (Object.hasOwn(s, 'partialStats') && (Object.hasOwn(s, 'stats') || !validStats(s.partialStats, m.ticks as number)
+        || !integer(s.controlTicks, m.ticks as number)))
+      || (!Object.hasOwn(s, 'partialStats') && s.controlTicks !== undefined)) return false
     players.add(s.player as number)
   }
   if (m.combatPairs !== undefined) {
@@ -168,16 +175,21 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
       const fingerprint = await ratingFingerprint(s)
       return store.applyReceipt(s.key, fingerprint, () => {
         const m = s.match
+        if (m.aborted) {
+          return { rating: { status: 'unrated', reason: 'The match ended without a result.' }, activity: { at: s.at, rows: unfinishedActivity(m, new Set()) } }
+        }
         const current = store.players(m.seats.map((p) => p.device))
         const history: StoredMatchHistory | undefined = s.queue === undefined ? undefined : {
           queue: s.queue, at: s.at, region: s.region, room: s.room, ticks: m.ticks, rounds: m.rounds,
           teamMode: m.teamMode, gameMode: m.gameMode,
-          players: m.roster ?? m.seats.map(({ stats: _stats, combatTicks: _ticks, ...seat }) => ({ ...seat, kind: 'human' as const })),
+          players: m.roster ?? m.seats.map(({ stats: _stats, partialStats: _partial, controlTicks: _control, combatTicks: _ticks, ...seat }) => ({ ...seat, kind: 'human' as const })),
         }
         const settled = s.queue !== undefined && s.queue !== 'ranked'
           ? { skipped: 'Casual and custom games do not affect global Elo.' }
           : settleMatch(m, current, s.at, s.region, Math.max(opts.minSeconds ?? LB_MIN_SECONDS, s.minSeconds))
-        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped }, history }
+        // Ranked combat without complete-match detail still feeds the profile totals.
+        const activity = (covered: string[]) => s.queue === 'ranked' ? { at: s.at, rows: unfinishedActivity(m, new Set(covered)) } : undefined
+        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped }, history, activity: activity([]) }
         if (history) history.deltas = Object.fromEntries(settled.results.map((r) => [r.device, { delta: r.delta, rating: r.rating }]))
         for (const player of settled.players) {
           const previous = current.get(player.device)
@@ -186,7 +198,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
           player.firstAt = Math.min(previous.firstAt, s.at)
           player.lastAt = Math.max(previous.lastAt, s.at)
         }
-        return { rating: { status: 'rated' }, history, commit: [
+        return { rating: { status: 'rated' }, history, activity: activity(settled.results.filter((r) => r.stats).map((r) => r.device)), commit: [
           { at: s.at, region: s.region, room: s.room, ticks: m.ticks, rounds: m.rounds, humans: m.seats.length, bots: m.bots }, settled.results, settled.players,
         ] }
       })
@@ -234,10 +246,13 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         if (!r) return { status: 200, body: { found: false } }
         const p = store.players([device]).get(device)!
         const details = store.details(device)
+        const activity = store.activity(device)
         return { status: 200, body: { found: true, ...(await publicRows([r]))[0], firstAt: p.firstAt,
           coverage: { totalMatches: p.matches, detailedMatches: details?.detail.matches ?? 0,
             firstDetailedAt: details?.firstAt ?? null, lastDetailedAt: details?.lastAt ?? null },
           detail: details?.detail ?? null,
+          // Unfinished and partly played ranked games: the human-controlled part only.
+          activity: activity?.detail ?? null,
           recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, ...(x.forfeited === undefined ? {} : { forfeited: x.forfeited }), roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })) } }
       }
       if (url.pathname !== '/leaderboard') return { status: 404, body: { error: 'not found' } }
