@@ -1356,6 +1356,8 @@
     animation: award-in 0.45s cubic-bezier(.2, .9, .3, 1) both;
   }
   .award-card-compact { padding: 0.4rem 0.55rem; }
+  /* results screen: awards stack in the side column beside the board */
+  .results-side .awards-strip { grid-template-columns: 1fr; }
   .award-title { font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; letter-spacing: 0.04em; color: #ffd890; }
   @keyframes award-in { from { opacity: 0; transform: translateY(8px); } }
   .row-toggle { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: 4px; color: #b9a28b; transition: transform 0.15s ease, color 0.15s ease; }

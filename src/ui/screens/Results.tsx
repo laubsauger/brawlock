@@ -140,48 +140,25 @@ export function Results() {
   const localReady = !!ready?.[local]
 
   return (
-    // safe centering: when the board is taller than the screen (1280x720 with a detail row open) it scrolls from the top instead of clipping the title
-    <div className="screen-in flex h-full flex-col items-center overflow-y-auto px-4 py-6" style={{ justifyContent: 'safe center' }}>
+    // One screen, no page scroll: title, then the board beside a column of MVP / awards / Embers,
+    // then the buttons. A long board scrolls inside its own panel; the buttons always stay in view.
+    <div className="screen-in flex h-full flex-col items-center overflow-y-auto px-4 py-4 lg:px-8" style={{ justifyContent: 'safe center' }}>
       <h1
-        className="wordmark text-center text-[clamp(3.5rem,min(11vw,13vh),8.5rem)]"
+        className="wordmark shrink-0 text-center text-[clamp(2.8rem,min(9vw,9.5vh),6.5rem)] leading-none"
         style={won || !inMatch ? undefined : { filter: 'grayscale(.35) drop-shadow(0 0 18px rgba(196,26,36,.45)) drop-shadow(0 2px 0 rgba(40,0,0,.9))' }}
       >
         {title}
       </h1>
-      <div className="mt-3 mb-6 flex flex-wrap items-center justify-center gap-3 text-center">
+      <div className="mt-2 mb-4 flex shrink-0 flex-wrap items-center justify-center gap-3 text-center">
         <span className="text-xl font-semibold text-[#f0d9b8]">{line}</span>
         <span className="chip">{result.rounds === 1 ? '1 round' : `${result.rounds} rounds`}</span>
         {secs != null && <span className="chip tabular">{duration(secs)}</span>}
       </div>
 
-      <div className="panel w-full max-w-3xl p-6">
-        {mvp && (
-          <div
-            className="mb-4 flex items-center gap-4 rounded-lg px-4 py-3"
-            style={{ background: `linear-gradient(90deg, ${mvp.color}26, rgba(0,0,0,.2))`, boxShadow: `inset 0 0 0 1px ${mvp.color}55` }}
-          >
-            <span className="display text-3xl leading-none text-gold">MVP</span>
-            <span className="h-4 w-4 rotate-45 rounded-[3px]" style={{ background: mvp.color, boxShadow: `0 0 12px ${mvp.color}` }} aria-hidden />
-            <span className="text-[1.25rem] font-bold">{mvp.name}</span>
-            <span className="tabular ml-auto text-[1.02rem] text-[#e6d3b8]">
-              {mvp.damage != null && (
-                <>
-                  <CountUp value={mvp.damage} delay={200} /> damage,{' '}
-                </>
-              )}
-              {mvp.kills} {mvp.kills === 1 ? 'kill' : 'kills'}
-            </span>
-          </div>
-        )}
-        {rec?.awards && rec.awards.length > 0 && (
-          <div className="mb-4">
-            <AwardsStrip awards={rec.awards} who={(id) => {
-              const player = rows.find((r) => r.id === id)
-              return { name: player ? `${player.name}${player.kind === 'bot' ? ' (bot)' : ''}` : '?', color: player?.color ?? '#ccc' }
-            }} />
-          </div>
-        )}
-        <table className="tabular w-full text-left text-[1.08rem]">
+      <div className="flex min-h-0 w-full max-w-6xl shrink flex-col items-center justify-center gap-4 lg:flex-row lg:items-start">
+      <div className="panel flex max-h-full min-h-0 w-full max-w-3xl flex-col p-5" data-testid="results-board">
+        <div className="min-h-0 overflow-y-auto">
+        <table className="tabular w-full text-left text-[1.04rem]">
           <thead>
             <tr className="text-sm text-ash">
               <th className="pb-2 font-semibold">Warlock</th>
@@ -202,7 +179,7 @@ export function Results() {
                 className={`card-in border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}
                 style={{ animationDelay: `${150 + ri * 110}ms` }}
               >
-                <td className="py-2.5 pr-2">
+                <td className="py-1.5 pr-2">
                   <span className="flex items-center gap-3">
                     {stats ? (
                       <button type="button" className="row-toggle" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${r.name}'s match stats`} onClick={() => setExpanded(open ? null : r.id)}>
@@ -225,18 +202,18 @@ export function Results() {
                     {r.difficulty && <span className="chip text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
                   </span>
                 </td>
-                <td className="py-2.5 text-right text-[1.2rem] font-bold text-gold">
+                <td className="py-1.5 text-right text-[1.2rem] font-bold text-gold">
                   <CountUp value={r.score} delay={250 + ri * 110} />
                 </td>
-                <td className="py-2.5 text-right">
+                <td className="py-1.5 text-right">
                   <CountUp value={r.kills} delay={300 + ri * 110} />
                 </td>
-                <td className="py-2.5 text-right">
+                <td className="py-1.5 text-right">
                   <CountUp value={r.deaths} delay={350 + ri * 110} />
                 </td>
-                <td className="py-2.5 text-right">{r.damage != null ? <CountUp value={r.damage} delay={400 + ri * 110} /> : '–'}</td>
+                <td className="py-1.5 text-right">{r.damage != null ? <CountUp value={r.damage} delay={400 + ri * 110} /> : '–'}</td>
                 {online && (
-                  <td className="py-2.5 text-right">
+                  <td className="py-1.5 text-right">
                     {r.kind === 'bot' ? (
                       <span className="text-sm text-ash">Bot</span>
                     ) : ready?.[r.id] ? (
@@ -261,16 +238,48 @@ export function Results() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
-      {accountsEnabled && inMatch && result.progression && <div className="mt-4 w-full max-w-3xl"><MatchEmbers progression={result.progression} onCollection={() => setCollectionOpen(true)} /></div>}
+      {(mvp || (rec?.awards && rec.awards.length > 0) || (accountsEnabled && inMatch && result.progression)) && (
+        <aside className="results-side flex max-h-full min-h-0 w-full max-w-3xl flex-col gap-3 overflow-y-auto lg:w-[22rem] lg:shrink-0" aria-label="Match highlights">
+          {mvp && (
+            <div
+              className="flex shrink-0 flex-col gap-1 rounded-lg px-4 py-3"
+              style={{ background: `linear-gradient(90deg, ${mvp.color}26, rgba(12,8,6,.82))`, boxShadow: `inset 0 0 0 1px ${mvp.color}55` }}
+            >
+              <span className="flex items-center gap-3">
+                <span className="display text-3xl leading-none text-gold">MVP</span>
+                <span className="h-4 w-4 shrink-0 rotate-45 rounded-[3px]" style={{ background: mvp.color, boxShadow: `0 0 12px ${mvp.color}` }} aria-hidden />
+                <span className="truncate text-[1.25rem] font-bold">{mvp.name}</span>
+              </span>
+              <span className="tabular text-[0.98rem] text-[#e6d3b8]">
+                {mvp.damage != null && (
+                  <>
+                    <CountUp value={mvp.damage} delay={200} /> damage,{' '}
+                  </>
+                )}
+                {mvp.kills} {mvp.kills === 1 ? 'kill' : 'kills'}
+              </span>
+            </div>
+          )}
+          {rec?.awards && rec.awards.length > 0 && (
+            <AwardsStrip compact awards={rec.awards} who={(id) => {
+              const player = rows.find((r) => r.id === id)
+              return { name: player ? `${player.name}${player.kind === 'bot' ? ' (bot)' : ''}` : '?', color: player?.color ?? '#ccc' }
+            }} />
+          )}
+          {accountsEnabled && inMatch && result.progression && <MatchEmbers progression={result.progression} onCollection={() => setCollectionOpen(true)} />}
+        </aside>
+      )}
+      </div>
 
-      {maintenance ? <div className="mt-6 flex max-w-3xl flex-col items-center gap-3 rounded-lg border border-gold/30 bg-[#281d13] px-5 py-4 text-center" role="status" data-testid="results-maintenance">
+      {maintenance ? <div className="mt-4 flex max-w-3xl shrink-0 flex-col items-center gap-3 rounded-lg border border-gold/30 bg-[#281d13] px-5 py-4 text-center" role="status" data-testid="results-maintenance">
         <p className="font-semibold text-gold">Region updating · match complete</p>
         <p className="text-sm text-bone">{maintenance}</p>
         <Button onClick={leaveToMenu}>Choose another region</Button>
       </div> : quick ? (
-        <div className="mt-7 flex flex-col items-center gap-2">
+        <div className="mt-4 flex shrink-0 flex-col items-center gap-2">
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus data-testid="quick-ready">
               {localReady ? 'Not ready' : ranked ? 'Ready for the next ranked game' : 'Ready for the next match'} {!localReady && <Kbd>Enter</Kbd>}
@@ -297,7 +306,7 @@ export function Results() {
           </p>
         </div>
       ) : (
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+      <div className="mt-4 flex shrink-0 flex-wrap items-center justify-center gap-3">
         {isHost ? (
           <Button variant="primary" size="lg" sound="ready" onClick={rematch} autoFocus>
             Rematch <Kbd>Enter</Kbd>
@@ -321,7 +330,7 @@ export function Results() {
       </div>
       )}
       {online && !quick && !maintenance && humans.length > 1 && (
-        <p className="mt-3 text-[0.98rem] text-ash" aria-live="polite">
+        <p className="mt-2 shrink-0 text-[0.98rem] text-ash" aria-live="polite">
           {isHost ? `${readyCount} of ${humans.length - 1} ${humans.length - 1 === 1 ? 'opponent wants' : 'players want'} a rematch.` : localReady ? 'The host sees that you are ready.' : 'The host starts the rematch.'}
         </p>
       )}
