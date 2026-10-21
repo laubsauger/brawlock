@@ -25,6 +25,17 @@ describe('private regional monitoring', () => {
       expect(activity).toMatchObject({ source: 'eu', version: 3, days: 30 })
     } finally { await server.close(); removeDir(dir) }
   })
+  it('serves the operator player board only from the authority that holds the match history', async () => {
+    const dir = tempDir('brawlock-players-tcp-')
+    const server = await startServer({ port: 0, dataDir: dir, ratingAuthorityToken: token, config: { region: 'us-west' }, log: () => {} })
+    const url = `http://127.0.0.1:${server.port}/internal/players`, headers = { authorization: `Bearer ${token}` }
+    try {
+      expect((await fetch(url + '?days=7')).status).toBe(403)
+      expect((await fetch(url + '?days=7', { headers: { ...headers, origin: 'https://game.test' } })).status).toBe(403)
+      expect((await fetch(url + '?days=365', { headers })).status).toBe(400)
+      expect(await (await fetch(url + '?days=7', { headers })).json()).toMatchObject({ historySince: null, players: [] })
+    } finally { await server.close(); removeDir(dir) }
+  })
   it('retains missing RTT as null and excludes identities from player-link aggregates', () => {
     const row: PeerNetStats = { playerId: 7, rttMs: null, jitterMs: null, lossPct: null, snapshotAgeMs: null, channel: null, inputAckLagMs: null, correctionPx: null, desyncs: null, grade: 'good' }
     expect(summarizeLinks([{ role: 'host', peers: [row] }])).toMatchObject({ measured: 0, rttP95Ms: null })

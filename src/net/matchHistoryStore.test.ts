@@ -144,6 +144,22 @@ describe('authoritative match history storage', () => {
     original.close()
   })
 
+  it('sums each identity\'s games in the period for the operator board, without bots', () => {
+    const store = open()
+    store.applyReceipt('old', 'f0', () => ({ rating: { status: 'unrated' }, history: history('casual', 100) }))
+    store.applyReceipt('a', 'f1', () => ({ rating: { status: 'unrated' }, history: history('casual', 86_400_000 + 1000) }))
+    const renamed = history('custom', 86_400_000 + 2000)
+    renamed.players[0] = { ...renamed.players[0], name: 'Ashen', won: true, forfeited: false }
+    store.applyReceipt('b', 'f2', () => ({ rating: { status: 'unrated' }, history: renamed }))
+    expect(store.historySince()).toBe(100)
+    const rows = store.playerActivity(86_400_000, 86_400_000 + 5000)
+    // the bot seat never becomes a player; the game before the period is left out
+    expect(rows.map((r) => r.device).sort()).toEqual([device, other])
+    expect(rows.find((r) => r.device === device)).toEqual({ device, name: 'Ashen', matches: 2, wins: 1, forfeits: 1,
+      seconds: 500, kills: 8, deaths: 6, queues: { ranked: 0, casual: 1, custom: 1 }, days: 1, firstAt: 86_401_000, lastAt: 86_402_000 })
+    expect(store.playerActivity(0, 50)).toEqual([])
+  })
+
   it('stores only whitelisted equipment fields even for internal callers', () => {
     const store = open()
     const input = history()

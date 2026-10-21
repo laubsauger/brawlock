@@ -14,6 +14,7 @@ export function openAccounts(opts: AccountConfig): Promise<{
   handler(request: Request): Promise<Response>
   admin(request: Request): Promise<{ email: string } | null | false>
   activityReport(days: number): unknown
+  profileNames(accountIds: string[]): Map<string, string | null>
   presence(): { total: number; regions: Record<string, number> }
   close(): void
 }>

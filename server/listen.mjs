@@ -141,11 +141,12 @@ export async function startServer(opts = {}) {
   if (authorityToken && authorityToken.length < 32) throw new Error('Rating authority token must contain at least 32 characters')
   // The US keeps the existing SQLite file. EU gets only a durable delivery outbox,
   // never a second independent leaderboard when the authority cannot be reached.
+  const leaderboard = !authorityUrl && dataDir ? openLeaderboard(join(dataDir, 'leaderboard.sqlite')) : undefined
   const authority = authorityUrl ? remoteRatingAuthority({
     url: authorityUrl, token: authorityToken, file: join(dataDir, 'rating-outbox.sqlite'), log,
     allowInsecureForTests: opts.ratingAuthorityAllowInsecureForTests === true,
     requestMs: opts.ratingAuthorityRequestMs, retryMs: opts.ratingAuthorityRetryMs,
-  }) : dataDir ? localRatingAuthority(openLeaderboard(join(dataDir, 'leaderboard.sqlite')), {
+  }) : leaderboard ? localRatingAuthority(leaderboard, {
     minSeconds: config.leaderboardMinSeconds ?? DEFAULT_SERVER_CONFIG.leaderboardMinSeconds, clock,
     names: (opts.accountsAuthorityUrl ?? process.env.ACCOUNTS_AUTHORITY_URL) ? async (devices) => {
       if (devices.some((device) => !/^a_[A-Za-z0-9_-]{8,60}$/.test(device))) throw new Error('Account-ranked leaderboard contains a non-account identity; complete the season reset before startup')
@@ -222,6 +223,23 @@ export async function startServer(opts = {}) {
             release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate,
               commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__, net: build },
             ...machine.snapshot(), ...core.stats(), ...core.monitoring(), maintenance: core.maintenance() })
+        }
+        return
+      }
+      if ((req.url ?? '').split('?')[0] === '/internal/players') {
+        // Operator dashboard only: per-identity play from the global match history.
+        const reply = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); req.resume() }
+        const received = Buffer.from(String(req.headers.authorization ?? ''))
+        const expected = Buffer.from(`Bearer ${authorityToken}`)
+        const days = Number(new URL(req.url, 'http://localhost').searchParams.get('days'))
+        if (!authorityToken || req.headers.origin !== undefined || received.length !== expected.length || !timingSafeEqual(received, expected)) reply(403, { error: 'Forbidden.' })
+        else if (req.method !== 'GET') reply(405, { error: 'Method not allowed.' })
+        else if (!leaderboard) reply(404, { error: 'Match history lives on the global authority.' })
+        else if (![0, 1, 7, 30].includes(days)) reply(400, { error: 'Choose 0 (all time), 1, 7 or 30 days.' })
+        else {
+          const until = clock()
+          reply(200, { since: days ? until - days * 86400_000 : 0, until, historySince: leaderboard.historySince(),
+            players: leaderboard.playerActivity(days ? until - days * 86400_000 : 0, until) })
         }
         return
       }

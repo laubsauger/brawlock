@@ -33,6 +33,29 @@ export function createAdmin({ accounts, store, collector, regions, token, origin
       }
       return new Response(activity, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'SAMEORIGIN', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } })
     }
+    if (url.pathname === '/api/admin/players') {
+      const days = Number(url.searchParams.get('days'))
+      if (![0, 1, 7, 30].includes(days) || [...url.searchParams.keys()].some((key) => key !== 'days')) return json(400, { error: 'Choose today, 7 days, 30 days or all time.' })
+      const authority = regions.find((r) => r.globalAuthority)
+      if (!authority) return json(503, { error: 'No region holds the global match history.' })
+      const source = new URL('/internal/players', authority.origin)
+      if (source.protocol !== 'https:') return json(503, { error: 'Match history requires an HTTPS regional origin.' })
+      source.searchParams.set('days', String(days))
+      let report
+      try {
+        const response = await fetcher(source, { headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(10_000) })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        report = await response.json()
+      } catch { return json(503, { error: `Match history is unavailable: ${authority.label} did not answer. Try again shortly.` }) }
+      // Account seats show their current account name; raw identities stay on the servers.
+      const accountIds = report.players.flatMap((p) => /^a_[A-Za-z0-9_-]{8,60}$/.test(p.device) ? [p.device.slice(2)] : [])
+      const names = accounts.profileNames(accountIds)
+      const players = report.players.map(({ device, ...p }) => {
+        const account = /^a_[A-Za-z0-9_-]{8,60}$/.test(device)
+        return { ...p, name: (account && names.get(device.slice(2))) || p.name || 'Unknown', kind: account ? 'account' : 'guest' }
+      }).sort((a, b) => b.seconds - a.seconds || b.matches - a.matches)
+      return json(200, { since: report.since, until: report.until, historySince: report.historySince, players })
+    }
     if (url.pathname === '/api/admin/feedback' || /^\/api\/admin\/feedback\/[0-9a-f-]+$/.test(url.pathname)) {
       // Server-to-server bridge; the regional bearer never reaches the browser.
       return feedback.handler(new Request(`http://localhost${url.pathname.replace('/api/admin/feedback', '/internal/feedback')}${url.search}`, { headers: { authorization: `Bearer ${token}` } }))

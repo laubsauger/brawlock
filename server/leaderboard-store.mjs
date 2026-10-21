@@ -352,6 +352,38 @@ export function openLeaderboard(file) {
           delta: r.delta, rating: r.rating, players: JSON.parse(r.roster) }))
     },
 
+    // Operator-only: who played how much in [since, until], across every queue.
+    playerActivity(since, until) {
+      const rows = stmt(`SELECT s.device, s.outcome, h.at, h.queue, h.ticks,
+          json_extract(r.value, '$.name') AS name, json_extract(r.value, '$.kills') AS kills, json_extract(r.value, '$.deaths') AS deaths
+        FROM match_history_seats s JOIN match_history h ON h.id = s.match_id
+        LEFT JOIN json_each(h.roster) r ON json_extract(r.value, '$.player') = s.player
+        WHERE h.at >= ? AND h.at <= ? ORDER BY h.at, h.id`).all(since, until)
+      const players = new Map()
+      for (const r of rows) {
+        let p = players.get(r.device)
+        if (!p) players.set(r.device, p = { device: r.device, name: '', matches: 0, wins: 0, forfeits: 0, seconds: 0, kills: 0, deaths: 0,
+          queues: { ranked: 0, casual: 0, custom: 0 }, days: new Set(), firstAt: r.at, lastAt: r.at })
+        // ascending order: the last name seen is the current one
+        if (r.name) p.name = r.name
+        p.matches++
+        if (r.outcome === 'win') p.wins++
+        if (r.outcome === 'forfeit') p.forfeits++
+        p.seconds += r.ticks / 60
+        p.kills += r.kills ?? 0
+        p.deaths += r.deaths ?? 0
+        p.queues[r.queue]++
+        p.days.add(new Date(r.at).toISOString().slice(0, 10))
+        p.lastAt = r.at
+      }
+      return [...players.values()].map((p) => ({ ...p, seconds: Math.round(p.seconds), days: p.days.size }))
+    },
+
+    /** Start of the recorded history, or null while it is empty. */
+    historySince() {
+      return stmt('SELECT MIN(at) AS at FROM match_history').get().at ?? null
+    },
+
     ratingChanges(devices, since, until) {
       const ids = [...new Set(devices)]
       if (ids.length === 0) return new Map()

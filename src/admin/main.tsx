@@ -101,6 +101,34 @@ function Inbox() {
     {detail && <div className="report-detail"><h3>Report</h3><p className="message">{detail.message}</p>{detail.contactEmail && <p>Reply to: {detail.contactEmail}</p>}{detail.screenshot && <img src={`data:${detail.screenshot.mime};base64,${detail.screenshot.data}`} alt="Player-submitted screenshot" />}<details><summary>Diagnostic context</summary><pre>{JSON.stringify(detail.context, null, 2)}</pre></details></div>}
   </section>
 }
+interface PlayerRow { name: string; kind: 'account' | 'guest'; matches: number; wins: number; forfeits: number; seconds: number; kills: number; deaths: number; queues: { ranked: number; casual: number; custom: number }; days: number; firstAt: number; lastAt: number }
+type PlayerSort = 'seconds' | 'matches' | 'wins' | 'kills' | 'days' | 'lastAt'
+const periods: [number, string][] = [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [0, 'All time']]
+const playTime = (seconds: number) => seconds < 3600 ? `${Math.round(seconds / 60)} min` : `${Math.floor(seconds / 3600)} h ${Math.round(seconds % 3600 / 60)} min`
+function Players() {
+  const [days, setDays] = useState(7), [sort, setSort] = useState<PlayerSort>('seconds')
+  const [report, setReport] = useState<{ historySince: number | null; players: PlayerRow[] } | null>(null), [error, setError] = useState(''), [copied, setCopied] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    setReport(null); setError('')
+    void api<{ historySince: number | null; players: PlayerRow[] }>(`/api/admin/players?days=${days}`, controller.signal).then(setReport).catch((e) => { if (!controller.signal.aborted) setError(e.message) })
+    return () => controller.abort()
+  }, [days])
+  const rows = [...report?.players ?? []].sort((a, b) => b[sort] - a[sort] || b.seconds - a.seconds)
+  const period = periods.find(([d]) => d === days)![1]
+  const copy = () => {
+    const text = [`Most active warlocks · ${period.toLowerCase()}`, ...rows.slice(0, 10).map((p, i) => `${i + 1}. ${p.name}: ${playTime(p.seconds)}, ${p.matches} ${p.matches === 1 ? 'game' : 'games'}, ${p.wins} ${p.wins === 1 ? 'win' : 'wins'}, ${p.kills} kills`)].join('\n')
+    void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+  const head = (key: PlayerSort, label: string) => <th><button className="sort" aria-pressed={sort === key} onClick={() => setSort(key)}>{label}{sort === key ? ' ↓' : ''}</button></th>
+  return <section className="card"><header><h2>Most active players</h2><div className="players-actions"><select aria-label="Period" value={days} onChange={(e) => setDays(Number(e.target.value))}>{periods.map(([d, label]) => <option key={d} value={d}>{label}</option>)}</select><button onClick={copy} disabled={!rows.length}>{copied ? 'Copied' : 'Copy top 10'}</button></div></header>
+    {error && <p className="error">{error}</p>}
+    {report && <p>{rows.length} {rows.length === 1 ? 'player' : 'players'} · {rows.reduce((sum, p) => sum + p.matches, 0)} seats in games · {playTime(rows.reduce((sum, p) => sum + p.seconds, 0))} played in total{report.historySince ? ` · recorded since ${new Date(report.historySince).toLocaleDateString()}` : ''}</p>}
+    {!report && !error ? <p>Loading…</p> : report && !rows.length ? <p>No recorded games in this period.</p> : report && <div className="table-wrap"><table className="players"><thead><tr><th>#</th><th>Player</th>{head('seconds', 'Time in games')}{head('matches', 'Games')}{head('wins', 'Wins')}{head('kills', 'Kills')}<th>K/D</th>{head('days', 'Days active')}<th>Ranked · casual · custom</th>{head('lastAt', 'Last played')}</tr></thead>
+      <tbody>{rows.map((p, i) => <tr key={i}><td>{i + 1}</td><td><b>{p.name}</b>{p.kind === 'guest' && <span className="guest">Guest</span>}</td><td>{playTime(p.seconds)}</td><td>{p.matches}</td><td>{p.wins}{p.matches ? ` · ${Math.round(p.wins / p.matches * 100)}%` : ''}</td><td>{p.kills}</td><td>{p.deaths ? (p.kills / p.deaths).toFixed(2) : p.kills ? '∞' : '—'}</td><td>{p.days}</td><td>{p.queues.ranked} · {p.queues.casual} · {p.queues.custom}</td><td>{new Date(p.lastAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td></tr>)}</tbody></table></div>}
+    <p className="footnote">Counts finished games on Brawlock's servers (quick play, ranked and server-hosted custom rooms) from the global match history. Player-hosted games and bots are not included. Kills include bot kills. Signed-in players show their current account name; guests show the name from their latest game, and one guest on two browsers counts twice. Names and play counts are visible to other players in game, but check with a player before featuring them publicly.</p>
+  </section>
+}
 function Dashboard() {
   const [email, setEmail] = useState<string | null>(null), [authState, setAuthState] = useState('checking'), [error, setError] = useState('')
   const [hours, setHours] = useState(1), [region, setRegion] = useState('all'), [tab, setTab] = useState(location.hash === '#feedback' ? 'feedback' : 'fleet')
@@ -120,9 +148,9 @@ function Dashboard() {
   }, [authState, hours])
   return <main><header className="masthead"><div><a className="wordmark" href="/">BRAWLOCK</a><h1>Operations</h1><p>Fleet health, player connections and activity.</p></div><div className="account">{email && <span>{email}</span>}<a href="/">Back to game</a>{authState === 'ready' || authState === 'denied' ? <button onClick={() => void auth.signOut().then(() => location.reload())}>Sign out</button> : null}</div></header>
     {authState !== 'ready' ? <section className="card login"><h2>{authState === 'checking' ? 'Checking access…' : authState === 'denied' ? 'Administrator access required' : 'Sign in to operations'}</h2><p>{error || 'This dashboard is private.'}</p>{authState === 'login' && <button className="primary" onClick={() => { setError(''); void auth.signIn.social({ provider: 'google', callbackURL: `${location.origin}/admin.html` }).then((result) => { if (result.error) setError(result.error.message ?? 'Google sign-in failed.') }).catch(() => setError('Google sign-in could not start.')) }}>Continue with Google</button>}</section> : <>
-      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
+      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
       {error && <p className="error" role="alert">{error} The displayed data may be stale.</p>}
-      {tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : !view ? <p>Waiting for fleet data…</p> : <>
+      {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : !view ? <p>Waiting for fleet data…</p> : <>
         <div className="toolbar"><div className="live-label"><i />Automatic collection · 10s samples · last check {requestAt ? age(requestAt) : 'pending'}</div><div><label>Region <select value={region} onChange={(e) => setRegion(e.target.value)}><option value="all">All regions</option>{view.regions.map((r) => <option value={r.id} key={r.id}>{r.label}</option>)}</select></label><label>History <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); setHovered(null) }}><option value={1}>Last hour</option><option value={24}>24 hours</option><option value={168}>7 days</option></select></label></div></div>
         <div className="deployment"><span><b>Website</b> {view.website?.ok ? `${view.website.version} · ${view.website.build?.slice(0, 8)} · ${view.website.releaseDate}` : 'Version unavailable'}</span><span>History retained 7 days · collected even when this page is closed</span></div>
         {view.website?.ok && view.regions.some((r) => { const release = view.latest[r.id]?.sample?.release; return release?.commit && release.commit !== view.website?.build }) && <p className="error">Deployment versions differ across the website and game servers. A rollout may still be in progress.</p>}

@@ -72,7 +72,7 @@ test('Linux host counters do not double-count guest time and include steal / ava
 test('all dashboard routes require server-verified admin access and block cross-origin reads and writes', async () => {
   let identity = null, reads = 0
   const handle = createAdmin({ accounts: { admin: async () => identity }, store: { read: () => { reads++; return {} } }, collector: { website: () => null }, regions: [region], origin: 'https://game.test', token: 'private-token' })
-  for (const path of ['session', 'monitoring', 'feedback', 'activity', 'mail']) {
+  for (const path of ['session', 'monitoring', 'feedback', 'activity', 'mail', 'players']) {
     assert.equal((await handle(new Request(`https://game.test/api/admin/${path}`))).status, 401)
     identity = false
     assert.equal((await handle(new Request(`https://game.test/api/admin/${path}`))).status, 403)
@@ -87,4 +87,29 @@ test('all dashboard routes require server-verified admin access and block cross-
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.equal(reads, 1)
   assert.equal((await handle(new Request('https://game.test/api/admin/monitoring', { method: 'POST' }))).status, 405)
+})
+
+test('player board names accounts canonically and never sends raw identities to the browser', async () => {
+  const authority = { id: 'us-west', label: 'US West', origin: 'https://us.test', globalAuthority: true }
+  let seen
+  const row = (device, name, seconds) => ({ device, name, matches: 2, wins: 1, forfeits: 0, seconds, kills: 3, deaths: 2,
+    queues: { ranked: 0, casual: 2, custom: 0 }, days: 1, firstAt: 1, lastAt: 2 })
+  const fetcher = async (url, options) => {
+    seen = { url: String(url), options }
+    return Response.json({ since: 0, until: 9, historySince: 1, players: [row('guest-browser-secret', 'Ash', 60), row('a_account12345', 'OldName', 600), row('a_deleted12345', 'Gone', 30)] })
+  }
+  const handle = createAdmin({ accounts: { admin: async () => ({ email: 'admin@example.test' }), profileNames: (ids) => new Map(ids.map((id) => [id, id === 'account12345' ? 'Renamed' : null])) },
+    regions: [region, authority], origin: 'https://game.test', token: 'private-token', fetcher })
+  assert.equal((await handle(new Request('https://game.test/api/admin/players?days=365'))).status, 400)
+  const response = await handle(new Request('https://game.test/api/admin/players?days=7'))
+  assert.equal(response.status, 200)
+  // only the global authority holds the match history
+  assert.equal(seen.url, 'https://us.test/internal/players?days=7')
+  assert.equal(seen.options.headers.authorization, 'Bearer private-token')
+  const body = await response.json()
+  // a rename shows the current name; a deleted account keeps its last in-game name
+  assert.deepEqual(body.players.map((p) => [p.name, p.kind]), [['Renamed', 'account'], ['Ash', 'guest'], ['Gone', 'account']])
+  assert.doesNotMatch(JSON.stringify(body), /device|guest-browser-secret|account12345/)
+  const down = createAdmin({ accounts: { admin: async () => ({ email: 'admin@example.test' }) }, regions: [authority], origin: 'https://game.test', token: 't', fetcher: async () => new Response('down', { status: 503 }) })
+  assert.equal((await down(new Request('https://game.test/api/admin/players?days=7'))).status, 503)
 })

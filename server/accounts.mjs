@@ -355,7 +355,9 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
     }
     const activityReport = (days) => ({ source: 'accounts', ...analytics.report(days), live: presence.snapshot(),
       accounts: { registered: db.prepare('SELECT COUNT(*) AS n FROM user').get().n, profiles: db.prepare('SELECT COUNT(*) AS n FROM player_profile').get().n } })
-    return { auth, handler, admin, activityReport, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
+    // Operator dashboard: current account names; a deleted account reads null.
+    const profileNames = (ids) => new Map(ids.map((id) => [id, getProfile.get(id)?.name ?? null]))
+    return { auth, handler, admin, activityReport, profileNames, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
   } catch (error) {
     analytics?.close()
     db.close()
