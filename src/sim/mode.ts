@@ -189,7 +189,10 @@ export function onKill(state: SimState, victim: PawnState, killer: PlayerId | nu
   if (teams.length <= 1) roundWon(state, teams.length === 1 ? teams[0] : null)
 }
 
-/** Mode:onRoundWon. Combat ends immediately (later deaths in the same tick are cancelled). */
+/**
+ * Mode:onRoundWon. Combat ends immediately: receiveDamage ignores later hits in the same tick,
+ * so two lethal hits at once leave one survivor (whichever hit resolves second) and no draw.
+ */
 export function roundWon(state: SimState, team: number | null): void {
   state.phase = 'roundEnd'
   state.phaseTicksLeft = ticks(ROUND_END_SECONDS)

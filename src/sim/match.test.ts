@@ -51,6 +51,22 @@ describe('rounds mode (systems.md §7.2)', () => {
     expect(pawn(s, 1).hp).toBe(1000)
   })
 
+  test('two lethal hits in one tick leave one survivor: a round never ends in a draw', () => {
+    const s = newMatch({ shopSeconds: 0 })
+    run(s, 200)
+    // both warlocks stand in lava with 2 HP, so the next burn is lethal for each
+    for (const id of [0, 1]) Object.assign(pawn(s, id), { invulnerable: false, hp: 2, x: 5000, y: id * 100 })
+    const events: SimEvent[] = []
+    while (s.phase === 'fight') {
+      step(s, [])
+      events.push(...s.events)
+    }
+    // the first death ends combat, so the second burn is ignored and that warlock wins alive
+    expect(events.filter((e) => e.type === 'death')).toHaveLength(1)
+    expect(events.find((e) => e.type === 'roundWin')).toEqual({ type: 'roundWin', team: 1, players: [1] })
+    expect(pawn(s, 1).alive).toBe(true)
+  })
+
   test('garbage lobby numbers fall back to defaults instead of stalling the phase timer', () => {
     const s = newMatch({ shopSeconds: NaN, lavaDps: -5, friction: Infinity })
     expect(s.settings.shopSeconds).toBe(DEFAULT_SETTINGS.shopSeconds)
