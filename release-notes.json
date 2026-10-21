@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.0-alpha.8",
+    "releaseDate": "2026-10-21",
+    "title": "More time to gather",
+    "changes": [
+      "Casual lobbies wait 30 seconds. Choose Wait for players to keep the room open; anyone ready can resume the countdown.",
+      "Everyone ready shortens casual and ranked countdowns to 10 seconds, with a clear start warning and sound.",
+      "Custom room settings carry over to your next room. Joins, leaves and disconnects appear in room chat.",
+      "Spectator winners split the betting pool. Each pick shows its potential payout.",
+      "Unfinished matches contribute to combat statistics. Leaving a counted game records a loss when it resolves.",
+      "Bots avoid shots that would hit an active Shield; Brutal and Uber punish more openings.",
+      "Tiles char as they sink, lava deaths fall more smoothly, and announcer warnings are better timed.",
+      "Bugs & feedback is easier to find, with arena screenshots and useful diagnostics. Privacy pages link directly to the feedback form."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.7",
     "releaseDate": "2026-10-20",
     "title": "Clicks reach the arena again",
