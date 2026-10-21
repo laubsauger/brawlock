@@ -8,7 +8,7 @@ export function AnalyticsConsent() {
   const settingsOpen = useGame((state) => state.settingsOpen)
   const setSettings = useGame((state) => state.setSettings)
   if (!analyticsAvailable || choice !== null || screen !== 'menu' || settingsOpen) return null
-  return <section className="hud-plate pointer-events-auto fixed bottom-20 left-1/2 z-40 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-lg p-4" aria-label="Optional analytics">
+  return <section className="hud-plate pointer-events-auto fixed bottom-3 left-1/2 z-40 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-lg p-4 lg:bottom-36 lg:left-auto lg:right-6 lg:w-[min(460px,calc(100vw-640px))] lg:translate-x-0" aria-label="Optional analytics">
     <p className="font-semibold text-bone">Help improve Brawlock?</p>
     <p className="mt-1 text-sm text-ash">Allow Google Analytics to measure visits, campaigns and tutorial progress. We don’t send your player name, email or chat. You can change this in Settings → Interface.</p>
     <div className="mt-3 flex flex-wrap items-center gap-3">
