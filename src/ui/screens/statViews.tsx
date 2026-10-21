@@ -12,6 +12,14 @@ import { AWARD_ICON, awardValue, causeLabel, percent, seconds, tiles } from '../
  */
 
 /** One award: icon, title, who won it (identity colour), value and blurb. */
+/** The blurb already says the number: highlight it there instead of repeating it on its own line. */
+function AwardBlurb({ award }: { award: Award }) {
+  const n = /\d[\d,.]*%?/.exec(award.blurb)
+  const value = (text: string) => <b className="tabular font-semibold text-[#ffd27a]">{text}</b>
+  if (!n) return <>{value(awardValue(award))} · {award.blurb}</>
+  return <>{award.blurb.slice(0, n.index)}{value(n[0])}{award.blurb.slice(n.index + n[0].length)}</>
+}
+
 export function AwardCard({ award, name, color, index = 0, compact = false }: { award: Award; name: string; color: string; index?: number; compact?: boolean }) {
   return (
     <div className={`award-card ${compact ? 'award-card-compact' : ''}`} style={{ animationDelay: `${index * 120}ms`, ['--hue' as string]: color }}>
@@ -23,8 +31,7 @@ export function AwardCard({ award, name, color, index = 0, compact = false }: { 
         <span className="truncate text-[0.92rem] font-bold" style={{ color }}>
           {name}
         </span>
-        <span className="tabular text-[0.9rem] font-semibold text-[#ffd27a]">{awardValue(award)}</span>
-        {!compact && <span className="mt-0.5 text-[0.8rem] leading-snug text-ash">{award.blurb}</span>}
+        <span className="mt-0.5 text-[0.8rem] leading-snug text-[#d4c1a8]"><AwardBlurb award={award} /></span>
       </span>
     </div>
   )
