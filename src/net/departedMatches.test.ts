@@ -36,6 +36,8 @@ function fixture(delayRecord = false) {
   const core = createServerCore({ ...DEFAULT_SERVER_CONFIG, region: 'eu', build: 'dev-departures', leaderboardMinSeconds: 120,
     ranked: { ...DEFAULT_SERVER_CONFIG.ranked, bots: 'dummy', fill: 3, minHumans: 2, fillMs: 1, startMs: 1,
       settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, ...settings } },
+    quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, bots: 'dummy', mix: undefined, fill: 3, minHumans: 2, fillMs: 1, startMs: 1,
+      settings: { ...DEFAULT_SERVER_CONFIG.quickplay.settings, ...settings } },
   }, {
     ratingAuthority: authority,
     defaultSettings: DEFAULT_SETTINGS,
@@ -61,8 +63,8 @@ function fixture(delayRecord = false) {
       await vi.advanceTimersByTimeAsync(dt)
     }
   }
-  async function battle() {
-    const room = await core.createRoom({ code: 'ABCDE', quick: 'dummy', ranked: true })
+  async function battle(ranked = true) {
+    const room = await core.createRoom({ code: 'ABCDE', quick: 'dummy', ranked })
     const a = connect(core, room.code, 'alpha')
     const b = connect(core, room.code, 'bravo')
     await advance(100)
@@ -106,10 +108,10 @@ describe('dedicated departure settlement', () => {
     expect(f.store.players(['device-alpha']).size).toBe(0)
   })
 
-  it('saves both qualifying first-round departures as losses before removing the empty ranked room', async () => {
+  it('saves both departures from a match that counted as losses before removing the empty ranked room', async () => {
     const f = fixture()
     const { room, a, b } = await f.battle()
-    await f.advance(61_000)
+    await f.advance(121_000)
     a.close(); b.close()
     await vi.waitFor(() => expect(f.core.room(room.code)).toBeNull())
     expect(f.record).toHaveBeenCalledOnce()
@@ -125,7 +127,7 @@ describe('dedicated departure settlement', () => {
   it('keeps a departed human’s build and records their loss when the remaining player finishes', async () => {
     const f = fixture()
     const { room, a, b } = await f.battle()
-    await f.advance(61_000)
+    await f.advance(121_000)
     const fireball = f.state().pawns[0].slots.indexOf('fireball')
     f.state().pawns[0].levels[fireball] = 2
     await f.advance(20)
@@ -144,18 +146,38 @@ describe('dedicated departure settlement', () => {
     b.close()
   })
 
-  it.each([59_000, 61_000])('applies the one-minute participation threshold after %i ms of combat', async (combatMs) => {
+  /** Why: "if the game counts, leaving it is a loss": one rule, the match's own two humans and two minutes. */
+  it.each([119_000, 121_000])('makes departures losses exactly when the match counts: everyone gone after %i ms', async (playedMs) => {
     const f = fixture()
     const { room, a, b } = await f.battle()
-    await f.advance(combatMs)
+    await f.advance(playedMs)
     a.close(); b.close()
     await vi.waitFor(() => expect(f.core.room(room.code)).toBeNull())
-    const counted = combatMs >= 60_000
+    const counted = playedMs >= 120_000
     expect(f.store.players(['device-alpha']).has('device-alpha')).toBe(counted)
-    expect(f.store.history('device-alpha', { limit: 10 })[0].outcome).toBe(counted ? 'forfeit' : 'loss')
+    // A match that does not count shows no departure in its history either.
+    expect(f.store.history('device-alpha', { limit: 10 })[0]).toMatchObject({ outcome: counted ? 'forfeit' : 'loss', delta: counted ? -20 : null })
   })
 
-  it('keeps a sub-minute departure’s played combat in the profile totals without a loss, Elo or player row', async () => {
+  /** Why: the old one-minute threshold let a losing player leave early without a result. */
+  it('records a loss and Elo for a human who leaves seconds into a match the other human plays to a counted end', async () => {
+    const f = fixture()
+    const { room, a, b } = await f.battle()
+    await f.advance(5_000)
+    a.close()
+    await f.advance(120_000)
+    f.win(1)
+    await f.advance(4000)
+    await vi.waitFor(() => expect(room.screen()).toBe('results'))
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.record.mock.calls[0][0].match.seats.find((s) => s.player === 0)).toMatchObject({ forfeited: true, roundsPlayed: 0 })
+    expect(f.store.players(['device-alpha']).get('device-alpha')).toMatchObject({ matches: 1, wins: 0, rating: 980 })
+    expect(f.store.history('device-alpha', { limit: 10 })[0]).toMatchObject({ outcome: 'forfeit', delta: -20 })
+    expect(f.store.history('device-bravo', { limit: 10 })[0]).toMatchObject({ outcome: 'win', delta: 20 })
+    b.close()
+  })
+
+  it('keeps the combat of a ranked game everyone left before it counted in the profile totals without a loss, Elo or player row', async () => {
     const f = fixture()
     const { room, a, b } = await f.battle()
     await f.advance(30_000)
@@ -205,7 +227,7 @@ describe('dedicated departure settlement', () => {
   it('keeps an empty room and pending result until delayed persistence finishes, then commits once', async () => {
     const f = fixture(true)
     const { room, a, b } = await f.battle()
-    await f.advance(61_000)
+    await f.advance(121_000)
     const cachedAdmission = f.core.admit(`/ws?room=${room.code}`, 'cached-visitor', null)
     expect(cachedAdmission.kind).toBe('room')
     a.close(); b.close()
@@ -228,5 +250,50 @@ describe('dedicated departure settlement', () => {
     expect(f.core.maintenance().pendingResults).toBe(0)
     expect(f.store.history('device-alpha', { limit: 10 })).toHaveLength(1)
     expect(f.store.players(['device-alpha']).get('device-alpha')?.matches).toBe(1)
+  })
+
+  /** Why: casual quick play adds combat to the profile totals, never a result, Elo or a departure loss. */
+  it('folds a casual game’s human combat, complete and departed, into the casual totals only, once', async () => {
+    const f = fixture()
+    const { room, a, b } = await f.battle(false)
+    await f.advance(10_000)
+    a.close()
+    await f.advance(130_000)
+    f.win(1)
+    await f.advance(4000)
+    await vi.waitFor(() => expect(room.screen()).toBe('results'))
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.record.mock.calls[0][0]).toMatchObject({ queue: 'casual' })
+    const seats = f.record.mock.calls[0][0].match.seats
+    expect(seats.find((s) => s.player === 0)).toHaveProperty('partialStats') // the departed human's ten seconds
+    expect(seats.find((s) => s.player === 1)).toHaveProperty('stats')
+    expect(f.store.casual('device-alpha')?.detail).toMatchObject({ matches: 1, seconds: 10 })
+    expect(f.store.casual('device-bravo')?.detail.matches).toBe(1)
+    for (const device of ['device-alpha', 'device-bravo']) {
+      expect(f.store.players([device]).size).toBe(0)
+      expect(f.store.activity(device)).toBeNull()
+      expect(f.store.details(device)).toBeNull()
+    }
+    // Casual history keeps the game but shows no departure loss: it never counted.
+    expect(f.store.history('device-alpha', { limit: 10 })[0]).toMatchObject({ queue: 'casual', outcome: 'loss', delta: null })
+    // A retried delivery of the same submission folds nothing again.
+    await f.record(structuredClone(f.record.mock.calls[0][0]))
+    expect(f.store.casual('device-bravo')?.detail.matches).toBe(1)
+    b.close()
+  })
+
+  it('folds a casual game closed without a result into the casual totals once', async () => {
+    const f = fixture()
+    const { room } = await f.battle(false)
+    await f.advance(30_000)
+    room.close()
+    await vi.waitFor(() => expect(f.store.casual('device-alpha')).not.toBeNull())
+    expect(f.record).toHaveBeenCalledOnce()
+    expect(f.record.mock.calls[0][0]).toMatchObject({ queue: 'casual', match: { aborted: true } })
+    expect(f.store.casual('device-bravo')?.detail.matches).toBe(1)
+    expect(f.store.activity('device-alpha')).toBeNull()
+    expect(f.store.history('device-alpha', { limit: 10 })).toEqual([])
+    await f.advance(1000)
+    expect(f.record).toHaveBeenCalledOnce()
   })
 })

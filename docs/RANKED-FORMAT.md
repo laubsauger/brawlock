@@ -16,6 +16,10 @@ The final decides the champion without adding another scoring point to the five-
 
 There is at most one final. If it ends with no eligible survivor, the tied finalists share the championship; bets are refunded as a drawn round. This is an explicit exceptional outcome, not a chain of extra rounds or a random tiebreak.
 
+## Counting and departures
+
+A ranked match counts (results, Elo) with at least two distinct humans who shared it and at least two minutes of play. If the match counts, leaving it is a loss, however early the player left; rejoining before the end clears the departure. If everyone leaves before two minutes, nobody gets a result. An empty room's bots playing on add no time. Server crashes, operational aborts and operator room closures give no result. Details: [PLAYER-PROFILES.md](PLAYER-PROFILES.md#departures-and-queue-history). (Until 2026-10-21 a departure needed 60 seconds of combat to count.)
+
 ## Duration and arena
 
 The target is roughly15–20minutes; dominant wins and fast rounds can finish earlier. Normal ranked rounds collapse a layer every8seconds, reaching zero safe floor after160seconds from the full eight-player arena. Custom/casual retains10seconds per layer. The final starts at layer `min(15, 9 + finalistCount)` and collapses every6seconds, with60–84seconds until zero floor depending on its size.

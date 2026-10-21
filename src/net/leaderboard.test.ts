@@ -310,7 +310,7 @@ describe('leaderboard: departed humans', () => {
     return { tracker, state, observe, finish }
   }
 
-  it('counts only human-controlled combat time, including a dead human watching, and forfeits at exactly 60 seconds', () => {
+  it('counts only human-controlled combat time, including a dead human watching, and makes the departure a loss', () => {
     const f = tracked()
     f.observe(0, 'shop')
     f.observe(6000, 'shop')
@@ -330,7 +330,7 @@ describe('leaderboard: departed humans', () => {
     expect(result.players.find((p) => p.device === 'dev-aaaaaaaa')).toMatchObject({ matches: 1, wins: 0, rating: 980 })
   })
 
-  it('keeps the last human build and full bot roster while excluding bot upgrades and an early departure from forfeits', () => {
+  it('keeps the last human build and full bot roster while excluding bot upgrades; a sub-minute departure still forfeits', () => {
     const f = tracked()
     f.observe(0, 'fight')
     const pawn = f.state.pawns[0]
@@ -342,7 +342,7 @@ describe('leaderboard: departed humans', () => {
     f.observe(10_000)
     const match = f.finish([0])
     expect(match.seats[0].combatTicks).toBe(3599)
-    expect(match.seats[0]).not.toHaveProperty('forfeited')
+    expect(match.seats[0].forfeited).toBe(true)
     expect(match.seats[0].build?.levels[index]).toBe(2)
     expect(match.seats[0]).not.toHaveProperty('stats')
     expect(match.roster).toHaveLength(3)
@@ -364,14 +364,22 @@ describe('leaderboard: departed humans', () => {
     expect(rateMatch(match, new Map()).get('dev-aaaaaaaa')).toBeGreaterThan(0)
   })
 
-  it('settles an empty first round after a shared combat minute as losses for both, with no fabricated round or winner', () => {
+  it('settles an empty first round after two shared minutes as losses for both, with no fabricated round or winner', () => {
+    const short = tracked()
+    short.observe(0, 'fight')
+    short.observe(3600)
+    short.tracker.control(0, 'bot')
+    short.tracker.control(1, 'bot')
+    // Everyone left after one minute: the match does not count, so neither departure does.
+    expect(ineligible(short.finish([], true))).toBe('shorter than 120 s')
+
     const f = tracked()
     f.observe(0, 'fight')
-    f.observe(3600)
+    f.observe(7200)
     f.tracker.control(0, 'bot')
     f.tracker.control(1, 'bot')
     const match = f.finish([], true)
-    expect(match).toMatchObject({ abandoned: true, ranked: [], ticks: 3600 })
+    expect(match).toMatchObject({ abandoned: true, ranked: [], ticks: 7200 })
     expect(match.seats.map((s) => [s.forfeited, s.won, s.roundsPlayed])).toEqual([[true, false, 0], [true, false, 0]])
     expect(ineligible(match)).toBeNull()
     expect([...rateMatch(match, new Map()).values()]).toEqual([-20, -20])
@@ -391,7 +399,43 @@ describe('leaderboard: departed humans', () => {
     expect(rateMatch(m, new Map()).get('dev-bbbbbbbb')).toBe(20)
   })
 
-  it('requires an overlapping minute between unique human opponents, never solo, duplicate or sequential bot games', () => {
+  /** Why: the one-minute threshold let a losing player escape by leaving early (or in the first shop). */
+  it('makes any departure from a counted match a loss, even one during the first shop before any fight', () => {
+    const f = tracked()
+    f.observe(0, 'shop')
+    f.observe(60, 'shop')
+    f.tracker.control(0, 'bot')
+    f.observe(600, 'fight')
+    f.observe(9000, 'fight', [roundWin([1])])
+    const match = f.finish([1])
+    expect(match.seats[0]).toMatchObject({ forfeited: true, combatTicks: 0, roundsPlayed: 0 })
+    // They shared the shop, so the leaver is rated against the human who stayed.
+    expect(match.combatPairs).toEqual([{ players: [0, 1], ticks: 0 }])
+    expect(ineligible(match)).toBeNull()
+    expect([...rateMatch(match, new Map()).entries()]).toEqual([['dev-aaaaaaaa', -20], ['dev-bbbbbbbb', 20]])
+  })
+
+  /** Why: bots playing on in an empty room (a reconnect window) must not make a match count. */
+  it('ends an abandoned match’s played time when its last human left', () => {
+    const f = tracked()
+    f.observe(0, 'fight')
+    f.observe(6600)
+    f.tracker.control(0, 'bot')
+    f.tracker.control(1, 'bot')
+    f.observe(7800) // nobody returns; bots keep playing past two minutes
+    const match = f.finish([], true)
+    expect(match.ticks).toBe(6600)
+    expect(ineligible(match)).toBe('shorter than 120 s')
+    // One human still playing keeps the whole match.
+    const kept = tracked()
+    kept.observe(0, 'fight')
+    kept.observe(600)
+    kept.tracker.control(0, 'bot')
+    kept.observe(7800, 'fight', [roundWin([1])])
+    expect(kept.finish([1]).ticks).toBe(7800)
+  })
+
+  it('requires two unique human opponents who shared the match, never solo, duplicate or sequential bot games', () => {
     const early = tracked()
     early.observe(0, 'fight'); early.observe(3599)
     early.tracker.control(0, 'bot'); early.tracker.control(1, 'bot')

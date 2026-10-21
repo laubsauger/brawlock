@@ -479,9 +479,10 @@ Implemented in the current source:
 Still relevant engineering:
 
 - Partial combat is folded once per match end, not checkpointed: a crashed server loses its
-  running matches' activity. Partial counters stay out of completed-match detail. Qualifying
-  departures settle as losses after 60 seconds of combat, with ranked Elo and durable
-  queue-filtered history/builds; operational aborts grant no result. See
+  running matches' activity. Partial counters stay out of completed-match detail. Casual quick
+  play folds into the same profile totals (its own aggregate; no result or Elo). Leaving a
+  ranked match that counts (two humans, two minutes) is a loss however early, with ranked Elo
+  and durable queue-filtered history/builds; operational aborts grant no result. See
   [PLAYER-PROFILES.md](PLAYER-PROFILES.md#unfinished-and-partly-played-ranked-games).
 - Select/integrate a real combat soundtrack; the present intentional silence is not a bug.
 - P2P host migration, delayed competitive spectating, map pings and WebTransport remain later

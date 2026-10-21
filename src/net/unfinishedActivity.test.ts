@@ -218,13 +218,45 @@ describe('authority: activity joins the totals, never the results', () => {
     delete aborted.roster
     delete aborted.combatPairs
     expect(validRatingSubmission(submission(aborted, 'aborted-valid-0001'))).toBe(true)
-    expect(validRatingSubmission(submission(aborted, 'aborted-casual-001', 'casual'))).toBe(false)
+    expect(validRatingSubmission(submission(aborted, 'aborted-casual-001', 'casual'))).toBe(true)
+    expect(validRatingSubmission(submission(aborted, 'aborted-custom-001', 'custom'))).toBe(false)
     expect(validRatingSubmission(submission({ ...aborted, seats: aborted.seats.map((s, i) => (i === 0 ? { ...s, won: true } : s)) }, 'aborted-winner-001'))).toBe(false)
     expect(validRatingSubmission(submission({ ...aborted, ranked: m.ranked }, 'aborted-ranked-001'))).toBe(false)
     const seats = (patch: Partial<typeof seat0>) => ({ ...m, seats: m.seats.map((s) => (s.player === 0 ? { ...s, ...patch } : s)) })
     expect(validRatingSubmission(submission(seats({ stats: seat0.partialStats }), 'overlap-detail-001'))).toBe(false)
     expect(validRatingSubmission(submission(seats({ controlTicks: m.ticks + 1 }), 'control-ticks-0001'))).toBe(false)
     expect(validRatingSubmission(submission(seats({ partialStats: undefined }), 'orphan-ticks-00001'))).toBe(false)
+  })
+})
+
+describe('authority: casual quick play feeds the totals, never the results', () => {
+  const submission = (match: FinishedMatch, key: string, queue: RatingSubmission['queue']): RatingSubmission =>
+    ({ key, region: 'eu', room: 'ABCDE', at: 50_000, minSeconds: 1, match, queue })
+
+  /** Why: casual combat is real play worth showing, but wins, Elo and ranked counts must stay ranked-only. */
+  it('folds casual combat apart from ranked detail and activity, once, and custom games not at all', async () => {
+    const m = interruptedMatch()
+    const store = openLeaderboard(':memory:')
+    const authority = localRatingAuthority(store, { minSeconds: 1 })
+    expect((await authority.record(submission(m, 'casual-quick-0001', 'casual'))).status).toBe('unrated')
+    // Alpha's human-controlled part and Bravo's complete game, both as casual games.
+    expect(store.casual(A)?.detail).toMatchObject({ matches: 1, damage: 17, seconds: 3 })
+    expect(store.casual(B)?.detail).toMatchObject({ matches: 1, seconds: 4 })
+    expect(store.players([A, B]).size).toBe(0)
+    expect(store.activity(A)).toBeNull()
+    expect(store.details(B)).toBeNull()
+    const once = store.casual(B)
+    expect((await authority.record(submission(m, 'casual-quick-0001', 'casual'))).status).toBe('unrated')
+    expect(store.casual(B)).toEqual(once)
+    expect((await authority.record(submission(m, 'custom-rules-0001', 'custom'))).status).toBe('unrated')
+    expect(store.casual(B)).toEqual(once)
+
+    // A later ranked game: its result and detail stay ranked; the profile adds casual apart.
+    expect(await authority.record(submission(m, 'ranked-after-0001', 'ranked'))).toEqual({ status: 'rated' })
+    expect(store.casual(B)).toEqual(once)
+    const profile = (await authority.read(`/players/${B}`)).body as { matches: number; wins: number; coverage: { totalMatches: number; detailedMatches: number }; detail: RecordedProfileDetail; casual: RecordedProfileDetail }
+    expect(profile).toMatchObject({ matches: 1, wins: 0, coverage: { totalMatches: 1, detailedMatches: 1 }, detail: { matches: 1 }, casual: { matches: 1 } })
+    store.close()
   })
 })
 

@@ -29,7 +29,7 @@ describe('authoritative match history presentation', () => {
     const html = render(match())
     expect(html).toContain('Loss · left game')
     expect(html).toContain('−12 Elo · 1488')
-    expect(html).toContain('Left after at least 60 seconds of combat')
+    expect(html).toContain('Left before the end and did not return. The match counted, so this is a loss.')
     expect(html).toContain('left game · loss')
   })
 

@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS player_activity (
   device TEXT PRIMARY KEY, detail TEXT NOT NULL,
   first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
 );
+-- Casual quick-play combat, complete and partial games alike (same selection and fold as
+-- player_activity), kept apart so ranked coverage and casual game counts stay separate.
+CREATE TABLE IF NOT EXISTS player_casual (
+  device TEXT PRIMARY KEY, detail TEXT NOT NULL,
+  first_at INTEGER NOT NULL, last_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ranked_result_flags (
   match_id INTEGER NOT NULL, device TEXT NOT NULL, forfeited INTEGER NOT NULL CHECK(forfeited IN (0, 1)),
   PRIMARY KEY(match_id, device),
@@ -149,6 +155,10 @@ export function openLeaderboard(file) {
   const upActivity = db.prepare(`INSERT INTO player_activity (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
       first_at = MIN(player_activity.first_at, excluded.first_at), last_at = MAX(player_activity.last_at, excluded.last_at)`)
+  const getCasual = db.prepare('SELECT detail, first_at, last_at FROM player_casual WHERE device = ?')
+  const upCasual = db.prepare(`INSERT INTO player_casual (device, detail, first_at, last_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(device) DO UPDATE SET detail = excluded.detail,
+      first_at = MIN(player_casual.first_at, excluded.first_at), last_at = MAX(player_casual.last_at, excluded.last_at)`)
   const insResultFlags = db.prepare('INSERT INTO ranked_result_flags(match_id, device, forfeited) VALUES (?, ?, ?)')
   const insHistory = db.prepare(`INSERT INTO match_history
     (receipt_key, public_id, at, region, room, queue, ticks, rounds, team_mode, game_mode, roster)
@@ -192,13 +202,13 @@ export function openLeaderboard(file) {
   }
 
   // Runs only inside a receipt transaction, so a retried submission never folds twice.
-  function writeActivity({ at, rows }) {
+  function writeFold(get, up, prefix, { at, rows }) {
     for (const { device, stats, seconds } of rows) {
-      const previous = getActivity.get(device)
+      const previous = get.get(device)
       const detail = previous ? JSON.parse(previous.detail) : { matches: 0, seconds: 0, damage: 0, totals: emptyTotals(), spells: {}, hallOfFame: {} }
       // Hall of Fame references stay opaque ordinals, never receipt keys or rooms.
-      addRecordedMatch(detail, stats, seconds, at, `partial-${detail.matches + 1}`)
-      upActivity.run(device, JSON.stringify(detail), at, at)
+      addRecordedMatch(detail, stats, seconds, at, `${prefix}-${detail.matches + 1}`)
+      up.run(device, JSON.stringify(detail), at, at)
     }
   }
 
@@ -300,7 +310,8 @@ export function openLeaderboard(file) {
         const settled = calculate()
         if (settled.commit) writeMatch(...settled.commit)
         if (settled.history) writeHistory(key, settled.history)
-        if (settled.activity) writeActivity(settled.activity)
+        if (settled.activity) writeFold(getActivity, upActivity, 'partial', settled.activity)
+        if (settled.casual) writeFold(getCasual, upCasual, 'casual', settled.casual)
         insReceipt.run(key, fingerprint, JSON.stringify(settled.rating))
         db.exec('COMMIT')
         return settled.rating
@@ -362,6 +373,11 @@ export function openLeaderboard(file) {
 
     activity(device) {
       const row = getActivity.get(device)
+      return row ? { detail: JSON.parse(row.detail), firstAt: row.first_at, lastAt: row.last_at } : null
+    },
+
+    casual(device) {
+      const row = getCasual.get(device)
       return row ? { detail: JSON.parse(row.detail), firstAt: row.first_at, lastAt: row.last_at } : null
     },
 

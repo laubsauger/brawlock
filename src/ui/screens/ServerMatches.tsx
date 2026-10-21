@@ -41,7 +41,7 @@ export function ServerMatchList({ matches, personal = true }: { matches: readonl
         </summary>
         <div className="flex flex-col gap-2 px-3 pb-3">
           <p className="text-sm text-ash">{match.region} · {match.teamMode === 'ffa' ? 'Free for all' : match.teamMode === 'teams' ? 'Teams' : 'Shuffle'} · {match.gameMode === 'deathmatch' ? 'Deathmatch' : `${match.rounds} rounds`}</p>
-          {match.outcome === 'forfeit' && <p className="text-sm text-[#ffb08a]">Left after at least 60 seconds of combat. Recorded as a loss when the match finished.</p>}
+          {match.outcome === 'forfeit' && <p className="text-sm text-[#ffb08a]">Left before the end and did not return. The match counted, so this is a loss.</p>}
           <ul className="grid gap-2 lg:grid-cols-2" aria-label="Recorded players and equipment">{match.players.map((player) => <li key={player.player} className="min-w-0 rounded bg-black/20 px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
               {player.color !== undefined && <i className="h-2.5 w-2.5 rotate-45 rounded-[1px]" style={{ background: hex(player.color) }} aria-hidden />}

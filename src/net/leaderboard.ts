@@ -16,8 +16,11 @@
  * - Bots never count: no rating from rounds against them, no kills of them, no deaths to
  *   them. A seat a bot took over (its player left) stops counting from then on.
  * - Eligible matches only: at least 2 distinct devices in human seats (a second tab of
- *   the same browser shares its device id), at least 2 minutes long, and at least one
- *   round with 2 humans in it.
+ *   the same browser shares its device id) who shared the match, at least 2 minutes of
+ *   play (an abandoned match ends when its last human left), and either a round with 2
+ *   humans in it or a departure.
+ * - Departures: if the match counts, leaving it is a loss, however early the player left.
+ *   Rejoining before the end clears it. A match that does not count gives nobody a result.
  *
  * Pure: the tracker turns a match's state / event stream into a FinishedMatch, rateMatch
  * turns that into rating changes. Storage is server/leaderboard-store.mjs (node:sqlite).
@@ -35,8 +38,6 @@ export const LB_RATING_START = 1000
 export const LB_K = 40
 export const LB_MIN_HUMANS = 2
 export const LB_MIN_SECONDS = 120
-/** A departed human owes a match loss after one minute of combat participation. */
-export const LB_FORFEIT_SECONDS = 60
 export const LB_TOP = 100
 
 /** One human seat of a finished match. */
@@ -86,7 +87,8 @@ export interface FinishedMatch {
   /** Ended without any result (operational stop, simulation failure, room closed mid-match):
    * carries only partial combat activity; never rated, never history, never rewards. */
   aborted?: boolean
-  /** Overlapping combat participation by distinct human seats; bounded to 45 pairs. */
+  /** Opposing human seats that were human-controlled at the same time (any phase; entries
+   * can have 0 ticks), with their shared fight ticks; bounded to 45 pairs. */
   combatPairs?: { players: [PlayerId, PlayerId]; ticks: number }[]
 }
 
@@ -94,10 +96,9 @@ export interface FinishedMatch {
 export function ineligible(m: FinishedMatch, minSeconds = LB_MIN_SECONDS): string | null {
   const devices = countedDevices(m)
   if (devices.size < LB_MIN_HUMANS) return 'fewer than 2 humans'
-  // A qualifying departure cannot erase a first-round result by making the
-  // entire room empty before the ordinary two-minute completion threshold.
-  if (qualifyingForfeitPairs(m).length > 0) return null
   if (m.ticks < minSeconds * TICK_HZ) return `shorter than ${minSeconds} s`
+  // A human who left another human decides that pair, even before a round between them ended.
+  if (departurePairs(m).length > 0) return null
   const byPlayer = seatsByPlayer(m)
   if (!m.ranked.some((r) => r.groups.flat().filter((p) => byPlayer.has(p)).length >= 2)) return 'no round between humans'
   return null
@@ -115,10 +116,10 @@ function seatsByPlayer(m: FinishedMatch): Map<PlayerId, SeatStats> {
   return new Map(m.seats.filter((s) => ok.has(s.device)).map((s) => [s.player, s]))
 }
 
-function qualifyingForfeitPairs(m: FinishedMatch): { players: [PlayerId, PlayerId]; ticks: number }[] {
+/** Pairs of counted humans who shared the match while at least one of them later left it. */
+function departurePairs(m: FinishedMatch): { players: [PlayerId, PlayerId]; ticks: number }[] {
   const seats = seatsByPlayer(m)
-  return (m.combatPairs ?? []).filter(({ players, ticks }) => ticks >= LB_FORFEIT_SECONDS * TICK_HZ
-    && players.every((p) => (seats.get(p)?.combatTicks ?? 0) >= LB_FORFEIT_SECONDS * TICK_HZ)
+  return (m.combatPairs ?? []).filter(({ players }) => players.every((p) => seats.has(p))
     && players.some((p) => seats.get(p)?.forfeited === true))
 }
 
@@ -136,6 +137,7 @@ export interface UnfinishedActivity {
  * tracker's `partialStats`; a complete but unrated seat's `stats`), only devices in exactly
  * one seat, only seats with human fight time. `covered`: devices whose complete stats were
  * folded as detail for this same match. Wins, Elo, match counts and rewards never read this.
+ * Casual quick play uses the same selection for all its games (nothing is covered there).
  */
 export function unfinishedActivity(m: FinishedMatch, covered: ReadonlySet<string>): UnfinishedActivity[] {
   return [...seatsByPlayer(m).values()].flatMap((s) => {
@@ -147,7 +149,7 @@ export function unfinishedActivity(m: FinishedMatch, covered: ReadonlySet<string
 }
 
 function ratingParticipants(m: FinishedMatch): Set<PlayerId> {
-  return new Set([...m.seats.filter((s) => s.roundsPlayed > 0).map((s) => s.player), ...qualifyingForfeitPairs(m).flatMap((p) => p.players)])
+  return new Set([...m.seats.filter((s) => s.roundsPlayed > 0).map((s) => s.player), ...departurePairs(m).flatMap((p) => p.players)])
 }
 
 export function eloExpected(a: number, b: number): number {
@@ -195,9 +197,9 @@ export function rateMatch(m: FinishedMatch, ratings: ReadonlyMap<string, number>
       const b = players[j]
       if (teams && team.has(a) && team.get(a) === team.get(b)) continue
       // A first-round leaver is rated only against humans they actually shared
-      // the qualifying combat minute with, never against later bot-seat joins.
+      // the match with, never against later bot-seat joins.
       if ((seat.get(a)!.roundsPlayed === 0 || seat.get(b)!.roundsPlayed === 0)
-        && !qualifyingForfeitPairs(m).some((p) => p.players.includes(a) && p.players.includes(b))) continue
+        && !departurePairs(m).some((p) => p.players.includes(a) && p.players.includes(b))) continue
       const da = k * (score(a, b) - eloExpected(rating(a), rating(b)))
       const db = k * (score(b, a) - eloExpected(rating(b), rating(a)))
       delta.set(a, (delta.get(a) ?? 0) + da)
@@ -237,6 +239,8 @@ export class ServerMatchTracker implements MatchRecorder {
   private detailedSeats = new Set<PlayerId>()
   private observedDetails = false
   private lastTick = 0
+  /** Last observed tick with a human controlling any seat: an abandoned match's played length. */
+  private lastHumanTick = 0
   private lastPhase: SimState['phase'] | null = null
   private combatPairs = new Map<string, { players: [PlayerId, PlayerId]; ticks: number }>()
   private roster = new Map<PlayerId, HistoryPlayer>()
@@ -284,6 +288,7 @@ export class ServerMatchTracker implements MatchRecorder {
     this.detailedSeats.clear()
     this.observedDetails = false
     this.lastTick = 0
+    this.lastHumanTick = 0
     this.lastPhase = null
     this.combatPairs.clear()
     this.roster.clear()
@@ -373,6 +378,18 @@ export class ServerMatchTracker implements MatchRecorder {
     const elapsed = Math.max(0, state.tick - this.lastTick)
     this.lastTick = state.tick
     if (elapsed > 0) for (const p of this.seats.keys()) if (!this.botted.has(p)) this.controlTicks.set(p, (this.controlTicks.get(p) ?? 0) + elapsed)
+    // Opposing humans present together in any phase share the match: a departure is
+    // rated against them (departurePairs), even one during the first shop.
+    const present = [...this.seats.keys()].filter((p) => !this.botted.has(p))
+    if (present.length > 0) this.lastHumanTick = state.tick
+    for (let i = 0; i < present.length; i++) for (let j = i + 1; j < present.length; j++) {
+      const a = present[i]
+      const b = present[j]
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`
+      if (this.combatPairs.has(key)) continue
+      if (this.settings?.teamMode !== 'ffa' && state.slots.find((s) => s.id === a)?.team === state.slots.find((s) => s.id === b)?.team) continue
+      this.combatPairs.set(key, { players: [Math.min(a, b), Math.max(a, b)] as [PlayerId, PlayerId], ticks: 0 })
+    }
     if (this.lastPhase === 'fight' && elapsed > 0) {
       // Dead players still participate as spectators until they leave. Alive
       // time would incorrectly excuse a player who watched then rage-quit.
@@ -447,10 +464,15 @@ export class ServerMatchTracker implements MatchRecorder {
     this.active = false
     const abandoned = result.abandoned === true
     const winners = new Set(abandoned ? [] : result.winners)
+    // Every unreturned departure is flagged; the authority makes it a loss only if the match
+    // counts (ineligible) and drops the flag from the history of one that does not.
     for (const s of this.seats.values()) {
-      if (this.botted.has(s.player) && (s.combatTicks ?? 0) >= LB_FORFEIT_SECONDS * TICK_HZ) s.forfeited = true
+      if (this.botted.has(s.player)) s.forfeited = true
       s.won = !this.botted.has(s.player) && winners.has(s.player)
     }
+    // Once every human has left, bots playing on (a reconnect window) add no played time.
+    const nobody = this.seats.size > 0 && [...this.seats.keys()].every((p) => this.botted.has(p))
+    const ticks = nobody ? Math.min(result.ticks ?? 0, this.lastHumanTick) : (result.ticks ?? 0)
     // deathmatch (no rounds): the whole match is one ranking by score
     if (!abandoned && this.settings.gameMode === 'deathmatch' && this.ranked.length === 0 && result.scores.length > 0) {
       const score = new Map(result.scores.map((x) => [x.id, x.score]))
@@ -463,7 +485,7 @@ export class ServerMatchTracker implements MatchRecorder {
       for (const p of players) this.seats.get(p)!.roundsPlayed++
     }
     return this.onDone({
-      ticks: result.ticks ?? 0,
+      ticks,
       rounds: result.rounds,
       teamMode: this.settings.teamMode,
       gameMode: this.settings.gameMode,
@@ -473,7 +495,7 @@ export class ServerMatchTracker implements MatchRecorder {
         const partial = complete ? null : this.partialOf(s.player, false)
         return { ...s,
           ...(complete ? { stats: this.details!.statsOf(s.player) } : {}),
-          ...(partial ? { partialStats: partial, controlTicks: Math.min(this.controlTicks.get(s.player) ?? 0, result.ticks ?? 0) } : {}),
+          ...(partial ? { partialStats: partial, controlTicks: Math.min(this.controlTicks.get(s.player) ?? 0, ticks) } : {}),
         }
       }),
       ranked: this.ranked,
@@ -642,6 +664,8 @@ export interface LeaderboardStore {
   details(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
   /** Folded unfinished/partly played ranked combat (unfinishedActivity), separate from complete detail. */
   activity(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
+  /** Folded casual quick-play combat (complete and partial games), separate from ranked. */
+  casual(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
   history(device: string, options: { queue?: HistoryQueue; limit: number }): MatchHistoryEntry[]
   close(): void
 }

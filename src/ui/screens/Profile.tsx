@@ -477,35 +477,48 @@ function RecordedStatsGroups({ totals: t, kills, damage, spells, spellCaption, h
   </>
 }
 
+/** Kills and deaths in folded combat totals (bots included); a disconnect is not a death. */
+export function combatKD(d: RecordedProfileDetail): { kills: number; deaths: number } {
+  const sum = (rows: Record<string, number>, skip?: string) => Object.entries(rows).reduce((n, [cause, count]) => (cause === skip ? n : n + count), 0)
+  return { kills: sum(d.totals.killsByCause), deaths: sum(d.totals.deathsByCause, 'disconnect') }
+}
+
 /** The same counter definitions for covered server matches and retained local records.
- * `activity` (server only): the human-controlled part of unfinished or partly played ranked
- * games, added into the same totals; match counts and results stay complete matches only. */
-export function DetailedProfileStats({ coverage, detail, activity = null, source }: { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null; activity?: RecordedProfileDetail | null; source: 'server' | 'device' }) {
-  const shown = mergeRecordedDetail(detail, activity)
+ * Server only, added into the same totals: `activity`, the human-controlled part of unfinished
+ * or partly played ranked games; `casual`, casual quick-play games (complete or partial).
+ * Ranked match counts and results stay complete ranked matches; casual is counted apart. */
+export function DetailedProfileStats({ coverage, detail, activity = null, casual = null, source }: { coverage: RecordedProfileCoverage; detail: RecordedProfileDetail | null; activity?: RecordedProfileDetail | null; casual?: RecordedProfileDetail | null; source: 'server' | 'device' }) {
+  const shown = mergeRecordedDetail(mergeRecordedDetail(detail, activity), casual)
   const partial = activity?.matches ?? 0
+  const casualGames = casual?.matches ?? 0
   const complete = detail?.matches ?? 0
   const spells: { list: [string, [number, number]][]; matches: number } = {
     list: shown ? Object.entries(shown.spells).filter(([, [casts]]) => casts > 0).sort((a, b) => b[1][0] - a[1][0]) : [],
     matches: coverage.detailedMatches,
   }
   const games = (n: number) => `${n} ${n === 1 ? 'game' : 'games'}`
+  const and = (parts: string[]) => parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+  const also = [...(casualGames > 0 ? [`${games(casualGames)} of casual quick play`] : []),
+    ...(partial > 0 ? [`the human-controlled part of ${games(partial)} left unfinished or partly played`] : [])]
+  const pieces = [`${complete} complete`, ...(partial > 0 ? [`${partial} partial`] : []), ...(casualGames > 0 ? [`${casualGames} casual`] : [])]
+  const total = complete + partial + casualGames
   return <div className="flex flex-col gap-5" data-testid="recorded-profile-stats">
     <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-sm">
       <p className="font-semibold text-bone">{source === 'server' ? 'Recorded by the game server' : 'Recorded on this device'}</p>
-      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.{partial > 0 && ` The totals also include the human-controlled part of ${games(partial)} left unfinished or partly played.`}</p>
+      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.{also.length > 0 && ` The totals also include ${and(also)}.`}</p>
       <p className="mt-1 text-xs text-ash">{source === 'server'
-        ? 'Complete ranked matches played as a human from start to finish, plus the time a human controlled the seat in aborted, unrated or partly played ranked games (those add no result, Elo or Embers). These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
+        ? 'Complete ranked matches played as a human from start to finish, plus the time a human controlled the seat in aborted, unrated or partly played ranked games and in casual quick play (those add no result, Elo or Embers). Custom games are not included. These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
         : 'Only retained match records are included, with details kept for the latest 30 matches on this device. These are observed match stats, including bot combat.'}</p>
     </div>
     {!shown ? <p className="text-sm text-ash">No detailed stats are available in this coverage yet.</p> : <>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Tile label="Detailed matches" value={String(complete)} sub={partial > 0 ? `+ ${partial} partial` : undefined} />
+        <Tile label="Detailed matches" value={String(complete)} sub={pieces.length > 1 ? pieces.slice(1).map((p) => `+ ${p}`).join(' · ') : undefined} />
         <Tile label="Recorded match time" value={duration(shown.seconds)} />
         <Tile label="Damage dealt" value={Math.round(shown.damage).toLocaleString()} />
         <Tile label="Accuracy" value={percent(shown.totals.casts ? shown.totals.hits / shown.totals.casts : null)} />
       </div>
       <RecordedStatsGroups totals={shown.totals} kills={Object.values(shown.totals.killsByCause).reduce((a, b) => a + b, 0)} damage={shown.damage} spells={spells}
-        spellCaption={partial > 0 ? `from ${complete} complete and ${partial} partial ${partial + complete === 1 ? 'game' : 'games'}` : `from ${complete} recorded ${complete === 1 ? 'match' : 'matches'}`} hall={shown.hallOfFame} />
+        spellCaption={pieces.length > 1 ? `from ${and(pieces)} ${total === 1 ? 'game' : 'games'}` : `from ${complete} recorded ${complete === 1 ? 'match' : 'matches'}`} hall={shown.hallOfFame} />
     </>}
   </div>
 }
@@ -541,19 +554,23 @@ function PublicProfile({ publicId, name, onClose }: { publicId: string; name: st
     })
     return () => { alive = false }
   }, [publicId])
+  // K/D from all recorded server combat (complete, partial and casual; bots included); win rate stays ranked results.
+  const merged = profile ? mergeRecordedDetail(mergeRecordedDetail(profile.detail ?? null, profile.activity ?? null), profile.casual ?? null) : null
+  const combat = merged ? combatKD(merged) : null
   return createPortal(<Modal title={profile ? `${profile.name}#${profile.tag}` : name} onClose={onClose} width="max-w-4xl" className="h-[min(760px,92dvh)]">
     {error ? <p role="alert" className="text-[#ffb08a]">{error}</p> : loading ? <p role="status" className="text-ash">Loading public profile…</p> : !profile ? <p className="text-ash">This public profile is no longer available.</p> : <>
       <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Ranked results">
         <Tile label="Global Elo" value={String(profile.rating)} sub={`Rank #${profile.rank}`} />
         <div className="well flex flex-col px-4 py-3"><span className="text-sm text-ash">Last 7 days</span><EloChange7d change={profile.ratingChange7d} /></div>
         <Tile label="Ranked matches" value={String(profile.matches)} sub={`${profile.wins} wins`} />
-        <Tile label="Ranked K / D" value={`${profile.kills} / ${profile.deaths}`} sub="Bot combat excluded" />
+        {combat ? <Tile label="K / D" value={`${combat.kills} / ${combat.deaths}`} sub={`Ranked vs humans: ${profile.kills} / ${profile.deaths}`} />
+          : <Tile label="Ranked K / D" value={`${profile.kills} / ${profile.deaths}`} sub="Bot combat excluded" />}
       </div>
       <section className="mb-5 flex flex-col gap-3" aria-label="Recent online matches">
         <h3 className="section-title text-lg">Recent matches</h3>
         <ServerMatches publicId={publicId} />
       </section>
-      {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} activity={profile.activity ?? null} source="server" />}
+      {!profile.coverage || profile.detail === undefined ? <p role="alert" className="text-[#ffb08a]">The server returned incomplete profile details. Refresh and try again.</p> : <DetailedProfileStats coverage={profile.coverage} detail={profile.detail} activity={profile.activity ?? null} casual={profile.casual ?? null} source="server" />}
     </>}
   </Modal>, document.body)
 }
@@ -723,7 +740,7 @@ function GlobalBoard() {
   return (
     <div className="flex flex-col gap-3" data-testid="global-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-[0.92rem] text-ash">Ranked games count with at least 2 human players for 2+ minutes. Your Elo is shared across regions. Bots never count.</p>
+        <p className="max-w-xl text-[0.92rem] text-ash">Ranked games count with at least 2 human players for 2+ minutes; leaving a game that counts is a loss. Your Elo is shared across regions. Bots never count.</p>
         <Segmented
           label="Period"
           value={period}

@@ -31,7 +31,8 @@ export interface RatingReceiptStore extends LeaderboardStore {
   rememberReceipt(key: string, fingerprint: string, rating: MatchRating): void
   commitReceipt(key: string, fingerprint: string, rating: MatchRating, ...args: Parameters<LeaderboardStore['commit']>): void
   /** Calculation reads and the write share the same lock, including across rolling processes. */
-  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']>; history?: StoredMatchHistory; activity?: { at: number; rows: UnfinishedActivity[] } }): MatchRating
+  applyReceipt(key: string, fingerprint: string, calculate: () => { rating: MatchRating; commit?: Parameters<LeaderboardStore['commit']>; history?: StoredMatchHistory
+    activity?: { at: number; rows: UnfinishedActivity[] }; casual?: { at: number; rows: UnfinishedActivity[] } }): MatchRating
 }
 
 const DEVICE = /^[A-Za-z0-9_-]{8,64}$/
@@ -85,9 +86,9 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
     || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch'].includes(m.gameMode)
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false
   if (m.abandoned !== undefined && typeof m.abandoned !== 'boolean') return false
-  // An aborted ranked game carries activity only: no result, round, winner or forfeit.
+  // An aborted ranked or casual game carries activity only: no result, round, winner or forfeit.
   if (m.aborted !== undefined && (typeof m.aborted !== 'boolean'
-    || (m.aborted && (v.queue !== 'ranked' || m.abandoned !== undefined || m.ranked.length > 0 || m.roster !== undefined || m.combatPairs !== undefined
+    || (m.aborted && ((v.queue !== 'ranked' && v.queue !== 'casual') || m.abandoned !== undefined || m.ranked.length > 0 || m.roster !== undefined || m.combatPairs !== undefined
       || m.seats.some((s) => !object(s) || s.won !== false || s.forfeited !== undefined))))) return false
   const players = new Set<number>()
   for (const s of m.seats) {
@@ -175,8 +176,12 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
       const fingerprint = await ratingFingerprint(s)
       return store.applyReceipt(s.key, fingerprint, () => {
         const m = s.match
+        // Casual quick play: every human-controlled part, complete or not, feeds the profile's
+        // combat totals; custom games never do. Wins, losses, Elo and Embers stay ranked-only.
+        const casual = s.queue === 'casual' ? { at: s.at, rows: unfinishedActivity(m, new Set()) } : undefined
         if (m.aborted) {
-          return { rating: { status: 'unrated', reason: 'The match ended without a result.' }, activity: { at: s.at, rows: unfinishedActivity(m, new Set()) } }
+          const unfinished = { rating: { status: 'unrated', reason: 'The match ended without a result.' } } as const
+          return casual ? { ...unfinished, casual } : { ...unfinished, activity: { at: s.at, rows: unfinishedActivity(m, new Set()) } }
         }
         const current = store.players(m.seats.map((p) => p.device))
         const history: StoredMatchHistory | undefined = s.queue === undefined ? undefined : {
@@ -189,7 +194,9 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
           : settleMatch(m, current, s.at, s.region, Math.max(opts.minSeconds ?? LB_MIN_SECONDS, s.minSeconds))
         // Ranked combat without complete-match detail still feeds the profile totals.
         const activity = (covered: string[]) => s.queue === 'ranked' ? { at: s.at, rows: unfinishedActivity(m, new Set(covered)) } : undefined
-        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped }, history, activity: activity([]) }
+        // A departure is a loss only in a match that counts; otherwise its history shows none.
+        const uncounted = history && { ...history, players: history.players.map(({ forfeited: _left, ...p }) => p) }
+        if ('skipped' in settled) return { rating: { status: 'unrated', reason: settled.skipped }, history: uncounted, activity: activity([]), casual }
         if (history) history.deltas = Object.fromEntries(settled.results.map((r) => [r.device, { delta: r.delta, rating: r.rating }]))
         for (const player of settled.players) {
           const previous = current.get(player.device)
@@ -247,12 +254,15 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         const p = store.players([device]).get(device)!
         const details = store.details(device)
         const activity = store.activity(device)
+        const casual = store.casual(device)
         return { status: 200, body: { found: true, ...(await publicRows([r]))[0], firstAt: p.firstAt,
           coverage: { totalMatches: p.matches, detailedMatches: details?.detail.matches ?? 0,
             firstDetailedAt: details?.firstAt ?? null, lastDetailedAt: details?.lastAt ?? null },
           detail: details?.detail ?? null,
           // Unfinished and partly played ranked games: the human-controlled part only.
           activity: activity?.detail ?? null,
+          // Casual quick play (complete and partial games), the human-controlled part only.
+          casual: casual?.detail ?? null,
           recent: store.recent(device, 10).map((x) => ({ at: x.at, region: x.region, won: x.won, ...(x.forfeited === undefined ? {} : { forfeited: x.forfeited }), roundsPlayed: x.roundsPlayed, roundsWon: x.roundsWon, kills: x.kills, deaths: x.deaths, delta: Math.round(x.delta), rating: Math.round(x.rating) })) } }
       }
       if (url.pathname !== '/leaderboard') return { status: 404, body: { error: 'not found' } }

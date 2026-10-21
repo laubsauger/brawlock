@@ -17,10 +17,20 @@ Deployment is established by release receipts, not by implementation status here
   departures on the server profile (`player_activity`, folded in the receipt transaction),
   and games left without a result in device-local career stats. Wins, losses, Elo, match
   counts, history and Embers ignore it, so unfinished games never enter a win-rate
-  denominator; qualifying departures stay 60-second losses. See
+  denominator. See
   [PLAYER-PROFILES.md](PLAYER-PROFILES.md#unfinished-and-partly-played-ranked-games).
   Release needs the US authority first (new optional submission fields). Still open:
-  crash-time activity (no periodic checkpoints) and server aggregates for casual games.
+  crash-time activity (no periodic checkpoints).
+- **Departures follow ranked eligibility:** if the match counts (two humans who shared it, two
+  minutes of play), leaving it is a loss however early; the 60-second participation threshold
+  is gone. A match everyone left before two minutes gives nobody a result, and an empty room's
+  bots add no time. See [PLAYER-PROFILES.md](PLAYER-PROFILES.md#departures-and-queue-history).
+- **Casual quick play feeds the server profile:** complete and partial casual games fold into
+  `player_casual` (new additive table, receipt transaction, no double counting); wins, losses,
+  Elo and Embers stay ranked-only, custom games stay out. The profile counts casual games apart
+  and its K/D comes from all recorded combat. See
+  [PLAYER-PROFILES.md](PLAYER-PROFILES.md#casual-quick-play-combat). Release: US authority
+  before EU (EU's `aborted` casual submissions are rejected by an older authority).
 - Spectator bets pay from a pool instead of a fixed 2-gold return: correct bets split every
   stake of the round equally, so long shots pay more. Each pick shows what a correct bet would
   pay at the current pot next to its rough win chance. Rules in [PLAN.md §3.4](PLAN.md#34-modes-and-lobby-options).

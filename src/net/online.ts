@@ -43,6 +43,12 @@ function publicPlayer(value: unknown): boolean {
     && typeof value.publicId === 'string' && PUBLIC_ID.test(value.publicId)
 }
 
+/** Older servers omit an optional aggregate; a present one is folded games, never an empty one. */
+function badAggregate(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  return typeof value !== 'object' || !('matches' in value) || !Number.isSafeInteger(value.matches) || (value.matches as number) < 1
+}
+
 function profileBody(value: unknown): (Omit<ServerProfile, 'region'> & { found: true }) | null {
   if (value === null || (!!value && typeof value === 'object' && 'found' in value && value.found === false)) return null
   const body = value as Partial<ServerProfile> & { found?: unknown }
@@ -52,9 +58,7 @@ function profileBody(value: unknown): (Omit<ServerProfile, 'region'> & { found: 
     || !Number.isSafeInteger(coverage.detailedMatches) || coverage.detailedMatches < 0 || coverage.detailedMatches > coverage.totalMatches
     || coverage.totalMatches !== body.matches
     || (coverage.detailedMatches === 0 ? body.detail !== null : body.detail?.matches !== coverage.detailedMatches)
-    // Older servers omit activity; a present one is folded games, never an empty aggregate.
-    || (body.activity !== undefined && body.activity !== null
-      && (typeof body.activity !== 'object' || !Number.isSafeInteger(body.activity.matches) || body.activity.matches < 1))) {
+    || badAggregate(body.activity) || badAggregate(body.casual)) {
     throw new ServerError('error', 'The server returned invalid player profile data.')
   }
   return body as Omit<ServerProfile, 'region'> & { found: true }
@@ -128,6 +132,8 @@ export interface ServerProfile extends PublicBoardRow {
   detail: PublicProfileDetail | null
   /** Unfinished and partly played ranked games, human-controlled part only (absent: older server). */
   activity?: PublicProfileDetail | null
+  /** Casual quick-play games (complete and partial), human-controlled part only (absent: older server). */
+  casual?: PublicProfileDetail | null
   /** latest counted matches, newest first */
   recent: { at: number; region: string; won: boolean; roundsPlayed: number; roundsWon: number; kills: number; deaths: number; delta: number; rating: number }[]
 }

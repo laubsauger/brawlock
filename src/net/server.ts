@@ -327,9 +327,9 @@ export function createServerCore(
             if (e && deps.accounts) for (const [id, connected] of e.accounts) if (connected === 0) { deps.accounts.release(code, id); e.accounts.delete(id) }
           } finally { pendingResults-- }
         },
-        ...(setup.ranked ? { onMatchActivity: (m: FinishedMatch) => {
+        ...(setup.ranked || setup.quick ? { onMatchActivity: (m: FinishedMatch) => {
           pendingResults++
-          return record(code, m, 'ranked').finally(() => { pendingResults-- })
+          return record(code, m, setup.ranked ? 'ranked' : 'casual').finally(() => { pendingResults-- })
         } } : {}),
         onName: (device, name) => {
           if (!authority || (deps.accounts && !/^a_[A-Za-z0-9_-]{8,60}$/.test(device))) return

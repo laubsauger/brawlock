@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 const onlineConfig = vi.hoisted(() => ({ configured: true }))
 vi.mock('../../game/session', () => ({ online: onlineConfig, session: {} }))
-import { DetailedProfileStats, EloChange7d, Profile } from './Profile'
-import { emptyTotals, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
+import { combatKD, DetailedProfileStats, EloChange7d, Profile } from './Profile'
+import { emptyTotals, mergeRecordedDetail, type RecordedProfileCoverage, type RecordedProfileDetail } from '../../game/stats'
 import * as stats from '../../game/stats'
 
 describe('direct stats and replay entry points', () => {
@@ -141,6 +141,29 @@ describe('recorded profile detail', () => {
     const only = renderToStaticMarkup(createElement(DetailedProfileStats, { coverage: { ...coverage, detailedMatches: 0, firstDetailedAt: null, lastDetailedAt: null }, detail: null, activity, source: 'server' }))
     expect(only).not.toContain('No detailed stats are available')
     expect(only).toContain('5 casts · 5 hits · 100%')
+  })
+
+  /** Why: casual games add to the same combat totals and K/D, but ranked match counts stay ranked so they keep their meaning. */
+  it('counts casual games apart from ranked matches and derives K/D from every recorded part', () => {
+    const totals = emptyTotals()
+    Object.assign(totals, { killsByCause: { fireball: 3 }, deathsByCause: { lava: 1 } })
+    const detail: RecordedProfileDetail = { matches: 2, seconds: 200, damage: 100, totals, spells: { fireball: [4, 2] }, hallOfFame: {} }
+    const partialTotals = emptyTotals()
+    Object.assign(partialTotals, { killsByCause: { fireball: 1 }, deathsByCause: { fireball: 1, disconnect: 1 } })
+    const activity: RecordedProfileDetail = { matches: 1, seconds: 40, damage: 10, totals: partialTotals, spells: {}, hallOfFame: {} }
+    const casualTotals = emptyTotals()
+    Object.assign(casualTotals, { killsByCause: { lightning: 4 }, deathsByCause: { lava: 2 } })
+    const casual: RecordedProfileDetail = { matches: 3, seconds: 300, damage: 90, totals: casualTotals, spells: {}, hallOfFame: { mostKills: { value: 4, date: 3, matchId: 'casual-2' } } }
+    const html = renderToStaticMarkup(createElement(DetailedProfileStats, { coverage, detail, activity, casual, source: 'server' }))
+    expect(html).toContain('2 of 8 ranked matches have detailed stats')
+    expect(html).toContain('3 games of casual quick play')
+    expect(html).toContain('+ 1 partial · + 3 casual')
+    expect(html).toContain('from 2 complete, 1 partial and 3 casual games')
+    expect(html).toContain('>200</span>') // damage: 100 + 10 + 90
+    expect(html).toContain('Custom games are not included')
+    expect(html).toMatch(/Most kills<\/span><span[^>]*>4</) // a casual personal best counts
+    // A disconnect is not a death.
+    expect(combatKD(mergeRecordedDetail(mergeRecordedDetail(detail, activity), casual)!)).toEqual({ kills: 8, deaths: 4 })
   })
 
   it('labels local rival detail as retained device records rather than a global career', () => {
