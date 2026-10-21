@@ -1,15 +1,18 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { performance } from 'node:perf_hooks'
 
 export const MONITOR_INTERVAL = 10_000
 const RETENTION = 7 * 86400_000
 const metrics = ['hostCpu', 'processCpu', 'memory', 'loop', 'step', 'players', 'bots', 'rooms', 'ping', 'loss', 'online']
+// Additive side table, so the schema stays 1 and the preceding release can still open this file.
+const network = ['steal', 'anchor', 'poll']
 const finite = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null
 
 /** Projection is deliberately bounded and contains no room/player identifiers. */
 export function projectSample(sample) {
-  return { hostCpu: finite(sample.hostCpuPeakPct), processCpu: finite(sample.processCpuPeakPct), memory: finite(sample.perf?.rssMb),
+  return { hostCpu: finite(sample.hostCpuPeakPct), steal: finite(sample.stealPeakPct), anchor: finite(sample.anchorMs), processCpu: finite(sample.processCpuPeakPct), memory: finite(sample.perf?.rssMb),
     loop: finite(sample.loopPeakMs), step: finite(sample.stepPeakMs), players: finite(sample.players),
     bots: Array.isArray(sample.rooms) ? sample.rooms.reduce((sum, room) => sum + room.bots, 0) : null,
     rooms: Array.isArray(sample.rooms) ? sample.rooms.length : null,
@@ -28,21 +31,27 @@ export function openMonitoring(file) {
       CREATE TABLE latest (region TEXT PRIMARY KEY, payload TEXT NOT NULL);
       PRAGMA user_version=1; COMMIT;`)
     else if (version !== 1) throw new Error('Unsupported monitoring database version')
+    db.exec(`CREATE TABLE IF NOT EXISTS network (at INTEGER NOT NULL, region TEXT NOT NULL, ${network.map((key) => `${key} REAL`).join(',')}, PRIMARY KEY(region,at))`)
     const insert = db.prepare(`INSERT OR REPLACE INTO samples VALUES (?,?,?,${metrics.map(() => '?').join(',')})`)
+    const insertNetwork = db.prepare(`INSERT OR REPLACE INTO network VALUES (?,?,${network.map(() => '?').join(',')})`)
     const latest = db.prepare('INSERT OR REPLACE INTO latest VALUES (?,?)')
     const prune = db.prepare('DELETE FROM samples WHERE at<?')
-    const history = db.prepare(`SELECT region,CAST(at/? AS INTEGER)*? AS at,COUNT(*) AS samples,SUM(1-ok) AS failures,
-      ${metrics.map((key) => `MAX(${key}) AS ${key}`).join(',')}
-      FROM samples WHERE at>=? AND at<=? GROUP BY region,CAST(at/? AS INTEGER) ORDER BY at,region`)
+    const pruneNetwork = db.prepare('DELETE FROM network WHERE at<?')
+    const history = db.prepare(`SELECT s.region AS region,CAST(s.at/? AS INTEGER)*? AS at,COUNT(*) AS samples,SUM(1-s.ok) AS failures,
+      ${[...metrics.map((key) => `MAX(s.${key}) AS ${key}`), ...network.map((key) => `MAX(n.${key}) AS ${key}`)].join(',')}
+      FROM samples s LEFT JOIN network n ON n.region=s.region AND n.at=s.at
+      WHERE s.at>=? AND s.at<=? GROUP BY s.region,CAST(s.at/? AS INTEGER) ORDER BY 2,1`)
     const cache = new Map()
     return {
       record(region, at, status) {
         db.exec('BEGIN IMMEDIATE')
         try {
-          const projected = status.ok ? projectSample(status.sample) : {}
+          const projected = { ...(status.ok ? projectSample(status.sample) : {}), poll: finite(status.pollMs) }
           insert.run(at, region, status.ok ? 1 : 0, ...metrics.map((key) => projected[key] ?? null))
+          insertNetwork.run(at, region, ...network.map((key) => projected[key] ?? null))
           latest.run(region, JSON.stringify({ ...status, at }))
           prune.run(at - RETENTION)
+          pruneNetwork.run(at - RETENTION)
           db.exec('COMMIT')
           cache.clear()
         } catch (error) { db.exec('ROLLBACK'); throw error }
@@ -98,7 +107,9 @@ export function startMonitoring({ store, regions, token, localSample, appOrigin,
     inFlight = (async () => {
       await Promise.all(regions.map(async (region) => {
         let status
-        try { status = { ok: true, sample: await fetchMonitoring(region, token, { fetcher, signal: controller.signal }) } }
+        const begin = performance.now()
+        // The poll's duration is this host's view of the region: network plus the region's own loop.
+        try { status = { ok: true, sample: await fetchMonitoring(region, token, { fetcher, signal: controller.signal }), pollMs: performance.now() - begin } }
         catch (error) { status = { ok: false, error: error instanceof Error && /^Regional monitoring HTTP \d+$/.test(error.message) ? error.message : 'Monitoring unavailable' } }
         if (!stopped) store.record(region.id, now(), status)
       }))

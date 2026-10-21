@@ -166,7 +166,7 @@ export async function startServer(opts = {}) {
     rewardFile: join(dataDir, 'progression-outbox.sqlite'),
     allowInsecureForTests: opts.accountsAllowInsecureForTests === true }) : undefined
   const perf = opts.perf ?? createServerPerf()
-  const machine = createMachineMonitor({ perf })
+  const machine = createMachineMonitor({ perf, anchors: opts.anchors })
   const maintenanceFile = process.env.MAINTENANCE_SECRET_FILE
   const maintenanceToken = opts.maintenanceToken ?? (maintenanceFile ? readFileSync(maintenanceFile, 'utf8').trim() : '')
   if (maintenanceToken && maintenanceToken.length < 32) throw new Error('Maintenance token must contain at least 32 characters')

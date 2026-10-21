@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { session } from '../game/session'
+import { online, session } from '../game/session'
 import { httpBase } from '../net/online'
 import { FrameWindow, watchServerPerf, type LocalFrameSample, type ServerProbe } from './lib/diagnostics'
 import { netState } from './lib/netmonitor'
@@ -11,12 +11,14 @@ const EMPTY: ServerProbe = { state: 'waiting', sample: null, fetchMs: null, rece
 /** Local measurements only: no uploads, and sampling stops when F3 is closed. */
 export function ConnectionDiagnostics() {
   const region = usePolled(() => session.region(), (r) => r?.url ?? '', 1)
-  const [server, setServer] = useState<ServerProbe>(EMPTY)
+  // every region at once: a spike on all of them is this device's connection, not one server
+  const [probes, setProbes] = useState<Record<string, ServerProbe>>({})
+  const server = (region && probes[region.id]) || EMPTY
   const [local, setLocal] = useState<(LocalFrameSample & { renderCpuMs: number | null; renderGpuMs: number | null }) | null>(null)
   const [copied, setCopied] = useState('Copy recent samples')
   const frames = useRef(new FrameWindow())
-  const latest = useRef(server)
-  latest.current = server
+  const latest = useRef(probes)
+  latest.current = probes
   const history = useRef<unknown[]>([])
 
   useEffect(() => {
@@ -27,10 +29,11 @@ export function ConnectionDiagnostics() {
   }, [])
 
   useEffect(() => {
-    setServer(EMPTY)
-    history.current = []
-    if (region) return watchServerPerf(httpBase(region.url), setServer)
-  }, [region?.url])
+    const stops = online.regions.map((r) => watchServerPerf(httpBase(r.url), (value) => setProbes((all) => ({ ...all, [r.id]: value }))))
+    return () => { for (const stop of stops) stop() }
+  }, [])
+
+  useEffect(() => { history.current = [] }, [region?.url])
 
   useTick((now) => {
     if (document.visibilityState !== 'visible') return
@@ -40,7 +43,8 @@ export function ConnectionDiagnostics() {
     setLocal({ ...sample, renderCpuMs: render ? render.cpuMs : null, renderGpuMs: render && render.gpuMs >= 0 ? render.gpuMs : null })
     history.current.push({ at: Date.now(), local: sample,
       render: render ? { cpuMs: render.cpuMs, gpuMs: render.gpuMs, fps: render.fps } : null,
-      server: latest.current,
+      server: region ? latest.current[region.id] ?? null : null,
+      regionsRttMs: Object.fromEntries(online.regions.map((r) => [r.id, latest.current[r.id]?.fetchMs ?? null])),
       links: netState().snap.peers.map((p) => ({ rttMs: p.rttMs, jitterMs: p.jitterMs, lossPct: p.lossPct, snapshotAgeMs: p.snapshotAgeMs, inputAckLagMs: p.inputAckLagMs, correctionPx: p.correctionPx })),
     })
     // At most 30 one-second windows, including frame stalls and tab suspension.
@@ -68,7 +72,10 @@ export function ConnectionDiagnostics() {
         <span>sim steps/s {perf.simStepsPerSec.toFixed(0)}</span><span>health RTT {server.fetchMs === null ? '–' : ms(server.fetchMs)}</span>
       </div> : <p className="text-ash">{server.state === 'unavailable' ? 'Server measurements unavailable' : 'Waiting for a server sample…'}</p>}
     </>}
-    <p className="mt-1 text-[10.5px] leading-snug text-ash">RTT includes processing delays on both devices. Compare local frame and server loop spikes.</p>
+    {online.regions.length > 1 && <div className="mt-1 flex flex-wrap gap-x-3"><span className="text-bone">Health RTT</span>
+      {online.regions.map((r) => <span key={r.id}>{r.label} {probes[r.id]?.fetchMs == null ? '–' : ms(probes[r.id].fetchMs!)}</span>)}
+    </div>}
+    <p className="mt-1 text-[10.5px] leading-snug text-ash">RTT includes processing delays on both devices. Every region spiking together points to this device or its network; one region with a loop max spike points to that server.</p>
     <button type="button" className="pointer-events-auto mt-1 rounded px-1.5 py-0.5 text-[#f3c58c] underline-offset-2 hover:underline focus-visible:outline-1 focus-visible:outline-gold" onClick={() => void copy()}>{copied}</button>
   </div>
 }

@@ -7,6 +7,9 @@ export interface FleetSample {
   release: { version: string; releaseDate: string; commit: string | null; net?: string }
   host: { cpus: number; totalMb: number; availableMb: number | null; cpuPct: number | null; stealPct: number | null; load1: number } | null
   hostCpuPeakPct: number | null
+  stealPeakPct?: number | null
+  /** fastest TCP connect to the public internet anchors (game regions only) */
+  anchorMs?: number | null
   processCpuPeakPct: number | null
   loopPeakMs: number | null
   stepPeakMs: number | null
@@ -18,12 +21,13 @@ export interface FleetSample {
   maintenance?: { draining: boolean; ready: boolean }
   online?: { total: number; regions: Record<string, number> }
 }
-export type Metric = 'hostCpu' | 'processCpu' | 'memory' | 'loop' | 'step' | 'players' | 'bots' | 'rooms' | 'ping' | 'loss' | 'online'
+export type Metric = 'hostCpu' | 'processCpu' | 'memory' | 'loop' | 'step' | 'players' | 'bots' | 'rooms' | 'ping' | 'loss' | 'online' | 'steal' | 'anchor' | 'poll'
 export type HistoryPoint = { at: number; region: string; samples: number; failures: number } & Record<Metric, number | null>
 export interface FleetView {
   at: number; from: number; through: number; grain: number; intervalMs: number
   regions: { id: string; label: string }[]
-  latest: Record<string, { at: number; ok: boolean; error?: string; sample?: FleetSample }>
+  /** pollMs: how long the US account host took to fetch this region's sample */
+  latest: Record<string, { at: number; ok: boolean; error?: string; sample?: FleetSample; pollMs?: number }>
   history: HistoryPoint[]
   website: { ok: boolean; at: number; build?: string; version?: string; releaseDate?: string } | null
 }

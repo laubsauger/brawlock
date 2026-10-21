@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openMonitoring, fetchMonitoring, startMonitoring } from './monitoring.mjs'
-import { linuxCounters } from './machine-monitor.mjs'
+import { createMachineMonitor, linuxCounters } from './machine-monitor.mjs'
+import { DatabaseSync } from 'node:sqlite'
 import { createAdmin } from './admin.mjs'
 
 const region = { id: 'eu', label: 'Europe', origin: 'https://eu.test' }
@@ -32,6 +33,30 @@ test('monitoring survives reopen, retains missing samples, bounds history and ex
     assert.equal(view.history.length, 1)
     assert(view.grain >= 168 * 3600_000 / 360)
   } finally { store.close(); rmSync(dir, { recursive: true }) }
+})
+
+test('the previous release\'s database keeps its history, gains network history and stays schema 1 for rollback', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'brawlock-monitor-')), file = join(dir, 'monitoring.sqlite')
+  // the schema deployed before steal/anchor/poll existed
+  const old = new DatabaseSync(file)
+  old.exec(`CREATE TABLE samples (at INTEGER NOT NULL, region TEXT NOT NULL, ok INTEGER NOT NULL, hostCpu REAL,processCpu REAL,memory REAL,loop REAL,step REAL,players REAL,bots REAL,rooms REAL,ping REAL,loss REAL,online REAL, PRIMARY KEY(region,at));
+    CREATE INDEX samples_at ON samples(at); CREATE TABLE latest (region TEXT PRIMARY KEY, payload TEXT NOT NULL);
+    INSERT INTO samples (at,region,ok,hostCpu) VALUES (10000,'eu',1,40); PRAGMA user_version=1;`)
+  old.close()
+  const store = openMonitoring(file)
+  try {
+    store.record('eu', 20_000, { ok: true, sample: { ...sample, stealPeakPct: 6, anchorMs: 12 }, pollMs: 180 })
+    const [before, after] = store.read(1, 30_000).history
+    assert.equal(before.hostCpu, 40)
+    assert.equal(before.anchor, null)
+    assert.deepEqual([after.steal, after.anchor, after.poll], [6, 12, 180])
+  } finally { store.close() }
+  // the preceding binary refuses any other version and inserts 14 positional values into samples
+  const reopened = new DatabaseSync(file)
+  try {
+    assert.equal(reopened.prepare('PRAGMA user_version').get().user_version, 1)
+    reopened.prepare(`INSERT INTO samples VALUES (?,?,?,${Array(11).fill('?').join(',')})`).run(30_000, 'eu', 1, ...Array(11).fill(null))
+  } finally { reopened.close(); rmSync(dir, { recursive: true }) }
 })
 
 test('regional collection is authenticated, fixed-destination and refuses redirects/HTTP/mismatched payloads', async () => {
@@ -62,6 +87,30 @@ test('collector runs without viewers, avoids overlapping polls and records regio
   assert.equal(records[1][0], 'accounts')
   assert.equal(collector.website().ok, false)
   await collector.close()
+  // a successful poll records its own duration: the account host's view of that region
+  const timed = []
+  const ok = startMonitoring({ store: { record: (...args) => timed.push(args) }, regions: [region], token: 'test-region-token-'.repeat(3), appOrigin: 'https://game.test', localSample: () => ({}),
+    fetcher: async (url) => String(url).includes('/internal/') ? Response.json(sample) : new Response('down', { status: 503 }), interval: 100000 })
+  await ok.poll()
+  assert(timed[0][2].ok && timed[0][2].pollMs >= 0)
+  await ok.close()
+})
+
+test('the internet anchor reports the fastest answer and stays null, not zero, when none answers', async () => {
+  let answers = [40, 12]
+  const monitor = createMachineMonitor({ anchors: [{ host: 'a.test', port: 443 }, { host: 'b.test', port: 443 }], connect: async () => answers.shift() ?? null })
+  try {
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(monitor.snapshot().anchorMs, 12)
+  } finally { monitor.close() }
+  const dark = createMachineMonitor({ anchors: [{ host: 'a.test', port: 443 }], connect: async () => null })
+  try {
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(dark.snapshot().anchorMs, null)
+  } finally { dark.close() }
+  // without anchors (dev, tests, the account host) the field is absent rather than a claim of no network
+  const none = createMachineMonitor()
+  try { assert.equal('anchorMs' in none.snapshot(), false) } finally { none.close() }
 })
 
 test('Linux host counters do not double-count guest time and include steal / available memory', () => {

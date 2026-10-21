@@ -34,6 +34,8 @@ export interface ServerOptions {
   turnTtlSeconds?: number
   /** Tests may inject a deterministic sampler; production uses cached one-second Node measurements. */
   perf?: ServerPerfSampler
+  /** Public TCP endpoints this region times every 10 s for the operations dashboard (none by default). */
+  anchors?: readonly { host: string; port: number }[]
 }
 
 export interface DedicatedServer {

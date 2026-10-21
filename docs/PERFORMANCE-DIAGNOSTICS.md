@@ -10,9 +10,9 @@ Open **F3** during the affected game. The existing network histories are joined 
 | Server process CPU | 100% means one fully occupied core; multiple process threads can exceed 100% |
 | Server loop p95/max | Raw Node event-loop delay; the monitor's 20 ms resolution normally produces an idle baseline near 20 ms |
 | Simulation average/max; steps/s | Measured simulation step calls across the server's rooms; excludes serialization and stats recording, and is not a per-player FPS target |
-| Health RTT | A separate HTTP round trip, still subject to local and server processing delays |
+| Health RTT | A separate HTTP round trip to every region at once, still subject to local and server processing delays |
 
-Compare the timing of spikes. Local frame stalls with stable server measurements support a client-side explanation. Server CPU/loop/simulation spikes support a server-side explanation. High RTT with neither signal leaves the network path as a possibility; these measurements alone cannot identify Wi-Fi versus an ISP route. Several causes can coexist.
+Compare the timing of spikes. Local frame stalls with stable server measurements support a client-side explanation. Server CPU/loop/simulation spikes support a server-side explanation. High RTT with neither signal leaves the network path as a possibility. When every region's health RTT spikes together, the cause is on this device's side of the route (Wi-Fi, router, ISP); one region spiking alone points to that server or its route. The operations dashboard's per-region internet anchor tells the server side apart. These measurements alone cannot identify Wi-Fi versus an ISP route. Several causes can coexist.
 
 Use **Copy recent samples** to retain at most 30 local one-second observation windows. The JSON includes timestamps, connection measurements and the most recent server snapshot for correlation; server snapshots are refreshed every three seconds. It does not contain player names, device IDs or room codes. No telemetry is uploaded automatically.
 

@@ -12,6 +12,7 @@
 //   --demo CODE --bots hard,medium  a room that starts itself with these bots (local play)
 //   --page URL                      the client page for the printed join link
 import { startServer, jsonLog } from './listen.mjs'
+import { INTERNET_ANCHORS } from './machine-monitor.mjs'
 import { DEFAULT_SERVER_CONFIG } from '../src/net/server.ts'
 import { parseRoomCode } from '../src/net/code.ts'
 
@@ -40,7 +41,9 @@ const trustProxy = ['1', 'true'].includes(String(arg('trust-proxy', 'TRUST_PROXY
 const dataDir = String(arg('data', 'DATA_DIR', ''))
 if (process.env.NODE_ENV === 'production' && !process.env.ACCOUNTS_AUTHORITY_URL) throw new Error('Production ranked requires ACCOUNTS_AUTHORITY_URL')
 if (process.env.NODE_ENV === 'production' && !process.env.MAINTENANCE_SECRET_FILE) throw new Error('Production requires MAINTENANCE_SECRET_FILE for regional updates')
-const server = await startServer({ port, host, config, trustProxy, dataDir })
+// Production regions probe the internet path for the operations dashboard; dev and tests stay offline.
+const anchors = process.env.NODE_ENV === 'production' ? INTERNET_ANCHORS : []
+const server = await startServer({ port, host, config, trustProxy, dataDir, anchors })
 
 const demo = arg('demo', 'DEMO_ROOM', '')
 if (demo) {
