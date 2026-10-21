@@ -3,7 +3,7 @@ import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
 import { TICK_HZ } from '../../sim'
-import { Button, Crown, Kbd } from '../widgets'
+import { Button, Crown, Kbd, PingBars } from '../widgets'
 import { backToLobby, leaveToMenu, newGame, rematch, setReady } from '../flow'
 import { playerColor, winnersText } from '../lib/view'
 import { duration, readHistory } from '../lib/stats'
@@ -78,6 +78,7 @@ export function Results() {
   const role = useGame((s) => s.lobby.role)
   const local = useGame((s) => s.lobby.localPlayer)
   const ready = useGame((s) => s.lobby.ready)
+  const pings = useGame((s) => s.lobby.pings)
   // quick play: no host. Casual and ranked both wait here for every player's Ready.
   const quick = useGame((s) => !!s.lobby.quick)
   const ranked = useGame((s) => !!s.lobby.ranked)
@@ -142,31 +143,32 @@ export function Results() {
   return (
     // One screen, no page scroll: title, then the board beside a column of MVP / awards / Embers,
     // then the buttons. A long board scrolls inside its own panel; the buttons always stay in view.
-    <div className="screen-in flex h-full flex-col items-center overflow-y-auto px-4 py-4 lg:px-8" style={{ justifyContent: 'safe center' }}>
+    <div className="screen-in flex h-full flex-col items-center overflow-y-auto px-4 py-3 lg:px-8" style={{ justifyContent: 'safe center' }}>
       <h1
-        className="wordmark shrink-0 text-center text-[clamp(2.8rem,min(9vw,9.5vh),6.5rem)] leading-none"
+        className="wordmark shrink-0 text-center text-[clamp(2.6rem,min(9vw,8.5vh),6.5rem)] leading-none"
         style={won || !inMatch ? undefined : { filter: 'grayscale(.35) drop-shadow(0 0 18px rgba(196,26,36,.45)) drop-shadow(0 2px 0 rgba(40,0,0,.9))' }}
       >
         {title}
       </h1>
-      <div className="mt-2 mb-4 flex shrink-0 flex-wrap items-center justify-center gap-3 text-center">
+      <div className="mt-1.5 mb-3 flex shrink-0 flex-wrap items-center justify-center gap-3 text-center">
         <span className="text-xl font-semibold text-[#f0d9b8]">{line}</span>
         <span className="chip">{result.rounds === 1 ? '1 round' : `${result.rounds} rounds`}</span>
         {secs != null && <span className="chip tabular">{duration(secs)}</span>}
       </div>
 
       <div className="flex min-h-0 w-full max-w-6xl shrink flex-col items-center justify-center gap-4 lg:flex-row lg:items-start">
-      <div className="panel flex max-h-full min-h-0 w-full max-w-3xl flex-col p-5" data-testid="results-board">
+      <div className="panel flex max-h-full min-h-0 w-full max-w-3xl flex-col px-5 py-3" data-testid="results-board">
         <div className="min-h-0 overflow-y-auto">
         <table className="tabular w-full text-left text-[1.04rem]">
           <thead>
-            <tr className="text-sm text-ash">
-              <th className="pb-2 font-semibold">Warlock</th>
-              <th className="pb-2 text-right font-semibold">{roundsMode ? rec?.settings.rankedRounds ? 'Scoring wins' : 'Rounds won' : 'Score'}</th>
-              <th className="pb-2 text-right font-semibold">Kills</th>
-              <th className="pb-2 text-right font-semibold">Deaths</th>
-              <th className="pb-2 text-right font-semibold">Damage</th>
-              {online && <th className="pb-2 text-right font-semibold">Rematch</th>}
+            <tr className="text-sm whitespace-nowrap text-ash">
+              <th className="pb-1.5 font-semibold">Warlock</th>
+              <th className="pb-1.5 text-right font-semibold" title={roundsMode ? rec?.settings.rankedRounds ? 'Scoring round wins' : 'Rounds won' : 'Score'}>{roundsMode ? 'Wins' : 'Score'}</th>
+              <th className="pb-1.5 pl-3 text-right font-semibold">Kills</th>
+              <th className="pb-1.5 pl-3 text-right font-semibold">Deaths</th>
+              <th className="pb-1.5 pl-3 text-right font-semibold">Damage</th>
+              {online && <th className="pb-1.5 pl-4 text-right font-semibold">Ping</th>}
+              {online && <th className="pb-1.5 pl-3 text-right font-semibold">Rematch</th>}
             </tr>
           </thead>
           <tbody>
@@ -179,7 +181,7 @@ export function Results() {
                 className={`card-in border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''}`}
                 style={{ animationDelay: `${150 + ri * 110}ms` }}
               >
-                <td className="py-1.5 pr-2">
+                <td className="py-1 pr-2">
                   <span className="flex items-center gap-3">
                     {stats ? (
                       <button type="button" className="row-toggle" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${r.name}'s match stats`} onClick={() => setExpanded(open ? null : r.id)}>
@@ -191,29 +193,34 @@ export function Results() {
                       <span className="w-5" aria-hidden />
                     )}
                     <span className="h-3.5 w-3.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: r.color, boxShadow: `0 0 8px ${r.color}88` }} aria-hidden />
-                    <span className="truncate font-bold">{r.name}</span>
+                    <span className="min-w-[3.5rem] truncate font-bold">{r.name}</span>
                     {r.winner && <Crown title="Winner" />}
                     {rec?.firstBlood === r.id && (
-                      <span className="chip bg-[rgba(196,26,36,0.22)] text-[#ffb3a6]" title="First Blood: the match's first kill">
+                      <span className="chip shrink-0 whitespace-nowrap bg-[rgba(196,26,36,0.22)] text-[#ffb3a6]" title="First Blood: the match's first kill">
                         First Blood
                       </span>
                     )}
-                    {r.id === local && <span className="chip text-gold">You</span>}
-                    {r.difficulty && <span className="chip text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
+                    {r.id === local && <span className="chip shrink-0 text-gold">You</span>}
+                    {r.difficulty && <span className="chip shrink-0 text-[0.72rem] text-ash capitalize">{r.difficulty}</span>}
                   </span>
                 </td>
-                <td className="py-1.5 text-right text-[1.2rem] font-bold text-gold">
+                <td className="py-1 text-right text-[1.2rem] font-bold text-gold">
                   <CountUp value={r.score} delay={250 + ri * 110} />
                 </td>
-                <td className="py-1.5 text-right">
+                <td className="py-1 pl-3 text-right">
                   <CountUp value={r.kills} delay={300 + ri * 110} />
                 </td>
-                <td className="py-1.5 text-right">
+                <td className="py-1 pl-3 text-right">
                   <CountUp value={r.deaths} delay={350 + ri * 110} />
                 </td>
-                <td className="py-1.5 text-right">{r.damage != null ? <CountUp value={r.damage} delay={400 + ri * 110} /> : '–'}</td>
+                <td className="py-1 pl-3 text-right">{r.damage != null ? <CountUp value={r.damage} delay={400 + ri * 110} /> : '–'}</td>
                 {online && (
-                  <td className="py-1.5 text-right">
+                  <td className="py-1 pl-4 text-right whitespace-nowrap">
+                    {r.kind === 'bot' ? <span className="text-sm text-ash">–</span> : <PingBars ms={pings?.[r.id]} host={!quick && r.id === 0} />}
+                  </td>
+                )}
+                {online && (
+                  <td className="py-1 pl-3 text-right">
                     {r.kind === 'bot' ? (
                       <span className="text-sm text-ash">Bot</span>
                     ) : ready?.[r.id] ? (
@@ -226,7 +233,7 @@ export function Results() {
               </tr>
               {open && stats && (
                 <tr>
-                  <td colSpan={online ? 6 : 5} className="pb-2.5">
+                  <td colSpan={online ? 7 : 5} className="pb-2.5">
                     <div className="pop-in">
                       <PlayerStatsDetail stats={stats} />
                     </div>
@@ -242,7 +249,7 @@ export function Results() {
       </div>
 
       {(mvp || (rec?.awards && rec.awards.length > 0) || (accountsEnabled && inMatch && result.progression)) && (
-        <aside className="results-side flex max-h-full min-h-0 w-full max-w-3xl flex-col gap-3 overflow-y-auto lg:w-[22rem] lg:shrink-0" aria-label="Match highlights">
+        <aside className="results-side flex max-h-full min-h-0 w-full max-w-3xl flex-col gap-3 overflow-y-auto lg:w-[17rem] lg:shrink-0" aria-label="Match highlights">
           {mvp && (
             <div
               className="flex shrink-0 flex-col gap-1 rounded-lg px-4 py-3"
@@ -279,7 +286,7 @@ export function Results() {
         <p className="text-sm text-bone">{maintenance}</p>
         <Button onClick={leaveToMenu}>Choose another region</Button>
       </div> : quick ? (
-        <div className="mt-4 flex shrink-0 flex-col items-center gap-2">
+        <div className="mt-3 flex shrink-0 flex-col items-center gap-1.5">
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} autoFocus data-testid="quick-ready">
               {localReady ? 'Not ready' : ranked ? 'Ready for the next ranked game' : 'Ready for the next match'} {!localReady && <Kbd>Enter</Kbd>}
@@ -306,7 +313,7 @@ export function Results() {
           </p>
         </div>
       ) : (
-      <div className="mt-4 flex shrink-0 flex-wrap items-center justify-center gap-3">
+      <div className="mt-3 flex shrink-0 flex-wrap items-center justify-center gap-3">
         {isHost ? (
           <Button variant="primary" size="lg" sound="ready" onClick={rematch} autoFocus>
             Rematch <Kbd>Enter</Kbd>

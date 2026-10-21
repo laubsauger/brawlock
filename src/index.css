@@ -431,9 +431,9 @@
       width: calc(100% - 48px);
       padding-block: 24px;
     }
-    /* results: a wider, shorter chat at the bottom right next to the table,
-       not a full-height strip */
-    .room-chat-layout[data-chat-docked][data-screen="results"] { grid-template-columns: minmax(0, 1fr) 360px; }
+    /* results: a shorter chat at the bottom right next to the table, not a full-height
+       strip; narrow, so the board and its highlights column fit beside it at 1280 wide */
+    .room-chat-layout[data-chat-docked][data-screen="results"] { grid-template-columns: minmax(0, 1fr) 300px; }
     .room-chat-layout[data-chat-docked][data-screen="results"] .room-chat-dock {
       align-self: end;
       height: min(440px, 55vh);
