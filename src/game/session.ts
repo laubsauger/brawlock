@@ -52,6 +52,7 @@ import { playControl, connectPlayControl } from './playControl'
 import type { PlayTarget } from '../net/playControl'
 import { roomProgress, type RoomProgress } from '../net/roomProgress'
 import { trackEvent, type MatchAnalyticsMode } from '../lib/analytics'
+import { savedRoomOptions } from './roomOptions'
 
 export type { SessionApi, NetMode } from '../net/session'
 export type { RegionChoice, RegionState, RegionStatus, ServerFailure, ServerRegion, PublicRoom, LeaderboardPage, ServerProfile } from '../net/online'
@@ -223,6 +224,12 @@ export type HostFailure = ServerFailure | 'cancelled'
 export type HostResult =
   | { ok: true; mode: HostMode; region: RegionStatus | null }
   | { ok: false; mode: HostMode; reason: HostFailure; message: string; region: RegionStatus | null; other: { mode: HostMode; available: boolean; region: RegionStatus | null } }
+
+/** A custom room the player just opened starts from the options they last chose (roomOptions.ts). */
+function applySavedRoomOptions(): void {
+  const saved = savedRoomOptions()
+  if (Object.keys(saved).length) impl.updateSettings(saved)
+}
 
 /** Hosting: peer-to-peer (openHost) or on a game server region (openHostServer). Never switches by itself. */
 export interface HostingApi {
@@ -434,6 +441,7 @@ export const session: GameSession = {
     if (resume()) return
     await openOnce('local', 'p2p', async () => {
       nextJoinRoute = null; impl.openOffline()
+      applySavedRoomOptions()
       return { ok: true, mode: 'p2p', region: null }
     }, false, () => session.openOffline())
   },
@@ -442,7 +450,10 @@ export const session: GameSession = {
     return openOnce('p2p', 'p2p', async (current) => {
       await impl.openHost()
       if (!current()) return cancelled('p2p')
-      if (opened('p2p')) return { ok: true, mode: 'p2p', region: null }
+      if (opened('p2p')) {
+        applySavedRoomOptions()
+        return { ok: true, mode: 'p2p', region: null }
+      }
       const l = useGame.getState().lobby
       const other = await serverOption()
       if (!current()) return cancelled('p2p')
@@ -469,7 +480,10 @@ export const session: GameSession = {
       if (!current()) return cancelled('server')
       await dialRoom(code, { kind: 'server', region: region.id }, current)
       if (!current()) return cancelled('server')
-      if (opened('server')) return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+      if (opened('server')) {
+        applySavedRoomOptions()
+        return { ok: true, mode: 'server', region: online.region(routed?.id ?? region.id) }
+      }
       const l = useGame.getState().lobby
       if (l.status !== 'error') return hostFailed('server', 'cancelled', CANCELLED, online.region(region.id), P2P_OPTION)
       return hostFailed('server', 'error', l.error ?? 'Could not join the game server room.', online.region(region.id), P2P_OPTION)

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { DEFAULT_SETTINGS, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
 import { session } from '../../game/session'
+import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
 import { LOBBY_VOTE_SETTINGS, type LobbyVoteSetting, type LobbyVoteView } from '../../net/lobbyVotes'
 
@@ -44,7 +45,10 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
   if (!settings) {
     return <p className="py-6 text-ash">Waiting for the match rules from the host…</p>
   }
-  const set = (patch: Partial<MatchSettings>) => session.updateSettings(patch)
+  const set = (patch: Partial<MatchSettings>) => {
+    session.updateSettings(patch)
+    rememberRoomOptions(patch)
+  }
   const ro = !editable
   const goldControl = (key: LobbyVoteSetting) => <div className="flex items-center gap-2">
     {voting && <Button size="sm" variant="ghost" disabled={!!activeVote} onClick={() => session.startLobbyVote(key)} title={`Ask players: ${Object.entries(LOBBY_VOTE_SETTINGS[key].values).map(([name, value]) => `${name} ${value}`).join(' / ')} gold. Voting lasts 10 seconds.`} aria-label={`Ask lobby to vote on ${LOBBY_VOTE_SETTINGS[key].label}`}>Vote</Button>}
@@ -114,9 +118,12 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
       </Group>
 
       {editable && (
-        <Button size="sm" variant="ghost" disabled={isDefault} onClick={() => set(DEFAULT_SETTINGS)}>
-          Reset to defaults
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="ghost" disabled={isDefault} onClick={() => set(DEFAULT_SETTINGS)}>
+            Reset to defaults
+          </Button>
+          <span className="text-sm text-ash">Your next custom game starts with these options.</span>
+        </div>
       )}
     </div>
   )

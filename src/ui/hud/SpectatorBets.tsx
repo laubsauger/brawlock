@@ -97,7 +97,7 @@ function BetPanel({ value }: { value: BetView }) {
         : 'Betting closed: two warlocks left'
   // public records of the account seats among the picks (cached; the HUD poll picks them up)
   const seats = value.choices.flatMap((c) => c.profileIds).join(',')
-  useEffect(() => loadSeatRatings(seats.split(',')), [seats])
+  useEffect(() => { loadSeatRatings(seats.split(',')) }, [seats])
   const place = (target: number) => {
     // Phase and target may have changed between the last HUD poll and the click.
     const current = frame.curr
