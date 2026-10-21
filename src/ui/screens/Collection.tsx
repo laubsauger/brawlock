@@ -183,7 +183,7 @@ export function Collection({ onClose, onSignIn }: { onClose: () => void; onSignI
             </div>
           </div>
           <div className="absolute right-2 bottom-2 left-2 flex flex-wrap items-center justify-between gap-2">
-            <Segmented label="Camera" value={view} onChange={setView} options={[{ value: SLOT_VIEW[slot] === 'full' ? 'full' : SLOT_VIEW[slot], label: 'Close' }, ...(SLOT_VIEW[slot] !== 'full' ? [{ value: 'full' as const, label: 'Full' }] : []), { value: 'game', label: 'In game' }]} />
+            <Segmented label="Camera" value={view} onChange={setView} options={[...(SLOT_VIEW[slot] !== 'full' ? [{ value: SLOT_VIEW[slot], label: SLOT_VIEW[slot] === 'back' ? 'Back' : 'Close' }] : []), { value: 'full' as const, label: 'Full' }, { value: 'game', label: 'In game' }]} />
             {tryOnChanged && <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="ghost" onClick={() => setTryOn({})}>Back to equipped</Button>
               {signedIn && state && <Button size="sm" variant="primary" disabled={busy || state.balance < lookCost} onClick={wearLook}

@@ -53,14 +53,22 @@ function standingPawn(): PawnState {
  * height, `top` = the highest point of what it carries (a staff head), world metres.
  */
 function frame(cam: THREE.PerspectiveCamera, view: WardrobeView | 'thumbHead' | 'thumbBack' | 'thumbFull', h: number, top = h): void {
-  cam.fov = view === 'head' ? 24 : view === 'thumbHead' ? 22 : view === 'game' ? 43 : 34
+  cam.fov = view === 'head' ? 28 : view === 'thumbHead' ? 22 : view === 'game' ? 43 : 34
   switch (view) {
     case 'head':
+      // head and shoulders with room above the hood for tall hats, horns and antlers
+      cam.position.set(0, h * 1.1, h * 1.95)
+      cam.lookAt(0, h * 0.9, 0)
+      break
     case 'thumbHead':
       cam.position.set(0, h * 1.15, h * 1.25)
       cam.lookAt(0, h * 0.86, 0)
       break
     case 'back':
+      // the whole back, hood to hem, so capes, wings and emblems read in full
+      cam.position.set(0, h * 1.05, -h * 2.6)
+      cam.lookAt(0, h * 0.62, 0)
+      break
     case 'thumbBack':
       cam.position.set(0, h * 1.1, -h * 1.9)
       cam.lookAt(0, h * 0.62, 0)
@@ -151,10 +159,11 @@ function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs 
     // any other pose: a new round's fight phase ends the celebration, as in a match
     else warlock.update(pawn.current, pawn.current, 1, 1 / 60, [{ type: 'phase', phase: 'fight', round: 0 }])
   }, [warlock, pose, victory])
-  // a new framing starts from the front
+  // a new framing starts from the front, unzoomed
   useEffect(() => {
     const s = spin.current
     s.yaw = s.target = 0
+    s.zoom = 1
   }, [view])
 
   // drag to turn, wheel to zoom; buttons outside the canvas use the same state
