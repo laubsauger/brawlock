@@ -321,7 +321,7 @@ export async function main(args = process.argv.slice(2)) {
       snapshot()
       workflowMatchesConfig(readFileSync(join(source, '.github/workflows/deploy.yml'), 'utf8'), config)
       await run('npm', ['ci'])
-      await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/release-notes.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs'])
+      await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/release-notes.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs', 'server/monitoring.test.mjs', 'server/feedback-mail.test.mjs'])
       if (!state.skipTests) await run('npm', ['test', '--', '--maxWorkers=1'])
       await run('npm', ['run', 'typecheck'])
       await run('npm', ['run', 'build', '--', '--base=/'])

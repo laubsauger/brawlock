@@ -1,3 +1,4 @@
+import { OPERATOR_EMAIL } from './operator.mjs'
 // Single account authority. Deliberately separate from regional games and legacy Elo.
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
@@ -342,7 +343,19 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
       }
       return json(200, { id: userId, email: session.user.email, profile: getProfile.get(userId), game: regions.activeGame(userId) })
     }
-    return { auth, handler, close: () => { analytics.close(); db.close() } }
+    const admin = async (request) => {
+      if (!request.headers.has('cookie')) return null
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return null
+      // Check the authoritative record, not a supplied email or browser session hint.
+      const user = db.prepare('SELECT email,emailVerified FROM user WHERE id=?').get(session.user.id)
+      const google = db.prepare("SELECT 1 FROM account WHERE userId=? AND providerId='google'").get(session.user.id)
+      return user?.emailVerified && user.email.toLowerCase() === OPERATOR_EMAIL && google
+        ? { email: user.email } : false
+    }
+    const activityReport = (days) => ({ source: 'accounts', ...analytics.report(days), live: presence.snapshot(),
+      accounts: { registered: db.prepare('SELECT COUNT(*) AS n FROM user').get().n, profiles: db.prepare('SELECT COUNT(*) AS n FROM player_profile').get().n } })
+    return { auth, handler, admin, activityReport, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
   } catch (error) {
     analytics?.close()
     db.close()

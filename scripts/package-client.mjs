@@ -24,7 +24,7 @@ if (!manifest.icons.every((icon) => icon.src.startsWith(`${mediaOrigin}brand/`))
 mkdirSync(destination, { recursive: true })
 const web = join(destination, 'web')
 mkdirSync(web)
-for (const path of ['index.html', 'sounds.html', 'about.html', 'privacy.html', 'terms.html', 'googlec523c567482e96c5.html', 'version.json', 'assets', 'brand/site.webmanifest']) {
+for (const path of ['index.html', 'admin.html', 'sounds.html', 'about.html', 'privacy.html', 'terms.html', 'googlec523c567482e96c5.html', 'version.json', 'assets', 'brand/site.webmanifest']) {
   cpSync(join(source, path), join(web, path), { recursive: true })
 }
 const pages = join(destination, 'pages')
@@ -32,6 +32,7 @@ cpSync(source, pages, { recursive: true })
 const redirect = (path) => `<!doctype html><html lang="en"><meta charset="utf-8"><title>Brawlock has moved</title><script>location.replace(${JSON.stringify(`https://brawlock.osc.link${path}`)}+location.search+location.hash)</script><a href="https://brawlock.osc.link${path}">Open Brawlock</a></html>\n`
 writeFileSync(join(pages, 'index.html'), redirect('/'))
 writeFileSync(join(pages, 'sounds.html'), redirect('/sounds.html'))
+writeFileSync(join(pages, 'admin.html'), redirect('/admin.html'))
 writeFileSync(join(destination, 'hosting.json'), JSON.stringify({
   build: version.build, ...release,
   appOrigin: 'https://brawlock.osc.link', mediaOrigin,

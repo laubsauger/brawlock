@@ -42,8 +42,8 @@ function FeedbackForm() {
       setError(cause instanceof Error && cause.name !== 'SyntaxError' && cause.name !== 'TypeError' ? cause.message : 'The report could not be sent. Your draft is still here; please retry.')
     } finally { setBusy(false) }
   }
-  return <Modal title="Feedback" onClose={close} help={false} escDisabled={busy} width="max-w-2xl" footer={receipt ? <Button variant="primary" onClick={close}>Done</Button> : <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-ash">Sent privately to the Brawlock team.</span><Button variant="primary" disabled={busy || message.trim().length < 3} onClick={() => void submit()}>{busy ? 'Sending…' : 'Send report'}</Button></div>}>
-    <p className="mb-5 text-sm text-ash">Get in touch with Promp’ Industries: <a className="text-gold underline" href="mailto:stayprompin@gmail.com">stayprompin@gmail.com</a></p>
+  return <Modal title="Bugs & feedback" onClose={close} help={false} escDisabled={busy} width="max-w-2xl" footer={receipt ? <Button variant="primary" onClick={close}>Done</Button> : <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-ash">Sent privately to the Brawlock team.</span><Button variant="primary" disabled={busy || message.trim().length < 3} onClick={() => void submit()}>{busy ? 'Sending…' : 'Send report'}</Button></div>}>
+    <p className="mb-5 text-sm text-ash">Send a bug report, suggestion or support request to the Brawlock team.</p>
     {receipt ? <div role="status" className="space-y-3"><h3 className="text-xl font-semibold text-gold">Report received. Thank you.</h3><p className="text-ash">{email.trim() ? 'We can reply to the email you provided.' : 'Your report helps us improve Brawlock.'}</p><p className="break-all text-xs text-ash">Reference: {receipt}</p></div> : <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submit() }}>
       <Segmented label="Report type" value={kind} onChange={setKind} disabled={busy} options={[{ value: 'bug', label: 'Report a bug' }, { value: 'feedback', label: 'Share feedback' }]} />
       <label className="flex flex-col gap-2 text-bone">{kind === 'bug' ? 'What happened?' : 'What’s on your mind?'}<textarea autoFocus className="field min-h-28 w-full resize-y" required minLength={3} maxLength={FEEDBACK_MESSAGE_MAX} disabled={busy} value={message} onChange={(event) => setMessage(event.target.value)} placeholder={kind === 'bug' ? 'What went wrong? What were you trying to do?' : 'What would make the game better?'} /></label>
@@ -64,6 +64,6 @@ export function FeedbackDialog() {
   // Window-level match/replay shortcuts must not consume report-form keys,
   // including when matchmaking starts a game behind an already-open report.
   return createPortal(<div onKeyDown={(event) => event.stopPropagation()} onKeyUp={(event) => event.stopPropagation()}>
-    {error ? <Modal title="Feedback" help={false} onClose={useFeedback.getState().close} width="max-w-lg"><p role="alert" className="mb-4 text-ash">{error}</p><a className="text-gold underline" href="mailto:stayprompin@gmail.com">stayprompin@gmail.com</a></Modal> : <FeedbackForm />}
+    {error ? <Modal title="Bugs & feedback" help={false} onClose={useFeedback.getState().close} width="max-w-lg"><p role="alert" className="mb-4 text-ash">{error}</p><Button onClick={() => void useFeedback.getState().open()}>Try again</Button></Modal> : <FeedbackForm />}
   </div>, document.body)
 }

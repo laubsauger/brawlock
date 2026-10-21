@@ -1,3 +1,5 @@
+import { createMachineMonitor } from './machine-monitor.mjs'
+import releasePackage from '../package.json' with { type: 'json' }
 // Dedicated server (M4.1, docs/M4.md §11): Node glue for the typed core in src/net/server.ts.
 // HTTP routes and WebSocket upgrades at /ws?room=CODE; framing in src/net/wsframe.ts.
 // Plain JS because @types/node is not a project dependency.
@@ -118,7 +120,7 @@ function wrapSocket(socket, log) {
  * epoch for stored results; tests). Returns { port, core, room(code), createRoom(opts), close() }.
  */
 export async function startServer(opts = {}) {
-  const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock } = opts
+  const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock = Date.now } = opts
   const turnFile = process.env.TURN_SECRET_FILE ?? ''
   const turnUrlsText = process.env.TURN_URLS
   const hasTurn = opts.turnSecret !== undefined || opts.turnUrls !== undefined || turnFile !== '' || turnUrlsText !== undefined
@@ -163,6 +165,7 @@ export async function startServer(opts = {}) {
     rewardFile: join(dataDir, 'progression-outbox.sqlite'),
     allowInsecureForTests: opts.accountsAllowInsecureForTests === true }) : undefined
   const perf = opts.perf ?? createServerPerf()
+  const machine = createMachineMonitor({ perf })
   const maintenanceFile = process.env.MAINTENANCE_SECRET_FILE
   const maintenanceToken = opts.maintenanceToken ?? (maintenanceFile ? readFileSync(maintenanceFile, 'utf8').trim() : '')
   if (maintenanceToken && maintenanceToken.length < 32) throw new Error('Maintenance token must contain at least 32 characters')
@@ -203,6 +206,25 @@ export async function startServer(opts = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       if (!ready) { res.writeHead(503, { 'retry-after': '2' }); res.end('Server is starting.'); req.resume(); return }
+      if ((req.url ?? '').split('?')[0] === '/internal/monitoring') {
+        const reply = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); req.resume() }
+        const received = Buffer.from(String(req.headers.authorization ?? ''))
+        const expected = Buffer.from(`Bearer ${authorityToken}`)
+        if (!authorityToken || req.headers.origin !== undefined || received.length !== expected.length || !timingSafeEqual(received, expected)) reply(403, { error: 'Forbidden.' })
+        else if (req.method !== 'GET') reply(405, { error: 'Method not allowed.' })
+        else {
+          const days = new URL(req.url, 'http://localhost').searchParams.get('reportDays')
+          if (days !== null) {
+            if (!analytics) reply(503, { error: 'Analytics is not configured.' })
+            else if (!Number.isInteger(Number(days)) || Number(days) < 1 || Number(days) > 30) reply(400, { error: 'Invalid report range.' })
+            else reply(200, { source: config.region ?? '', ...analytics.report(Number(days)), live: core.stats() })
+          } else reply(200, { version: 1, region: config.region ?? '', at: clock(), uptimeSec: process.uptime(),
+            release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate,
+              commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__, net: build },
+            ...machine.snapshot(), ...core.stats(), ...core.monitoring(), maintenance: core.maintenance() })
+        }
+        return
+      }
       if ((req.url ?? '').split('?')[0] === '/internal/analytics') {
         const received = Buffer.from(String(req.headers.authorization ?? ''))
         const expected = Buffer.from(`Bearer ${maintenanceToken}`)
@@ -414,6 +436,7 @@ export async function startServer(opts = {}) {
     if (accounts) await accounts.register()
     ready = true
   } catch (error) {
+    machine.close()
     perf.close()
     core.close()
     analytics?.close()
@@ -431,6 +454,7 @@ export async function startServer(opts = {}) {
     createRoom: (o) => core.createRoom(o),
     async close() {
       clearInterval(sweeper)
+      machine.close()
       perf.close()
       core.close()
       analytics?.close()

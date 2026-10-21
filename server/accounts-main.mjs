@@ -1,3 +1,11 @@
+import { openFeedbackMail } from './feedback-mail.mjs'
+import fleet from '../deploy/release.config.json' with { type: 'json' }
+import releasePackage from '../package.json' with { type: 'json' }
+import analyticsCSS from '../scripts/analytics-report.css'
+import { openMonitoring, startMonitoring } from './monitoring.mjs'
+import { createAdmin } from './admin.mjs'
+import { createServerPerf } from './perf.mjs'
+import { createMachineMonitor } from './machine-monitor.mjs'
 // Private loopback service. nginx serves the game and proxies /api/auth + /api/account.
 import http from 'node:http'
 import { readFileSync } from 'node:fs'
@@ -44,8 +52,18 @@ if (process.argv.includes('--migrate')) {
       return session ? { id: session.user.id } : null
     },
   })
+  const mail = openFeedbackMail({ origin, feedback,
+    apiKey: process.env.RESEND_API_KEY ?? '', from: process.env.FEEDBACK_MAIL_FROM ?? '' })
+  const perf = createServerPerf()
+  const machine = createMachineMonitor({ perf })
+  const store = openMonitoring(join(dataDir, 'monitoring.sqlite'))
+  const collector = startMonitoring({ store, regions: fleet.regions, token: regionsToken, appOrigin: origin,
+    localSample: () => ({ version: 1, ...machine.snapshot(), online: accounts.presence(), uptimeSec: process.uptime(),
+      release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate, commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__ } }) })
+  const admin = createAdmin({ accounts, store, collector, regions: fleet.regions, token: regionsToken, origin, feedback, css: analyticsCSS, mail })
   const handle = toNodeHandler(async (request) => {
     const path = new URL(request.url).pathname
+    if (path.startsWith('/api/admin/')) return admin(request)
     return path === '/api/feedback' || path === '/internal/feedback' || path.startsWith('/internal/feedback/')
       ? feedback.handler(request) : accounts.handler(request)
   })
@@ -85,7 +103,7 @@ if (process.argv.includes('--migrate')) {
   const stop = () => {
     if (stopping) return
     stopping = true
-    server.close(() => { feedback.close(); accounts.close(); process.exit(0) })
+    server.close(async () => { await collector.close(); await mail.close(); machine.close(); perf.close(); store.close(); feedback.close(); accounts.close(); process.exit(0) })
   }
   process.on('SIGTERM', stop)
   process.on('SIGINT', stop)

@@ -83,7 +83,7 @@ export default defineConfig(({ mode }) => {
       alias: mode === 'test' ? [] : [{ find: /^three$/, replacement: 'three/webgpu' }],
     },
     build: {
-      rollupOptions: { input: { main: 'index.html', sounds: SOUNDS_ENTRY, about: 'about.html', privacy: 'privacy.html', terms: 'terms.html' } },
+      rollupOptions: { input: { admin: 'admin.html', main: 'index.html', sounds: SOUNDS_ENTRY, about: 'about.html', privacy: 'privacy.html', terms: 'terms.html' } },
     },
     server: {
       // Explicit local opt-in. Production nginx proxies these same paths to the US authority.
@@ -93,6 +93,7 @@ export default defineConfig(({ mode }) => {
         '/api/progression': { target: 'http://127.0.0.1:5352' },
         '/api/presence': { target: 'http://127.0.0.1:5352' },
         '/api/play': { target: 'http://127.0.0.1:5352' },
+        '/api/admin': { target: 'http://127.0.0.1:5352' },
         '/api/feedback': { target: 'http://127.0.0.1:5352' },
       } : undefined,
       port: process.env.PORT ? Number(process.env.PORT) : 5173,

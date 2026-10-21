@@ -12,6 +12,7 @@ test('first-party packages retain public policies and the exact Google ownership
     mkdirSync(join(source, 'brand'), { recursive: true }); mkdirSync(join(source, 'assets'))
     writeFileSync(join(source, 'index.html'), '<img src="https://laubsauger.github.io/brawlock/brand/splash.webp"><script src="/assets/main.js"></script>')
     writeFileSync(join(source, 'sounds.html'), 'sound board')
+    writeFileSync(join(source, 'admin.html'), 'private operations shell')
     writeFileSync(join(source, 'assets/main.js'), '// fixture')
     writeFileSync(join(source, 'assets/site.css'), 'body { color: white }')
     writeFileSync(join(source, 'brand/site.webmanifest'), JSON.stringify({ icons: [{ src: 'https://laubsauger.github.io/brawlock/brand/icon.png' }] }))
@@ -24,6 +25,8 @@ test('first-party packages retain public policies and the exact Google ownership
       for (const target of ['web', 'pages']) assert.deepEqual(readFileSync(join(output, target, name)), readFileSync(join(source, name)))
     }
     assert.equal(readFileSync(join(output, 'web/googlec523c567482e96c5.html'), 'utf8'), 'google-site-verification: googlec523c567482e96c5.html')
+    assert.equal(readFileSync(join(output, 'web/admin.html'), 'utf8'), 'private operations shell')
+    assert.ok(readFileSync(join(output, 'pages/admin.html'), 'utf8').includes('https://brawlock.osc.link/admin.html'))
     assert.ok(readFileSync(join(output, 'pages/index.html'), 'utf8').includes('https://brawlock.osc.link/'))
     assert.ok(readdirSync(join(output, 'web/assets')).includes('site.css'))
 

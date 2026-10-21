@@ -1,4 +1,5 @@
 import { FeedbackButton } from '../FeedbackButton'
+import { useFeedback } from '../lib/feedbackState'
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
@@ -246,6 +247,13 @@ function JoinRow({ onClose }: { onClose: () => void }) {
 
 export function MainMenu() {
   useEffect(() => { rejoin.restore() }, [])
+  useEffect(() => {
+    const url = new URL(location.href)
+    if (url.searchParams.get('feedback') !== '1') return
+    url.searchParams.delete('feedback')
+    history.replaceState(history.state, '', url)
+    void useFeedback.getState().open()
+  }, [])
   const playSupported = usePlaySupported()
   const activeRoom = usePolled(() => session.isActive(), String, 4)
   const guestName = useGame((s) => s.settings.playerName)
@@ -424,6 +432,7 @@ export function MainMenu() {
       <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
         <div className="menu-footer-meta flex flex-col gap-3">
           <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
+            <FeedbackButton />
             <ReleaseNotesButton compact />
             <Button size="sm" className="menu-stats gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /><span className="btn-label">Stats</span></Button>
             <Button variant="ghost" size="sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
@@ -442,7 +451,6 @@ export function MainMenu() {
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <nav className="flex flex-wrap items-center gap-1" aria-label="Information and policies">
-            <FeedbackButton />
             <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
             <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy (opens in a new tab)">Privacy Policy</a>
             <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" aria-label="Terms of Service (opens in a new tab)">Terms of Service</a>

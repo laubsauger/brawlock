@@ -36,7 +36,7 @@ function fixture({ file = ':memory:', getAccount }: { file?: string; getAccount?
   const inbox = (path = '', headers: Record<string, string> = {}) => service.handler(new Request(`${origin}/internal/feedback${path}`, {
     headers: { authorization: `Bearer ${token}`, ...headers },
   }))
-  return { post, inbox, handler: (request: Request) => service.handler(request), time: (value: number) => { time = value },
+  return { post, inbox, mailDelivery: (build: Parameters<typeof service.mailDelivery>[0]) => service.mailDelivery(build), completeMail: (key: string) => service.completeMail(key), lastMailedAt: () => service.lastMailedAt(), mailBatch: () => service.mailBatch(), markMailed: (ids: string[]) => service.markMailed(ids), mailPending: () => service.mailPending(), handler: (request: Request) => service.handler(request), time: (value: number) => { time = value },
     reopen() { service.close(); service = openFeedback(file, { origin, token, getAccount, now: () => time }) } }
 }
 
@@ -172,6 +172,50 @@ describe('private feedback inbox', () => {
     expect((await (await f.inbox(`/${report.id}`)).json()).screenshot.data).toBe(png)
     expect(statSync(file).mode & 0o777).toBe(0o600)
     expect(statSync(dir).mode & 0o777).toBe(0o700)
+  })
+
+  it('keeps undelivered reports queued across restart and records confirmed delivery without changing schema 1', async () => {
+    const dir = tempDir('brawlock-feedback-mail-')
+    cleanups.push(() => removeDir(dir))
+    const file = `${dir}/feedback.sqlite`, f = fixture({ file })
+    const first = submission(), second = submission()
+    expect((await f.post(first)).status).toBe(201)
+    expect((await f.post(second)).status).toBe(201)
+    expect(f.mailPending()).toBe(2)
+    f.reopen()
+    expect(f.mailBatch().map((row) => row.id).sort()).toEqual([first.id, second.id].sort())
+    f.markMailed([first.id]); f.markMailed([first.id])
+    f.reopen()
+    expect(f.mailBatch().map((row) => row.id)).toEqual([second.id])
+    expect((await f.inbox(`/${first.id}`)).status).toBe(200)
+    const db = openTestDatabase(file)
+    try { expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 1 }) } finally { db.close() }
+  })
+
+  it('persists the exact email batch across restart and new arrivals, and acknowledges all included reports atomically', async () => {
+    const dir = tempDir('brawlock-feedback-outbox-')
+    cleanups.push(() => removeDir(dir))
+    const file = `${dir}/feedback.sqlite`, f = fixture({ file })
+    const first = submission(), second = submission()
+    await f.post(first)
+    const build = (reports: { message: string }[]) => ({ from: 'Brawlock <feedback@notify.test>', to: ['operator@example.test'], subject: 'Private digest', text: reports.map((r) => r.message).join('\n') })
+    const batch = f.mailDelivery(build)!
+    await f.post(second)
+    f.reopen()
+    expect(f.mailDelivery(() => { throw new Error('An existing batch must not be rebuilt') })).toEqual(batch)
+    const db = openTestDatabase(file)
+    try {
+      db.exec("CREATE TRIGGER reject_mail BEFORE INSERT ON feedback_delivery BEGIN SELECT RAISE(ABORT,'test storage failure'); END;")
+      expect(() => f.completeMail(batch.key)).toThrow()
+      expect(f.mailPending()).toBe(2)
+      expect(f.mailDelivery(build)).toEqual(batch)
+      db.exec('DROP TRIGGER reject_mail')
+      f.completeMail(batch.key)
+      expect(f.mailPending()).toBe(1)
+      expect(f.lastMailedAt()).toBe(1000)
+      expect(f.mailDelivery(build)!.key).not.toBe(batch.key)
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 1 })
+    } finally { db.close() }
   })
 
   it('rolls back the report and blob on storage failure, returning no private error details', async () => {

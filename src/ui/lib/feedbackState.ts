@@ -29,7 +29,7 @@ export const useFeedback = create<{
       catch (error) { captureError = error instanceof Error ? error.message : 'Screenshot capture failed.' }
       set({ draft: { context, screenshot, captureError } })
     } catch {
-      set({ error: 'The report tools could not load. Reload Brawlock and try again, or contact us by email.' })
+      set({ error: 'The report tools could not load. Reload Brawlock and try again.' })
     } finally { set({ capturing: false }) }
   },
   close: () => set({ draft: null, error: null }),

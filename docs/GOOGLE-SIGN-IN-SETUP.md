@@ -24,7 +24,7 @@ On **Branding**, configure three distinct, public URLs:
 | Privacy policy | `https://brawlock.osc.link/privacy.html` |
 | Terms of service | `https://brawlock.osc.link/terms.html` |
 
-These are static documents without JavaScript, account checks, a canvas or the game's boot flow. The homepage describes Brawlock, its operator and sign-in use, links both policies and opens the game at its existing root URL. The policies identify **Promp' Industries** and the operator-supplied public contact **stayprompin@gmail.com**. Verify that the live documents match current practices whenever those change.
+These are static documents without JavaScript, account checks, a canvas or the game's boot flow. The homepage describes Brawlock, its operator and sign-in use, links both policies and opens the game at its existing root URL. The policies identify **Promp' Industries** and link to the private contact form without publishing a mailbox address. Verify that the live documents match current practices whenever those change.
 
 Authorized domains use the registered domain **osc.link**, not a URL or the `brawlock` subdomain. Google requires the verified owner to be associated with the OAuth project as an owner/editor. A domain that resolves and has HTTPS is not by itself proof of Google Search Console ownership.
 

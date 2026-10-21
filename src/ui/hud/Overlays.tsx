@@ -362,7 +362,7 @@ export function EscMenu() {
   const [copied, setCopied] = useState(false)
   const offline = role === 'offline'
   return (
-    <div className="scrim fade-in interactive pointer-events-auto absolute inset-0 z-40 grid place-items-center p-4">
+    <div data-feedback-exclude className="scrim fade-in interactive pointer-events-auto absolute inset-0 z-40 grid place-items-center p-4">
       <div className="panel pop-in flex max-h-[92dvh] w-[min(380px,100%)] flex-col gap-3 overflow-y-auto p-7" role="dialog" aria-label="Menu">
         <div className="flex items-start justify-between gap-3">
           <h2 className="display text-5xl leading-none text-[#ffd890]">{offline ? 'Paused' : 'Menu'}</h2>

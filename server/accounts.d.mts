@@ -12,5 +12,8 @@ export function accountOptions(opts: Omit<AccountConfig, 'file' | 'migrate'> & {
 export function openAccounts(opts: AccountConfig): Promise<{
   auth: ReturnType<typeof import('better-auth').betterAuth>
   handler(request: Request): Promise<Response>
+  admin(request: Request): Promise<{ email: string } | null | false>
+  activityReport(days: number): unknown
+  presence(): { total: number; regions: Record<string, number> }
   close(): void
 }>

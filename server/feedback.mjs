@@ -121,6 +121,10 @@ export function openFeedback(file, { origin, token, getAccount, now = Date.now }
       PRAGMA user_version=1;
       COMMIT;`)
     else if (version !== 1) throw new Error('Unsupported feedback schema version')
+    // Additive side table: the previous release can still open schema 1 on rollback.
+    db.exec(`CREATE TABLE IF NOT EXISTS feedback_delivery (id TEXT PRIMARY KEY, mailed_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS feedback_mail_outbox (id INTEGER PRIMARY KEY CHECK(id=1), key TEXT NOT NULL, reports TEXT NOT NULL, payload TEXT NOT NULL);`)
+    const mailRows = db.prepare("SELECT id,received_at AS at,json_extract(payload,'$.kind') AS kind,substr(json_extract(payload,'$.message'),1,600) AS message FROM feedback WHERE NOT EXISTS (SELECT 1 FROM feedback_delivery d WHERE d.id=feedback.id) ORDER BY received_at,id LIMIT 25")
     const find = db.prepare('SELECT * FROM feedback WHERE id=?')
     const insert = db.prepare('INSERT INTO feedback(id,fingerprint,account_id,received_at,payload,screenshot) VALUES(?,?,?,?,?,?)')
     const recent = db.prepare(`SELECT id, received_at, account_id, json_extract(payload,'$.kind') AS kind,
@@ -220,6 +224,41 @@ export function openFeedback(file, { origin, token, getAccount, now = Date.now }
             { error: error instanceof FeedbackError ? error.message : 'Feedback could not be saved. Please try again.' })
         }
       },
+      mailBatch() { return mailRows.all() },
+      mailDelivery(build) {
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          let row = db.prepare('SELECT key,reports,payload FROM feedback_mail_outbox WHERE id=1').get()
+          if (!row) {
+            const reports = mailRows.all()
+            if (!reports.length) { db.exec('COMMIT'); return null }
+            const key = `feedback/${createHash('sha256').update(reports.map((r) => r.id).join(':')).digest('hex')}`
+            row = { key, reports: JSON.stringify(reports.map((r) => r.id)), payload: JSON.stringify(build(reports)) }
+            db.prepare('INSERT INTO feedback_mail_outbox VALUES (1,?,?,?)').run(row.key, row.reports, row.payload)
+          }
+          db.exec('COMMIT')
+          return { key: row.key, payload: row.payload }
+        } catch (error) { db.exec('ROLLBACK'); throw error }
+      },
+      completeMail(key) {
+        db.exec('BEGIN IMMEDIATE')
+        try {
+          const row = db.prepare('SELECT reports FROM feedback_mail_outbox WHERE id=1 AND key=?').get(key)
+          if (!row) throw new Error('Feedback mail batch is not pending')
+          const mark = db.prepare('INSERT OR IGNORE INTO feedback_delivery SELECT id,? FROM feedback WHERE id=?')
+          for (const id of JSON.parse(row.reports)) mark.run(now(), id)
+          db.prepare('DELETE FROM feedback_mail_outbox WHERE id=1 AND key=?').run(key)
+          db.exec('COMMIT')
+        } catch (error) { db.exec('ROLLBACK'); throw error }
+      },
+      lastMailedAt() { return db.prepare('SELECT MAX(mailed_at) AS at FROM feedback_delivery').get().at },
+      markMailed(ids) {
+        const mark = db.prepare('INSERT OR IGNORE INTO feedback_delivery SELECT id,? FROM feedback WHERE id=?')
+        db.exec('BEGIN IMMEDIATE')
+        try { for (const id of ids) mark.run(now(), id); db.exec('COMMIT') }
+        catch (error) { db.exec('ROLLBACK'); throw error }
+      },
+      mailPending() { return db.prepare('SELECT COUNT(*) AS n FROM feedback WHERE NOT EXISTS (SELECT 1 FROM feedback_delivery d WHERE d.id=feedback.id)').get().n },
       close() { db.close() },
     }
   } catch (error) { db.close(); throw error }

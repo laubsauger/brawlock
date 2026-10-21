@@ -16,6 +16,9 @@ module.exports = {
       AUTH_GOOGLE_CLIENT_ID: '__GOOGLE_CLIENT_ID__',
       AUTH_GOOGLE_SECRET_FILE: '/etc/brawlock/accounts-google-secret',
       AUTH_REGIONS_TOKEN_FILE: '/etc/brawlock/rating-authority-token',
+      // Optional feedback digests. Set both after verifying the sender domain in Resend.
+      // RESEND_API_KEY: require('node:fs').readFileSync('/etc/brawlock/resend-api-key', 'utf8').trim(),
+      // FEEDBACK_MAIL_FROM: 'Brawlock <feedback@brawlock.osc.link>',
       TRUST_PROXY: '1',
     },
     max_memory_restart: '180M',

@@ -51,6 +51,23 @@ async function fixture() {
 }
 
 describe('account authority', () => {
+  it('restricts operations to the verified administrator with a linked Google account, ignoring identity hints', async () => {
+    const f = await fixture()
+    expect(await f.accounts.admin(new Request(`${origin}/api/admin/session`, { headers: { 'x-email': 'laubsauger@gmail.com' } }))).toBeNull()
+    const other = await f.player('other@example.com')
+    const context = await f.accounts.auth.$context
+    f.db.prepare('UPDATE user SET emailVerified=1 WHERE id=?').run(other.id)
+    await context.internalAdapter.createAccount({ userId: other.id, providerId: 'google', accountId: 'test-other-google' })
+    expect(await f.accounts.admin(new Request(`${origin}/api/admin/session`, { headers: other.headers }))).toBe(false)
+    const admin = await f.player('laubsauger@gmail.com')
+    f.db.prepare('UPDATE user SET emailVerified=1 WHERE id=?').run(admin.id)
+    const request = new Request(`${origin}/api/admin/session`, { headers: admin.headers })
+    expect(await f.accounts.admin(request)).toBe(false)
+    await context.internalAdapter.createAccount({ userId: admin.id, providerId: 'google', accountId: 'test-admin-google' })
+    expect(await f.accounts.admin(request)).toEqual({ email: 'laubsauger@gmail.com' })
+    f.db.prepare('UPDATE user SET emailVerified=0 WHERE id=?').run(admin.id)
+    expect(await f.accounts.admin(request)).toBe(false)
+  })
   it('guards all game modes for guests and accounts, requires trusted origin, and never accepts a supplied account identity', async () => {
     const f = await fixture()
     const guest = new Headers({ origin, 'content-type': 'application/json', 'x-brawlock-client-ip': 'play-test-address' })
@@ -302,6 +319,9 @@ describe('account authority', () => {
     const f = await fixture()
     const user = await f.player('identity@example.com')
     const other = await f.player('other@example.com')
+    const context = await f.accounts.auth.$context
+    f.db.prepare('UPDATE user SET emailVerified=1 WHERE id=?').run(other.id)
+    await context.internalAdapter.createAccount({ userId: other.id, providerId: 'google', accountId: 'test-other-google' })
     expect((await f.request('POST', user.headers, { name: 'AshMage', color: null, userId: other.id })).status).toBe(400)
     expect((await f.request('POST', user.headers, { name: 'AshMage', color: null })).status).toBe(200)
     expect((await f.request('POST', user.headers, { name: 'NewMage', color: null })).status).toBe(409)
