@@ -8,7 +8,9 @@ import { Button, Modal } from './widgets'
 
 const date = (value: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value))
 
-export function ReleaseNotesButton({ compact = false }: { compact?: boolean }) {
+export function ReleaseNotesButton({ compact = false, quiet = false }: { compact?: boolean; quiet?: boolean }) {
+  // quiet: a text link beside the version stamp (main menu corner)
+  if (quiet) return <button type="button" className="rounded px-1.5 py-1 font-semibold text-[#ffd890] hover:text-[#ffeac2] focus-visible:outline-2 focus-visible:outline-gold" onClick={useReleaseNotes.getState().show} data-testid="open-release-notes">What’s new</button>
   return <Button size={compact ? 'sm' : 'md'} className="gap-2 border-gold/50 text-[#ffd890]" onClick={useReleaseNotes.getState().show} data-testid="open-release-notes">
     <span className="btn-label">What’s new</span>
     <span className="font-ui text-xs tracking-normal text-bone">v{currentRelease.version}</span>

@@ -469,32 +469,34 @@ export function MainMenu() {
         </nav>
       </div>
 
-      <footer className="menu-footer relative flex shrink-0 flex-wrap items-end justify-between gap-4 text-sm text-[#cdb8a4]">
+      {/* build and policies sit quietly in the top-left corner, so the menu column stays short */}
+      <div className="menu-meta z-10 flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-[#b9a48f]">
+        {gpu === 'fallback' ? (
+          <span className="chip text-[#ffcf9a]" title="No WebGPU in this browser. Brawlock runs on WebGL2 with lighter effects.">
+            Limited graphics mode
+          </span>
+        ) : gpu === 'webgpu' ? (
+          <span className="chip">WebGPU</span>
+        ) : null}
+        <span className="px-1.5"><ReleaseStamp /></span>
+        <ReleaseNotesButton quiet />
+        <nav className="flex flex-wrap items-center" aria-label="Information and policies">
+          <button type="button" className="rounded px-1.5 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
+          <a className="rounded px-1.5 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy (opens in a new tab)">Privacy</a>
+          <a className="rounded px-1.5 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" aria-label="Terms of Service (opens in a new tab)">Terms</a>
+        </nav>
+      </div>
+
+      <footer className="menu-footer relative flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-[#cdb8a4]">
         <div className="menu-footer-meta flex flex-col gap-3">
           <nav className="menu-utilities flex flex-wrap items-center gap-3" aria-label="Game utilities">
             <FeedbackButton />
-            <ReleaseNotesButton compact />
             <Button size="sm" className="menu-stats gap-1.5" onClick={() => setProfileTab('stats')} aria-label="Your statistics"><MenuGlyph kind="record" size={16} /><span className="btn-label">Stats</span></Button>
             <Button variant="ghost" size="sm" onClick={() => setProfileTab('replays')} title="Watch saved games or import a shared .brawlock file">Watch replay</Button>
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => toggle('settingsOpen', true)}><MenuGlyph kind="settings" size={16} /> Settings</Button>
           </nav>
-          <div className="flex items-center gap-3">
-          {gpu === 'fallback' ? (
-            <span className="chip text-[#ffcf9a]" title="No WebGPU in this browser. Brawlock runs on WebGL2 with lighter effects.">
-              Limited graphics mode
-            </span>
-          ) : gpu === 'webgpu' ? (
-            <span className="chip">WebGPU</span>
-          ) : null}
-            <ReleaseStamp />
-          </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <nav className="flex flex-wrap items-center gap-1" aria-label="Information and policies">
-            <button type="button" className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" onClick={() => setScreen('credits')}>Credits</button>
-            <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy (opens in a new tab)">Privacy Policy</a>
-            <a className="rounded px-2 py-1 hover:text-bone focus-visible:outline-2 focus-visible:outline-gold" href={`${import.meta.env.BASE_URL}terms.html`} target="_blank" rel="noopener noreferrer" aria-label="Terms of Service (opens in a new tab)">Terms of Service</a>
-          </nav>
           <span className="flex flex-wrap items-center gap-1">
           <button
             type="button"
