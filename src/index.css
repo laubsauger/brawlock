@@ -461,6 +461,12 @@
   .lobby-title { font-size: 3.75rem; }
   .lobby-auto-status { padding: 12px 20px; }
   .lobby-auto-title { font-size: clamp(1.5rem, 2.6vw, 2rem); }
+  [data-starting-soon="true"] { color: #fff2ca; text-shadow: 0 0 18px #ffad5070; }
+  .lobby-auto-status:has([data-starting-soon="true"]) {
+    border-color: #ffc472;
+    background: linear-gradient(110deg, #65401be6, #28180ff5, #65401be6);
+    box-shadow: inset 0 0 0 1px #ffd18a33, 0 0 26px #ff9d382e;
+  }
   .lobby-roster-title { font-size: 1.9rem; }
   .lobby-roster-list { gap: 4px; }
   .lobby-player .lobby-player-select { width: 112px; flex-shrink: 0; }

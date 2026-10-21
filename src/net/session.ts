@@ -211,6 +211,8 @@ export interface SessionApi {
   finishDeparted(): Promise<void>
   /** "Wants a rematch" flag, shown to everyone in lobby.ready. Reset when a match starts. */
   setReady(ready: boolean): void
+  /** Casual quick-play lobby only: hold the countdown until released or anyone readies. */
+  setWaitingForPlayers(wait: boolean): void
   /** Room-wide reliable chat. Only the host supplies sender identity. */
   sendChat(text: string): ChatSendResult
   leave(transfer?: boolean): void
@@ -323,14 +325,15 @@ const HOST_PLAYER_ID = 0
 const BOT_DIFFICULTIES: readonly BotDifficulty[] = ['dummy', 'easy', 'medium', 'hard', 'brutal', 'uber']
 
 /** Lobby view of a plain room: not listed, not quick play. Every new lobby starts from it. */
-const NO_ROOM: Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance'> = { public: false, quick: false, ranked: false, autoStart: null, maintenance: null }
+const NO_ROOM: Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance' | 'waitingForPlayers'> = { public: false, quick: false, ranked: false, autoStart: null, maintenance: null, waitingForPlayers: [] }
 
 /** Lobby view fields of a server room's state (missing on older servers: a private owner room). */
-function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance'> {
+function roomView(r: RoomState | undefined, now: number): Pick<LobbyView, 'public' | 'quick' | 'ranked' | 'autoStart' | 'maintenance' | 'waitingForPlayers'> {
   return {
     public: r?.public === true,
     quick: r?.quick === true,
     ranked: r?.ranked === true,
+    waitingForPlayers: r?.waiting ? [...r.waiting] : [],
     maintenance: typeof r?.maintenance === 'string' ? r.maintenance : null,
     autoStart: r?.auto && Number.isFinite(r.auto.inMs) ? { at: now + Math.max(0, r.auto.inMs), fill: r.auto.fill === true } : null,
   }
@@ -550,7 +553,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   let serverRoom = false
   let owner: PlayerId = -1
   /** dedicated host: listing / quick-play state; `autoAt` is the session clock of the auto start */
-  let roomInfo: { public: boolean; quick: boolean; ranked: boolean; autoAt: number | null; autoFill: boolean; cap: number | null; maintenance: string | null } = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null, maintenance: null }
+  let roomInfo: { public: boolean; quick: boolean; ranked: boolean; waiting: PlayerId[]; autoAt: number | null; autoFill: boolean; cap: number | null; maintenance: string | null } = { public: false, quick: false, ranked: false, waiting: [], autoAt: null, autoFill: false, cap: null, maintenance: null }
   let joinedCode: string | null = null
   let unsubScreen: (() => void) | null = null
   let matchCounter = 0
@@ -699,7 +702,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   function roomStateNow(): RoomState {
     const r = roomInfo
-    return { public: r.public, quick: r.quick, ranked: r.ranked, maintenance: r.maintenance, auto: r.autoAt === null ? null : { inMs: Math.max(0, Math.round(r.autoAt - deps.now())), fill: r.autoFill } }
+    return { public: r.public, quick: r.quick, ranked: r.ranked, waiting: [...r.waiting], maintenance: r.maintenance, auto: r.autoAt === null ? null : { inMs: Math.max(0, Math.round(r.autoAt - deps.now())), fill: r.autoFill } }
   }
 
   /** Dedicated server: the first connected human seat owns the room (lobby controls); quick-play rooms have no owner. */
@@ -826,7 +829,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     dedicated = false
     serverRoom = false
     owner = -1
-    roomInfo = { public: false, quick: false, ranked: false, autoAt: null, autoFill: false, cap: null, maintenance: null }
+    roomInfo = { public: false, quick: false, ranked: false, waiting: [], autoAt: null, autoFill: false, cap: null, maintenance: null }
     joinedCode = null
     stopClientMatch()
     link?.close()
@@ -947,6 +950,15 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     else if (m.t === 'ctl') onCtl(p, m)
     else if (m.t === 'ready') {
       if (p.playerId !== null && !match) setReadyFlags({ ...ready, [p.playerId]: m.ready === true })
+    }
+    else if (m.t === 'wait') {
+      if (p.playerId === null || typeof m.wait !== 'boolean' || !dedicated || !roomInfo.quick || roomInfo.ranked || roomInfo.maintenance || match || ui.screen() !== 'lobby') return
+      // Ready always wins. A client can change only its own request, never somebody else's.
+      if (m.wait && slots.some((s) => s.kind === 'human' && ready[s.id])) return
+      const waiting = roomInfo.waiting.filter((id) => id !== p.playerId)
+      if (m.wait) waiting.push(p.playerId)
+      if (waiting.length === roomInfo.waiting.length && roomInfo.waiting.includes(p.playerId) === m.wait) return
+      api.setRoom({ waiting })
     }
     else if (m.t === 'leave') {
       if (m.transfer === true) p.t.prepareHandoff?.()
@@ -2615,6 +2627,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       }
     },
 
+    setWaitingForPlayers(wait: boolean) {
+      const l = ui.lobby()
+      if (role !== 'client' || !link || localPlayer < 0 || cmatch || ui.screen() !== 'lobby' || !l.quick || l.ranked || l.maintenance) return
+      link.sendReliable(encode({ t: 'wait', wait }))
+    },
+
     sendChat(raw) {
       if (ui.lobby().status !== 'open') return 'unavailable'
       if (role === 'host' && !dedicated) return acceptChat(localPlayer, raw)
@@ -2674,6 +2692,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (patch.public !== undefined) roomInfo.public = patch.public
       if (patch.quick !== undefined) roomInfo.quick = patch.quick
       if (patch.ranked !== undefined) roomInfo.ranked = patch.ranked
+      if (patch.waiting !== undefined) roomInfo.waiting = [...patch.waiting]
       if (patch.maintenance !== undefined) roomInfo.maintenance = patch.maintenance
       if (patch.cap !== undefined) roomInfo.cap = patch.cap
       if (patch.auto !== undefined) {

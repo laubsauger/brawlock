@@ -348,7 +348,7 @@ function openOnce(kind: string, mode: HostMode, run: (current: () => boolean) =>
   const state = useGame.getState()
   state.setLobby({ role: 'client', status: 'connecting', roomCode: null, joinUrl: null, localPlayer: -1,
     slots: [], settings: null, ready: {}, pings: {}, public: false, quick: kind === 'quick' || kind === 'ranked', ranked: kind === 'ranked',
-    autoStart: null, waitingForRound: false, error: null, notice: kind === 'ranked' ? 'Finding a ranked lobby…' : kind === 'quick' ? 'Finding a game…' : 'Opening a room…' })
+    autoStart: null, waitingForPlayers: [], waitingForRound: false, error: null, notice: kind === 'ranked' ? 'Finding a ranked lobby…' : kind === 'quick' ? 'Finding a game…' : 'Opening a room…' })
   state.setScreen('lobby')
   const current = () => opening === attempt
   const target: PlayTarget = { mode: kind === 'quick' ? 'casual' : kind === 'ranked' ? 'ranked' : kind === 'local' || kind === 'practice' ? kind : kind === 'p2p' ? 'host' : kind.startsWith('join:') ? 'join' : 'server', region: null, code: null }
@@ -420,6 +420,7 @@ export const session: GameSession = {
     finally { rankedTakeover = false }
   },
   sendChat: impl.sendChat,
+  setWaitingForPlayers: impl.setWaitingForPlayers,
   async openPractice() {
     if (blockUnsupportedPlay() || resume()) return
     await openOnce('practice', 'p2p', async () => {

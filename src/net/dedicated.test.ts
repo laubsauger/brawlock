@@ -514,6 +514,63 @@ describe('public rooms and quick play (M4.3)', () => {
   const FAST = { winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 }
   const quick = (q: Record<string, unknown>) => ({ quickplay: { fillMs: 2000, startMs: 1000, nextMs: 2000, seats: 8, fill: 4, bots: 'easy', ...q } })
 
+  it('quick play: waiting keeps a public lobby open and another human Ready releases the hold', async () => {
+    const { base } = await start(quick({ fillMs: 1600, startMs: 20_000 }))
+    const a = headlessClient(base, { key: 'wait-a', play: false })
+    const b = headlessClient(base, { key: 'wait-b', play: false })
+    try {
+      const opened = await a.online.quickPlay('test')
+      await a.session.join(opened.code)
+      a.session.setWaitingForPlayers(true)
+      await until(() => a.lobby().waitingForPlayers?.includes(a.lobby().localPlayer) === true && a.lobby().autoStart === null, 3000, 'the held lobby')
+      await new Promise((r) => setTimeout(r, 600)) // beyond the original solo deadline
+      expect(a.screen()).toBe('lobby')
+      expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
+      await b.session.join(opened.code)
+      expect(b.lobby()).toMatchObject({ public: true, autoStart: null, waitingForPlayers: [a.lobby().localPlayer] })
+      b.session.setReady(true)
+      await until(() => a.lobby().autoStart != null && a.lobby().waitingForPlayers?.length === 0, 3000, 'Ready releasing the hold')
+      const deadline = a.lobby().autoStart!.at
+      a.session.setWaitingForPlayers(true)
+      await new Promise((r) => setTimeout(r, 100))
+      expect(a.lobby().waitingForPlayers).toEqual([])
+      expect(Math.abs(a.lobby().autoStart!.at - deadline)).toBeLessThan(150)
+      a.session.setReady(true)
+      await until(() => a.lobby().autoStart!.at < deadline - 5000, 3000, 'everyone Ready shortening the countdown')
+      const remaining = a.lobby().autoStart!.at - performance.now() * TIME_SCALE
+      expect(remaining).toBeGreaterThan(9000)
+      expect(remaining).toBeLessThanOrEqual(10_150)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 4000, 'the ready casual match')
+      a.session.setWaitingForPlayers(true)
+      expect(a.lobby().waitingForPlayers).toEqual([])
+    } finally { a.session.leave(); b.session.leave() }
+  }, 15000)
+
+  it('quick play: resuming or the last waiting player leaving restarts the countdown', async () => {
+    const { base, srv } = await start(quick({ fillMs: 20_000, startMs: 20_000 }))
+    const a = headlessClient(base, { key: 'wait-resume-a', play: false })
+    const b = headlessClient(base, { key: 'wait-resume-b', play: false })
+    try {
+      const opened = await a.online.quickPlay('test')
+      await a.session.join(opened.code)
+      a.session.setWaitingForPlayers(true)
+      await until(() => a.lobby().autoStart === null, 3000, 'hold before resuming')
+      a.session.setWaitingForPlayers(false)
+      await until(() => a.lobby().autoStart != null && a.lobby().waitingForPlayers?.length === 0, 3000, 'manual resume')
+      await b.session.join(opened.code)
+      a.session.setWaitingForPlayers(true)
+      b.session.setWaitingForPlayers(true)
+      await until(() => a.lobby().waitingForPlayers?.length === 2, 3000, 'both wait requests')
+      a.session.setWaitingForPlayers(false)
+      await until(() => a.lobby().waitingForPlayers?.length === 1, 3000, 'only the other wait request')
+      expect(a.lobby().autoStart).toBeNull()
+      b.session.leave()
+      await until(() => a.lobby().autoStart != null && a.lobby().waitingForPlayers?.length === 0, 3000, 'departed waiter released')
+      a.session.leave()
+      await until(() => srv.core.stats().rooms === 0, 3000, 'empty casual room removed')
+    } finally { a.session.leave(); b.session.leave() }
+  }, 15000)
+
   /** Why: a lone quick player must not wait for a second human forever: bots fill the table to 4 and the match starts by itself. */
   it('quick play: a newcomer reserves a bot and starts playing next round', async () => {
     const { base, srv } = await start(quick({ settings: { winScore: 50, shopSeconds: 3 } }))
@@ -805,7 +862,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 30_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 
@@ -1095,7 +1152,7 @@ describe('ranked queue over real TCP', () => {
   }, 20000)
 
   /** Why: a ranked lobby counts down 60 s for latecomers; players who are all ready should not have to sit it out. */
-  it('every player Ready in the ranked lobby cuts the countdown to a few seconds', async () => {
+  it('every player Ready in the ranked lobby cuts the countdown to ten seconds', async () => {
     const dir = tempDir('brawlock-ranked-ready-')
     dirs.push(dir)
     const { base, http } = await start({
@@ -1112,7 +1169,9 @@ describe('ranked queue over real TCP', () => {
       await new Promise((r) => setTimeout(r, 1500))
       expect(a.screen()).toBe('lobby')
       b.session.setReady(true)
-      await until(() => a.screen() === 'match' && b.screen() === 'match', 9000, 'the match a few seconds after both are ready')
+      await until(() => a.lobby().autoStart!.at - performance.now() * TIME_SCALE <= 10_150, 3000, 'the ten-second ready countdown')
+      expect(a.lobby().autoStart!.at - performance.now() * TIME_SCALE).toBeGreaterThan(9000)
+      await until(() => a.screen() === 'match' && b.screen() === 'match', 9000, 'the match ten seconds after both are ready')
     } finally { a.session.leave(); b.session.leave() }
   }, 30000)
 

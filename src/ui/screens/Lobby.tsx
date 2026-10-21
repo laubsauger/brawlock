@@ -90,8 +90,12 @@ export function AutoStart({ at, fill, between = false }: { at: number; fill: boo
   const last = useRef('')
   useTick((now) => {
     const secs = Math.max(0, Math.ceil((at - now) / 1000))
-    const t = between ? `Next match in ${secs} s` : fill ? `Filling with bots in ${secs} s` : `Starting in ${secs} s`
-    if (t !== last.current && ref.current) ref.current.textContent = last.current = t
+    const soon = secs > 0 && secs <= 10
+    const t = soon ? `Match starts in ${secs} s` : between ? `Next match in ${secs} s` : fill ? `Filling with bots in ${secs} s` : `Starting in ${secs} s`
+    if (t !== last.current && ref.current) {
+      ref.current.textContent = last.current = t
+      ref.current.dataset.startingSoon = String(soon)
+    }
   })
   return <span ref={ref} className="tabular" title={between ? undefined : 'Bots fill empty seats until replaced by players'} data-testid="auto-start" />
 }
@@ -332,6 +336,10 @@ export function Lobby() {
   const warm = useMatchRenderReady(6000)
   const canEdit = lobby.role !== 'client' && !lobby.ranked
   const humans = lobby.slots.filter((s) => s.kind === 'human').length
+  const waiting = lobby.waitingForPlayers ?? []
+  const holding = lobby.quick && !lobby.ranked && waiting.length > 0
+  const localWaiting = waiting.includes(lobby.localPlayer)
+  const anyoneReady = lobby.slots.some((s) => s.kind === 'human' && lobby.ready?.[s.id])
   const automatic = (lobby.quick || lobby.ranked) && lobby.status === 'open' && !lobby.error && !lobby.maintenance
   const status = statusLine(lobby, humans)
   const full = lobby.slots.length >= MAX_PLAYERS
@@ -385,15 +393,22 @@ export function Lobby() {
       >
         <p className="text-[0.74rem] font-bold tracking-[0.18em] text-gold/80 uppercase">{lobby.ranked ? 'Ranked matchmaking' : betweenMatches ? 'Casual · Next match' : 'Casual matchmaking'}</p>
         <p className="lobby-auto-title mt-0.5 leading-tight font-semibold text-[#ffe0a6]">
-          {lobby.ranked && humans < 2 ? 'Waiting for one more player' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} between={betweenMatches} /> : 'Waiting for players to join…'}
+          {holding ? 'Waiting for more players' : lobby.ranked && humans < 2 ? 'Waiting for one more player' : lobby.autoStart ? <AutoStart at={lobby.autoStart.at} fill={lobby.autoStart.fill} between={betweenMatches} /> : 'Waiting for players to join…'}
         </p>
         <p className="mt-1 text-[0.95rem] text-[#e3c9a5]">
-          {lobby.ranked && humans < 2
+          {holding
+            ? humans === 1 ? 'Lobby stays public. Press Play now whenever you are ready.' : 'Lobby stays public. Anyone can press Ready to start the countdown.'
+            : lobby.ranked && humans < 2
             ? `${humans} / 2 human players · The 60-second countdown begins when another player joins.`
             : lobby.autoStart?.fill
               ? 'Players can join while the lobby fills. Bots take the empty seats.'
               : 'Starts automatically. More players can join before the countdown ends.'}
         </p>
+        {!lobby.ranked && <div className="mt-2 flex justify-center">
+          <Button size="sm" disabled={anyoneReady} onClick={() => session.setWaitingForPlayers(!localWaiting)} aria-pressed={localWaiting} data-testid="casual-lobby-wait" title={anyoneReady ? 'A player is ready; the countdown continues' : 'Keep this lobby open until you resume or any player readies'}>
+            {localWaiting ? waiting.length === 1 ? 'Resume countdown' : 'Stop waiting' : 'Wait for players'}
+          </Button>
+        </div>}
       </section>}
       {lobby.ranked && <p className="rounded border border-[#bfc3d3]/20 bg-black/25 px-4 py-2 text-sm text-[#e3d9ba]" data-testid="ranked-rules">
         8 players · 5 rounds · tied leaders fight a final brawl · Brutal bots fill empty seats.
@@ -504,12 +519,11 @@ export function Lobby() {
               )}
             </Button>
           ) : (
-            lobby.status === 'open' && (lobby.ranked ? (
-              // ranked queue: everyone ready cuts the countdown to a few seconds
-              <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)} title="When every player is ready, the match starts in 5 seconds" data-testid="ranked-lobby-ready">
-                {localReady ? 'Not ready' : 'Ready to start'}
+            lobby.status === 'open' && (lobby.ranked || lobby.quick ? (
+              <Button variant={localReady ? 'default' : 'primary'} size="lg" disabled={!!lobby.maintenance} sound={localReady ? 'back' : 'click'} onClick={() => setReady(!localReady)} title={holding ? 'Release the wait. When everyone is ready, the match starts in 10 seconds.' : 'When every player is ready, the match starts in 10 seconds'} data-testid={lobby.ranked ? 'ranked-lobby-ready' : 'casual-lobby-ready'}>
+                {localReady ? 'Not ready' : !lobby.ranked && humans === 1 ? 'Play now' : 'Ready to start'}
               </Button>
-            ) : !lobby.quick && (
+            ) : (
               <Button variant={localReady ? 'default' : 'primary'} size="lg" sound={localReady ? 'back' : 'ready'} onClick={() => setReady(!localReady)}>
                 {localReady ? 'Not ready' : 'Ready'}
               </Button>

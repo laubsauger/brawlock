@@ -128,6 +128,8 @@ export interface LobbyView {
   quick?: boolean
   /** Dedicated fixed-rule ranked matchmaking; other games are casual. */
   ranked?: boolean
+  /** Casual lobby: humans asking to wait for more players instead of counting down. */
+  waitingForPlayers?: number[]
   /** Persistent server update notice, independent of transient join/leave notices. */
   maintenance?: string | null
   /** quick play: the pending automatic start, `at` on the session clock (performance.now); fill: the one-human countdown (bots top the table up to 4 either way) */

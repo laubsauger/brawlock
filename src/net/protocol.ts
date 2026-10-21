@@ -16,6 +16,7 @@
  *   host → client  lobby   {slots, settings, ready, pings, owner?, room?}   on every lobby change;
  *                          room (dedicated): {public, quick, auto} listing and quick-play state
  *   client → host  ready   {ready}                    "wants a rematch" toggle on the results screen
+ *   client → host  wait    {wait}                     casual lobby countdown hold (own seat only)
  *   host → client  start   {match, seed, slots, settings, localPlayer}   per client; -1 = spectator
  *   host → client  end     {match, result}            game over, show results
  *   host → client  screen  {screen: 'lobby'}          host went back to the lobby
@@ -96,6 +97,8 @@ export interface RoomState {
   ranked?: boolean
   /** Persistent regional update notice; null/absent when accepting new games. */
   maintenance?: string | null
+  /** Casual lobby seats asking to keep the lobby open; any human Ready releases the hold. */
+  waiting?: PlayerId[]
   /** quick play: the automatic start in this many ms from the message ('fill': the one-human countdown; bots top the table up either way); null = none pending */
   auto: { inMs: number; fill: boolean } | null
 }
@@ -134,6 +137,7 @@ export type Msg =
       public?: boolean
     }
   | { t: 'ready'; ready: boolean }
+  | { t: 'wait'; wait: boolean }
   | { t: 'pings'; pings: Record<PlayerId, number>; ul?: Record<PlayerId, number> }
   | { t: 'start'; match: number; seed: number; slots: PlayerSlot[]; settings: MatchSettings; localPlayer: PlayerId; waiting?: boolean; fromTick?: number }
   | { t: 'input'; match: number; inputs: InputFrame[]; n?: number; s?: 1 }
@@ -171,6 +175,7 @@ const TYPES = new Set<Msg['t']>([
   'welcome',
   'lobby',
   'ready',
+  'wait',
   'pings',
   'start',
   'input',

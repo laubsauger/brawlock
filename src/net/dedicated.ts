@@ -10,6 +10,7 @@
  * Up to `seats` humans (10); bots top the table up to `fill` players (10) when fewer:
  * - two or more humans: the match starts after startMs
  * - one human: the match starts after fillMs
+ * - casual lobbies can wait for more humans; any human Ready releases the hold
  * - arrivals reserve bot seats during a match and start playing next round;
  *   between matches they can also take free seats
  * - results: nothing moves by itself. The room goes on (casual: next match; ranked: back to its
@@ -162,7 +163,7 @@ const EMPTY_CHECK_MS = 1000
 /** a whole match without touching anything, and never fewer rounds than this */
 const IDLE_ROUNDS = 3
 /** a quick or ranked lobby where every human pressed Ready starts this soon */
-const READY_START_MS = 5_000
+const READY_START_MS = 10_000
 const IDLE_REASON = 'You were away for a whole game, so you left the room. Join again any time.'
 /** results wait for Ready; a room left on its results this long closes (an abandoned tab, nobody playing) */
 const RESULTS_IDLE_MS = 30 * 60_000
@@ -215,11 +216,12 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       setLobby: (p) => {
         const before = humans()
         const readyBefore = readyHumans()
+        const waitingBefore = (lobby.waitingForPlayers ?? []).join(',')
         lobby = { ...lobby, ...p }
         if (humans() !== before) {
           log(`room ${opts.code}: ${humans()} human(s)`)
           schedule()
-        } else if (p.ready && readyHumans() !== readyBefore) schedule()
+        } else if ((p.ready && readyHumans() !== readyBefore) || (lobby.waitingForPlayers ?? []).join(',') !== waitingBefore) schedule()
       },
       screen: () => screen,
       setScreen: (s) => {
@@ -320,6 +322,13 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
   function scheduleQuick(): void {
     if (closed || maintenance || !quick) return
     const n = humans()
+    const waiting = lobby.waitingForPlayers ?? []
+    const activeWaiting = waiting.filter((id) => lobby.slots.some((s) => s.id === id && s.kind === 'human'))
+    if (waiting.length && (screen !== 'lobby' || readyHumans() > 0 || activeWaiting.length !== waiting.length)) {
+      // Updating the authoritative room state schedules again with the cleared/pruned requests.
+      session.setRoom({ waiting: screen === 'lobby' && readyHumans() === 0 ? activeWaiting : [] })
+      return
+    }
     if (opts.ranked && screen === 'results') {
       if (quickAt !== null) setQuickTimer(null, false)
       // The result stays up until every human pressed Ready; then back to the ranked lobby,
@@ -344,13 +353,17 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
     }
     const now = deps.now()
     if (screen === 'lobby') {
+      if (!opts.ranked && activeWaiting.length > 0) {
+        if (quickAt !== null) setQuickTimer(null, false)
+        return
+      }
       if (n < (quick.minHumans ?? 1)) {
         if (quickAt !== null) setQuickTimer(null, false)
         return
       }
       if (n >= 2) {
         const at = now + quick.startMs
-        if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null && !quickFill ? Math.min(quickAt, at) : at, false)
+        if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null ? Math.min(quickAt, at) : at, false)
       } else if (quickAt === null) setQuickTimer(now + quick.fillMs, true)
       // everyone ready: no need to sit out the rest of the countdown
       const soon = now + READY_START_MS

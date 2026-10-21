@@ -205,6 +205,49 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  it('accepts wait requests only for the sender in a casual quick lobby, with Ready taking priority', async () => {
+    const net = createMemoryNet({ latencyMs: 1 })
+    let send: (data: string) => void = () => { throw new Error('client not connected') }
+    const clientNet: NetFactory = { ...net, async join(code) {
+      const t = await net.join(code)
+      send = t.sendReliable.bind(t)
+      return t
+    } }
+    const host = makePeer(net, 'Server', 'wait-server')
+    const client = makePeer(clientNet, 'Waiting', 'wait-client')
+    await host.session.openHost({ dedicated: true })
+    const joining = client.session.join(host.store.lobby.roomCode!)
+    await vi.advanceTimersByTimeAsync(50)
+    await joining
+    const request = async (value: unknown, player = 999) => {
+      send(JSON.stringify({ t: 'wait', wait: value, player }))
+      await vi.advanceTimersByTimeAsync(20)
+    }
+    try {
+      await request(true)
+      expect(host.session.roomState().waiting).toEqual([]) // custom room
+      host.session.setRoom({ quick: true, ranked: true })
+      await request(true)
+      expect(host.session.roomState().waiting).toEqual([]) // ranked room
+      host.session.setRoom({ ranked: false })
+      await request('true')
+      expect(host.session.roomState().waiting).toEqual([])
+      await request(true)
+      expect(host.session.roomState().waiting).toEqual([client.store.lobby.localPlayer])
+      expect(client.store.lobby.waitingForPlayers).toEqual([client.store.lobby.localPlayer])
+      await request(false)
+      client.session.setReady(true)
+      await vi.advanceTimersByTimeAsync(20)
+      await request(true)
+      expect(host.session.roomState().waiting).toEqual([])
+      host.session.setRoom({ maintenance: 'Updating' })
+      client.session.setReady(false)
+      await vi.advanceTimersByTimeAsync(20)
+      await request(true)
+      expect(host.session.roomState().waiting).toEqual([])
+    } finally { client.session.leave(); host.session.leave() }
+  })
+
   it('waits for the owner lobby before completing a join so immediate public listing is not lost', async () => {
     const net = createMemoryNet({ latencyMs: 1 })
     const delayedLobby: NetFactory = {

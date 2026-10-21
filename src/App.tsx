@@ -7,7 +7,7 @@ import { MainMenu } from './ui/screens/MainMenu'
 import { AutoStart, Lobby } from './ui/screens/Lobby'
 import { session } from './game/session'
 import { Button } from './ui/widgets'
-import { usePolled } from './ui/lib/ticker'
+import { usePolled, useTick } from './ui/lib/ticker'
 import { Match } from './ui/screens/Match'
 import { Results } from './ui/screens/Results'
 import { Credits } from './ui/screens/Credits'
@@ -160,6 +160,22 @@ export function ActiveRoomStatus() {
   const room = usePolled(() => ({ active: session.isActive(), phase: session.roomPhase() }), (value) => `${value.active}:${value.phase}`, 4)
   const humans = lobby.slots.filter((slot) => slot.kind === 'human').length
   const previous = useRef({ code: '', humans: 0, countdown: false, alerted: false })
+  const startingCue = useRef({ code: '', warned: false, second: 0 })
+  // One listener outside keyed screens: the same warning reaches players browsing
+  // menus, without replaying it when they return to the lobby or reopen a panel.
+  useTick((now) => {
+    const cue = startingCue.current
+    const code = lobby.roomCode ?? ''
+    if (cue.code !== code || !room.active || room.phase !== 'lobby' || lobby.status !== 'open' || !lobby.quick || lobby.maintenance || !lobby.autoStart) {
+      Object.assign(cue, { code, warned: false, second: 0 })
+      return
+    }
+    const second = Math.max(0, Math.ceil((lobby.autoStart.at - now) / 1000))
+    if (second === 0 || second > 10) return
+    if (!cue.warned) { sfx('ready'); cue.warned = true }
+    else if (second <= 3 && second !== cue.second) sfx('countdown')
+    cue.second = second
+  })
   useEffect(() => {
     const code = lobby.roomCode ?? ''
     const prior = previous.current

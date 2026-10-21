@@ -92,7 +92,7 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   // Casual games are short: first to 3 round wins (ranked plays its fixed rounds). The table
   // is Hard bots with one Brutal and one Medium for variety (ranked keeps all Brutal).
   quickplay: {
-    fillMs: 10_000, startMs: 5_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
+    fillMs: 30_000, startMs: 30_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   ranked: {
