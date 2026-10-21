@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.0-alpha.9",
+    "releaseDate": "2026-10-21",
+    "title": "Find a game",
+    "changes": [
+      "The main menu lists open games with real players under your player card. Join with one click, or see all games.",
+      "Browse games shows how many games are open and how many people are in them.",
+      "Taking over a bot seat between rounds hands you control as soon as the fight ends. If you take over a bot seat, Fresh start refunds its build so you can shop your own.",
+      "Custom games keep empty seats open between rounds, and rematches start only when everyone is ready.",
+      "The results screen fits one window, shows each player's ping and sits beside the room chat.",
+      "Guests keep their plain name, marked by a small icon in the lobby and results.",
+      "The account dialog shows your warlock, emblem and name. The wardrobe camera frames close and back views better.",
+      "The main menu fits the window without scrolling, with version, What's new and policies in the top-left corner. Maintenance notices only appear when they affect your region."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.8",
     "releaseDate": "2026-10-21",
     "title": "More time to gather",
