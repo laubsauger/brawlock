@@ -303,10 +303,9 @@ describe('announcer: round and match end', () => {
   })
 
   it('round wins rotate through every call, so back-to-back wins sound different', () => {
-    const winAt = (score: number, alive = true) => {
+    const winAt = (score: number) => {
       const v = view()
       v.scores!.find((sc) => sc.id === ME)!.score = score
-      v.pawns!.find((p) => p.owner === ME)!.alive = alive
       return v
     }
     // the sim adds the point before the event: the first win arrives with score 1
@@ -316,8 +315,6 @@ describe('announcer: round and match end', () => {
     expect(heard[0]).toBe(roundWinLine(winAt(1), ME))
     // "Victory!" stays the match's: a round win must not sound like the game is over
     for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/victory/i)
-    // a teammate wins the round while your warlock is dead: no line claims you are standing
-    for (let score = 1; score <= ROUND_WIN_LINES.length; score++) expect(['still_standing', 'survivor']).not.toContain(roundWinLine(winAt(score, false), ME))
   })
 
   it('Victory! / Defeat! for players, by team in team modes; spectators hear neither', () => {

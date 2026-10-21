@@ -4,6 +4,8 @@
 # Picks + reasons: art/archive/audio/announcer/<voice>/picks.json. Shipped: public/audio/announcer/.
 # --pack processes one pack's lines only (earlier picks stay in picks.json); lines without takes
 # are skipped. New lines are appended to the announcer block of src/audio/assets.ts.
+# last_standing and pack 4 are unregistered from the game (files kept); processing them would
+# append their assets.ts entries again.
 import glob, json, os, re, subprocess
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -17,6 +19,7 @@ PACKS = {
       'shutdown', 'revenge', 'denied', 'close_call', 'last_standing', 'ace'],
   3: ['hurry_up'],
   4: ['round_taken', 'arena_is_yours', 'too_hot', 'still_standing', 'survivor'],
+  5: ['well_done', 'extra_crispy', 'ashes_to_ashes', 'whos_next', 'nobody_left'],
 }
 ASSETS_TS = os.path.join(ROOT, 'src/audio/assets.ts')
 # every announcer line shares the ElevenLabs credit entry

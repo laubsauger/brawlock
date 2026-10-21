@@ -49,16 +49,22 @@ export const LINES = [
   ['revenge', 'Revenge!', 2],
   ['denied', 'Denied!', 2],
   ['close_call', 'Close Call!', 2],
-  ['last_standing', 'Last Warlock Standing!', 2],
+  ['last_standing', 'Last Warlock Standing!', 2], // unregistered 2026-10-21; file kept
   ['ace', 'Ace!', 2],
   // pack 3: the last few tiles
   ['hurry_up', 'Hurry Up!', 3],
-  // pack 4: round-win variety (round_won stays one of them; "Victory!" is the match's alone)
+  // pack 4: round-win variety, unregistered 2026-10-21 (too earnest; files kept, not in the game)
   ['round_taken', 'Round Taken!', 4],
   ['arena_is_yours', 'The Arena Is Yours!', 4],
   ['too_hot', 'Too Hot to Handle!', 4],
   ['still_standing', 'Still Standing!', 4],
   ['survivor', 'Survivor!', 4],
+  // pack 5: round-win calls, dark and short (round_won stays one of them; "Victory!" is the match's alone)
+  ['well_done', 'Well Done!', 5],
+  ['extra_crispy', 'Extra Crispy!', 5],
+  ['ashes_to_ashes', 'Ashes to Ashes!', 5],
+  ['whos_next', "Who's Next?", 5],
+  ['nobody_left', 'Nobody Left to Kill!', 5],
 ]
 
 function apiKey() {

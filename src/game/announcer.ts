@@ -76,11 +76,11 @@ export type AnnouncerLine =
   | 'final_round'
   | 'match_point'
   | 'round_won'
-  | 'round_taken'
-  | 'arena_is_yours'
-  | 'too_hot'
-  | 'still_standing'
-  | 'survivor'
+  | 'well_done'
+  | 'extra_crispy'
+  | 'ashes_to_ashes'
+  | 'whos_next'
+  | 'nobody_left'
   | 'draw'
   | 'victory'
   | 'defeat'
@@ -118,11 +118,11 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   final_round: 'Final Round!',
   match_point: 'Match Point!',
   round_won: 'Round Won!',
-  round_taken: 'Round Taken!',
-  arena_is_yours: 'The Arena Is Yours!',
-  too_hot: 'Too Hot to Handle!',
-  still_standing: 'Still Standing!',
-  survivor: 'Survivor!',
+  well_done: 'Well Done!',
+  extra_crispy: 'Extra Crispy!',
+  ashes_to_ashes: 'Ashes to Ashes!',
+  whos_next: "Who's Next?",
+  nobody_left: 'Nobody Left to Kill!',
   draw: 'Draw!',
   victory: 'Victory!',
   defeat: 'Defeat!',
@@ -158,9 +158,8 @@ export const OCCASIONAL_CAP = 2
 const CLOSE_CALL_HP = 0.08
 /** ... once the player is still alive this long after it (s) */
 export const CLOSE_CALL_CONFIRM = 1
-/** Round-win calls in rotation order; the standing ones need your own warlock alive. */
-export const ROUND_WIN_LINES = ['round_won', 'round_taken', 'arena_is_yours', 'too_hot', 'still_standing', 'survivor'] as const satisfies readonly AnnouncerLine[]
-const STANDING: ReadonlySet<AnnouncerLine> = new Set(['still_standing', 'survivor'])
+/** Round-win calls in rotation order. */
+export const ROUND_WIN_LINES = ['round_won', 'well_done', 'extra_crispy', 'ashes_to_ashes', 'whos_next', 'nobody_left'] as const satisfies readonly AnnouncerLine[]
 
 const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, arena: 2, flow: 1 } as const
 export type AnnouncementKind = keyof typeof PRIORITY
@@ -186,14 +185,11 @@ export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 
 
 /**
  * The round-win call for `local`, voice and HUD banner alike. The sim adds the round's point
- * before the event, so each win moves one step along; your id offsets the start. A teammate can
- * win the round for you while your warlock is dead: then only lines that don't claim you stand.
+ * before the event, so each win moves one step along; your id offsets the start.
  */
 export function roundWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
-  const alive = state.pawns?.some((p) => p.owner === local && p.alive) === true
-  const pool = ROUND_WIN_LINES.filter((line) => alive || !STANDING.has(line))
   const score = state.scores?.find((sc) => sc.id === local)?.score ?? 0
-  return pool[(score + Math.max(0, local)) % pool.length]
+  return ROUND_WIN_LINES[(score + Math.max(0, local)) % ROUND_WIN_LINES.length]
 }
 
 /** Multi-kill line for a chain of `count` kills (2 = Double ... 7+ = Monster). */
