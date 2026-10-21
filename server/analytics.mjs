@@ -40,7 +40,7 @@ export function openAnalytics(file, { now = Date.now, serverCommit = null } = {}
         kind TEXT NOT NULL CHECK(kind IN ('guest','account')), PRIMARY KEY(match_id,person)
       );
       PRAGMA user_version=1; COMMIT;`)
-    else if (![1, 2, 3].includes(version)) throw new Error('Unsupported analytics schema version')
+    else if (![1, 2, 3, 4].includes(version)) throw new Error('Unsupported analytics schema version')
     if (version === 0) version = 1
     if (version === 1) db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE browser_meta (id INTEGER PRIMARY KEY CHECK(id=1), since INTEGER NOT NULL);
@@ -76,6 +76,10 @@ export function openAnalytics(file, { now = Date.now, serverCommit = null } = {}
         screen TEXT NOT NULL,kind TEXT NOT NULL,people INTEGER NOT NULL
       );
       PRAGMA user_version=3; COMMIT;`)
+    // the room's full options per match (betting, bounties, economy...), for debugging reports
+    if (version <= 3) db.exec(`BEGIN IMMEDIATE;
+      ALTER TABLE matches ADD COLUMN settings TEXT;
+      PRAGMA user_version=4; COMMIT;`)
     db.prepare('INSERT OR IGNORE INTO analytics_meta VALUES (1,?,?)').run(randomBytes(32).toString('hex'), now())
     db.prepare('INSERT OR IGNORE INTO browser_meta VALUES (1,?)').run(now())
     db.prepare('INSERT OR IGNORE INTO dimension_meta VALUES (1,?)').run(now())
@@ -155,8 +159,8 @@ export function openAnalytics(file, { now = Date.now, serverCommit = null } = {}
       start({ id, region, queue, settings, devices, bots, build = null, room = null }) {
         if (!['casual', 'ranked', 'custom'].includes(queue) || typeof id !== 'string' || !id || !Number.isInteger(bots) || bots < 0) throw new Error('Invalid analytics match')
         transaction(() => {
-          db.prepare(`INSERT INTO matches(id,region,queue,game_mode,team_mode,started_at,status,bots,build,commit_id,room) VALUES (?,?,?,?,?,?,'running',?,?,?,?)`)
-            .run(id, region, queue, settings.gameMode, settings.teamMode, now(), bots, build, serverCommit, room)
+          db.prepare(`INSERT INTO matches(id,region,queue,game_mode,team_mode,started_at,status,bots,build,commit_id,room,settings) VALUES (?,?,?,?,?,?,'running',?,?,?,?,?)`)
+            .run(id, region, queue, settings.gameMode, settings.teamMode, now(), bots, build, serverCommit, room, JSON.stringify(settings))
           addSeats(id, devices)
         })
       },

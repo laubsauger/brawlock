@@ -79,7 +79,7 @@ describe('durable first-party analytics', () => {
     const f = fixture(); f.beat()
     const db = openTestDatabase(f.file)
     const before = db.prepare('SELECT * FROM analytics_meta').get()
-    db.exec('DROP TABLE presence_sample_counts; DROP TABLE presence_samples; DROP TABLE traffic_facts; DROP TABLE dimension_meta; ALTER TABLE matches DROP COLUMN build; ALTER TABLE matches DROP COLUMN commit_id; ALTER TABLE matches DROP COLUMN room; DROP TABLE browser_accounts; DROP TABLE browser_activity; DROP TABLE browsers; DROP TABLE browser_meta; PRAGMA user_version=1;')
+    db.exec('DROP TABLE presence_sample_counts; DROP TABLE presence_samples; DROP TABLE traffic_facts; DROP TABLE dimension_meta; ALTER TABLE matches DROP COLUMN build; ALTER TABLE matches DROP COLUMN commit_id; ALTER TABLE matches DROP COLUMN room; ALTER TABLE matches DROP COLUMN settings; DROP TABLE browser_accounts; DROP TABLE browser_activity; DROP TABLE browsers; DROP TABLE browser_meta; PRAGMA user_version=1;')
     db.close()
     f.advance(30000)
     const migrated = openAnalytics(f.file, { now: f.now }); cleanup.push(() => migrated.close())
@@ -90,7 +90,7 @@ describe('durable first-party analytics', () => {
     expect(migrated.report(1).visitors).toEqual([{ kind: 'guest', seen: 1, new: 1 }])
     const check = openTestDatabase(f.file); cleanup.push(() => check.close())
     expect(check.prepare('SELECT * FROM analytics_meta').get()).toEqual(before)
-    expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 })
+    expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 4 })
   })
 
   it('counts returning visits after 30 minutes without treating the gap as active time', () => {
@@ -109,7 +109,7 @@ describe('durable first-party analytics', () => {
     f.store.finish('legacy-game', finished(['guest_browser']))
     const db = openTestDatabase(f.file)
     const before = db.prepare('SELECT * FROM analytics_meta').get()
-    db.exec('DROP TABLE presence_sample_counts; DROP TABLE presence_samples; DROP TABLE traffic_facts; DROP TABLE dimension_meta; ALTER TABLE matches DROP COLUMN build; ALTER TABLE matches DROP COLUMN commit_id; ALTER TABLE matches DROP COLUMN room; ALTER TABLE browsers DROP COLUMN converted_region; ALTER TABLE browsers DROP COLUMN converted_build; PRAGMA user_version=2;')
+    db.exec('DROP TABLE presence_sample_counts; DROP TABLE presence_samples; DROP TABLE traffic_facts; DROP TABLE dimension_meta; ALTER TABLE matches DROP COLUMN build; ALTER TABLE matches DROP COLUMN commit_id; ALTER TABLE matches DROP COLUMN room; ALTER TABLE matches DROP COLUMN settings; ALTER TABLE browsers DROP COLUMN converted_region; ALTER TABLE browsers DROP COLUMN converted_build; PRAGMA user_version=2;')
     db.close()
     f.advance(30000)
     const migrated = openAnalytics(f.file, { now: f.now }); cleanup.push(() => migrated.close())
@@ -122,7 +122,7 @@ describe('durable first-party analytics', () => {
     expect(again.report(1).facts.traffic.reduce((n, row) => n + row.sessions, 0)).toBe(1)
     const check = openTestDatabase(f.file); cleanup.push(() => check.close())
     expect(check.prepare('SELECT * FROM analytics_meta').get()).toEqual(before)
-    expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 })
+    expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 4 })
   })
 
   it('splits heartbeat time across UTC midnight and preserves history through reopen', () => {
@@ -157,6 +157,17 @@ describe('durable first-party analytics', () => {
     expect(JSON.stringify(report)).not.toContain('Never stored')
     f.store.recover()
     expect(f.store.report(1).matches.find((row) => row.queue === 'ranked')).toMatchObject({ running: 0, interrupted: 1 })
+  })
+
+  it('keeps each match\'s room options, so a report can say whether betting was on', () => {
+    const f = fixture()
+    f.store.start({ id: 'bets-off', region: 'eu', queue: 'custom', room: 'ABC123', settings: { ...DEFAULT_SETTINGS, spectatorBets: false }, bots: 1, devices: ['guest_browser'] })
+    const row = f.store.report(1).facts.matches.find((m) => m.id === 'bets-off')
+    expect(row).toMatchObject({ room: 'ABC123', settings: { spectatorBets: false, gameMode: DEFAULT_SETTINGS.gameMode } })
+    // games recorded before the column existed report no options rather than guessed ones
+    const db = openTestDatabase(f.file)
+    db.exec("UPDATE matches SET settings=NULL WHERE id='bets-off'"); db.close()
+    expect(f.store.report(1).facts.matches.find((m) => m.id === 'bets-off')?.settings).toBeNull()
   })
 
   it('validates date windows and refuses unknown persistent schemas', () => {

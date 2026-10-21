@@ -18,7 +18,7 @@ export interface AnalyticsReport {
     from: string; through: string
     traffic: { day: string; person: string; browser: string | null; kind: 'guest' | 'account'; region: string; build: string; net: string; screen: string; sessions: number; active_ms: number; firstAt: number }[]
     browsers: { day: string; browser: string; firstAt: number; convertedAt: number | null; convertedRegion: string | null; convertedBuild: string | null }[]
-    matches: { id: string; room: string | null; region: string; queue: string; game_mode: string; team_mode: string; build: string | null; commit_id: string | null; started_at: number; ended_at: number | null; status: string; seconds: number; rounds: number; bots: number; players: { person: string; kind: 'guest' | 'account' }[] }[]
+    matches: { id: string; room: string | null; region: string; queue: string; game_mode: string; team_mode: string; build: string | null; commit_id: string | null; settings: MatchSettings | null; started_at: number; ended_at: number | null; status: string; seconds: number; rounds: number; bots: number; players: { person: string; kind: 'guest' | 'account' }[] }[]
     samples: { at: number; region: string; build: string; net: string; screen: string; kind: 'guest' | 'account'; people: number }[]
     peaks: { day: string; online: number }[]
   }

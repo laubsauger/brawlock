@@ -27,7 +27,7 @@ export function analyticsFacts(db, { at, days }) {
     byMatch.get(seat.match_id).push({ person: token(seat.person), kind: seat.kind })
   }
   const matches = db.prepare('SELECT * FROM matches WHERE started_at>=? AND started_at<=? ORDER BY started_at DESC').all(start, at)
-    .map(({ id, ...row }) => ({ ...row, id, players: byMatch.get(id) ?? [] }))
+    .map(({ id, settings, ...row }) => ({ ...row, id, settings: settings ? JSON.parse(settings) : null, players: byMatch.get(id) ?? [] }))
   const sampleRows = db.prepare(`SELECT s.at,c.region,c.build,c.net,c.screen,c.kind,c.people FROM presence_samples s
     JOIN presence_sample_counts c ON c.sample=s.id WHERE s.at>=? AND s.at<=? ORDER BY s.at`).all(start, at)
   // Charts filter whole UTC dates. Identical segment vectors on the same date
