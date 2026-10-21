@@ -9,7 +9,7 @@ import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, rankedPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
 import { PlaySetup } from './PlaySetup'
-import { online, rejoin, session, type ServerProfile } from '../../game/session'
+import { online, rejoin, session, type PublicRoom, type ServerProfile } from '../../game/session'
 import { getProfile, setPreferredColor } from '../../game/profile'
 import { PreferredColorPicker } from './PlayerColorPicker'
 import { pickRegion, regionProblem, useRegionChoice, useRegions, type RegionStatus } from '../lib/servers'
@@ -21,7 +21,7 @@ import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { Profile } from './Profile'
 import { tutorial } from '../lib/onboarding'
 import { spellLibrary } from '../SpellLibrary'
-import { quickPlayAvailability } from '../lib/quickPlay'
+import { browseAvailability, quickPlayAvailability } from '../lib/quickPlay'
 import { isPlaySupported, PLAY_REQUIREMENT, usePlaySupported } from '../lib/playAccess'
 import { usePolled } from '../lib/ticker'
 import { RejoinPrompt } from './RejoinPrompt'
@@ -153,6 +153,37 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       testId="ranked-play"
     />
   </div>
+}
+
+/**
+ * Browse games entry with a live count of open games across every region, refreshed
+ * every few seconds, so players can see there are games to pick from.
+ */
+function BrowseEntry({ onClick }: { onClick: () => void }) {
+  const [rooms, setRooms] = useState<PublicRoom[] | null>(null)
+  useEffect(() => {
+    let live = true
+    let busy = false
+    const refresh = async () => {
+      if (busy) return
+      busy = true
+      try {
+        const next = await online.browse()
+        if (live) setRooms(next)
+      } finally { busy = false }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [])
+  const known = rooms ? browseAvailability(rooms) : null
+  return <MenuEntry
+    title="Browse games"
+    sub={known?.open ? <span className="flex items-center gap-1.5 font-semibold text-[#ffe1a6]"><span aria-hidden className="browse-live-dot h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffcd9f]" />{known.sub}</span> : known?.sub ?? 'Every public game, all regions'}
+    hint="See every public game: casual, custom and player-hosted. Join or watch with one click."
+    onClick={onClick}
+    testId="browse-games"
+  />
 }
 
 /**
@@ -417,7 +448,7 @@ export function MainMenu() {
           {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
             <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
-            {online.configured && <MenuEntry title="Browse games" sub="Choose an existing public game" onClick={() => setBrowseOpen(true)} testId="browse-games" />}
+            {online.configured && <BrowseEntry onClick={() => setBrowseOpen(true)} />}
           </div>
           <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" onClick={() => setCollectionOpen(true)} testId="open-wardrobe" />
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">

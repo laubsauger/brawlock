@@ -604,6 +604,10 @@
   .menu-item-primary { min-height: 96px; }
   .menu-pair { gap: 0.85rem; }
   .menu-pair .menu-item { height: 100%; padding: 0.85rem 1rem; }
+  /* Browse games: open games are listed right now */
+  .browse-live-dot { box-shadow: 0 0 6px #ffb070; animation: browse-live 1.8s ease-in-out infinite; }
+  @keyframes browse-live { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .browse-live-dot { animation: none; } }
   .menu-access { padding-top: 0.15rem; }
   .menu-footer { margin-top: 1.5rem; }
   @media (max-height: 950px) {
