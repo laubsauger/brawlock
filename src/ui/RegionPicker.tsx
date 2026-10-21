@@ -2,6 +2,7 @@ import { pickRegion, regionPlayerLabel, regionPopulation, type RegionStatus } fr
 import { RegionPing } from './RegionPing'
 import { useOnlinePopulation } from './lib/presence'
 import { RegionMaintenance } from './RegionMaintenance'
+import { MenuGlyph } from './icons'
 
 /** Online visitors and connected game humans have separate, explicit labels. */
 export function RegionPicker({ statuses, choice, onChange }: {
@@ -15,7 +16,7 @@ export function RegionPicker({ statuses, choice, onChange }: {
   const onlineLabel = (id: string) => presence ? `${presence.regions[id] ?? '—'} online` : '— online'
   return <div data-testid="queue-region" className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded border border-white/10 bg-[#140e0b]/85 px-3 py-2 text-sm">
     <label className="flex min-w-0 flex-1 items-center gap-2 text-ash">
-      <span className="sr-only">Region</span>
+      <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#d9b98a]"><MenuGlyph kind="region" size={15} />Region</span>
       <select aria-label="Game region" className="field min-w-0 flex-1 py-1 text-sm" value={choice} onChange={(event) => onChange(event.target.value)}>
         <option value="auto">Auto · {selected ? `${selected.label} · ${onlineLabel(selected.id)}` : 'lowest ping · — online'}</option>
         {statuses.map((status) => <option key={status.id} value={status.id} title={regionPlayerLabel(status)}>{status.label} · {onlineLabel(status.id)}{status.maintenance?.draining ? ' · maintenance' : status.state === 'down' ? ' · offline' : ''}</option>)}
