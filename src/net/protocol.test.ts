@@ -82,6 +82,14 @@ describe('protocol', () => {
     expect(sanitizeCommand({ kind: 'spectateBet', round: 0, target: 0 })).toEqual({ kind: 'spectateBet', round: 0, target: 0 })
   })
 
+  it('carries Fresh start bare: a client can never name its own refund', () => {
+    const fresh = { kind: 'freshStart' }
+    expect(sanitizeFrames([{ seq: 1, tick: 120, cmds: [fresh] }])).toEqual([{ seq: 1, tick: 120, cmds: [fresh] }])
+    expect(decodeCmd(JSON.parse(JSON.stringify(encodeCmd(fresh as never))))).toEqual(fresh)
+    expect(sanitizeCommand({ ...fresh, refund: 999 })).toBeNull()
+    expect(sanitizeCommand({ ...fresh, gold: 999 })).toBeNull()
+  })
+
   it('validates independent spectator-bet and bounty settings as booleans', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({ spectatorBets: true, bounties: true })
     expect(sanitizeSettingsPatch({ spectatorBets: false, bounties: true }, DEFAULT_SETTINGS)).toEqual({ spectatorBets: false, bounties: true })

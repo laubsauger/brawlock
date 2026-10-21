@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { FIREBALL_SLOT, SCOURGE_SLOT } from './config'
+import { FIREBALL_SLOT, PAWN_MAX_LIFE, SCOURGE_SLOT } from './config'
 import { canBuy, step } from './index'
 import { IMPLEMENTED_SPELLS } from './spells'
 import { RELEASED_SPELLS, SPELLS } from './spells/data'
-import { cmd, newMatch, pawn, runUntil } from './testkit'
+import { cmd, newMatch, pawn, runUntil, toCombat } from './testkit'
 import type { InputCommand } from './types'
 
 const buy = (s: ReturnType<typeof newMatch>, ...c: InputCommand[]) => step(s, [cmd(0, ...c)])
@@ -162,5 +162,98 @@ describe('shop timing (SHOP_RULE = shopPhaseOrDead)', () => {
     const gold = s.scores[1].gold
     step(s, [cmd(1, { kind: 'buyItem', item: 'fireball' })])
     expect(s.scores[1].gold).toBe(gold)
+  })
+})
+
+describe('Fresh start: a human who took over a bot seat may sell its build (PLAN §2 deviation)', () => {
+  const fresh: InputCommand = { kind: 'freshStart' }
+  /** A seat the host just handed from a bot to a human, with the bot's build already bought on it. */
+  const takenOver = () => {
+    const s = newMatch({ startGold: 100 })
+    buy(s,
+      { kind: 'buySpell', spell: 'teleport' },
+      { kind: 'buySpell', spell: 'teleport' },
+      { kind: 'buyItem', item: 'ring_of_health' },
+      { kind: 'buyMastery', mastery: 'all' },
+    )
+    s.slots[0] = { ...s.slots[0], takeover: s.round }
+    return s
+  }
+  const kit = () => pawn(newMatch(), 0)
+
+  test('the newcomer gets back every gold paid on the seat and the plain starting kit', () => {
+    const s = takenOver()
+    const p = pawn(s, 0)
+    const paid = 100 - s.scores[0].gold
+    // the inherited build is real: gold went out, max HP rose with the ring
+    expect(paid).toBeGreaterThan(0)
+    expect(s.scores[0].spent).toBe(paid)
+    expect(p.maxHp).toBeGreaterThan(PAWN_MAX_LIFE)
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(100)
+    expect(s.scores[0].spent).toBe(0)
+    expect(s.scores[0].masteries).toEqual({ duration: 0, range: 0, lifesteal: 0 })
+    expect(p.slots).toEqual(kit().slots)
+    expect(p.levels).toEqual(kit().levels)
+    expect(p.maxHp).toBe(PAWN_MAX_LIFE)
+    expect(p.hp).toBeLessThanOrEqual(p.maxHp)
+    expect(s.events).toContainEqual({ type: 'freshStart', player: 0, pawn: p.id, refund: paid })
+    // the other seat is untouched
+    expect(s.scores[1].gold).toBe(100)
+  })
+
+  test('using it again only refunds what was bought since: no gold is minted', () => {
+    const s = takenOver()
+    buy(s, fresh)
+    buy(s, { kind: 'buySpell', spell: 'teleport' })
+    expect(s.scores[0].gold).toBe(88)
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(100)
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(100)
+    expect(s.events.some((e) => e.type === 'freshStart')).toBe(false)
+  })
+
+  test('refused once the fight is on: the build is locked in for combat', () => {
+    const s = takenOver()
+    toCombat(s)
+    s.slots[0] = { ...s.slots[0], takeover: s.round }
+    pawn(s, 0).alive = false // dead players may shop mid-fight, but not sell
+    const gold = s.scores[0].gold
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(gold)
+    expect(pawn(s, 0).slots[1]).toBe('teleport')
+  })
+
+  test('refused in ranked, where every seat plays the build it earned', () => {
+    const s = takenOver()
+    s.settings.rankedRounds = 5
+    const gold = s.scores[0].gold
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(gold)
+    expect(pawn(s, 0).slots[1]).toBe('teleport')
+  })
+
+  test('refused for a seat that was never taken over, or taken over in an earlier round', () => {
+    const own = takenOver()
+    own.slots[0] = { ...own.slots[0], takeover: undefined }
+    const gold = own.scores[0].gold
+    buy(own, fresh)
+    expect(own.scores[0].gold).toBe(gold)
+
+    const old = takenOver()
+    old.round = 3
+    old.slots[0] = { ...old.slots[0], takeover: 2 }
+    buy(old, fresh)
+    expect(old.scores[0].gold).toBe(gold)
+    expect(pawn(old, 0).slots[1]).toBe('teleport')
+  })
+
+  test('nothing bought, nothing to refund: no event', () => {
+    const s = newMatch({ startGold: 100 })
+    s.slots[0] = { ...s.slots[0], takeover: s.round }
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(100)
+    expect(s.events.some((e) => e.type === 'freshStart')).toBe(false)
   })
 })

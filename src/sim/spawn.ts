@@ -21,13 +21,20 @@ import { removeAllModifiers } from './modifiers'
 import { activePlayers, teamOf } from './teams'
 import type { PawnState, PlayerId, SimState, Vec2 } from './types'
 
+/** The free starting kit: Fireball and Scourge at level 1, every other slot empty, no cooldowns. */
+export function giveStartingKit(pawn: Pick<PawnState, 'slots' | 'levels' | 'cooldowns'>): void {
+  pawn.slots.fill(null)
+  pawn.levels.fill(0)
+  pawn.cooldowns.fill(0)
+  pawn.slots[FIREBALL_SLOT] = 'fireball'
+  pawn.levels[FIREBALL_SLOT] = 1
+  pawn.slots[SCOURGE_SLOT] = 'scourge'
+  pawn.levels[SCOURGE_SLOT] = 1
+}
+
 export function createPawn(state: SimState, owner: PlayerId): PawnState {
-  const slots: (string | null)[] = new Array(SLOT_COUNT).fill(null)
-  const levels: number[] = new Array(SLOT_COUNT).fill(0)
-  slots[FIREBALL_SLOT] = 'fireball'
-  levels[FIREBALL_SLOT] = 1
-  slots[SCOURGE_SLOT] = 'scourge'
-  levels[SCOURGE_SLOT] = 1
+  const kit = { slots: new Array<string | null>(SLOT_COUNT), levels: new Array<number>(SLOT_COUNT), cooldowns: new Array<number>(SLOT_COUNT) }
+  giveStartingKit(kit)
   return {
     id: state.nextEntityId++,
     owner,
@@ -48,9 +55,9 @@ export function createPawn(state: SimState, owner: PlayerId): PawnState {
     invulnerable: false,
     moveTarget: null,
     cast: null,
-    cooldowns: new Array(SLOT_COUNT).fill(0),
-    slots,
-    levels,
+    cooldowns: kit.cooldowns,
+    slots: kit.slots,
+    levels: kit.levels,
     modifiers: [],
     lastHitter: null,
     lavaTicks: 0,

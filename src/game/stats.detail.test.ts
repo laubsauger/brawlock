@@ -330,7 +330,7 @@ describe('awards pick clear outliers above sensible thresholds', () => {
 })
 
 // ---------------------------------------------------------------------------
-const score = (id: number): PlayerScore => ({ id, gold: 0, score: 0, kills: 0, deaths: 0, damageThisRound: 0, masteries: { duration: 0, range: 0, lifesteal: 0 }, connected: true })
+const score = (id: number): PlayerScore => ({ id, gold: 0, score: 0, kills: 0, deaths: 0, damageThisRound: 0, spent: 0, masteries: { duration: 0, range: 0, lifesteal: 0 }, connected: true })
 
 function finished(walked: number, date: number): MatchRecord {
   const s = fight()

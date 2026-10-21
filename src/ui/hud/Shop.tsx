@@ -382,6 +382,16 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
           <header className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 pt-3.5 pb-2">
             <h2 className="display text-[2.4rem] leading-none">Shop</h2>
             <GoldCounter gold={v.gold} />
+            {v.refund > 0 && !guidedSpell && (
+              <Button
+                size="sm"
+                sound="buy"
+                title="You took over a bot's seat: sell its whole build and spend the gold your way. Available until the next round starts."
+                onClick={() => input.issue({ kind: 'freshStart' })}
+              >
+                {`Fresh start · refund ${v.refund} gold`}
+              </Button>
+            )}
             {guidedSpell ? <span className="text-sm text-gold">Practice · no timer</span> : <ShopClock />}
             <Button size="sm" variant="ghost" sound={null} className="ml-auto" onClick={close}>
               Close <KeyCaps label={bindLabel(binds, 'shop')} />

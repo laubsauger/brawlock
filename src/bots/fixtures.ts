@@ -92,6 +92,7 @@ export function makeState(pawns: PawnState[], patch: Partial<SimState> = {}): Si
       kills: 0,
       deaths: 0,
       damageThisRound: 0,
+      spent: 0,
       masteries: { duration: 0, range: 0, lifesteal: 0 },
       connected: true,
     })),

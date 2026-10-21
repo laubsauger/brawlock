@@ -53,6 +53,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Hero choice effectively random, 7 Dota heroes | Lobby cosmetic picker: warlock archetypes with team-color trim |
 | Bot difficulty = think interval only, console command only | Full difficulty system, lobby UI (§7) |
 | Chat-line announcements | Proper UI announcements, killfeed, round banners |
+| No selling: a player who joins a running game takes over a bot's seat and is stuck with its build | Added 2026-10-21: outside ranked, **Fresh start** in the shop refunds every gold paid on that seat and resets it to the starting kit, only in the shop right after the takeover |
 
 Original assets cannot ship: the source repo has no license and almost every asset is Valve-owned (see `assets.md`). We re-implement mechanics and constants only and make all art, audio and text new.
 
@@ -69,7 +70,7 @@ Original assets cannot ship: the source repo has no license and almost every ass
 | 5 | Defense | Shield, Rush, Alteration |
 | 6 | Knockbackless | Gravity, Grip, Warpzone, Magnetize, Rockpillar, Link |
 
-Buy cost 11–15, six upgrades to level 7 (5–13 each). No refunds, no swapping once bought. No mana: the mana bar was the knockback-points meter.
+Buy cost 11–15, six upgrades to level 7 (5–13 each). No refunds, no swapping once bought (one exception: Fresh start after taking over a bot's seat, §2). No mana: the mana bar was the knockback-points meter.
 
 Starting kit (free, item slots):
 

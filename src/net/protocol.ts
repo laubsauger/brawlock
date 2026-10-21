@@ -329,6 +329,10 @@ export function sanitizeCommand(c: unknown): InputCommand | null {
     case 'buyMastery':
       if (!['duration', 'range', 'lifesteal', 'all'].includes(o.mastery as string)) return null
       break
+    case 'freshStart':
+      // the refund is the sim's to compute; the command carries nothing else
+      if (keys.length !== 1) return null
+      break
     case 'spectateBet':
       // Stake and payout belong to the authoritative sim, never to the client.
       if (keys.length !== 3 || !Number.isInteger(o.round) || (o.round as number) < 0 || !Number.isInteger(o.target) || (o.target as number) < 0) return null

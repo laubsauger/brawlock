@@ -198,7 +198,7 @@ function view(n = 2, over: Partial<AnnouncerView> = {}): AnnouncerView {
     round: 1,
     settings: { ...DEFAULT_SETTINGS },
     slots: ids.map((id) => ({ id, name: `P${id}`, color: 0, team: id, kind: 'human' as const })),
-    scores: ids.map((id) => ({ id, gold: 0, score: 0, kills: 0, deaths: 0, damageThisRound: 0, masteries: { duration: 0, range: 0, lifesteal: 0 }, connected: true })),
+    scores: ids.map((id) => ({ id, gold: 0, score: 0, kills: 0, deaths: 0, damageThisRound: 0, spent: 0, masteries: { duration: 0, range: 0, lifesteal: 0 }, connected: true })),
     pawns: ids.map((id) => pawnOf(id)),
     arena: { layer: 15, nextShrinkTick: -1, theme: 0 },
     ...over,

@@ -5,6 +5,7 @@ import type { Phase, SimEvent, SimState } from '../../sim/types'
 import { TEAM_DRAW, TICK_HZ, gameWinners } from '../../sim'
 import { usePolled, useTick } from '../lib/ticker'
 import { music, sfx } from '../lib/sound'
+import { toast } from '../lib/toast'
 import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/view'
 import { announce, Banner, KillCallout, Killfeed, StreakCallout } from './Announce'
 import { InnateRow, ItemRow, SpellRow } from './SpellBar'
@@ -97,6 +98,9 @@ function useDirector() {
         }
         case 'gameOver':
           onGameOver(e.winners, state)
+          break
+        case 'freshStart':
+          if (e.player === local) toast(`Build refunded: +${e.refund} gold`)
           break
         default:
           break

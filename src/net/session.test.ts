@@ -754,6 +754,50 @@ describe('session lobby over the network', () => {
     expect(waiting.out.localPlayer).toBe(id)
   }, 60000)
 
+  /** Why: a mid-fight joiner inherits the bot's build, so the handover must open Fresh start for that shop, and it must work over the wire. */
+  it('marks a bot seat taken over mid-fight in a custom room, so the newcomer can sell the bot build', async () => {
+    if (!sim) throw new Error(simMissing)
+    const net = createMemoryNet({ ...LINK, loss: 0 })
+    const host = makePeer(net, 'Hosty', 'host-key', sim, { createBot })
+    await host.session.openHost()
+    // one Fireball hit throws the idle host into instant lava: the fight ends quickly
+    host.session.updateSettings({ shopSeconds: 3, kbMultiplier: 10, lavaDps: 5000, startGold: 60 })
+    host.session.addBot('hard')
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(3400)
+    expect(host.out.states.at(-1)!.phase).toBe('fight')
+    const bot = host.out.states.at(-1)!.slots.find((s) => s.kind === 'bot')!
+    const botSpent = host.out.states.at(-1)!.scores.find((s) => s.id === bot.id)!.spent
+    expect(botSpent).toBeGreaterThan(0) // the bot shopped in the first shop phase
+    const joiner = makePeer(net, 'Late guest', 'late-key', sim, { profileId: 'late-profile' })
+    const joined = joiner.session.join(host.store.lobby.roomCode!)
+    await vi.advanceTimersByTimeAsync(400)
+    await joined
+    expect(joiner.store.lobby.localPlayer).toBe(bot.id)
+    expect(joiner.store.lobby.waitingForRound).toBe(true)
+    // the bot still plays this fight: no takeover yet
+    expect(host.out.states.at(-1)!.slots.find((s) => s.id === bot.id)?.takeover).toBeUndefined()
+    for (let i = 0; i < 120 && !host.out.states.at(-1)!.slots.find((s) => s.id === bot.id)?.takeover; i++) await vi.advanceTimersByTimeAsync(500)
+    const handed = host.out.states.at(-1)!
+    const seat = handed.slots.find((s) => s.id === bot.id)!
+    expect(seat.kind).toBe('human')
+    expect(['roundEnd', 'shop']).toContain(handed.phase)
+    expect(seat.takeover).toBe(handed.round)
+    const before = handed.scores.find((s) => s.id === bot.id)!
+    expect(before.spent).toBeGreaterThanOrEqual(botSpent)
+    // the joiner's client restarts as a player at the handover; give it a moment to stream inputs
+    await vi.advanceTimersByTimeAsync(1000)
+    joiner.pending.push({ kind: 'freshStart' })
+    await vi.advanceTimersByTimeAsync(400)
+    const after = host.out.states.at(-1)!
+    const score = after.scores.find((s) => s.id === bot.id)!
+    expect(score.spent).toBe(0)
+    expect(score.gold).toBe(before.gold + before.spent)
+    expect(after.pawns.find((p) => p.owner === bot.id)!.slots.filter((x) => x !== null)).toEqual(['fireball', 'scourge'])
+    joiner.session.leave()
+    host.session.leave()
+  })
+
   it('refuses a new human without a valid profile ID instead of identifying them by name', async () => {
     const net = createMemoryNet(LINK)
     const host = makePeer(net, 'Hosty', 'host-key')

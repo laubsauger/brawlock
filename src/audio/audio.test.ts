@@ -49,6 +49,7 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   castCancel: { type: 'castCancel', pawn: 2, spell: 'fireball', slot: 6, started: true },
   respawn: { type: 'respawn', pawn: 2, owner: 1, x: 900, y: 0 },
   purchase: { type: 'purchase', player: 0, pawn: 1, kind: 'spell', id: 'teleport', level: 1 },
+  freshStart: { type: 'freshStart', player: 0, pawn: 1, refund: 40 },
 }
 
 const LISTENER = {

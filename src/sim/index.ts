@@ -64,7 +64,7 @@ export { SPELLS, SPELL_IDS, PASSIVE_ITEMS, RELEASED_SPELLS, attr, cooldownSecond
 export { IMPLEMENTED_SPELLS } from './spells'
 export type { SpellDef, PassiveItemDef } from './spells/data'
 export { cooldownTicks } from './pawn'
-export { canBuy, shopOpen } from './shop'
+export { canBuy, freshStartRefund, shopOpen } from './shop'
 export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
@@ -113,6 +113,7 @@ export function createMatch(inputSettings: MatchSettings, slots: PlayerSlot[], s
       kills: 0,
       deaths: 0,
       damageThisRound: 0,
+      spent: 0,
       masteries: { duration: 0, range: 0, lifesteal: 0 },
       connected: true,
     })),
@@ -158,6 +159,8 @@ function validCommand(cmd: InputCommand): boolean {
       return typeof cmd.item === 'string'
     case 'buyMastery':
       return typeof cmd.mastery === 'string'
+    case 'freshStart':
+      return Object.keys(cmd).length === 1
     case 'spectateBet':
       return Object.keys(cmd).length === 3 && Number.isInteger(cmd.round) && cmd.round >= 0 &&
         Number.isInteger(cmd.target) && cmd.target >= 0

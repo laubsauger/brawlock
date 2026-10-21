@@ -87,6 +87,12 @@ export interface PlayerSlot {
    * to an occupant when a match seat changes hands.
    */
   profileId?: string
+  /**
+   * Round (state.round) in which a human took this seat over from a bot, set by the host on
+   * the seat patch in non-ranked rooms. Opens the Fresh start refund (shop.ts) for that round's
+   * shop only.
+   */
+  takeover?: number
 }
 
 /**
@@ -109,6 +115,8 @@ export type InputCommand =
   | { kind: 'buyItem'; item: SpellId }
   | { kind: 'buyMastery'; mastery: 'duration' | 'range' | 'lifesteal' | 'all' }
   | { kind: 'spectateBet'; round: number; target: PlayerId }
+  /** sell the seat's whole build back to the starting kit (shop.ts freshStart) */
+  | { kind: 'freshStart' }
 
 /** All commands one player issued for one tick. */
 export interface PlayerInput {
@@ -243,6 +251,8 @@ export interface PlayerScore {
   kills: number
   deaths: number
   damageThisRound: number
+  /** gold paid in the shop since the build last reset (Fresh start refunds it; bets excluded) */
+  spent: number
   /** mastery levels */
   masteries: { duration: number; range: number; lifesteal: number }
   connected: boolean
@@ -388,6 +398,8 @@ export type SimEvent =
    * purchase. Buying all masteries at once emits one event per mastery raised.
    */
   | { type: 'purchase'; player: PlayerId; pawn: EntityId; kind: 'spell' | 'item' | 'mastery'; id: string; level: number }
+  /** Fresh start: the seat's build was sold back to the starting kit for `refund` gold */
+  | { type: 'freshStart'; player: PlayerId; pawn: EntityId; refund: number }
   /** deathmatch respawn */
   | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
 

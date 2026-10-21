@@ -1,4 +1,5 @@
-import type { SpellId } from '../../sim'
+import { freshStartRefund, type SpellId } from '../../sim'
+import { frame } from '../../game/frame'
 import type { MasteryId } from '../data/catalog'
 import { canBuyNow, localView } from '../lib/view'
 
@@ -16,6 +17,8 @@ export interface ShopView {
   masteries: Record<MasteryId, number>
   phase: string
   open: boolean
+  /** gold a Fresh start would refund now (seat taken over from a bot this round), 0 = not offered */
+  refund: number
 }
 
 export function readShop(): ShopView {
@@ -41,6 +44,7 @@ export function readShop(): ShopView {
     masteries: { duration: 0, range: 0, lifesteal: 0, ...v?.score?.masteries },
     phase: v?.state.phase ?? '',
     open: v ? canBuyNow(v.state) : false,
+    refund: v ? freshStartRefund(v.state, frame.localPlayer) : 0,
   }
 }
 

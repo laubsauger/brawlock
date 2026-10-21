@@ -64,6 +64,7 @@ function score(id: number, s: number, kills: number, deaths: number): PlayerScor
     kills,
     deaths,
     damageThisRound: 0,
+    spent: 0,
     masteries: { duration: 0, range: 0, lifesteal: 0 },
     connected: true,
   }

@@ -1131,7 +1131,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.humans.add(slot.id)
     m.waiting.delete(slot.id)
     const current = m.state.slots.find((s) => s.id === slot.id)!
-    m.slotPatch.set(slot.id, { ...slot, team: current.team })
+    // Only ever a bot's seat changing hands: outside ranked the newcomer may sell the inherited build this round (Fresh start).
+    const fresh = !roomInfo.ranked && !m.state.settings.rankedRounds
+    m.slotPatch.set(slot.id, { ...slot, team: current.team, ...(fresh ? { takeover: m.state.round } : {}) })
     rec?.join?.(slot, device)
     rec?.control?.(slot.id, 'human')
   }

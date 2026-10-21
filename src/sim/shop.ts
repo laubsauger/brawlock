@@ -13,11 +13,18 @@
  * Passive items (Ring of Health, Cursed Ring, Cape, Armor, Boots, Pocket Watch) take an item
  * slot; their stats apply at once (max HP rises, current HP does not, systems.md §3.1).
  * Only ids in RELEASED_SPELLS (sim + tests + VFX shipped) can be bought.
+ *
+ * Fresh start (deviation, PLAN §2; the original has no selling): a human who took over a bot's
+ * seat (PlayerSlot.takeover, set by the host in non-ranked rooms) may sell the seat's whole build
+ * back to the starting kit for every gold paid on it (PlayerScore.spent), until the next fight
+ * starts. Spectator bets are not shop spending and are never refunded.
  */
 import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
+import { cancelCast } from './orders'
+import { giveStartingKit } from './spawn'
 import { recomputeStats } from './stats'
-import { isRoundParticipant, pawnOf, scoreOf } from './teams'
+import { isRoundParticipant, pawnOf, scoreOf, slotOf } from './teams'
 import type { PawnState, PlayerId, PlayerScore, SimState, SpellId } from './types'
 
 /**
@@ -47,6 +54,41 @@ function purchased(state: SimState, player: PlayerId, pawn: PawnState, kind: 'sp
 function pay(sc: PlayerScore, cost: number): boolean {
   if (sc.gold < cost) return false
   sc.gold -= cost
+  sc.spent += cost
+  return true
+}
+
+/**
+ * Gold a Fresh start would refund `player` right now, 0 when it is not allowed: the seat was taken
+ * over from a bot this round, it is the shop (or round end) before the next fight, the match is
+ * not ranked and something was bought.
+ */
+export function freshStartRefund(state: SimState, player: PlayerId): number {
+  if (state.settings.rankedRounds) return 0
+  if (state.phase !== 'shop' && state.phase !== 'roundEnd') return 0
+  if (slotOf(state, player)?.takeover !== state.round) return 0
+  if (!isRoundParticipant(state, player)) return 0
+  const sc = scoreOf(state, player)
+  return sc && pawnOf(state, player) ? sc.spent : 0
+}
+
+/** Sell the whole build: spent gold back, masteries 0, slots back to the starting kit. */
+export function freshStart(state: SimState, player: PlayerId): boolean {
+  const refund = freshStartRefund(state, player)
+  const sc = scoreOf(state, player)
+  const pawn = pawnOf(state, player)
+  if (refund <= 0 || !sc || !pawn) return false
+  // a practice cast in the shop must not fire from a slot that is gone
+  cancelCast(state, pawn)
+  sc.gold += refund
+  sc.spent = 0
+  sc.masteries.duration = 0
+  sc.masteries.range = 0
+  sc.masteries.lifesteal = 0
+  giveStartingKit(pawn)
+  // max HP falls back with the passive items; current HP is clamped, as when buying them it never rose
+  recomputeStats(pawn)
+  state.events.push({ type: 'freshStart', player, pawn: pawn.id, refund })
   return true
 }
 

@@ -429,6 +429,8 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     const id = e.kind === 'mastery' ? 'buyMastery' : e.level <= 1 ? 'buyNew' : 'buyUpgrade'
     return [cue(id, CENTRE, 1.2, { param: e.level })]
   },
+  // Fresh start: the owner hears the gold come back, like a purchase
+  freshStart: (e, c) => (e.player === c.listener.localPlayer ? [cue('buyNew', CENTRE, 1.2)] : []),
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),
