@@ -190,7 +190,15 @@ export const AUDIO_ASSETS = {
   'announcer/maverick_extra_crispy': { loop: false, duration: 1.443, credit: 45 },
   'announcer/maverick_ashes_to_ashes': { loop: false, duration: 1.776, credit: 45 },
   'announcer/maverick_whos_next': { loop: false, duration: 1.393, credit: 45 },
-  'announcer/maverick_nobody_left': { loop: false, duration: 1.741, credit: 45 },
+  'announcer/maverick_thank_you_come_again': { loop: false, duration: 1.827, credit: 45 },
+  'announcer/maverick_nothing_personal': { loop: false, duration: 1.701, credit: 45 },
+  'announcer/maverick_thoughts_and_prayers': { loop: false, duration: 1.683, credit: 45 },
+  'announcer/maverick_closed_casket': { loop: false, duration: 1.501, credit: 45 },
+  'announcer/maverick_friendship_ended': { loop: false, duration: 1.741, credit: 45 },
+  'announcer/maverick_rest_in_pieces': { loop: false, duration: 1.621, credit: 45 },
+  'announcer/maverick_whoops': { loop: false, duration: 1.205, credit: 45 },
+  'announcer/maverick_outstanding': { loop: false, duration: 1.457, credit: 45 },
+  'announcer/maverick_victorious': { loop: false, duration: 1.407, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

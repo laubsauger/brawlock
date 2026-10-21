@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, ROUND_WIN_LINES, STALE_AFTER, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -258,7 +258,7 @@ describe('announcer: round flow on the real sim', () => {
     expect(calls[0]).toBe('round_one')
     for (const c of calls) expect(['round_one', 'round_two', 'round_three', 'round_four', 'round_five', 'match_point', 'final_round']).toContain(c)
     // the match ends with the local player's verdict, and every round with a winner or a draw
-    expect(['victory', 'defeat']).toContain(flow.at(-1)!.line)
+    expect([...MATCH_WIN_LINES, 'defeat']).toContain(flow.at(-1)!.line)
   }, 20_000)
 })
 
@@ -314,14 +314,16 @@ describe('announcer: round and match end', () => {
     // the HUD banner shows the same words as the voice
     expect(heard[0]).toBe(roundWinLine(winAt(1), ME))
     // "Victory!" stays the match's: a round win must not sound like the game is over
-    for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/victory/i)
+    for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/victor/i)
+    expect(ROUND_WIN_LINES.some((line) => (MATCH_WIN_LINES as readonly string[]).includes(line))).toBe(false)
   })
 
   it('Victory! / Defeat! for players, by team in team modes; spectators hear neither', () => {
     const over = (winners: number[]): SimEvent => ({ type: 'gameOver', winners })
     expect(lines(play(quick(), [[1, [over([ME])]]], ME))).toEqual(['victory'])
+    expect(lines(play(quick(), [[1, [over([ME])], view(2, { round: 3 })]], ME))).toEqual(['victorious'])
     expect(lines(play(quick(), [[1, [over([ME])]]], FOE))).toEqual(['defeat'])
-    expect(lines(play(quick(), [[1, [over([FOE, ALLY])]]], ALLY))).toEqual(['victory'])
+    expect(MATCH_WIN_LINES).toContain(lines(play(quick(), [[1, [over([FOE, ALLY])]]], ALLY))[0])
     expect(lines(play(quick(), [[1, [over([ME])]]], -1))).toEqual([])
     expect(lines(play(quick(), [[1, [over([ME])]]], null))).toEqual([])
   })

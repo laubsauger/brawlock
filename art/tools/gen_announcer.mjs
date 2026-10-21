@@ -64,7 +64,17 @@ export const LINES = [
   ['extra_crispy', 'Extra Crispy!', 5],
   ['ashes_to_ashes', 'Ashes to Ashes!', 5],
   ['whos_next', "Who's Next?", 5],
-  ['nobody_left', 'Nobody Left to Kill!', 5],
+  ['nobody_left', 'Nobody Left to Kill!', 5], // unregistered 2026-10-21; file kept
+  // pack 6: more round-win calls (you just shoved a friend into lava), and the match win's twin
+  ['thank_you_come_again', 'Thank You, Come Again!', 6],
+  ['nothing_personal', 'Nothing Personal!', 6],
+  ['thoughts_and_prayers', 'Thoughts and Prayers!', 6],
+  ['closed_casket', 'Closed Casket!', 6],
+  ['friendship_ended', 'Friendship Ended!', 6],
+  ['rest_in_pieces', 'Rest in Pieces!', 6],
+  ['whoops', 'Whoops!', 6],
+  ['outstanding', 'Outstanding!', 6],
+  ['victorious', 'Victorious!', 6],
 ]
 
 function apiKey() {

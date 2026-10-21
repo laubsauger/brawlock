@@ -21,8 +21,8 @@
  * - Round end: a round-win call for the winner's side (ROUND_WIN_LINES, rotating with your score
  *   so back-to-back wins sound different; never "Victory!", which is the match's alone),
  *   "Draw!" for everyone when nobody is left.
- * - Match end: "Victory!" / "Defeat!" for the local player (by team in team mode); a spectator
- *   (local player -1) hears neither.
+ * - Match end: "Victory!" or "Victorious!" (MATCH_WIN_LINES) / "Defeat!" for the local player (by
+ *   team in team mode); a spectator (local player -1) hears neither.
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
  *   repeat it seconds into each fight; later shrinks are heard (rumble) and seen (sinking tiles).
  * - "Hurry Up!": the shrink that leaves HURRY_TILES tiles or fewer, once per round, for everyone.
@@ -80,7 +80,15 @@ export type AnnouncerLine =
   | 'extra_crispy'
   | 'ashes_to_ashes'
   | 'whos_next'
-  | 'nobody_left'
+  | 'thank_you_come_again'
+  | 'nothing_personal'
+  | 'thoughts_and_prayers'
+  | 'closed_casket'
+  | 'friendship_ended'
+  | 'rest_in_pieces'
+  | 'whoops'
+  | 'outstanding'
+  | 'victorious'
   | 'draw'
   | 'victory'
   | 'defeat'
@@ -122,7 +130,15 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   extra_crispy: 'Extra Crispy!',
   ashes_to_ashes: 'Ashes to Ashes!',
   whos_next: "Who's Next?",
-  nobody_left: 'Nobody Left to Kill!',
+  thank_you_come_again: 'Thank You, Come Again!',
+  nothing_personal: 'Nothing Personal!',
+  thoughts_and_prayers: 'Thoughts and Prayers!',
+  closed_casket: 'Closed Casket!',
+  friendship_ended: 'Friendship Ended!',
+  rest_in_pieces: 'Rest in Pieces!',
+  whoops: 'Whoops!',
+  outstanding: 'Outstanding!',
+  victorious: 'Victorious!',
   draw: 'Draw!',
   victory: 'Victory!',
   defeat: 'Defeat!',
@@ -158,8 +174,16 @@ export const OCCASIONAL_CAP = 2
 const CLOSE_CALL_HP = 0.08
 /** ... once the player is still alive this long after it (s) */
 export const CLOSE_CALL_CONFIRM = 1
-/** Round-win calls in rotation order. */
-export const ROUND_WIN_LINES = ['round_won', 'well_done', 'extra_crispy', 'ashes_to_ashes', 'whos_next', 'nobody_left'] as const satisfies readonly AnnouncerLine[]
+/**
+ * Round-win calls in rotation order: you just shoved a friend into the lava, and the announcer
+ * deadpans it. Plain hype calls sit between the jokes so no stretch is all one tone.
+ */
+export const ROUND_WIN_LINES = [
+  'round_won', 'thank_you_come_again', 'well_done', 'nothing_personal', 'outstanding', 'extra_crispy',
+  'thoughts_and_prayers', 'whos_next', 'closed_casket', 'friendship_ended', 'ashes_to_ashes', 'rest_in_pieces', 'whoops',
+] as const satisfies readonly AnnouncerLine[]
+/** The match win alternates by match length, so it is never one of the round's words. */
+export const MATCH_WIN_LINES = ['victory', 'victorious'] as const satisfies readonly AnnouncerLine[]
 
 const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, arena: 2, flow: 1 } as const
 export type AnnouncementKind = keyof typeof PRIORITY
@@ -190,6 +214,11 @@ export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 
 export function roundWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
   const score = state.scores?.find((sc) => sc.id === local)?.score ?? 0
   return ROUND_WIN_LINES[(score + Math.max(0, local)) % ROUND_WIN_LINES.length]
+}
+
+/** The match-win call for `local` (voice and HUD title alike). */
+export function matchWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
+  return MATCH_WIN_LINES[((state.round ?? 0) + Math.max(0, local)) % MATCH_WIN_LINES.length]
 }
 
 /** Multi-kill line for a chain of `count` kills (2 = Double ... 7+ = Monster). */
@@ -387,7 +416,7 @@ export class Announcer {
           }
           break
         case 'gameOver':
-          if (local !== null) this.flow(e.winners.includes(local) ? 'victory' : 'defeat', local, now)
+          if (local !== null) this.flow(e.winners.includes(local) ? matchWinLine(state ?? {}, local) : 'defeat', local, now)
           break
         default:
           break
