@@ -29,7 +29,7 @@ describe('personal betting presentation', () => {
     expect(html).toContain('data-betting-state="open"')
     expect(html).toContain('Betting open')
     expect(html).toContain('aria-expanded="true"')
-    expect(html).toContain('aria-label="Bet 1 gold on Player 1"')
+    expect(html).toContain('aria-label="Bet 1 gold on Player 1: pays 1 gold if right')
     expect(html.indexOf('spectator-bet-choices')).toBeLessThan(html.indexOf('<details'))
   })
 
@@ -113,7 +113,7 @@ describe('personal betting presentation', () => {
     const html = markup()
     expect(html).toContain('Bet on which team wins')
     expect(html).toContain('Choose a team · costs 1 gold')
-    expect(html).toContain('up to 2 gold total back (1 gold profit)')
+    expect(html).toContain('correct bets split it equally')
     expect(html).toContain('Red team')
     expect(html).toContain('Blue team')
     expect(html).not.toContain('Bet 1 gold on Player 1')
@@ -136,7 +136,7 @@ describe('personal betting presentation', () => {
     settleSpectateBets(contested, [1])
     contested.phase = 'roundEnd'
     pushState(contested)
-    expect(markup()).toContain('2 gold returned · +1 gold profit')
+    expect(markup()).toContain('You won 2 gold from the 2 gold pot · +1 gold profit')
   })
 
   it('keeps final-brawl betting clear without promising a bounty in a nonexistent next round', () => {
@@ -146,11 +146,31 @@ describe('personal betting presentation', () => {
     state.round = 6
     pushState(state)
     expect(markup()).toContain('Bet on who wins')
-    expect(markup()).toContain('up to 2 gold total back')
+    expect(markup()).toContain('correct bets split it equally')
     expect(markup()).not.toContain('next round’s winner bounty')
     state.settings.bounties = false
     pushState(state)
-    expect(markup()).toContain('Unmatched bets are refunded')
+    expect(markup()).toContain('If nobody is right, every bet is refunded')
+  })
+
+  it('shows what a correct bet pays at the current pot, updated as others bet, apart from the win chance', () => {
+    // Why: pool payouts depend on how others bet, so a fixed promise would mislead.
+    const state = setup()
+    pushState(state)
+    expect(markup()).toContain('aria-label="Bet 1 gold on Player 2: pays 1 gold if right')
+    // Player 3 backs Player 2: a new bet on Player 1 would take the whole 2 gold pot alone
+    placeSpectateBet(state, 3, 1, 2)
+    pushState(state)
+    const html = markup()
+    expect(html).toContain('aria-label="Bet 1 gold on Player 1: pays 2 gold if right')
+    expect(html).toContain('aria-label="Bet 1 gold on Player 2: pays 1 gold if right')
+    expect(html).toContain('>pays 2</span>')
+    // the win chance reads as a percentage to win, never as a bare number next to the payout
+    expect(html).toMatch(/>\d+% win<\/span>/)
+    expect(html).toContain('Pot: 1 gold')
+    placeSpectateBet(state, 0, 1, 1)
+    pushState(state)
+    expect(markup()).toContain('Your bet: Player 1 · 1 gold placed<span class="text-gold"> · pays 2 gold if right</span>')
   })
 
 })

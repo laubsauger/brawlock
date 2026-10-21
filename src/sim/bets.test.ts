@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { bountyOf, canSpectateBet, claimBounty, deliverBettingCredits, placeSpectateBet, settleSpectateBets, spectateBetWindow } from './bets'
+import { bountyOf, canSpectateBet, claimBounty, deliverBettingCredits, placeSpectateBet, poolPayoutIfRight, settleSpectateBets, spectateBetWindow } from './bets'
 import { killPawn } from './combat'
 import { cloneState, hashState, step } from './index'
 import { roundWon, startRound } from './mode'
@@ -104,34 +104,6 @@ describe('authoritative spectator wagers', () => {
     expect(a.betting.bets[0].payer.name).toBe('p0')
   })
 
-  test('first accepted correct pick receives limited bonus; a correct solo bet only returns its stake', () => {
-    const s = setup()
-    placeSpectateBet(s, 2, s.round, 4)
-    placeSpectateBet(s, 0, s.round, 4)
-    placeSpectateBet(s, 1, s.round, 5)
-    const total = wealth(s)
-    settleSpectateBets(s, [4])
-    expect(s.betting.lastSettlement?.payouts).toEqual([
-      { player: 2, amount: 2, correct: true }, { player: 0, amount: 1, correct: true }, { player: 1, amount: 0, correct: false },
-    ])
-    expect(wealth(s)).toBe(total)
-    const solo = setup()
-    placeSpectateBet(solo, 0, solo.round, 4)
-    settleSpectateBets(solo, [4])
-    expect(solo.scores[0].gold).toBe(30)
-  })
-
-  test('bounties disabled refunds unmatched losing stakes in reverse accepted order', () => {
-    const s = setup()
-    s.settings.bounties = false
-    for (let id = 0; id < 4; id++) placeSpectateBet(s, id, s.round, id === 0 ? 4 : 5)
-    const total = wealth(s)
-    settleSpectateBets(s, [4])
-    expect(s.betting.lastSettlement?.payouts.map((p) => p.amount)).toEqual([2, 0, 1, 1])
-    expect(s.betting.bounties).toEqual([])
-    expect(wealth(s)).toBe(total)
-  })
-
   test('draw refunds everyone including disconnected bettors, once only', () => {
     const s = setup()
     for (let id = 0; id < 4; id++) placeSpectateBet(s, id, s.round, 4)
@@ -149,12 +121,13 @@ describe('authoritative spectator wagers', () => {
     s.slots[4].team = 2
     s.slots[5].team = 3
     placeSpectateBet(s, 0, s.round, 4)
-    placeSpectateBet(s, 1, s.round, 5)
+    placeSpectateBet(s, 1, s.round, 4)
     placeSpectateBet(s, 2, s.round, 5)
     s.slots[3].team = 2
     roundWon(s, 2)
     expect(s.betting.lastSettlement?.winners).toEqual([2, 3, 4])
-    expect(s.betting.lastSettlement?.payouts[0].amount).toBe(2)
+    // pot 3 over two correct bets: 1 each, the odd coin funds the living winners' bounty
+    expect(s.betting.lastSettlement?.payouts.map((p) => p.amount)).toEqual([1, 1, 0])
     expect(bountyOf(s, 4)).toBe(1)
     expect(bountyOf(s, 3)).toBe(0)
   })
@@ -180,8 +153,115 @@ describe('authoritative spectator wagers', () => {
       for (let id = 0; id < 4; id++) placeSpectateBet(s, id, s.round, mask & (1 << id) ? 4 : 5)
       settleSpectateBets(s, [4])
       expect(wealth(s)).toBe(before)
-      expect(s.betting.lastSettlement!.payouts.every((p) => p.amount <= 2)).toBe(true)
+      const payouts = s.betting.lastSettlement!.payouts
+      const right = payouts.filter((p) => p.correct)
+      // every correct bet gets the same floored share (at most one remainder coin apart)
+      if (right.length) expect(Math.max(...right.map((p) => p.amount)) - Math.min(...right.map((p) => p.amount))).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('pool (parimutuel) payouts', () => {
+  const amounts = (s: SimState) => s.betting.lastSettlement!.payouts.map((p) => p.amount)
+
+  test('the whole pot is shared equally among the correct bets', () => {
+    const s = setup()
+    for (const [id, target] of [[0, 4], [1, 5], [2, 4], [3, 5]]) placeSpectateBet(s, id, s.round, target)
+    const total = wealth(s)
+    settleSpectateBets(s, [4])
+    expect(amounts(s)).toEqual([2, 0, 2, 0])
+    expect(s.betting.lastSettlement!.bountyAdded).toBe(0)
+    expect(wealth(s)).toBe(total)
+  })
+
+  test('a long shot pays more than the favourite, because fewer bettors share the pot', () => {
+    // Why: a fixed return paid a crowd favourite as much as a lonely correct call.
+    const bet = () => {
+      const s = setup()
+      placeSpectateBet(s, 0, s.round, 4)
+      for (const id of [1, 2, 3]) placeSpectateBet(s, id, s.round, 5)
+      return s
+    }
+    const longShot = bet()
+    settleSpectateBets(longShot, [4])
+    const favourite = bet()
+    favourite.settings.bounties = false
+    settleSpectateBets(favourite, [5])
+    expect(amounts(longShot)[0]).toBe(4)
+    expect(Math.max(...amounts(favourite).slice(1))).toBeLessThan(amounts(longShot)[0])
+  })
+
+  test('everyone right: each bet just gets its stake back, no profit and no bounty', () => {
+    for (const bounties of [true, false]) {
+      const s = setup()
+      s.settings.bounties = bounties
+      for (let id = 0; id < 4; id++) placeSpectateBet(s, id, s.round, 4)
+      settleSpectateBets(s, [4])
+      expect(amounts(s)).toEqual([1, 1, 1, 1])
+      expect(s.betting.bounties).toEqual([])
+    }
+  })
+
+  test('nobody right: the pot funds the winner bounty when bounties are on, otherwise every stake is refunded', () => {
+    const on = setup()
+    for (let id = 0; id < 3; id++) placeSpectateBet(on, id, on.round, 5)
+    settleSpectateBets(on, [4])
+    expect(amounts(on)).toEqual([0, 0, 0])
+    expect(on.betting.lastSettlement!.bountyAdded).toBe(3)
+    expect(bountyOf(on, 4)).toBe(3)
+    const off = setup()
+    off.settings.bounties = false
+    for (let id = 0; id < 3; id++) placeSpectateBet(off, id, off.round, 5)
+    settleSpectateBets(off, [4])
+    expect(amounts(off)).toEqual([1, 1, 1])
+    expect(off.scores.slice(0, 3).map((p) => p.gold)).toEqual([30, 30, 30])
+  })
+
+  test('rounding: floored shares; the remainder funds the bounty, or with bounties off one coin each to the earliest correct bets', () => {
+    // pot 5 over 3 correct bets: share 1, remainder 2
+    const bet = (bounties: boolean) => {
+      const s = setup(5)
+      s.settings.bounties = bounties
+      for (const [id, target] of [[3, 5], [4, 6], [0, 5], [2, 6], [1, 5]]) placeSpectateBet(s, id, s.round, target)
+      const total = wealth(s)
+      settleSpectateBets(s, [5])
+      expect(wealth(s)).toBe(total)
+      return s
+    }
+    const on = bet(true)
+    expect(amounts(on)).toEqual([1, 0, 1, 0, 1])
+    expect(on.betting.lastSettlement!.bountyAdded).toBe(2)
+    expect(bountyOf(on, 5)).toBe(2)
+    const off = bet(false)
+    // accepted order 3, 4, 0, 2, 1: the first two correct bets (3 and 0) get the odd coins
+    expect(amounts(off)).toEqual([2, 0, 2, 0, 1])
+    expect(off.betting.bounties).toEqual([])
+  })
+
+  test('the HUD projection is the floored share a new bet would get at settlement', () => {
+    const s = setup(5)
+    s.settings.bounties = false
+    placeSpectateBet(s, 0, s.round, 5)
+    placeSpectateBet(s, 1, s.round, 6)
+    placeSpectateBet(s, 2, s.round, 6)
+    // a new bet on 5 makes pot 4 over 2 correct; on 6, pot 4 over 3 correct
+    expect(poolPayoutIfRight(s, 5, true)).toBe(2)
+    expect(poolPayoutIfRight(s, 6, true)).toBe(1)
+    // a placed bet's current share counts no extra stake
+    expect(poolPayoutIfRight(s, 5, false)).toBe(3)
+    placeSpectateBet(s, 3, s.round, 5)
+    settleSpectateBets(s, [5])
+    expect(amounts(s)[3]).toBe(2)
+  })
+
+  test('settlement is deterministic: identical bets give identical states', () => {
+    const a = setup(5)
+    for (const [id, target] of [[3, 5], [4, 6], [0, 5], [2, 6], [1, 5]]) placeSpectateBet(a, id, a.round, target)
+    const b = cloneState(a)
+    settleSpectateBets(a, [5])
+    settleSpectateBets(b, [5])
+    expect(hashState(a)).toBe(hashState(b))
+    expect(b.betting).toEqual(a.betting)
   })
 })
 

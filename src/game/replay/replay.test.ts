@@ -225,7 +225,7 @@ function recordDirect(seed: number, ticks: number): ReplayData {
 describe('seeking and verification', () => {
   const d = recordDirect(11, KEYFRAME_EVERY * 4 + 123)
 
-  it('records dead-player wager commands and replays capped settlement, bounty creation and stale resends exactly', async () => {
+  it('records dead-player wager commands and replays pool settlement, remainder bounty creation and stale resends exactly', async () => {
     // 3 wins; 4 and the bystander 5 burn in the lava (bets need 3+ warlocks alive when placed)
     const slots: PlayerSlot[] = [0, 1, 2, 3, 4, 5].map((id) => ({
       id, name: `Human ${id}`, kind: 'human', color: id, team: id, profileId: `profile:${id}`,
@@ -244,7 +244,7 @@ describe('seeking and verification', () => {
     recorder.begin({ localPlayer: 1, slots, settings: state.settings, seed: 11 })
     const hashes = new Map([[state.tick, replayHash(state)]])
     const wagers: PlayerInput[] = [0, 1, 2].map((player) => ({
-      player, tick: 0, cmds: [{ kind: 'spectateBet', round: 1, target: player === 0 ? 3 : 4 }],
+      player, tick: 0, cmds: [{ kind: 'spectateBet', round: 1, target: player < 2 ? 3 : 4 }],
     }))
     for (let tick = 0; tick < 300; tick++) {
       const inputs = tick === 0 || tick === 1 || tick === 220 ? wagers : []
@@ -255,7 +255,7 @@ describe('seeking and verification', () => {
     }
     expect(state.round).toBe(2)
     expect(state.betting.lastSettlement).toMatchObject({ round: 1, bountyAdded: 1 })
-    expect(state.scores.slice(0, 3).map((s) => s.gold)).toEqual([31, 29, 29])
+    expect(state.scores.slice(0, 3).map((s) => s.gold)).toEqual([30, 30, 29])
     const replay = recorder.finish('spectator-betting', NET_ID, [])!
     const decoded = (await decodeReplay(await encodeReplay(replay)))!
     expect(decoded.steps[0][1][0][1]).toEqual([{ kind: 'spectateBet', round: 1, target: 3 }])

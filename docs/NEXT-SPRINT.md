@@ -21,6 +21,10 @@ Deployment is established by release receipts, not by implementation status here
 
 ## Completed in this planning pass
 
+- Spectator bets pay from a pool instead of a fixed 2-gold return: correct bets split every
+  stake of the round equally, so long shots pay more. Each pick shows what a correct bet would
+  pay at the current pot next to its rough win chance. Rules in [PLAN.md §3.4](PLAN.md#34-modes-and-lobby-options).
+
 - Reconciled stale account/cutover/platform plans with their implementation and release evidence.
 - Retired the old “not started” list for replays, hover previews, Move cancels cast, bot builds
   and the dedicated platform. Reduced-motion support follows the OS preference; a separate

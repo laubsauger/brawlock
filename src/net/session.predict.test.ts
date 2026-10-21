@@ -306,7 +306,7 @@ describe('spectator wagers over the confirmed input stream', () => {
       await vi.advanceTimersByTimeAsync(700)
       const bettors = peers.slice(0, 3)
       bettors.forEach((peer, id) => {
-        const wager: InputCommand = { kind: 'spectateBet', round: 1, target: id === 0 ? 3 : 4 }
+        const wager: InputCommand = { kind: 'spectateBet', round: 1, target: id < 2 ? 3 : 4 }
         peer.issue(wager)
         peer.issue(wager)
       })
@@ -320,9 +320,9 @@ describe('spectator wagers over the confirmed input stream', () => {
       expect(settled.round).toBe(2)
       expect(settled.betting.lastSettlement).toMatchObject({
         round: 1, winners: [3], bountyAdded: 1,
-        payouts: [{ player: 0, amount: 2, correct: true }, { player: 1, amount: 0, correct: false }, { player: 2, amount: 0, correct: false }],
+        payouts: [{ player: 0, amount: 1, correct: true }, { player: 1, amount: 1, correct: true }, { player: 2, amount: 0, correct: false }],
       })
-      expect(settled.scores.slice(0, 3).map((s) => s.gold)).toEqual([31, 29, 29])
+      expect(settled.scores.slice(0, 3).map((s) => s.gold)).toEqual([30, 30, 29])
       expect(settled.betting.bounties).toMatchObject([{ holder: { player: 3 }, amount: 1, activeFromRound: 2 }])
       expect(pawnOf(settled, 1).alive).toBe(false)
       const before = cloneState(settled).betting
@@ -330,7 +330,7 @@ describe('spectator wagers over the confirmed input stream', () => {
       await vi.advanceTimersByTimeAsync(1500)
       const final = r.host.auth.at(-1)!
       expect(final.betting).toEqual(before)
-      expect(final.scores.slice(0, 3).map((s) => s.gold)).toEqual([31, 29, 29])
+      expect(final.scores.slice(0, 3).map((s) => s.gold)).toEqual([30, 30, 29])
       const truth = new Map(r.host.auth.map((s) => [s.tick, noEventsHash(s)]))
       for (const peer of r.clients) {
         const confirmed = peer.auth.filter((s) => s.tick > 250)

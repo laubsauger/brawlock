@@ -128,6 +128,8 @@ Duration, Range, Lifesteal. 6 levels each, 5 gold per level, or 13 to raise all 
 
 Team mode Shuffle (default) / FFA / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
 
+Spectator betting and bounties (Rounds only) are our additions, not in the original. A knocked-out human may stake 1 gold, once per round, on a living player or team until fewer than three warlocks are alive (or 10 s into a round that starts with two). Payouts are a pool: all stakes form the pot and each correct bet gets an equal floored share, so long shots pay more. Coins that don't split evenly, or the whole pot when nobody is right, fund the winners' bounty for the next round when bounties are on; with bounties off they go one each to the earliest correct bets, or back to every bettor when nobody is right. A draw refunds every stake. Rules: `src/sim/bets.ts`.
+
 ## 4. Architecture
 
 ### 4.1 Stack

@@ -1,12 +1,17 @@
-import { isActive, pawnOf, scoreOf, slotOf, teamOf } from './teams'
+import { isActive, isRoundParticipant, pawnOf, scoreOf, slotOf, teamOf } from './teams'
 import type { BetIdentity, BetSettlement, PlayerId, PlayerSlot, SimState } from './types'
 
+/**
+ * Spectator betting is our addition (not in the original). Payouts are a pool (parimutuel):
+ * every stake of the round forms one pot, shared equally by the correct bets. The earlier
+ * fixed cap (2 gold back) paid a favourite as much as a long shot; a pool pays more the
+ * fewer bettors were right.
+ */
 export const BET_STAKE = 1
-export const BET_MAX_RETURN = 2
 /**
  * Bets close once fewer warlocks than this are alive. With two left the outcome is often
  * obvious (one low, one in the lava), and an always-safe last-moment bet made waiting
- * compulsory; earlier bets also collect the capped profit first (accepted order).
+ * compulsory.
  */
 export const BET_MIN_LIVING = 3
 /** a round that starts with only two warlocks (a ranked final) takes bets this long into the fight */
@@ -114,7 +119,37 @@ export function claimBounty(state: SimState, victim: PlayerId, killer: PlayerId 
   return claimed
 }
 
-/** Whole coins only. Accepted order decides capped bonuses; no gold enters or leaves the pot. */
+/** Current-round bets whose pick (by identity) would be a winner, as roundWon names them, if `target`'s team won now. */
+function betsOn(state: SimState, target: PlayerId): number {
+  const team = teamOf(state, target)
+  return state.betting.bets.filter((bet) => {
+    if (bet.round !== state.round) return false
+    const picked = ownerOf(state, bet.pick)
+    return picked !== undefined && isRoundParticipant(state, picked) && teamOf(state, picked) === team
+  }).length
+}
+
+/**
+ * What one correct bet on `target` would collect if the round were settled now: the floored
+ * pool share. `placing` adds the caller's own not-yet-placed bet (the HUD's "pays N" on an
+ * open pick). Later bets change it, and settlement may add one remainder coin (see below).
+ */
+export function poolPayoutIfRight(state: SimState, target: PlayerId, placing: boolean): number {
+  const extra = placing ? 1 : 0
+  const bets = state.betting.bets.filter((b) => b.round === state.round).length + extra
+  const right = betsOn(state, target) + extra
+  return right > 0 ? Math.floor((bets * BET_STAKE) / right) : 0
+}
+
+/**
+ * Pool settlement in whole coins; no gold enters or leaves the pot.
+ * - Some bets right: each gets floor(pot / correct bets). The remainder (fewer coins than
+ *   there are correct bets) funds the winners' bounty when bounties are on; otherwise the
+ *   earliest accepted correct bets get one extra coin each.
+ * - Nobody right: the whole pot funds the winners' bounty when bounties are on; otherwise
+ *   every stake is refunded. A draw (no winners) always refunds every stake.
+ * So when everyone is right, each bet just gets its stake back.
+ */
 export function settleSpectateBets(state: SimState, winners: readonly PlayerId[]): void {
   if (state.settings.gameMode !== 'rounds' || state.betting.lastSettlement?.round === state.round) return
   const bets = state.betting.bets.filter((b) => b.round === state.round)
@@ -123,15 +158,11 @@ export function settleSpectateBets(state: SimState, winners: readonly PlayerId[]
     const picked = ownerOf(state, bet.pick)
     return picked !== undefined && winners.includes(picked)
   })
-  const amounts: number[] = bets.map((_, i) => winners.length === 0 || correct[i] ? BET_STAKE : 0)
-  let remaining = bets.length * BET_STAKE - amounts.reduce((sum, n) => sum + n, 0)
-  if (winners.length > 0) {
-    for (let i = 0; i < bets.length && remaining > 0; i++) {
-      if (!correct[i]) continue
-      amounts[i] += 1
-      remaining -= 1
-    }
-  }
+  const pot = bets.length * BET_STAKE
+  const right = correct.filter(Boolean).length
+  const share = right > 0 ? Math.floor(pot / right) : 0
+  const amounts: number[] = bets.map((_, i) => winners.length === 0 ? BET_STAKE : correct[i] ? share : 0)
+  let remaining = pot - amounts.reduce((sum, n) => sum + n, 0)
   const holders = winners.filter((id) => pawnOf(state, id)?.alive && isActive(state, id))
     .sort((a, b) => a - b)
   if (state.settings.bounties && remaining > 0) {
@@ -145,10 +176,16 @@ export function settleSpectateBets(state: SimState, winners: readonly PlayerId[]
       if (old) old.amount += amount
       else state.betting.bounties.push({ holder, amount, activeFromRound: state.round + 1 })
     }
+  } else if (right > 0) {
+    // No bounty to fund: the pool remainder goes one coin each to the earliest correct bets.
+    for (let i = 0; i < bets.length && remaining > 0; i++) {
+      if (!correct[i]) continue
+      amounts[i] += 1
+      remaining -= 1
+    }
   } else {
-    // Unmatched stakes are refunded from the last accepted losing bet backward.
-    for (let i = bets.length - 1; i >= 0 && remaining > 0; i--) {
-      if (correct[i]) continue
+    // Nobody was right and there is no bounty to fund: every stake is refunded.
+    for (let i = 0; i < bets.length && remaining > 0; i++) {
       amounts[i] += BET_STAKE
       remaining -= BET_STAKE
     }

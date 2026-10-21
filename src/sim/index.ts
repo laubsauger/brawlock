@@ -18,7 +18,7 @@ import { isAlive, kindOf, timeScale } from './projectiles'
 import { assignTeams, isActive, pawnOf, scoreOf } from './teams'
 
 export * from './types'
-export { BET_STAKE, BET_MAX_RETURN, canSpectateBet, bountyOf, betIdentityMatchesSlot } from './bets'
+export { BET_STAKE, canSpectateBet, poolPayoutIfRight, bountyOf, betIdentityMatchesSlot } from './bets'
 
 // --- helpers for render / ui / bots / net ---------------------------------------
 export {

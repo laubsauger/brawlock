@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
-import { BET_MAX_RETURN, BET_STAKE, BET_TWO_STARTER_SECONDS, betIdentityMatchesSlot, canSpectateBet, spectateBetWindow } from '../../sim/bets'
+import { BET_STAKE, BET_TWO_STARTER_SECONDS, betIdentityMatchesSlot, canSpectateBet, poolPayoutIfRight, spectateBetWindow } from '../../sim/bets'
 import { teamOf, TICK_HZ } from '../../sim'
 import { usePolled } from '../lib/ticker'
 import { playerColor, teamName } from '../lib/view'
@@ -51,6 +51,8 @@ function read() {
       winRate: record && record.matches > 0 ? { pct: Math.round((record.wins / record.matches) * 100), matches: record.matches } : null,
       kos: state.settings.teamMode === 'ffa' ? score?.kills ?? 0 : null,
       health: members.reduce((a, m) => a + Math.max(0, m.hp), 0) / Math.max(1, members.reduce((a, m) => a + m.maxHp, 0)),
+      // pool share a correct bet placed now would collect if the round ended now
+      pays: poolPayoutIfRight(state, p.owner, true),
     }
   })
   // rough win chance: Elo strength (logistic, as in the ladder) weighted by health left
@@ -63,6 +65,8 @@ function read() {
     window: spectateBetWindow(state),
     secondsLeft: state.betting.closeTick === undefined ? null : Math.max(0, Math.ceil((state.betting.closeTick - state.tick) / TICK_HZ)),
     selected: bet ? (pick && state.settings.teamMode !== 'ffa' ? `${teamName(teamOf(state, pick.id))} team` : pick?.name ?? bet.pick.name) : null,
+    // the locked pick's current share, while its side can still win
+    selectedPays: pick && state.pawns.some((p) => p.alive && teamOf(state, p.owner) === teamOf(state, pick.id)) ? poolPayoutIfRight(state, pick.id, false) : null,
     pot: state.betting.bets.length * BET_STAKE,
     affordable: score.gold >= BET_STAKE,
     teams: state.settings.teamMode !== 'ffa',
@@ -127,20 +131,21 @@ function BetPanel({ value }: { value: BetView }) {
           {open && <i className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />}{status}
         </span>
       </header>
-      {result ? <p role="status" className="mt-1 break-words text-bone">{result.correct ? result.amount > BET_STAKE ? `You won: ${result.amount} gold returned · +${result.amount - BET_STAKE} gold profit` : `Correct pick · ${result.amount} gold returned (your stake)` : result.amount > 0 ? `Bet refunded: ${result.amount} gold` : `You lost your ${BET_STAKE} gold bet`}{value.bountyAdded > 0 ? ` · ${value.bountyAdded} gold added to bounties` : ''}</p>
-        : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed</p>
+      {result ? <p role="status" className="mt-1 break-words text-bone">{result.correct ? result.amount > BET_STAKE ? `You won ${result.amount} gold from the ${value.pot} gold pot · +${result.amount - BET_STAKE} gold profit` : `Correct pick · ${result.amount} gold returned (your stake)` : result.amount > 0 ? `Bet refunded: ${result.amount} gold` : `You lost your ${BET_STAKE} gold bet`}{value.bountyAdded > 0 ? ` · ${value.bountyAdded} gold added to bounties` : ''}</p>
+        : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed{value.selectedPays !== null && value.phase === 'fight' && <span className="text-gold"> · pays {value.selectedPays} gold if right</span>}</p>
           : value.window !== 'open' ? <p className="mt-1 text-ash">{closedReason}</p>
             : !value.affordable ? <p className="mt-1 text-ash">You need {BET_STAKE} gold to bet</p> : null}
       {open && <>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <p className="text-xs text-bone">Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold <span className="text-gold">· up to {BET_MAX_RETURN} back</span></p>
+          <p className="text-xs text-bone">Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold <span className="text-gold">· correct bets split the {value.pot > 0 ? `${value.pot} gold ` : ''}pot</span></p>
           <button type="button" className="min-h-9 shrink-0 rounded px-2 text-xs text-gold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-gold" aria-expanded={expanded} aria-controls="spectator-bet-choices" onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide picks' : 'Show picks'}</button>
         </div>
-        {expanded && <div id="spectator-bet-choices" className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-4">{value.choices.map((choice) => <Button key={choice.player} size="sm" className="min-h-11 min-w-0 !px-2 !py-1 !text-left" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. One bet per round; it cannot be changed.`} aria-label={`Bet ${BET_STAKE} gold on ${choice.name}`}>
+        {expanded && <div id="spectator-bet-choices" className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-4">{value.choices.map((choice) => <Button key={choice.player} size="sm" className="min-h-11 min-w-0 !px-2 !py-1 !text-left" onClick={() => place(choice.player)} title={`Bet ${BET_STAKE} gold on ${choice.name}. If right, it pays ${choice.pays} gold at the current pot; more bets change that. One bet per round; it cannot be changed.`} aria-label={`Bet ${BET_STAKE} gold on ${choice.name}: pays ${choice.pays} gold if right, ${choice.chance}% win chance`}>
           <span className="flex w-full min-w-0 flex-col gap-0.5">
-            <span className="flex w-full min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} aria-hidden /><span className="min-w-0 flex-1 truncate text-sm">{choice.name}</span><span className="tabular shrink-0 text-xs font-bold text-gold" title="Rough win chance: Elo and health left">{choice.chance}%</span></span>
+            <span className="flex w-full min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: choice.color }} aria-hidden /><span className="min-w-0 flex-1 truncate text-sm">{choice.name}</span><span className="tabular shrink-0 text-xs font-bold text-gold" title="Gold a correct bet collects at the current pot">pays {choice.pays}</span></span>
             <span className="tabular truncate font-ui text-[0.68rem] tracking-normal text-ash normal-case">
-              {choice.elo !== null ? `${choice.elo} Elo` : 'Unrated'}
+              <span className="text-bone" title="Rough win chance: Elo and health left">{choice.chance}% win</span>
+              {' · '}{choice.elo !== null ? `${choice.elo} Elo` : 'Unrated'}
               {choice.winRate && ` · ${choice.winRate.pct}% of ${choice.winRate.matches}`}
               {choice.kos !== null && ` · ${choice.kos} KO`}
             </span>
@@ -150,9 +155,9 @@ function BetPanel({ value }: { value: BetView }) {
         <p className="mt-1 text-xs text-ash">{value.secondsLeft === null ? 'Closes when two warlocks remain.' : `Closes in ${value.secondsLeft}s.`} One pick per round.</p>
       </>}
       <details className="mt-1 text-xs text-ash">
-        <summary className="cursor-pointer rounded py-1 focus-visible:outline-2 focus-visible:outline-gold">Payout rules <span className="ml-2 font-normal">· Total bets: {value.pot} gold</span></summary>
-        <p className="mt-1 leading-snug text-bone" title="Correct bets get their gold back. Profit is paid in bet order while other bets cover it.">Win: up to {BET_MAX_RETURN} gold total back ({BET_MAX_RETURN - BET_STAKE} gold profit)</p>
-        <p className="mt-1 leading-snug">Wrong pick: lose {BET_STAKE} gold. One bet per round · {value.secondsLeft === null ? 'bets close when two warlocks remain' : `bets close after ${BET_TWO_STARTER_SECONDS} seconds`} · earlier bets are paid first.{value.bounty ? value.final ? '' : ' Leftover bets fund next round’s winner bounty.' : ' Unmatched bets are refunded.'}</p>
+        <summary className="cursor-pointer rounded py-1 focus-visible:outline-2 focus-visible:outline-gold">Payout rules <span className="ml-2 font-normal">· Pot: {value.pot} gold</span></summary>
+        <p className="mt-1 leading-snug text-bone">Pool: every bet goes into the pot, and the correct bets split it equally. The fewer people picked the winner, the more each gets. If everyone is right, everyone gets their stake back.</p>
+        <p className="mt-1 leading-snug">Wrong pick: lose {BET_STAKE} gold. One bet per round · {value.secondsLeft === null ? 'bets close when two warlocks remain' : `bets close after ${BET_TWO_STARTER_SECONDS} seconds`} · “pays” is the share at the current pot.{value.bounty ? value.final ? '' : ' If nobody is right, the pot (and any coins that don’t split evenly) funds next round’s winner bounty.' : ' If nobody is right, every bet is refunded. Coins that don’t split evenly go to the earliest correct bets.'}</p>
       </details>
     </section>
   </div>
