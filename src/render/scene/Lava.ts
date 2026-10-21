@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { Fn, Loop, abs, atan, dot, exp, float, floor, fwidth, int, length, max, min, mix, mrt, saturate, sin, smoothstep, step, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
+import { Fn, If, Loop, abs, atan, dot, exp, float, floor, fwidth, int, length, max, min, mix, mrt, saturate, sign, sin, smoothstep, step, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 import { S } from '../coords'
 import type { Node } from 'three/webgpu'
 import { TILE_SIZE } from '../arenaGeom'
@@ -40,7 +40,8 @@ function sweepDelay(q: Node<'vec2'>, sweep: Node<'float'>): Node<'float'> {
  * that feed bloom; the shore along the platform runs hotter, with a molten
  * rim right at the tile edge. Unlit (emissive only), so cost is a handful of
  * texture taps per pixel. It reacts to what sinks into it (shrink rings,
- * lava deaths) through a few uniforms: arithmetic only, no extra taps.
+ * lava deaths) through a few uniforms: arithmetic only, plus (Low only) one
+ * fine crack tap behind a uniform branch while a reaction is live.
  */
 export class Lava {
   readonly mesh: THREE.Mesh
@@ -60,6 +61,8 @@ export class Lava {
    */
   private rings = [uniform(new THREE.Vector4(-100, 0, 0, 0)), uniform(new THREE.Vector4(-100, 0, 0, 0))]
   private ringSlot = 0
+  /** 1 while any splash or ring reaction is live: Low samples its fine crack layer only then */
+  private reacting = uniform(0)
 
   constructor(
     private ctx: WorldCtx,
@@ -112,6 +115,12 @@ export class Lava {
       } else i++
     }
     this.splashCount.value = n
+    let live = n > 0
+    for (const R of this.rings) {
+      const a = now - R.value.x
+      if (a >= 0 && a <= RING_LIFE) live = true
+    }
+    this.reacting.value = live ? 1 : 0
   }
 
   /**
@@ -175,24 +184,45 @@ export class Lava {
         // the cell this pixel lies in, and whether its tile was in the ring
         // (sim rule: centre strictly inside the layer radius)
         const cell = floor(p.div(TILE_SIZE).add(0.5)).mul(TILE_SIZE)
-        const dc2 = dot(cell, cell)
-        const inRing = step(rv.z.mul(rv.z), dc2).mul(step(dc2, rv.y.mul(rv.y).sub(1)))
+        const ringAt = (c: Node<'vec2'>) => {
+          const d2 = dot(c, c)
+          return step(rv.z.mul(rv.z), d2).mul(step(d2, rv.y.mul(rv.y).sub(1)))
+        }
+        const inRing = ringAt(cell)
         // tile clock: 0 when its slow phase starts, SINK_SWALLOW when it is under
         const u = age.sub(SINK_DROP).sub(sweepDelay(cell, rv.w))
         const lp = p.sub(cell)
         const ld = length(lp)
-        // a soft, ragged blob inside the tile footprint
-        const foot = float(1).sub(smoothstep(TILE_HALF * 0.35, TILE_HALF * 1.05, ld.add(shape.mul(40))))
+        // the slab's own footprint: a rounded square with ragged edges (a
+        // radial falloff read as a round blob where the tile went down). It
+        // fades out inside the cell: inRing is a hard per-cell step, so any
+        // term left at the cell border drew a straight-edged square.
+        const cheb = max(abs(lp.x), abs(lp.y))
+        const cellFade = float(1).sub(smoothstep(TILE_HALF * 0.6, TILE_HALF * 0.98, cheb))
+        const jag = shape.sub(0.5).mul(30)
+        const sq = mix(ld, cheb, 0.85).add(jag)
+        const foot = float(1).sub(smoothstep(TILE_HALF * 0.45, TILE_HALF * 0.85, sq)).mul(cellFade)
+        // the seething melt around the slab: falls off from the middle toward
+        // cell sides that border the platform or open lava (a flat fill up to
+        // the cell border read as a hot square), but runs on into a neighbour
+        // that sank too, so a ring seethes as one band without seams
+        const nx = ringAt(cell.add(vec2(sign(lp.x).mul(TILE_SIZE), 0)))
+        const ny = ringAt(cell.add(vec2(0, sign(lp.y).mul(TILE_SIZE))))
+        const fx = max(nx, float(1).sub(smoothstep(TILE_HALF * 0.2, TILE_HALF * 0.8, abs(lp.x).add(jag))))
+        const fy = max(ny, float(1).sub(smoothstep(TILE_HALF * 0.2, TILE_HALF * 0.8, abs(lp.y).add(jag))))
+        const around = fx.mul(fy)
         // the melt seethes around the slab while it goes down, the hole glows
         // as it closes, then a dark raft of fresh crust re-forms over it
         const seethe = smoothstep(0, SINK_SWALLOW * 0.5, u).mul(float(1).sub(smoothstep(SINK_SWALLOW, SINK_SWALLOW + 1.2, u)))
         const hole = smoothstep(SINK_SWALLOW * 0.75, SINK_SWALLOW, u).mul(float(1).sub(smoothstep(SINK_SWALLOW + 0.3, SINK_SWALLOW + 1.8, u)))
         const g = u.sub(SINK_SWALLOW * 0.92)
-        const xg = ld.sub(g.mul(150).add(20)).div(14)
-        const gulp = exp(xg.mul(xg).negate()).mul(step(0, g)).mul(float(1).sub(smoothstep(0.25, 0.5, g)))
+        // the gulp: the melt closes in over the slab's footprint from its
+        // ragged edge (any clean ring, round or square, read as a drawn outline)
+        const gR = float(1).sub(saturate(g.div(0.5))).mul(TILE_HALF * 0.85)
+        const gulp = float(1).sub(smoothstep(gR.sub(24), gR.add(8), sq)).mul(step(0, g)).mul(float(1).sub(smoothstep(0.3, 0.5, g))).mul(cellFade)
         const reform = smoothstep(SINK_SWALLOW + 0.8, SINK_SWALLOW + 1.6, u).mul(float(1).sub(smoothstep(SINK_SWALLOW + 2, SINK_SWALLOW + 3.6, u)))
         const tile = inRing.mul(live)
-        crust.addAssign(tile.mul(seethe.mul(0.6).sub(foot.mul(reform).mul(0.8))))
+        crust.addAssign(tile.mul(seethe.mul(around).mul(0.6).sub(foot.mul(reform).mul(0.8))))
         pool.addAssign(tile.mul(foot.mul(hole).mul(0.55).add(gulp.mul(0.7))))
         warp.addAssign(lp.div(max(ld, 1)).mul(gulp.mul(10)).mul(tile))
         // the sea answers: a thump as the ring drops, then a swell rolling out
@@ -253,6 +283,23 @@ export class Lava {
       const aaB = fwidth(cB.b)
       const crackB = float(1).sub(smoothstep(0, wB.add(aaB), cB.b)).mul(wB.div(wB.add(aaB))).mul(0.45)
       cracks = max(crackA, crackB.mul(heat.add(0.35)))
+    } else {
+      // Low: the fine crack layer only where something sinks, so a hole breaks
+      // up into the crack network as on High instead of a soft blob. The tap
+      // sits behind a uniform branch: no cost while nothing reacts.
+      const reacting = this.reacting
+      const cBb = Fn(() => {
+        const v = float(1).toVar()
+        If(reacting.greaterThan(0.5), () => {
+          const uvB = pW.mul(1 / 520).add(warp.mul(0.7)).add(vec2(t.mul(-0.015), t.mul(0.011)))
+          v.assign(texture(noise, uvB).level(float(0)).b)
+        })
+        return v
+      })() as unknown as Node<'float'>
+      const wB = crackW.mul(0.6)
+      const aaB = fwidth(cBb)
+      const crackB = float(1).sub(smoothstep(0, wB.add(aaB), cBb)).mul(wB.div(wB.add(aaB))).mul(0.45)
+      cracks = max(crackA, crackB.mul(heat.add(0.35)).mul(saturate(hole.mul(3).add(broken.mul(2)))))
     }
     // fresh crust has not split yet
     cracks = cracks.mul(float(1).sub(fresh.mul(0.8)))
@@ -290,7 +337,8 @@ export class Lava {
 
     // sink reaction: a soft molten glow over holes and ripple crests (the
     // rim's orange, never cream), fresh crust over a closed hole cools dark
-    col = col.add(vec3(0.7, 0.15, 0.022).mul(hole.mul(this.ctx.uFx.mul(0.4).add(0.6))))
+    // (shaped by the crack pattern: a flat add read as a round blob on Low, with no bloom to soften it)
+    col = col.add(vec3(0.7, 0.15, 0.022).mul(hole.mul(this.ctx.uFx.mul(0.4).add(0.6))).mul(cracks.mul(1.6).add(plateEdge.mul(0.3)).add(0.15)))
     col = col.mul(float(1).sub(fresh.mul(0.6)))
 
     // slow breathing, out of phase across the sea

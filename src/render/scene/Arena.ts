@@ -435,6 +435,7 @@ export class Arena {
     const sinkTV = varying(sinkT)
     const isRemV = varying(isRem)
     const dropTV = varying(dropT)
+    const ageV = varying(age)
     const gp = gamePos()
     const lp = positionGeometry.xz.div(TILE_SIZE * 0.5 * S)
     const ny = normalGeometry.y
@@ -555,26 +556,35 @@ export class Arena {
     em = em.add(vec3(1.0, 0.36, 0.08).mul(albedoLum).mul(nearLava.mul(0.6).mul(tweaks.uEdgeGlow).add(isSide.mul(mix(float(0.08).mul(seamAA), float(1.1), outerWall)))))
     em = em.add(vec3(1.9, 0.42, 0.06).mul(sideHeat))
     // telegraph: the doomed ring heats from within, cracks first, then the slab
-    // removed tiles carry the telegraph's crimson on (the cue players learned)
-    // and cool as they sink, instead of jumping to a new flat colour
-    // (sinking: the cracks run hotter the deeper the lava pulls the slab)
-    const teleP = max(tele.mul(pulse.mul(0.7).add(0.3)), isRemV.mul(sinkTV.mul(0.4).add(0.6)))
+    const teleP = tele.mul(pulse.mul(0.7).add(0.3))
     em = em.add(vec3(0.16, 0.008, 0.003).mul(teleP).mul(isTop.mul(0.7).add(0.3)))
     em = em.add(vec3(3.2, 0.35, 0.06).mul(teleP).mul(crackHalo.mul(0.5).add(crackLine).add(smoothstep(0.86, 1.0, edge).mul(isTop).mul(0.6))))
-    // removed tiles: the telegraph's faint crimson body glow (its hot cracks carry
-    // on above), cooling as they sink. The old (3.2, 0.9, 0.16) tone-mapped to
-    // cream-white for 0.2-0.4 s on every shrink; even 0.4 red over the moonlit
-    // stone read salmon-pink.
-    const hotCol = mix(vec3(0.2, 0.014, 0.005), vec3(0.12, 0.008, 0.003), sinkTV)
-    em = em.add(hotCol.mul(isRemV))
-    // being swallowed: a crack network spreads across the slab and opens hot,
-    // and the lava's own glow climbs it at the waterline (game height ~0),
-    // so the melt visibly laps over the rim before the slab goes under
+    // removed tiles: the same runed stone charring in the heat, never a flat
+    // colour. A uniform crimson body glow (0.2-0.36 R) over the moonlit
+    // blue-grey stone added up to salmon-pink; the old (3.2, 0.9, 0.16) went
+    // cream-white. Instead: the telegraph's cracks stay hot (the cue players
+    // learned) and widen as the lava pulls the slab, the rim glows where the
+    // melt laps, and only patches of the body smoulder; the albedo chars dark
+    // below so the stone's own texture still reads. Hues stay red-orange
+    // (G ~ 0.15 R): a pure crimson over the lit stone is what read pink.
+    // drop flash: the first ~0.4 s say "no longer ground" (hot, then settling)
+    const flash = float(1).sub(smoothstep(SINK_DROP, SINK_DROP + 0.3, ageV)).mul(isRemV)
+    const remHeat = isRemV.mul(flash.mul(0.45).add(0.55).add(sinkTV.mul(0.45)))
+    // cracks: the telegraph's network, spreading wider as the slab goes under
     const crackLo = float(0.94).sub(sinkTV.mul(0.14))
-    const sinkCrack = smoothstep(crackLo, crackLo.add(0.035), ridge).mul(smoothstep(0, 0.25, sinkTV)).mul(isTop).mul(isRemV)
-    em = em.add(vec3(2.6, 0.3, 0.05).mul(sinkCrack))
-    const waterline = exp(max(h, 0).div(-3.5)).mul(isRemV).mul(dropTV)
-    em = em.add(vec3(1.4, 0.34, 0.05).mul(waterline))
+    const sinkCrack = smoothstep(crackLo, crackLo.add(0.035), ridge).mul(smoothstep(0, 0.25, sinkTV))
+    const remCracks = max(crackHalo.mul(0.4).add(crackLine), sinkCrack).mul(isTop)
+    em = em.add(vec3(3.0, 0.48, 0.07).mul(remCracks).mul(remHeat))
+    // hot rim: the slab's chamfer and edge glow, broken up by the grain
+    const rimBand = smoothstep(0.86, 1.0, edge).mul(isTop).add(isBevel).mul(nMicro.g.mul(0.6).add(0.55))
+    em = em.add(vec3(1.1, 0.19, 0.03).mul(rimBand).mul(remHeat))
+    // smoulder: patchy embers in the body (mottled, never uniform), hotter in the flash
+    const mottle = smoothstep(0.42, 0.8, n2.g.mul(0.65).add(nMicro.r.mul(0.35)))
+    em = em.add(vec3(0.34, 0.06, 0.01).mul(mottle.mul(0.8).add(0.08)).mul(flash.mul(0.8).add(0.35)).mul(isRemV))
+    // waterline: the melt's own glow climbs the slab where it meets the lava
+    // (game height ~0), lapping in tongues rather than as a flat band
+    const lap = exp(max(h, 0).div(-2.5)).mul(n2.r.mul(0.8).add(0.5)).mul(isRemV).mul(dropTV)
+    em = em.add(vec3(1.5, 0.42, 0.06).mul(saturate(lap)))
     // round-start pulse: pale arcane white-gold ring, evaluated PER FRAGMENT so
     // it sweeps as a smooth band (a per-tile value lit whole tiles as squares)
     const shAgeF = tF.sub(sh.z)
@@ -590,9 +600,10 @@ export class Arena {
     const emMax = max(em.r, max(em.g, em.b))
     const ringCap = max(transit, smoothstep(0, 0.05, tele))
     em = mix(em, em.mul(min(float(1), float(1.2).div(max(emMax, 0.001)))), ringCap)
-    // sinking slabs: dark basalt with an ember cast, never pale (QA: white shards)
+    // sinking slabs: charred basalt with an ember cast, never pale (QA: white
+    // shards); multiplied, so the stone's texture still shows through
     const sinkDark = isRemV.mul(sinkTV.mul(0.15).add(dropTV.mul(0.1)).add(0.75))
-    const sinkTint = vec3(0.28, 0.17, 0.14)
+    const sinkTint = vec3(0.24, 0.15, 0.11)
 
     const m = new THREE.MeshStandardNodeMaterial()
     m.name = wall ? 'TilesWall' : 'Tiles'
@@ -665,7 +676,8 @@ export class Arena {
       m.normalNode = calm ? calmBevel(normalMap(nTS, vec2(nScale, nScale)), isBevel) : normalMap(nTS, vec2(nScale, nScale))
       // never mirror-smooth: low-roughness texels made tile-sized moon hotspots
       // matte basalt; only genuinely glossy texels (wet / obsidian) stay shiny
-      m.roughnessNode = select(orm.g.lessThan(0.22), float(0.38), max(orm.g, 0.66))
+      // (charred sinking slabs go matte: a moonlit sheen read as a milky haze)
+      m.roughnessNode = mix(select(orm.g.lessThan(0.22), float(0.38), max(orm.g, 0.66)), float(0.95), isRemV)
       m.metalnessNode = orm.b.mul(0.3)
     } else {
       m.colorNode = mix(stone, stone.mul(sinkTint), sinkDark)
@@ -673,7 +685,7 @@ export class Arena {
       const relief = n2.g.mul(0.45).add(nMicro.r.mul(0.35)).add(n.r.mul(0.2)).sub(crackLine.mul(0.6)).sub(rune.mul(0.3)).sub(chips.mul(0.25))
       const bump = bumpMap(relief.mul(isTop.add(isSide.mul(0.5))), float(calm ? 0.22 : 0.5))
       m.normalNode = calm ? calmBevel(bump, isBevel) : bump
-      m.roughnessNode = clamp(rough, 0.62, 1)
+      m.roughnessNode = mix(clamp(rough, 0.62, 1), float(0.95), isRemV)
       m.metalnessNode = float(0)
     }
     // debug (Inspector: Arena > debugFaces): 1 = face classes, 2 = lighting only on white
