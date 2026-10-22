@@ -456,7 +456,9 @@ function buildBack(id: BackId, rig: RigRest, out: Piece): void {
         const mem = new THREE.BufferGeometry()
         mem.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
         mem.computeVertexNormals()
-        out.add(mem, PART.felt, skin, 0, (p) => Math.min(1, Math.abs(p.x) / 0.48) * 0.35)
+        // rigid like the fingers it spans: following the cape's sway, a knockback swung it off
+        // the frame and into the body
+        out.add(mem, PART.felt, skin)
       }
       break
     }

@@ -31,7 +31,8 @@
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
  * - "Revenge!": you kill the player who last killed you.
- * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena.
+ * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena; once
+ *   per round, so a habit of blinking out of every push is not a running commentary.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
  * - "Ace!": in team modes, your team kills every member of an enemy team of 2+ in one round.
@@ -331,6 +332,7 @@ interface RoundMemory {
   occasional: Map<PlayerId, number>
   hurryCalled: boolean
   closeCallDone: boolean
+  deniedDone: boolean
   /** a close call waiting to be confirmed: the hit's time */
   closeCallAt: number | null
   /** team at the fight's start, per player */
@@ -345,6 +347,7 @@ function newRound(): RoundMemory {
     occasional: new Map(),
     hurryCalled: false,
     closeCallDone: false,
+    deniedDone: false,
     closeCallAt: null,
     teamAt: new Map(),
     wiped: new Map(),
@@ -427,7 +430,10 @@ export class Announcer {
         case 'teleport':
           if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight') {
             const layer = state.arena?.layer ?? 0
-            if (isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) this.occasional('denied', local, now)
+            if (!this.round.deniedDone && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) {
+              this.round.deniedDone = true
+              this.occasional('denied', local, now)
+            }
           }
           break
         case 'arenaShrink':

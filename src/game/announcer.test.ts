@@ -445,6 +445,8 @@ describe('announcer: occasional lines', () => {
     expect(lines(play(quick(), [[1, [], healthyLava], [1.02, [tp(0)], onGround]]))).toEqual([])
     // somebody else's save is not yours
     expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround]], FOE))).toEqual([])
+    // once per round: the second save in the same fight is silent
+    expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround], [3, [], inLava], [3.02, [tp(0)], onGround]]))).toEqual(['denied'])
   })
 
   it('Close Call! once per round, after you are still standing a moment after the hit', () => {
