@@ -80,6 +80,9 @@ export const LINES = [
   ['better_luck_next_life', 'Better Luck Next Life!', 7],
   ['in_loving_memory', 'In Loving Memory!', 7],
   ['well_mail_the_ashes', "We'll Mail the Ashes!", 7],
+  // pack 8: "Denied!" variations for a last-moment escape
+  ['not_today', 'Not Today!', 8],
+  ['cheated_death', 'Cheated Death!', 8],
 ]
 
 function apiKey() {

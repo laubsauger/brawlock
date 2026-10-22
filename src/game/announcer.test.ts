@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, matchWinLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, DENIED_COOLDOWN, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, matchWinLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -436,7 +436,7 @@ describe('announcer: occasional lines', () => {
   })
 
   it('Denied! for a threatening lava escape, not for an ordinary blink or healthy lava hop', () => {
-    const inLava = view(2, { pawns: [pawnOf(ME, { x: 5000, lavaTicks: 8, hp: 200 }), pawnOf(FOE)] })
+    const inLava = view(2, { pawns: [pawnOf(ME, { x: 5000, lavaTicks: 8, hp: 90 }), pawnOf(FOE)] })
     const onGround = view(2, { pawns: [pawnOf(ME, { x: 200 }), pawnOf(FOE)] })
     const tp = (toX: number): SimEvent => ({ type: 'teleport', pawn: 100 + ME, fromX: 0, fromY: 0, toX, toY: 0 })
     expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround]]))).toEqual(['denied'])
@@ -445,8 +445,10 @@ describe('announcer: occasional lines', () => {
     expect(lines(play(quick(), [[1, [], healthyLava], [1.02, [tp(0)], onGround]]))).toEqual([])
     // somebody else's save is not yours
     expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround]], FOE))).toEqual([])
-    // once per round: the second save in the same fight is silent
-    expect(lines(play(quick(), [[1, [], inLava], [1.02, [tp(0)], onGround], [3, [], inLava], [3.02, [tp(0)], onGround]]))).toEqual(['denied'])
+    // a cooldown, not a per-round rule: a save soon after is silent, a later one varies the words
+    const save = (at: number): [number, SimEvent[], AnnouncerView][] => [[at, [], inLava], [at + 0.02, [tp(0)], onGround]]
+    const three = play(quick(), [...save(1), ...save(1 + DENIED_COOLDOWN / 2), ...save(2 + DENIED_COOLDOWN)])
+    expect(lines(three)).toEqual(['denied', 'not_today'])
   })
 
   it('Close Call! once per round, after you are still standing a moment after the hit', () => {

@@ -10,9 +10,11 @@ describe('Denied escape callouts', () => {
     expect(isTeleportSave(lava, 0, 0, 15, decay)).toBe(true)
     expect(isDeniedEscape(lava, full, 0, 0, 15, decay, 100)).toBe(false)
   })
-  it('recognizes low health or less than a second and a half of lava survival', () => {
-    expect(isDeniedEscape(lava, { hp: 300, maxHp: 1000 }, 0, 0, 15, decay, 100)).toBe(true)
-    expect(isDeniedEscape(lava, full, 0, 0, 15, decay, 800)).toBe(true)
+  it('recognizes at most one second of lava survival, not merely low health', () => {
+    expect(isDeniedEscape(lava, { hp: 100, maxHp: 1000 }, 0, 0, 15, decay, 100)).toBe(true)
+    expect(isDeniedEscape(lava, full, 0, 0, 15, decay, 1000)).toBe(true)
+    // 30% health is 3 s of lava: a routine blink, not a save
+    expect(isDeniedEscape(lava, { hp: 300, maxHp: 1000 }, 0, 0, 15, decay, 100)).toBe(false)
     expect(isDeniedEscape(lava, { hp: 300, maxHp: 1000 }, 0, 0, 15, decay, 0)).toBe(false)
   })
   it('recognizes a knockback slide heading off the arena even with full health', () => {

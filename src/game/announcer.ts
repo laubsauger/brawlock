@@ -31,8 +31,9 @@
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
  * - "Revenge!": you kill the player who last killed you.
- * - "Denied!": a Teleport that escapes dangerous lava or a knockback slide off the arena; once
- *   per round, so a habit of blinking out of every push is not a running commentary.
+ * - "Denied!" (rotating with DENIED_LINES): a Teleport that escapes deadly lava or a knockback
+ *   slide off the arena; at most once per DENIED_COOLDOWN, so a habit of blinking out of every
+ *   push is not a running commentary.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
  * - "Ace!": in team modes, your team kills every member of an enemy team of 2+ in one round.
@@ -107,6 +108,8 @@ export type AnnouncerLine =
   | 'shutdown'
   | 'revenge'
   | 'denied'
+  | 'not_today'
+  | 'cheated_death'
   | 'close_call'
   | 'ace'
 
@@ -160,6 +163,8 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   shutdown: 'Shutdown!',
   revenge: 'Revenge!',
   denied: 'Denied!',
+  not_today: 'Not Today!',
+  cheated_death: 'Cheated Death!',
   close_call: 'Close Call!',
   ace: 'Ace!',
 }
@@ -183,6 +188,10 @@ export const ASIDE_AFTER = 0.4
 const LINE_GAP = 0.15
 /** the countdown call comes this long before the fight (the HUD's 3-2-1) */
 export const COUNTDOWN_SECONDS = 3
+/** "Denied!" (and its variations) at most once per this long (s) */
+export const DENIED_COOLDOWN = 15
+/** last-moment escapes in rotation order */
+export const DENIED_LINES = ['denied', 'not_today', 'close_call', 'cheated_death'] as const satisfies readonly AnnouncerLine[]
 /** occasional lines per round per credited player */
 export const OCCASIONAL_CAP = 2
 /** a hit that leaves at most this share of max HP is a close call ... */
@@ -208,7 +217,7 @@ export const DEFEAT_LINES = [
 const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, arena: 2, flow: 1 } as const
 export type AnnouncementKind = keyof typeof PRIORITY
 
-const OCCASIONAL: ReadonlySet<AnnouncerLine> = new Set(['shutdown', 'revenge', 'denied', 'close_call', 'ace'])
+const OCCASIONAL: ReadonlySet<AnnouncerLine> = new Set(['shutdown', 'revenge', ...DENIED_LINES, 'ace'])
 const KILL_KINDS: ReadonlySet<AnnouncementKind> = new Set(['multi', 'shutdown', 'streak', 'first'])
 const maxAge = (a: Announcement) => (KILL_KINDS.has(a.kind) ? STALE_AFTER : ASIDE_AFTER)
 
@@ -332,7 +341,6 @@ interface RoundMemory {
   occasional: Map<PlayerId, number>
   hurryCalled: boolean
   closeCallDone: boolean
-  deniedDone: boolean
   /** a close call waiting to be confirmed: the hit's time */
   closeCallAt: number | null
   /** team at the fight's start, per player */
@@ -347,7 +355,6 @@ function newRound(): RoundMemory {
     occasional: new Map(),
     hurryCalled: false,
     closeCallDone: false,
-    deniedDone: false,
     closeCallAt: null,
     teamAt: new Map(),
     wiped: new Map(),
@@ -369,6 +376,9 @@ export class Announcer {
   private shrinkCalled = false
   /** the round ended: no arena lines until the next fight */
   private roundOver = false
+  /** the last "Denied!" (sim time, s) and how many went out this match */
+  private deniedAt = -Infinity
+  private deniedCount = 0
   /** the local pawn's last snapshot (Teleport saves) */
   private slide: (SlideSnapshot & { hp: number; maxHp: number }) | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
@@ -385,6 +395,8 @@ export class Announcer {
     this.calledRound = -1
     this.shrinkCalled = false
     this.roundOver = false
+    this.deniedAt = -Infinity
+    this.deniedCount = 0
     this.slide = null
   }
 
@@ -430,9 +442,9 @@ export class Announcer {
         case 'teleport':
           if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight') {
             const layer = state.arena?.layer ?? 0
-            if (!this.round.deniedDone && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) {
-              this.round.deniedDone = true
-              this.occasional('denied', local, now)
+            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) {
+              this.deniedAt = now
+              this.occasional(DENIED_LINES[this.deniedCount++ % DENIED_LINES.length], local, now)
             }
           }
           break

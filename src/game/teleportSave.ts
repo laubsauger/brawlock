@@ -8,6 +8,8 @@ import type { PawnState } from '../sim/types'
 
 /** a Teleport counts as a save from a slide this fast toward the lava (u/s) */
 export const SAVE_SLIDE_SPEED = 100
+/** "Denied!" from the lava only with at most this much lava survival left (s) */
+export const LAVA_DENIED_SECONDS = 1
 
 /** The pawn state a Teleport save is judged from: the last snapshot before the Teleport. */
 export interface SlideSnapshot {
@@ -54,7 +56,8 @@ export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp'
   if (lavaDps <= 0 || !isTeleportSave(before, toX, toY, layer, decay)) return false
   const slidingOut = Math.hypot(before.kbx, before.kby) >= SAVE_SLIDE_SPEED && decay > 0 &&
     !isLocationSafeAtLayer(layer, before.x + before.kbx / decay, before.y + before.kby / decay)
-  return slidingOut || (before.inLava && (pawn.hp <= pawn.maxHp * 0.35 || pawn.hp / lavaDps <= 1.5))
+  // from the lava: only when it would kill within LAVA_DENIED_SECONDS
+  return slidingOut || (before.inLava && pawn.hp / lavaDps <= LAVA_DENIED_SECONDS)
 }
 
 function n(v: unknown): number {

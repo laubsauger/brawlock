@@ -202,6 +202,8 @@ export const AUDIO_ASSETS = {
   'announcer/maverick_better_luck_next_life': { loop: false, duration: 1.85, credit: 45 },
   'announcer/maverick_in_loving_memory': { loop: false, duration: 2.029, credit: 45 },
   'announcer/maverick_well_mail_the_ashes': { loop: false, duration: 1.707, credit: 45 },
+  'announcer/maverick_not_today': { loop: false, duration: 1.194, credit: 45 },
+  'announcer/maverick_cheated_death': { loop: false, duration: 1.514, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS
