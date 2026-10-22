@@ -21,7 +21,7 @@ import { toggleFullscreen, useFullscreen } from '../lib/fullscreen'
 import { inputViz } from '../../game/input'
 import { displayName } from '../data/catalog'
 import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
-import { ANNOUNCER_TEXT, matchWinLine, roundCall, roundWinLine } from '../../game/announcer'
+import { ANNOUNCER_TEXT, defeatLine, matchWinLine, roundCall, roundWinLine } from '../../game/announcer'
 import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
 
@@ -52,7 +52,7 @@ function useDirector() {
     const who = winnersText(state.slots, winners, state.settings.teamMode)
     const won = winners.includes(local)
     // the announcer's words; a spectator gets no Victory / Defeat (and hears none)
-    const title = winners.length === 0 ? ANNOUNCER_TEXT.draw : local < 0 ? 'Match over' : won ? ANNOUNCER_TEXT[matchWinLine(state, local)] : ANNOUNCER_TEXT.defeat
+    const title = winners.length === 0 ? ANNOUNCER_TEXT.draw : local < 0 ? 'Match over' : won ? ANNOUNCER_TEXT[matchWinLine(state, local)] : ANNOUNCER_TEXT[defeatLine(state, local)]
     announce.hold(title, who ? `${who.text} ${who.plural ? 'win' : 'wins'} the match` : '', won ? 'win' : local < 0 ? 'normal' : 'danger')
     sfx(won ? 'ready' : 'back')
     music('none')

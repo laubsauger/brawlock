@@ -19,10 +19,10 @@
  *   "Final Round!" when every competitor (player, or team in team mode) is one win from the
  *   match, "Match Point!" when only some are. Then "Fight!" on the tick the fight starts.
  * - Round end: a round-win call for the winner's side (ROUND_WIN_LINES, rotating with your score
- *   so back-to-back wins sound different; never "Victory!", which is the match's alone),
- *   "Draw!" for everyone when nobody is left.
- * - Match end: "Victory!" or "Victorious!" (MATCH_WIN_LINES) / "Defeat!" for the local player (by
- *   team in team mode); a spectator (local player -1) hears neither.
+ *   so back-to-back wins sound different; never "Victory!", which is the match's alone, and never
+ *   anything that sounds like a countdown call), "Draw!" for everyone when nobody is left.
+ * - Match end: "Victory!" or "Victorious!" (MATCH_WIN_LINES) / a defeat call (DEFEAT_LINES) for the
+ *   local player (by team in team mode); a spectator (local player -1) hears neither.
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
  *   repeat it seconds into each fight; later shrinks are heard (rumble) and seen (sinking tiles).
  * - "Hurry Up!": the shrink that leaves HURRY_TILES tiles or fewer, once per round, for everyone.
@@ -75,7 +75,6 @@ export type AnnouncerLine =
   | 'fight'
   | 'final_round'
   | 'match_point'
-  | 'round_won'
   | 'well_done'
   | 'extra_crispy'
   | 'ashes_to_ashes'
@@ -92,6 +91,10 @@ export type AnnouncerLine =
   | 'draw'
   | 'victory'
   | 'defeat'
+  | 'sorry_for_your_loss'
+  | 'better_luck_next_life'
+  | 'in_loving_memory'
+  | 'well_mail_the_ashes'
   | 'arena_shrinks'
   | 'hurry_up'
   | 'shutdown'
@@ -125,7 +128,6 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   fight: 'Fight!',
   final_round: 'Final Round!',
   match_point: 'Match Point!',
-  round_won: 'Round Won!',
   well_done: 'Well Done!',
   extra_crispy: 'Extra Crispy!',
   ashes_to_ashes: 'Ashes to Ashes!',
@@ -142,6 +144,10 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   draw: 'Draw!',
   victory: 'Victory!',
   defeat: 'Defeat!',
+  sorry_for_your_loss: 'Sorry for Your Loss!',
+  better_luck_next_life: 'Better Luck Next Life!',
+  in_loving_memory: 'In Loving Memory!',
+  well_mail_the_ashes: "We'll Mail the Ashes!",
   arena_shrinks: 'The Arena Shrinks!',
   hurry_up: 'Hurry Up!',
   shutdown: 'Shutdown!',
@@ -176,14 +182,19 @@ const CLOSE_CALL_HP = 0.08
 export const CLOSE_CALL_CONFIRM = 1
 /**
  * Round-win calls in rotation order: you just shoved a friend into the lava, and the announcer
- * deadpans it. Plain hype calls sit between the jokes so no stretch is all one tone.
+ * deadpans it. Plain hype calls sit between the jokes so no stretch is all one tone. No "Round Won!":
+ * it is heard as "Round One!".
  */
 export const ROUND_WIN_LINES = [
-  'round_won', 'thank_you_come_again', 'well_done', 'nothing_personal', 'outstanding', 'extra_crispy',
+  'thank_you_come_again', 'well_done', 'nothing_personal', 'outstanding', 'extra_crispy',
   'thoughts_and_prayers', 'whos_next', 'closed_casket', 'friendship_ended', 'ashes_to_ashes', 'rest_in_pieces', 'whoops',
 ] as const satisfies readonly AnnouncerLine[]
 /** The match win alternates by match length, so it is never one of the round's words. */
 export const MATCH_WIN_LINES = ['victory', 'victorious'] as const satisfies readonly AnnouncerLine[]
+/** The match defeat: the same deadpan, now about you. */
+export const DEFEAT_LINES = [
+  'defeat', 'sorry_for_your_loss', 'better_luck_next_life', 'in_loving_memory', 'well_mail_the_ashes',
+] as const satisfies readonly AnnouncerLine[]
 
 const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, arena: 2, flow: 1 } as const
 export type AnnouncementKind = keyof typeof PRIORITY
@@ -219,6 +230,11 @@ export function roundWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLi
 /** The match-win call for `local` (voice and HUD title alike). */
 export function matchWinLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
   return MATCH_WIN_LINES[((state.round ?? 0) + Math.max(0, local)) % MATCH_WIN_LINES.length]
+}
+
+/** The match-defeat call for `local` (voice and HUD title alike). */
+export function defeatLine(state: AnnouncerView, local: PlayerId): AnnouncerLine {
+  return DEFEAT_LINES[((state.round ?? 0) + Math.max(0, local)) % DEFEAT_LINES.length]
 }
 
 /** Multi-kill line for a chain of `count` kills (2 = Double ... 7+ = Monster). */
@@ -416,7 +432,7 @@ export class Announcer {
           }
           break
         case 'gameOver':
-          if (local !== null) this.flow(e.winners.includes(local) ? matchWinLine(state ?? {}, local) : 'defeat', local, now)
+          if (local !== null) this.flow(e.winners.includes(local) ? matchWinLine(state ?? {}, local) : defeatLine(state ?? {}, local), local, now)
           break
         default:
           break

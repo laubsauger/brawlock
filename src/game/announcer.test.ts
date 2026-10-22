@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -258,7 +258,7 @@ describe('announcer: round flow on the real sim', () => {
     expect(calls[0]).toBe('round_one')
     for (const c of calls) expect(['round_one', 'round_two', 'round_three', 'round_four', 'round_five', 'match_point', 'final_round']).toContain(c)
     // the match ends with the local player's verdict, and every round with a winner or a draw
-    expect([...MATCH_WIN_LINES, 'defeat']).toContain(flow.at(-1)!.line)
+    expect([...MATCH_WIN_LINES, ...DEFEAT_LINES]).toContain(flow.at(-1)!.line)
   }, 20_000)
 })
 
@@ -297,7 +297,7 @@ describe('announcer: round and match end', () => {
   const won = (players: number[], team = players[0] ?? TEAM_DRAW): SimEvent => ({ type: 'roundWin', team, players })
 
   it('a round-win call for the winner only; Draw! for everyone when nobody is left', () => {
-    expect(lines(play(quick(), [[1, [won([ME])], view()]]))).toEqual(['round_won'])
+    expect(lines(play(quick(), [[1, [won([ME])], view()]]))).toEqual([roundWinLine(view(), ME)])
     expect(lines(play(quick(), [[1, [won([FOE])], view()]]))).toEqual([])
     for (const local of [ME, FOE, -1]) expect(lines(play(quick(), [[1, [won([], TEAM_DRAW)], view()]], local))).toEqual(['draw'])
   })
@@ -316,24 +316,33 @@ describe('announcer: round and match end', () => {
     // "Victory!" stays the match's: a round win must not sound like the game is over
     for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/victor/i)
     expect(ROUND_WIN_LINES.some((line) => (MATCH_WIN_LINES as readonly string[]).includes(line))).toBe(false)
+    // nor like the next countdown: "Round Won!" was heard as "Round One!"
+    for (const line of ROUND_WIN_LINES) expect(ANNOUNCER_TEXT[line]).not.toMatch(/^round\b/i)
   })
 
   it('Victory! / Defeat! for players, by team in team modes; spectators hear neither', () => {
     const over = (winners: number[]): SimEvent => ({ type: 'gameOver', winners })
     expect(lines(play(quick(), [[1, [over([ME])]]], ME))).toEqual(['victory'])
     expect(lines(play(quick(), [[1, [over([ME])], view(2, { round: 3 })]], ME))).toEqual(['victorious'])
-    expect(lines(play(quick(), [[1, [over([ME])]]], FOE))).toEqual(['defeat'])
+    expect(lines(play(quick(), [[1, [over([ME])]]], FOE))).toEqual([defeatLine({}, FOE)])
+    expect(DEFEAT_LINES).toContain(lines(play(quick(), [[1, [over([ME])], view(2, { round: 4 })]], FOE))[0])
     expect(MATCH_WIN_LINES).toContain(lines(play(quick(), [[1, [over([FOE, ALLY])]]], ALLY))[0])
     expect(lines(play(quick(), [[1, [over([ME])]]], -1))).toEqual([])
     expect(lines(play(quick(), [[1, [over([ME])]]], null))).toEqual([])
   })
 
-  it('round-flow lines are never dropped: Round Won! waits behind the kill lines', () => {
+  it('defeats vary by match length, and never sound like a win', () => {
+    const heard = DEFEAT_LINES.map((_, round) => defeatLine({ round }, FOE))
+    expect(new Set(heard).size).toBe(DEFEAT_LINES.length)
+    for (const line of DEFEAT_LINES) expect([...MATCH_WIN_LINES, ...ROUND_WIN_LINES] as readonly string[]).not.toContain(line)
+  })
+
+  it('round-flow lines are never dropped: the round win waits behind the kill lines', () => {
     const a = new Announcer()
     a.lineLength = () => 1.0
     // the round's last kill: First Blood + Double Kill, then the round win in the same tick
     const out = play(a, [[1, [death(FOE, ME), death(OTHER, ME), won([ME])], view(3)]])
-    expect(lines(out)).toEqual(['double_kill', 'first_blood', 'round_won'])
+    expect(lines(out)).toEqual(['double_kill', 'first_blood', roundWinLine(view(3), ME)])
     expect(out[2].at).toBe(1) // earned at once, started more than STALE_AFTER later
   })
 })
@@ -502,6 +511,6 @@ describe('announcer: one line at a time, pack 2', () => {
     for (let k = 1; k < started.length; k++) expect(started[k].at - started[k - 1].at).toBeGreaterThanOrEqual(1.0)
     for (const s of started) if (s.a.kind !== 'flow') expect(s.at - s.a.at).toBeLessThanOrEqual(STALE_AFTER + 1e-9)
     // the round-flow lines all made it, however long the kill lines held them back
-    expect(started.map((s) => s.a.line)).toEqual(expect.arrayContaining(['fight', 'round_won']))
+    expect(started.map((s) => s.a.line)).toEqual(expect.arrayContaining(['fight', roundWinLine(v, ME)]))
   })
 })

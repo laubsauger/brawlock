@@ -123,7 +123,7 @@ export function KillCallout() {
       killTimer = window.setTimeout(() => setKill(null), MYKILL_MS)
     }
     const off = announcements.subscribe((a: Announcement) => {
-      // round flow (Round N, Fight!, Round Won!, Victory!) lives in the center banners,
+      // round flow (Round N, Fight!, round-win calls, Victory!) lives in the center banners,
       // kill lines in the big streak callout
       if (a.kind === 'flow' || bigTier(a.line)) return
       setLine({ text: a.text, player: a.player, key: ++n })

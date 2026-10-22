@@ -40,7 +40,7 @@ export const LINES = [
   ['fight', 'Fight!', 2, true],
   ['final_round', 'Final Round!', 2, true],
   ['match_point', 'Match Point!', 2],
-  ['round_won', 'Round Won!', 2],
+  ['round_won', 'Round Won!', 2], // unregistered 2026-10-22 (heard as "Round One!"); file kept
   ['draw', 'Draw!', 2],
   ['victory', 'Victory!', 2, true],
   ['defeat', 'Defeat!', 2, true],
@@ -59,7 +59,7 @@ export const LINES = [
   ['too_hot', 'Too Hot to Handle!', 4],
   ['still_standing', 'Still Standing!', 4],
   ['survivor', 'Survivor!', 4],
-  // pack 5: round-win calls, dark and short (round_won stays one of them; "Victory!" is the match's alone)
+  // pack 5: round-win calls, dark and short ("Victory!" is the match's alone)
   ['well_done', 'Well Done!', 5],
   ['extra_crispy', 'Extra Crispy!', 5],
   ['ashes_to_ashes', 'Ashes to Ashes!', 5],
@@ -75,6 +75,11 @@ export const LINES = [
   ['whoops', 'Whoops!', 6],
   ['outstanding', 'Outstanding!', 6],
   ['victorious', 'Victorious!', 6],
+  // pack 7: match defeats, the same deadpan from the other side
+  ['sorry_for_your_loss', 'Sorry for Your Loss!', 7],
+  ['better_luck_next_life', 'Better Luck Next Life!', 7],
+  ['in_loving_memory', 'In Loving Memory!', 7],
+  ['well_mail_the_ashes', "We'll Mail the Ashes!", 7],
 ]
 
 function apiKey() {
