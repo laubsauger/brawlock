@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, matchWinLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -154,7 +154,7 @@ describe('announcer: one line at a time', () => {
     expect(started.map((s) => s.a.line)).toEqual(['first_blood', 'double_kill'])
   })
 
-  it('multi-kill goes before streak, streak before first blood, when they queue together', () => {
+  it('a burst says its best line only: multi-kill over streak, multi-kill over first blood', () => {
     const a = new Announcer()
     a.lineLength = () => 0.3
     // two earlier kills (first blood + a spaced one), then two at once: Double + Killing Spree
@@ -164,12 +164,15 @@ describe('announcer: one line at a time', () => {
     const first = a.update([death(12, ME), death(13, ME)], t, ME)
     const second = a.next(t + 0.5)
     expect(first?.line).toBe('double_kill')
-    expect(second?.line).toBe('killing_spree')
-    // and First Blood waits behind a multi-kill earned in the same tick
+    // the Killing Spree earned in the same tick is not said after it: back-to-back calls are spam
+    expect(second).toBeNull()
     const b = new Announcer()
     b.lineLength = () => 0.3
     expect(b.update([death(10, ME), death(11, ME)], 1, ME)?.line).toBe('double_kill')
-    expect(b.next(1.5)?.line).toBe('first_blood')
+    expect(b.next(1.5)).toBeNull()
+    // a kill earned while a line plays still gets its turn
+    expect(b.update([death(12, ME)], 1.2, ME)).toBeNull()
+    expect(b.next(1.5)?.line).toBe('triple_kill')
   })
 
   it('the banner text is the voice line, word for word', () => {
@@ -304,7 +307,7 @@ describe('announcer: round and match end', () => {
 
   it('round wins rotate through every call, so back-to-back wins sound different', () => {
     const winAt = (score: number) => {
-      const v = view()
+      const v = view(2, { settings: { ...DEFAULT_SETTINGS, winScore: 99 } })
       v.scores!.find((sc) => sc.id === ME)!.score = score
       return v
     }
@@ -337,13 +340,29 @@ describe('announcer: round and match end', () => {
     for (const line of DEFEAT_LINES) expect([...MATCH_WIN_LINES, ...ROUND_WIN_LINES] as readonly string[]).not.toContain(line)
   })
 
-  it('round-flow lines are never dropped: the round win waits behind the kill lines', () => {
+  it('the deciding round has no round-win call: its Victory / Defeat follows instead', () => {
+    const decided = view(2, { settings: { ...DEFAULT_SETTINGS, winScore: 1 } })
+    decided.scores!.find((sc) => sc.id === ME)!.score = 1
+    const over: SimEvent = { type: 'gameOver', winners: [ME] }
+    expect(lines(play(quick(), [[1, [won([ME])], decided], [4, [over], decided]]))).toEqual([matchWinLine(decided, ME)])
+  })
+
+  it('no aside trails a kill line: Hurry Up! earned under a Double Kill is dropped', () => {
     const a = new Announcer()
     a.lineLength = () => 1.0
-    // the round's last kill: First Blood + Double Kill, then the round win in the same tick
-    const out = play(a, [[1, [death(FOE, ME), death(OTHER, ME), won([ME])], view(3)]])
-    expect(lines(out)).toEqual(['double_kill', 'first_blood', roundWinLine(view(3), ME)])
-    expect(out[2].at).toBe(1) // earned at once, started more than STALE_AFTER later
+    const shrink = (layer: number): SimEvent => ({ type: 'arenaShrink', layer })
+    // the first shrink goes out on its own, the 9-tile one lands under a multi-kill
+    const out = play(a, [[1, [shrink(14)], view(3)], [3, [death(FOE, ME), death(OTHER, ME), shrink(4)], view(3)]])
+    expect(lines(out)).toEqual(['arena_shrinks', 'double_kill'])
+  })
+
+  it('round end: the last kill keeps its best line, then the round win; asides die with the round', () => {
+    const a = new Announcer()
+    a.lineLength = () => 1.0
+    // the round's last kill: First Blood + Double Kill + a shrink, then the round win in the same tick
+    const out = play(a, [[1, [death(FOE, ME), death(OTHER, ME), { type: 'arenaShrink', layer: 14 }, won([ME])], view(3)]])
+    expect(lines(out)).toEqual(['double_kill', roundWinLine(view(3), ME)])
+    expect(out[1].at).toBe(1) // earned at once, started after the kill line
   })
 })
 

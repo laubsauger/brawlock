@@ -20,7 +20,8 @@
  *   match, "Match Point!" when only some are. Then "Fight!" on the tick the fight starts.
  * - Round end: a round-win call for the winner's side (ROUND_WIN_LINES, rotating with your score
  *   so back-to-back wins sound different; never "Victory!", which is the match's alone, and never
- *   anything that sounds like a countdown call), "Draw!" for everyone when nobody is left.
+ *   anything that sounds like a countdown call), "Draw!" for everyone when nobody is left. The
+ *   round that decides the match gets neither: its Victory / Defeat follows.
  * - Match end: "Victory!" or "Victorious!" (MATCH_WIN_LINES) / a defeat call (DEFEAT_LINES) for the
  *   local player (by team in team mode); a spectator (local player -1) hears neither.
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
@@ -37,12 +38,17 @@
  *
  * One line at a time: queued by priority (multi-kill > shutdown > streak > first blood >
  * occasional and arena > round flow), oldest first within a priority, and a line starts only
- * after the previous one ended. Round-flow lines always play (they wait their turn); every
- * other line older than STALE_AFTER is dropped rather than played late.
+ * after the previous one ended. One line per moment: when a line starts, the other non-flow
+ * lines earned with it or before it are dropped, so a burst says its best line only.
+ * Round-flow lines always play (they wait their turn). A kill line older than STALE_AFTER, or
+ * an occasional or arena line older than ASIDE_AFTER, is dropped rather than played late (no
+ * "Hurry Up!" trailing a kill). Round end keeps only the best kill line queued and stops arena
+ * lines until the next fight; match end drops every queued non-flow line.
  */
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
 import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
+import { gameWinners } from '../sim/mode'
 import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isDeniedEscape, slideDecay, slideSnapshot, type SlideSnapshot } from './teleportSave'
 
@@ -170,6 +176,8 @@ const PUBLIC_STREAK = 5
 export const SHUTDOWN_STREAK = 3
 /** a queued line older than this (s) is dropped rather than played late (not round flow) */
 export const STALE_AFTER = 1.5
+/** occasional and arena lines are asides: they play right away or not at all (s) */
+export const ASIDE_AFTER = 0.4
 /** silence between two lines (s) */
 const LINE_GAP = 0.15
 /** the countdown call comes this long before the fight (the HUD's 3-2-1) */
@@ -200,6 +208,8 @@ const PRIORITY = { multi: 6, shutdown: 5, streak: 4, first: 3, occasional: 2, ar
 export type AnnouncementKind = keyof typeof PRIORITY
 
 const OCCASIONAL: ReadonlySet<AnnouncerLine> = new Set(['shutdown', 'revenge', 'denied', 'close_call', 'ace'])
+const KILL_KINDS: ReadonlySet<AnnouncementKind> = new Set(['multi', 'shutdown', 'streak', 'first'])
+const maxAge = (a: Announcement) => (KILL_KINDS.has(a.kind) ? STALE_AFTER : ASIDE_AFTER)
 
 export interface Announcement {
   line: AnnouncerLine
@@ -216,7 +226,7 @@ export interface Announcement {
 }
 
 /** The parts of the sim state the announcer reads (all optional: partial states are fine). */
-export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena'>>
+export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena' | 'rankedFinal'>>
 
 /**
  * The round-win call for `local`, voice and HUD banner alike. The sim adds the round's point
@@ -354,6 +364,8 @@ export class Announcer {
   private calledRound = -1
   /** "The Arena Shrinks!" went out this match */
   private shrinkCalled = false
+  /** the round ended: no arena lines until the next fight */
+  private roundOver = false
   /** the local pawn's last snapshot (Teleport saves) */
   private slide: (SlideSnapshot & { hp: number; maxHp: number }) | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
@@ -369,6 +381,7 @@ export class Announcer {
     this.round = newRound()
     this.calledRound = -1
     this.shrinkCalled = false
+    this.roundOver = false
     this.slide = null
   }
 
@@ -398,6 +411,7 @@ export class Announcer {
         case 'phase':
           if (e.phase === 'fight') {
             this.round = newRound()
+            this.roundOver = false
             for (const s of state?.slots ?? []) this.round.teamAt.set(s.id, s.team)
             this.flow('fight', local ?? -1, now)
           }
@@ -417,6 +431,7 @@ export class Announcer {
           }
           break
         case 'arenaShrink':
+          if (this.roundOver) break
           if (!this.shrinkCalled) {
             this.shrinkCalled = true
             this.push({ line: 'arena_shrinks', kind: 'arena', player: -1, count: 1, at: now })
@@ -425,13 +440,21 @@ export class Announcer {
             this.push({ line: 'hurry_up', kind: 'arena', player: -1, count: 1, at: now })
           }
           break
-        case 'roundWin':
+        case 'roundWin': {
+          this.roundOver = true
+          // the round's last kill keeps its best line; asides die with the round
+          const best = this.queue.filter((a) => KILL_KINDS.has(a.kind)).sort(byPriority)[0]
+          this.queue = this.queue.filter((a) => a.kind === 'flow' || a === best)
+          // the deciding round's call is the match's Victory / Defeat, which follows
+          if (state?.scores && state.settings && gameWinners(state as SimState)) break
           if (e.team === TEAM_DRAW || e.players.length === 0) this.flow('draw', -1, now)
           else if (local !== null && e.players.includes(local)) {
             this.flow(roundWinLine(state ?? {}, local), local, now)
           }
           break
+        }
         case 'gameOver':
+          this.queue = this.queue.filter((a) => a.kind === 'flow')
           if (local !== null) this.flow(e.winners.includes(local) ? matchWinLine(state ?? {}, local) : defeatLine(state ?? {}, local), local, now)
           break
         default:
@@ -502,11 +525,13 @@ export class Announcer {
 
   /** Start the next queued line if none is playing: highest priority, then oldest. */
   next(now: number): Announcement | null {
-    this.queue = this.queue.filter((a) => a.kind === 'flow' || now - a.at <= STALE_AFTER)
+    this.queue = this.queue.filter((a) => a.kind === 'flow' || now - a.at <= maxAge(a))
     this.queue = this.queue.filter((a) => !OCCASIONAL.has(a.line) || (this.round.occasional.get(a.player) ?? 0) < OCCASIONAL_CAP)
     if (now < this.busyUntil || this.queue.length === 0) return null
-    this.queue.sort((a, b) => PRIORITY[b.kind] - PRIORITY[a.kind] || a.at - b.at)
+    this.queue.sort(byPriority)
     const a = this.queue.shift()!
+    // one line per moment: what was earned with it (or before it) and lost is not said later
+    if (a.kind !== 'flow') this.queue = this.queue.filter((b) => b.kind === 'flow' || b.at > a.at)
     if (OCCASIONAL.has(a.line)) this.round.occasional.set(a.player, (this.round.occasional.get(a.player) ?? 0) + 1)
     this.busyUntil = now + this.lineLength(a.line) + LINE_GAP
     return a
@@ -524,6 +549,10 @@ export class Announcer {
   private push(a: Omit<Announcement, 'text'>): void {
     this.queue.push({ ...a, text: ANNOUNCER_TEXT[a.line] })
   }
+}
+
+function byPriority(a: Announcement, b: Announcement): number {
+  return PRIORITY[b.kind] - PRIORITY[a.kind] || a.at - b.at
 }
 
 type Listener = (a: Announcement) => void
