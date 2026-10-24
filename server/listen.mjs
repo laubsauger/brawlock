@@ -20,7 +20,7 @@ import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
-import { startClock } from '../src/net/clock.ts'
+import { sharedClock } from '../src/net/clock.ts'
 import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
 import { createBot } from '../src/bots/index.ts'
 
@@ -55,6 +55,18 @@ export const NET_BUILD = typeof __NET_ID__ !== 'undefined' ? __NET_ID__ : (proce
 /** JSON lines on stdout (pm2 collects them). */
 export function jsonLog(level, event, fields = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields }))
+}
+
+// A broadcast (plans, events, lobby) sends one text to several sockets in a row: frame it once.
+// Frames are never mutated after encoding, so sockets can share one.
+let lastText = null
+let lastFrame = null
+const frameOf = (text) => {
+  if (text !== lastText) {
+    lastText = text
+    lastFrame = encodeText(text)
+  }
+  return lastFrame
 }
 
 /** An upgraded socket as a TextSocket (src/net/ws.ts). */
@@ -95,7 +107,13 @@ function wrapSocket(socket, log) {
   socket.on('error', finish)
   return {
     send(text) {
-      if (!closed && socket.writable) socket.write(encodeText(text))
+      if (closed || !socket.writable) return
+      // everything one tick sends to this socket leaves in one write (writev) instead of one each
+      if (!socket.writableCorked) {
+        socket.cork()
+        process.nextTick(() => socket.uncork())
+      }
+      socket.write(frameOf(text))
     },
     close() {
       if (closed) return
@@ -121,6 +139,8 @@ function wrapSocket(socket, log) {
  */
 export async function startServer(opts = {}) {
   const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock = Date.now } = opts
+  // every match on this server shares one pulse timer (clock.ts)
+  const pulseClock = sharedClock()
   const turnFile = process.env.TURN_SECRET_FILE ?? ''
   const turnUrlsText = process.env.TURN_URLS
   const hasTurn = opts.turnSecret !== undefined || opts.turnUrls !== undefined || turnFile !== '' || turnUrlsText !== undefined
@@ -182,7 +202,7 @@ export async function startServer(opts = {}) {
       createBot,
       defaultSettings: DEFAULT_SETTINGS,
       // timeScale > 1 (tests): sim time runs faster than wall time; clients must use the same scale
-      startClock: timeScale === 1 ? startClock : (onPulse) => startClock((t) => onPulse(t * timeScale)),
+      startClock: timeScale === 1 ? pulseClock : (onPulse) => pulseClock((t) => onPulse(t * timeScale)),
       now: () => performance.now() * timeScale,
       random: Math.random,
       build,

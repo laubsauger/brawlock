@@ -385,7 +385,7 @@ describe('dedicated server (M4.1)', () => {
       send(ws)
       return closed
     }
-    // 50/s sustained, bursts of 100: 400 messages at once is a flood
+    // 50/s sustained, bursts of 250: 400 messages at once is a flood
     expect(await closedAfter((ws) => {
       for (let i = 0; i < 400; i++) ws.send('{"t":"ready","ready":true}')
     })).toBe(true)

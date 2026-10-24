@@ -709,8 +709,11 @@ export function createServerCore(
       if (account) e.accounts.set(account.id, (e.accounts.get(account.id) ?? 0) + 1)
       e.connections++
       conns.set(ip, (conns.get(ip) ?? 0) + 1)
-      const msgs = new TokenBucket(cfg.msgsPerSec * 2, cfg.msgsPerSec, deps.now())
-      const bytes = new TokenBucket(cfg.bytesPerSec * 2, cfg.bytesPerSec, deps.now())
+      // Five seconds of burst: the server counts messages when it gets to them, and after a stall
+      // of its own it reads seconds of a healthy client's queued input at once. A 2 s burst cut
+      // such clients off in an overload (capacity run eu-1792879276534) and so deepened it.
+      const msgs = new TokenBucket(cfg.msgsPerSec * 5, cfg.msgsPerSec, deps.now())
+      const bytes = new TokenBucket(cfg.bytesPerSec * 5, cfg.bytesPerSec, deps.now())
       let done = false
       let transport: SocketTransport | null = null
       let handoffHeld = false

@@ -20,7 +20,7 @@ import { ITEM_SLOT_START, MASTERY_MAX_LEVEL, SLOT_COUNT, SPELL_MAX_LEVEL } from 
 import { PASSIVE_ITEMS, SPELLS } from '../sim/spells/data'
 import type { InspectedKit } from './inspect'
 import { KillTally } from './announcer'
-import { isTeleportSave, slideDecay, slideSnapshot } from './teleportSave'
+import { isTeleportSave, slideDecay, writeSlide } from './teleportSave'
 import { randomId, safeLocalStorage, type KV } from './profile'
 import type { MatchResult } from './store'
 
@@ -529,7 +529,8 @@ export class MatchTracker {
     // then the snapshot: integrate movement over the elapsed time, track flights
     for (const p of pawns) {
       const score = Array.isArray(state.scores) ? state.scores.find((s) => s.id === p.owner) : undefined
-      if (score && Array.isArray(p.slots) && Array.isArray(p.levels)) {
+      // copied only when it changed: it changes in the shop, and this runs every tick for every pawn
+      if (score && Array.isArray(p.slots) && Array.isArray(p.levels) && !sameKit(this.builds.get(p.owner), p.slots, p.levels, score.masteries)) {
         this.builds.set(p.owner, { slots: [...p.slots], levels: [...p.levels], masteries: { ...score.masteries } })
       }
       const a = this.acc(p.owner)
@@ -562,7 +563,7 @@ export class MatchTracker {
         }
       }
       a.seen = true
-      Object.assign(a, slideSnapshot(p))
+      writeSlide(a, p)
     }
     if (Array.isArray(state.scores)) {
       for (const sc of state.scores) {
@@ -694,6 +695,14 @@ export class MatchTracker {
     rec.awards = matchAwards(rec)
     return rec
   }
+}
+
+/** The stored kit still matches the pawn's slots, levels and masteries. */
+function sameKit(kit: InspectedKit | undefined, slots: readonly unknown[], levels: readonly number[], masteries: InspectedKit['masteries']): boolean {
+  if (!kit || kit.slots.length !== slots.length || kit.levels.length !== levels.length) return false
+  for (let i = 0; i < slots.length; i++) if (kit.slots[i] !== slots[i]) return false
+  for (let i = 0; i < levels.length; i++) if (kit.levels[i] !== levels[i]) return false
+  return kit.masteries.duration === masteries.duration && kit.masteries.range === masteries.range && kit.masteries.lifesteal === masteries.lifesteal
 }
 
 function bump(m: Map<string, number>, k: string, v: number): void {

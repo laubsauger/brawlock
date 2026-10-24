@@ -22,14 +22,20 @@ export interface SlideSnapshot {
   inLava: boolean
 }
 
-export function slideSnapshot(p: Pick<PawnState, 'x' | 'y' | 'vx' | 'vy' | 'walkVx' | 'walkVy' | 'alive' | 'lavaTicks'>): SlideSnapshot {
-  return {
-    x: n(p.x),
-    y: n(p.y),
-    kbx: n(p.vx) - n(p.walkVx),
-    kby: n(p.vy) - n(p.walkVy),
-    inLava: p.alive && n(p.lavaTicks) > 0,
-  }
+type SlidePawn = Pick<PawnState, 'x' | 'y' | 'vx' | 'vy' | 'walkVx' | 'walkVy' | 'alive' | 'lavaTicks'>
+
+export function slideSnapshot(p: SlidePawn): SlideSnapshot {
+  return writeSlide({ x: 0, y: 0, kbx: 0, kby: 0, inLava: false }, p)
+}
+
+/** slideSnapshot into an existing object (per-tick trackers, no allocation). */
+export function writeSlide<T extends SlideSnapshot>(out: T, p: SlidePawn): T {
+  out.x = n(p.x)
+  out.y = n(p.y)
+  out.kbx = n(p.vx) - n(p.walkVx)
+  out.kby = n(p.vy) - n(p.walkVy)
+  out.inLava = p.alive && n(p.lavaTicks) > 0
+  return out
 }
 
 /** Per-second decay rate of knockback velocity, v(t) = v0 * e^(-decay t), for a friction setting. */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { startClock } from './clock'
+import { sharedClock, startClock } from './clock'
 
 /** A page: visibility, listeners and an animation-frame source we control. */
 function fakePage() {
@@ -92,5 +92,37 @@ describe('startClock', () => {
     expect(pulses).toBeLessThanOrEqual(25)
     stop()
     page.dispose()
+  })
+})
+
+describe('server clock shared by every match', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('pulses every match from one timer and stops it with the last match', () => {
+    // Why: a timer per match woke the server 250 times a second per room (capacity profile,
+    // about a tenth of its CPU). Every match must still get every pulse.
+    vi.useFakeTimers()
+    const intervals = vi.spyOn(globalThis, 'setInterval')
+    const clock = sharedClock()
+    const counts = [0, 0, 0]
+    const stops = counts.map((_, i) => clock(() => counts[i]++))
+    expect(intervals).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(100)
+    expect(counts.every((c) => c >= 20)).toBe(true)
+    expect(new Set(counts).size).toBe(1)
+    stops[0]()
+    vi.advanceTimersByTime(100)
+    expect(counts[0]).toBe(counts[0])
+    expect(counts[1]).toBeGreaterThan(counts[0])
+    stops[1]()
+    stops[2]()
+    expect(vi.getTimerCount()).toBe(0)
+    // a new match after an idle server starts the one timer again
+    let later = 0
+    const stop = clock(() => later++)
+    vi.advanceTimersByTime(20)
+    expect(later).toBeGreaterThan(0)
+    stop()
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

@@ -51,6 +51,29 @@ function makeTimer(tick: () => void): { rate(ms: number): void; stop(): void } {
   }
 }
 
+/**
+ * Server: one PULSE_MS timer pulses every running match. A timer per match woke the process
+ * 250 times a second per room although only 60 of those pulses have a tick to run.
+ */
+export function sharedClock(): StartClock {
+  const pulses = new Set<() => void>()
+  let timer: ReturnType<typeof setInterval> | null = null
+  return (onPulse) => {
+    const pulse = () => onPulse(performance.now())
+    pulses.add(pulse)
+    timer ??= setInterval(() => {
+      for (const p of pulses) p()
+    }, PULSE_MS)
+    return () => {
+      pulses.delete(pulse)
+      if (pulses.size === 0 && timer !== null) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+  }
+}
+
 export const startClock: StartClock = (onPulse) => {
   let last = -Infinity
   const pulse = () => {
