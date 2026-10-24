@@ -18,7 +18,7 @@ import { openAnalytics } from './analytics.mjs'
 import { validMaintenance } from '../src/net/maintenance.ts'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
-import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame, encodeText } from '../src/net/wsframe.ts'
+import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
 import { sharedClock } from '../src/net/clock.ts'
 import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
@@ -64,9 +64,30 @@ let lastFrame = null
 const frameOf = (text) => {
   if (text !== lastText) {
     lastText = text
-    lastFrame = encodeText(text)
+    lastFrame = textFrame(text)
   }
   return lastFrame
+}
+
+/**
+ * encodeText (wsframe.ts) written straight into one Buffer: no intermediate encoded copy, and
+ * small frames come from Node's buffer pool instead of a fresh allocation each.
+ */
+export function textFrame(text) {
+  const n = Buffer.byteLength(text)
+  const head = n < 126 ? 2 : n < 65536 ? 4 : 10
+  const out = Buffer.allocUnsafe(head + n)
+  out[0] = 0x80 | OP_TEXT
+  if (n < 126) out[1] = n
+  else if (n < 65536) {
+    out[1] = 126
+    out.writeUInt16BE(n, 2)
+  } else {
+    out[1] = 127
+    out.writeBigUInt64BE(BigInt(n), 2)
+  }
+  out.write(text, head, 'utf8')
+  return out
 }
 
 /** An upgraded socket as a TextSocket (src/net/ws.ts). */

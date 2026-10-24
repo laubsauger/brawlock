@@ -8,13 +8,14 @@ import type { NetFactory } from './transport'
  * TIME_SCALE× faster than wall time on both sides (same code paths, shorter matches).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { startServer, type DedicatedServer, type ServerOptions } from '../../server/listen.mjs'
+import { startServer, textFrame, type DedicatedServer, type ServerOptions } from '../../server/listen.mjs'
 import type { ServerPerfSampler } from '../../server/perf.mjs'
 import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 import type { RatingSubmission } from './ratingAuthority'
 import { DEFAULT_SERVER_CONFIG } from './server'
 import { Online, ServerError, hybridNet, parseRegions, type ServerRegion } from './online'
 import { PROTOCOL_VERSION, decode, encode } from './protocol'
+import { encodeText } from './wsframe'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { createMemoryNet } from './memory'
@@ -1859,5 +1860,17 @@ describe('stream over a lossless link', () => {
       } finally { a.session.leave(); b.session.leave() }
     } finally { vi.unstubAllGlobals() }
   }, 30000)
+})
+
+describe('server text frames', () => {
+  // Why: the server writes frames with its own Buffer encoder (no intermediate copy); clients
+  // decode them with the shared wsframe rules, so the bytes must be exactly encodeText's.
+  it('matches encodeText byte for byte at every length class, multibyte text included', () => {
+    for (const text of ['', 'x'.repeat(125), 'y'.repeat(126), 'ä'.repeat(40), 'z'.repeat(65535), '€'.repeat(30000), 'w'.repeat(70000)]) {
+      const a = textFrame(text)
+      const b = encodeText(text)
+      expect(a.length === b.length && a.every((v, i) => v === b[i])).toBe(true)
+    }
+  })
 })
 

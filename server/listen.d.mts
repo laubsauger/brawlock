@@ -53,3 +53,5 @@ export interface DedicatedServer {
 export const NET_BUILD: string
 export function jsonLog(level: string, event: string, fields?: Record<string, unknown>): void
 export function startServer(opts?: ServerOptions): Promise<DedicatedServer>
+/** A WebSocket text frame, as wsframe.ts encodeText, in one pooled Buffer. */
+export function textFrame(text: string): Uint8Array

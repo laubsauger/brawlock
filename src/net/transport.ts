@@ -80,6 +80,8 @@ export abstract class BaseTransport implements Transport {
   /** messages that arrived before anyone subscribed */
   private early: string[] = []
   private timer: ReturnType<typeof setInterval> | null = null
+  /** current poll period: the probe cadence of the mode (a server socket is slow from the start) */
+  private pollMs = 0
   private startedAt = 0
   private lastRecv = 0
   private lastProbe = -Infinity
@@ -95,7 +97,7 @@ export abstract class BaseTransport implements Transport {
   protected start(): void {
     this.startedAt = performance.now()
     this.lastRecv = this.startedAt
-    this.timer = setInterval(() => this.poll(), PROBE_FAST_MS)
+    this.pollAt(this.unreliableMode === 'pending' ? PROBE_FAST_MS : PROBE_SLOW_MS)
     this.poll()
   }
 
@@ -193,6 +195,9 @@ export abstract class BaseTransport implements Transport {
       this.unreliableMode = 'reliable'
     }
     const every = this.unreliableMode === 'pending' ? PROBE_FAST_MS : PROBE_SLOW_MS
+    // poll only as often as the probes need: 10 timer callbacks a second per connection
+    // were a measurable cost on a server with hundreds of them
+    if (every !== this.pollMs) this.pollAt(every)
     if (now - this.lastProbe < every - 1) return
     this.lastProbe = now
     const probe = '#p' + now
@@ -200,6 +205,12 @@ export abstract class BaseTransport implements Transport {
     const rawOk = this.rawUnreliable(probe)
     // keep RTT and keepalive flowing while raw is not (yet) proven
     if (this.unreliableMode !== 'raw' || !rawOk) this.rawReliable(probe)
+  }
+
+  private pollAt(ms: number): void {
+    if (this.timer !== null) clearInterval(this.timer)
+    this.pollMs = ms
+    this.timer = setInterval(() => this.poll(), ms)
   }
 
   private stopTimer(): void {
