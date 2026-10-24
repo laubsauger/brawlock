@@ -105,7 +105,7 @@ export async function withGuestPlay(entry, opts, run) {
   }
 }
 
-async function admit(entry, code, opts, playToken) {
+export async function admit(entry, code, opts, playToken) {
   const url = new URL('/ws', entry.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   url.searchParams.set('room', code)
@@ -146,7 +146,7 @@ async function admit(entry, code, opts, playToken) {
             playerId = message.playerId
           } else if (message.t === 'lobby' && !leaving) {
             const self = message.slots?.find((slot) => slot.id === playerId)
-            if (!verified || playerId === null || message.room?.quick !== true || message.room.ranked === true || self?.kind !== 'human' || self.profileId !== profileId || self.name !== 'Guest Fleet QA') fail('casual lobby/canonical guest identity mismatch')
+            if (!verified || playerId === null || message.room?.quick !== true || message.room.ranked === true || self?.kind !== 'human' || self.profileId !== profileId || self.guest !== true) fail('casual lobby/canonical guest identity mismatch')
             leaving = true
             send({ t: 'leave' })
             socket.close(1000)

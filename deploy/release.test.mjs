@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { acquireFleetLock, assertStopSafety, command, parseOptions, runStages, validateConfig, workflowMatchesConfig } from './release.mjs'
 import { releaseMetadata, readReleaseMetadata } from '../scripts/release-version.mjs'
 import { releaseTag, tagReceipt } from './release-tags.mjs'
+import { admit } from '../scripts/release/verify-fleet.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./release.config.json', import.meta.url), 'utf8'))
 const temp = () => mkdtempSync(join(tmpdir(), 'brawlock-release-test-'))
@@ -94,6 +95,41 @@ test('fleet verification CLI runs through a symlink instead of silently returnin
     assert.equal(JSON.parse(result.stderr).ok, false)
     assert.match(JSON.parse(result.stderr).error, /Usage:/)
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('guest admission verifies the guest marker and profile binding independently of display copy', async () => {
+  const NativeWebSocket = globalThis.WebSocket
+  let slotOverride = {}, acknowledged = true
+  const opts = { origin: 'https://brawlock.osc.link', protocol: 8, net: 'a'.repeat(12) }
+  globalThis.WebSocket = class extends EventTarget {
+    readyState = 1
+    constructor() { super(); queueMicrotask(() => this.dispatchEvent(new Event('open'))) }
+    message(value) { this.dispatchEvent(Object.assign(new Event('message'), { data: JSON.stringify(value) })) }
+    send(text) {
+      const value = JSON.parse(text)
+      if (value.t === 'account') {
+        if (acknowledged) this.message({ t: 'account-ready' })
+        else this.message({ t: 'lobby', room: { quick: true }, slots: [] })
+      } else if (value.t === 'hello') {
+        this.message({ t: 'welcome', playerId: 7, server: { build: opts.net } })
+        this.message({ t: 'lobby', room: { quick: true, ranked: false }, slots: [{ id: 7, kind: 'human', profileId: value.profileId, name: value.name, guest: true, ...slotOverride }] })
+      }
+    }
+    close() { this.readyState = 3; this.dispatchEvent(new Event('close')) }
+  }
+  const run = () => admit({ origin: 'https://test.invalid', region: 'test' }, 'ABCDE', opts, 'test-only-play-permission')
+  try {
+    for (const name of ['Fleet QA', 'Renamed visitor', 'Guest display label']) {
+      slotOverride = { name }
+      await run()
+    }
+    for (const invalid of [{ guest: undefined }, { guest: false }, { profileId: 'another-profile' }, { kind: 'bot' }]) {
+      slotOverride = invalid
+      await assert.rejects(run(), /guest identity mismatch/)
+    }
+    slotOverride = {}; acknowledged = false
+    await assert.rejects(run(), /guest identity mismatch/)
+  } finally { globalThis.WebSocket = NativeWebSocket }
 })
 
 test('explicit apply; strict options/config and workflow fleet binding', () => {

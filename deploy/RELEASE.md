@@ -4,7 +4,7 @@ Use this for routine releases; [README.md](README.md) covers provisioning and li
 For ping investigations, use [performance diagnostics](../docs/PERFORMANCE-DIAGNOSTICS.md).
 For the public-profile upgrade, follow the [authority/outbox compatibility notes](../docs/PLAYER-PROFILES.md#storage-and-rollout) before deploying or rolling back.
 For the account/domain release, use the [first-party app / Pages media plan](../docs/STATIC-HOSTING.md), [account-service provisioning](../docs/ACCOUNTS.md) and the coordinated steps below. The prepared workflow publishes Pages media/redirects and retains the matching first-party client artifact.
-Latest deployed rollout: **v0.1.0-alpha.8**, commit `7efb8d65a323`, netcode `ba224ec8921d`, protocol `8`. See the [alpha.8 release record](releases/2026-10-21-alpha8.md); verify live state before another release. Earlier cutovers remain documented below.
+Latest deployed rollout: **v0.1.0-alpha.10**, commit `a92f7931d9f5`, netcode `d3d1f10fe9d4`, protocol `8`. See the [alpha.10 release record](releases/2026-10-24-alpha10.md); verify live state before another release. Earlier cutovers remain documented below.
 
 ## Account/domain cutover
 
