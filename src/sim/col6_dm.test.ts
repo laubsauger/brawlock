@@ -4,16 +4,15 @@ import { receiveDamage } from './combat'
 import { step } from './index'
 import { spawnProjectile } from './projectiles'
 import { castNow, cmd, fight, grant, newMatch, of, pawn, place, run, runUntil } from './testkit'
-import type { SimState } from './types'
+import { DT, type SimState } from './types'
 
 const F = frictionPerTick(0.96)
-const DT = 1 / 60
 const fireball = (s: SimState, owner: number, x: number, y: number, vx: number, vy: number, lifetime = 2) =>
   spawnProjectile(s, owner, 'fireball', x, y, vx, vy, 25, { lifetime, data: { damage: 70, kb: 1 } })
 const gravityOrb = (s: SimState, owner: number, x: number, y: number) =>
   spawnProjectile(s, owner, 'gravity', x, y, 0, 0, 25, {
     lifetime: 2,
-    data: { strength: 500, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 1650, dpsRadius: 250, dpsPeriod: 12, dpsTimer: 12 },
+    data: { strength: 500, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 1650, dpsRadius: 250, dpsPeriod: ticks(0.2), dpsTimer: ticks(0.2) },
   })
 
 // ---------------------------------------------------------------------------
@@ -46,7 +45,7 @@ describe('Gravity (spells.md §8.23)', () => {
     const p1 = pawn(s, 1)
     place(p1, 0, 200)
     gravityOrb(s, 0, 0, 0)
-    const events = run(s, 25)
+    const events = run(s, ticks(0.5))
     const dps = of(events, 'damage').filter((e) => e.source === 0)
     expect(dps.map((d) => d.amount)).toEqual([4, 4])
     expect(dps.every((d) => d.kb === 0)).toBe(true)
@@ -57,8 +56,8 @@ describe('Gravity (spells.md §8.23)', () => {
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 0, 900)
     castNow(s, 0, grant(s, 0, 'shield'), 0, 0)
-    const orb = spawnProjectile(s, 1, 'gravity', 300, 0, -450, 0, 25, { lifetime: 2, data: { strength: 500, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 1650, dpsRadius: 250, dpsPeriod: 12, dpsTimer: 12 } })
-    const events = run(s, 10)
+    const orb = spawnProjectile(s, 1, 'gravity', 300, 0, -450, 0, 25, { lifetime: 2, data: { strength: 500, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 1650, dpsRadius: 250, dpsPeriod: ticks(0.2), dpsTimer: ticks(0.2) } })
+    const events = run(s, ticks(1 / 6))
     expect(of(events, 'shieldReflect')).toHaveLength(0)
     expect(orb.owner).toBe(1)
   })
@@ -71,7 +70,7 @@ describe('Grip (spells.md §8.24)', () => {
     const p1 = pawn(s, 1)
     place(p1, 300, 0)
     step(s, [cmd(1, { kind: 'cast', slot: 7, x: 0, y: 0 })]) // p1 winds up Scourge
-    const events = [...castNow(s, 0, grant(s, 0, 'grip'), 300, 0), ...run(s, 25)] // 1000 u/s
+    const events = [...castNow(s, 0, grant(s, 0, 'grip'), 300, 0), ...run(s, ticks(0.4))] // 1000 u/s
     expect(of(events, 'castCancel').find((e) => e.pawn === p1.id)).toBeDefined()
     expect(p1.modifiers.some((m) => m.id === 'grip')).toBe(true)
     expect(p1.kbFactor).toBeCloseTo(0.33, 12)
@@ -91,9 +90,9 @@ describe('Grip (spells.md §8.24)', () => {
     grant(s, 1, 'cursed_ring', 1) // x1.25
     s.scores[0].masteries.duration = 1 // x1.10
     castNow(s, 0, grant(s, 0, 'grip'), 300, 0)
-    run(s, 20)
+    run(s, ticks(1 / 3))
     const grip = p1.modifiers.find((m) => m.id === 'grip')!
-    expect(grip.ticksLeft).toBeGreaterThan(ticks(4.5 * 1.25 * 1.1) - 25)
+    expect(grip.ticksLeft).toBeGreaterThan(ticks(4.5 * 1.25 * 1.1) - ticks(0.4))
     expect(grip.ticksLeft).toBeLessThanOrEqual(ticks(4.5 * 1.25 * 1.1))
   })
 })
@@ -103,30 +102,30 @@ describe('Warpzone (spells.md §8.25)', () => {
     const s = fight()
     place(pawn(s, 0), 0, -1500)
     place(pawn(s, 1), 0, 1500)
-    spawnProjectile(s, 0, 'warpzone', 0, 0, 0, 0, 2000, { lifetime: 10, rangeMastery: false, data: { static: 1, scale: 0.4, check: 6 } })
+    spawnProjectile(s, 0, 'warpzone', 0, 0, 0, 0, 2000, { lifetime: 10, rangeMastery: false, data: { static: 1, scale: 0.4, check: ticks(0.1) } })
     const enemy = fireball(s, 1, 0, 0, 1000, 0, 1)
     const own = fireball(s, 0, 0, 100, 1000, 0, 1)
-    run(s, 60)
+    run(s, ticks(1))
     expect(own.x).toBeCloseTo(1000, 6)
     expect(enemy.data.timeScale).toBe(0.4)
-    let lived = 60
+    let lived = ticks(1)
     while (s.projectiles.includes(enemy)) {
       step(s, [])
       lived++
     }
-    expect(lived).toBeGreaterThanOrEqual(149)
-    expect(lived).toBeLessThanOrEqual(151)
+    expect(lived).toBeGreaterThanOrEqual(ticks(2.5) - 1)
+    expect(lived).toBeLessThanOrEqual(ticks(2.5) + 1)
   })
 
   test('a projectile that leaves the zone is restored within 0.1 s', () => {
     const s = fight()
     place(pawn(s, 0), 0, -1500)
     place(pawn(s, 1), 0, 1500)
-    spawnProjectile(s, 0, 'warpzone', 0, 0, 0, 0, 200, { lifetime: 10, rangeMastery: false, data: { static: 1, scale: 0.4, check: 6 } })
+    spawnProjectile(s, 0, 'warpzone', 0, 0, 0, 0, 200, { lifetime: 10, rangeMastery: false, data: { static: 1, scale: 0.4, check: ticks(0.1) } })
     const fb = fireball(s, 1, 150, 0, 1000, 0, 3)
     run(s, 2)
     expect(fb.data.timeScale).toBe(0.4)
-    run(s, 40)
+    run(s, ticks(2 / 3))
     expect(fb.data.timeScale).toBeUndefined()
   })
 })
@@ -138,7 +137,7 @@ describe('Magnetize (spells.md §8.26)', () => {
     const p1 = pawn(s, 1)
     place(p1, 300, 0)
     castNow(s, 0, grant(s, 0, 'magnetize'), 300, 0)
-    run(s, 30) // 800 u/s
+    run(s, ticks(0.5)) // 800 u/s
     expect(p1.modifiers.find((m) => m.id === 'magnetize')?.data.sign).toBe(1)
     place(p1, 500, 150) // 250 from the bolt: inside the 300 field
     const fb = fireball(s, 0, 300, 0, 1000, 0)
@@ -153,7 +152,7 @@ describe('Magnetize (spells.md §8.26)', () => {
     place(ally, 300, 0)
     place(pawn(s, 2), 0, 1500)
     castNow(s, 0, grant(s, 0, 'magnetize'), 300, 0)
-    run(s, 30)
+    run(s, ticks(0.5))
     expect(ally.modifiers.find((m) => m.id === 'magnetize')?.data.sign).toBe(-1)
     place(ally, 500, 200)
     const fb = fireball(s, 2, 300, 100, 1000, 0)
@@ -172,7 +171,7 @@ describe('Rockpillar (spells.md §8.27)', () => {
     expect(pillar).toMatchObject({ x: 650, y: 0, radius: 90, hp: 400, owner: 0 })
     // the caster's own fireball is blocked (pillars are enemies to everyone)
     castNow(s, 0, 6, 1000, 0)
-    run(s, 40)
+    run(s, ticks(2 / 3))
     expect(pillar.hp).toBe(330)
     run(s, ticks(4))
     expect(s.obstacles.some((o) => o.variant === -1)).toBe(false)
@@ -186,13 +185,13 @@ describe('Link (spells.md §8.28)', () => {
     const p1 = pawn(s, 1)
     place(p0, 0, 0, 0)
     place(p1, 600, 0)
-    const events = [...castNow(s, 0, grant(s, 0, 'link'), 600, 0), ...run(s, 45)] // 950 u/s
+    const events = [...castNow(s, 0, grant(s, 0, 'link'), 600, 0), ...run(s, ticks(0.75))] // 950 u/s
     const link = p0.modifiers.find((m) => m.id === 'link')!
     expect(link.data.target).toBe(p1.id)
     expect(p1.vx).toBeLessThan(-100)
     const dps = of(events, 'damage').filter((e) => e.source === 0 && e.kb === 0)
     expect(dps[0]?.amount).toBeCloseTo(2.4, 9)
-    run(s, 120)
+    run(s, ticks(2))
     expect(p0.modifiers.some((m) => m.id === 'link')).toBe(false) // pulled within 100 -> broke
   })
 
@@ -203,7 +202,7 @@ describe('Link (spells.md §8.28)', () => {
     place(p0, 0, 0, 0)
     place(p1, 600, 0)
     castNow(s, 0, grant(s, 0, 'link'), 600, 0)
-    run(s, 36)
+    run(s, ticks(0.6))
     expect(p0.modifiers.some((m) => m.id === 'link')).toBe(true)
     castNow(s, 0, grant(s, 0, 'teleport'), -5000, 0) // cursor on lava
     expect(p0.modifiers.some((m) => m.id === 'link')).toBe(false)
@@ -212,7 +211,7 @@ describe('Link (spells.md §8.28)', () => {
     place(pawn(t, 0), 0, 0, 0)
     place(pawn(t, 1), 600, 0)
     castNow(t, 0, grant(t, 0, 'link'), 600, 0)
-    run(t, 36)
+    run(t, ticks(0.6))
     castNow(t, 1, grant(t, 1, 'shield'), 0, 0)
     run(t, 1)
     expect(pawn(t, 0).modifiers.some((m) => m.id === 'link')).toBe(false)
@@ -225,7 +224,7 @@ describe('Link (spells.md §8.28)', () => {
     place(pawn(s, 1), 0, 1500)
     s.obstacles.push({ id: s.nextEntityId++, x: 500, y: 0, radius: 60, hp: 400, variant: 0 })
     castNow(s, 0, grant(s, 0, 'link'), 500, 0)
-    run(s, 30)
+    run(s, ticks(0.5))
     expect(p0.modifiers.find((m) => m.id === 'link')?.data.obstacle).toBe(1)
     expect(p0.vx).toBeGreaterThan(100)
   })
@@ -263,25 +262,25 @@ describe('Deathmatch (systems.md §7.3)', () => {
     const s = newMatch({ gameMode: 'deathmatch', shopSeconds: 1, winScore: 2 })
     runUntil(s, (st) => st.phase === 'fight')
     expect(s.round).toBe(1)
-    expect(s.phaseTicksLeft).toBe(3600)
+    expect(s.phaseTicksLeft).toBe(ticks(60))
     const p1 = pawn(s, 1)
-    run(s, 120) // spawn invulnerability
+    run(s, ticks(2)) // spawn invulnerability
     p1.hp = 10
     receiveDamage(s, p1, { cause: 'test', amount: 20, source: 0 })
     expect(p1.alive).toBe(false)
     expect(s.scores.map((x) => x.score)).toEqual([1, 0])
     expect(s.phase).toBe('fight') // a kill does not end the round
-    const respawn = runUntil(s, () => p1.alive, 700)
+    const respawn = runUntil(s, () => p1.alive, ticks(11))
     expect(of(respawn, 'respawn')[0]).toMatchObject({ owner: 1 })
     expect(respawn.length).toBeGreaterThan(0)
     expect(p1.invulnerable).toBe(true)
-    expect(of(run(s, 3600), 'arenaShrink')).toHaveLength(0)
+    expect(of(run(s, ticks(60)), 'arenaShrink')).toHaveLength(0)
   })
 
   test('a death nobody caused scores for nobody (v1 fix); win is checked at round end', () => {
     const s = newMatch({ gameMode: 'deathmatch', shopSeconds: 1, winScore: 1 })
     runUntil(s, (st) => st.phase === 'fight')
-    run(s, 120)
+    run(s, ticks(2))
     const p1 = pawn(s, 1)
     place(p1, 3000, 0)
     runUntil(s, () => !p1.alive)

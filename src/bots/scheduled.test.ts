@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, createMatch, step, ticks } from '../sim'
 import { TICK_HZ, type BotDifficulty, type PlayerInput, type PlayerSlot } from '../sim/types'
 import { isTileAt, TILE_SIZE } from '../sim/arena'
 import { layerRadius, nearestTileCentre } from './arena'
@@ -62,7 +62,7 @@ describe('bot scheduled decisions', () => {
     const bots = diffs.map((d, id) => new BotController(id, d, 7))
     const seen = bots.map((b) => ({ version: b.scheduledVersion, future: JSON.stringify(b.scheduled()) }))
     let changes = 0
-    for (let i = 0; i < 60 * 90; i++) {
+    for (let i = 0; i < ticks(90); i++) {
       const inputs: PlayerInput[] = []
       for (const [k, b] of bots.entries()) {
         const cmds = b.think(state)
@@ -78,7 +78,7 @@ describe('bot scheduled decisions', () => {
     }
     // and it is not bumped every tick (that would only cost the skipped work again)
     expect(changes).toBeGreaterThan(50)
-    expect(changes).toBeLessThan(60 * 90 * bots.length * 0.3)
+    expect(changes).toBeLessThan(ticks(90) * bots.length * 0.3)
   })
 })
 

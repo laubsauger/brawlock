@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { CAST_TURN_LIMIT_TICKS, FIREBALL_SLOT } from './config'
+import { CAST_TURN_LIMIT_TICKS, FACING_TOLERANCE, FIREBALL_SLOT, TURN_PER_TICK, ticks } from './config'
 import { step } from './index'
 import { cmd, fight, newMatch, of, pawn, place } from './testkit'
 import type { SimState } from './types'
 
-const CP = 12 // Fireball cast point, ticks
+const CP = ticks(0.2) // Fireball cast point, ticks
+/** ticks a full 180 degree turn needs (5 at 60 Hz) */
+const HALF_TURN = Math.ceil(Math.PI / TURN_PER_TICK)
 
 /** ticks from the cast order until the spell fires (the order tick counts as 1) */
 function fireDelay(s: SimState, before: (tick: number) => void = () => {}): number {
@@ -19,13 +21,13 @@ function fireDelay(s: SimState, before: (tick: number) => void = () => {}): numb
 // A cast must never get stuck in its windup: the player would be locked out of the spell
 // until they issue another order.
 describe('a cast windup always completes', () => {
-  test('any start facing: turn (<= 5 ticks) + cast point, never more', () => {
+  test(`any start facing: turn (<= ${HALF_TURN} ticks) + cast point, never more`, () => {
     for (let k = 0; k < 32; k++) {
       const s = newMatch()
       place(pawn(s, 0), 0, 0, (k / 32) * 2 * Math.PI - Math.PI)
       const d = fireDelay(s)
       expect(d).toBeGreaterThan(CP)
-      expect(d).toBeLessThanOrEqual(5 + CP + 1)
+      expect(d).toBeLessThanOrEqual(HALF_TURN + CP + 1)
     }
   })
 
@@ -70,6 +72,7 @@ describe('a cast windup always completes', () => {
     place(foe, 250, 0)
     foe.invulnerable = true // what the script hit: 1 s into the round, 2 s invulnerability
     const d = fireDelay(s)
-    expect(d).toBe(4 + 1 + CP) // 4 turning ticks, start tick, 12-tick cast point
+    // turning until within 0.2 rad (4 ticks + the start tick at 60 Hz), then the cast point
+    expect(d).toBe(Math.ceil((Math.PI - FACING_TOLERANCE) / TURN_PER_TICK) + CP)
   })
 })

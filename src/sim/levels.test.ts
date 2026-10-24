@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { FIREBALL_SLOT } from './config'
+import { FIREBALL_SLOT, ticks } from './config'
 import { step } from './index'
 import { IMPLEMENTED_SPELLS } from './spells'
 import { RELEASED_SPELLS, SPELLS } from './spells/data'
@@ -37,7 +37,7 @@ describe('spell levels are reported for level-scaled visuals', () => {
       step(s, [cmd(0, { kind: 'move', x: 260, y: 0 })])
       events.push(...s.events)
       const seen = new Set<number>()
-      for (let i = 0; i < 180; i++) {
+      for (let i = 0; i < ticks(3); i++) {
         for (const p of s.projectiles) {
           seen.add(p.id)
           expect(p.level, `${p.kind ?? p.spell} #${p.id}`).toBe(level)
@@ -63,7 +63,7 @@ describe('spell levels are reported for level-scaled visuals', () => {
       place(pawn(s, 0), 0, 0, 0)
       place(pawn(s, 1), 260, 0)
       castNow(s, 0, grant(s, 0, id, 6), id === 'splitter' ? 3000 : 260, 0)
-      for (let i = 0; i < 120; i++) {
+      for (let i = 0; i < ticks(2); i++) {
         for (const p of s.projectiles) if (p.kind) kinds.set(p.kind, p.level ?? -1)
         step(s, [])
       }

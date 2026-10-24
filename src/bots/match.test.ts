@@ -3,7 +3,7 @@
  * never finish a round. Skipped (with a reason) while the sim cannot run a match.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, SCOURGE_SLOT, createMatch, hashState, step } from '../sim'
+import { DEFAULT_SETTINGS, SCOURGE_SLOT, createMatch, hashState, step, ticks } from '../sim'
 import type { BotDifficulty, MatchSettings, PlayerSlot, SimState } from '../sim'
 import { createBot } from './index'
 import { PillarStuckMeter } from './pillarStuck'
@@ -31,7 +31,7 @@ function play(diffs: BotDifficulty[], seed: number, maxSeconds: number, kit?: Re
     p.levels[Number(slot)] = 1
   }
   const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
-  const maxTicks = maxSeconds * 60
+  const maxTicks = ticks(maxSeconds)
   let deaths = 0
   let casts = 0
   const spells = new Set<string>()
@@ -85,8 +85,8 @@ describe('bots: headless matches on the real sim', () => {
     const state = createMatch(SETTINGS, sl, seed)
     const bot = createBot(0, difficulty, seed)
     // reach the fight and let spawn invulnerability run out
-    for (let i = 0; i < 60 * 60 && state.phase !== 'fight'; i++) step(state, [])
-    for (let i = 0; i < 150; i++) step(state, [])
+    for (let i = 0; i < ticks(60) && state.phase !== 'fight'; i++) step(state, [])
+    for (let i = 0; i < ticks(2.5); i++) step(state, [])
     const me = state.pawns.find((p) => p.owner === 0)!
     const foe = state.pawns.find((p) => p.owner === 1)!
     // pillar routing is tested on its own (bots.test.ts); here: open ground
@@ -102,7 +102,7 @@ describe('bots: headless matches on the real sim', () => {
       p.cast = null
     }
     step(state, [{ player: 1, tick: state.tick, cmds: [{ kind: 'cast', slot: SCOURGE_SLOT, x: foe.x, y: foe.y }] }])
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < ticks(1.5); i++) {
       step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
       const blast = state.events.find((e) => e.type === 'explosion' && e.spell === 'scourge')
       if (blast) {
@@ -143,13 +143,13 @@ describe('bots: headless matches on the real sim', () => {
         const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
         const meter = new PillarStuckMeter()
         let pillars = 0
-        for (let i = 0; i < 1500 * 60 && state.phase !== 'gameOver'; i++) {
+        for (let i = 0; i < ticks(1500) && state.phase !== 'gameOver'; i++) {
           step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
           meter.observe(state)
           pillars = Math.max(pillars, state.obstacles.length)
         }
         expect(pillars, 'the sim spawns pillars: otherwise this test proves nothing').toBeGreaterThan(0)
-        expect(meter.worstTicks, `${diffs.join(' vs ')} seed ${seed}`).toBeLessThanOrEqual(60)
+        expect(meter.worstTicks, `${diffs.join(' vs ')} seed ${seed}`).toBeLessThanOrEqual(ticks(1))
       }
     }
   }, 20_000) // several seeded full matches: ~3-4 s alone, more under a loaded parallel run
@@ -164,8 +164,8 @@ describe('bots: headless matches on the real sim', () => {
       { id: 1, name: 'foe', color: 0x0000ff, team: 1, kind: 'human' },
     ]
     const state = createMatch({ ...DEFAULT_SETTINGS }, sl, 100 + k)
-    for (let i = 0; i < 60 * 60 && state.phase !== 'fight'; i++) step(state, [])
-    for (let i = 0; i < 150; i++) step(state, [])
+    for (let i = 0; i < ticks(60) && state.phase !== 'fight'; i++) step(state, [])
+    for (let i = 0; i < ticks(2.5); i++) step(state, [])
     state.obstacles = []
     const me = state.pawns.find((p) => p.owner === 0)!
     const foe = state.pawns.find((p) => p.owner === 1)!
@@ -185,9 +185,9 @@ describe('bots: headless matches on the real sim', () => {
     me.hp = 120 // a few lava ticks
     me.slots[1] = 'teleport'
     me.levels[1] = 1
-    me.cooldowns[1] = teleportReady ? 0 : 600
+    me.cooldowns[1] = teleportReady ? 0 : ticks(10)
     const bot = createBot(0, difficulty, 7 + k)
-    for (let i = 0; i < 360; i++) {
+    for (let i = 0; i < ticks(6); i++) {
       step(state, [{ player: 0, tick: state.tick, cmds: bot.think(state) }])
       if (!me.alive) return false
     }
@@ -210,7 +210,7 @@ describe('bots: headless matches on the real sim', () => {
       const sl = slots(['uber', 'brutal'])
       const state = createMatch({ ...DEFAULT_SETTINGS }, sl, 3)
       const bots = sl.map((s) => createBot(s.id, s.difficulty!, 3 * 31 + s.id))
-      for (let i = 0; i < 90 * 60 && state.phase !== 'gameOver'; i++) {
+      for (let i = 0; i < ticks(90) && state.phase !== 'gameOver'; i++) {
         step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
       }
       return hashState(state)

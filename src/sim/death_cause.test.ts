@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { FIREBALL_SLOT, SCOURGE_SLOT } from './config'
+import { FIREBALL_SLOT, SCOURGE_SLOT, ticks } from './config'
 import { setPlayerConnected, step } from './index'
 import { spawnProjectile } from './projectiles'
 import { castNow, cmd, fight, grant, of, pawn, place } from './testkit'
@@ -53,7 +53,7 @@ describe("'death' reports the cause, knockback and position of the lethal instan
       const s = arena(200, 0)
       return [s, () => [...castNow(s, 0, grant(s, 0, 'windwalk'), 0, 0), ...(step(s, [cmd(0, { kind: 'move', x: 400, y: 0 })]), s.events)]]
     }],
-    ['gravity', false, () => { const s = arena(300, 0); return [s, shoot(s, 'gravity', 300, 0, { strength: 0, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 0, dpsRadius: 250, dpsPeriod: 12, dpsTimer: 12 }, undefined, 25)] }],
+    ['gravity', false, () => { const s = arena(300, 0); return [s, shoot(s, 'gravity', 300, 0, { strength: 0, dps: 20, pawnRadius: 550, projRadius: 600, projPull: 0, dpsRadius: 250, dpsPeriod: ticks(0.2), dpsTimer: ticks(0.2) }, undefined, 25)] }],
     ['link', false, () => { const s = arena(600, 0); return [s, cast(s, 'link', 600, 0)] }],
     ['lava', false, () => { const s = arena(3000, 0); return [s, () => []] }],
   ]
@@ -91,7 +91,7 @@ describe("'death' reports the cause, knockback and position of the lethal instan
     expect(d1.kb).toBeGreaterThan(0)
 
     const chill = arena(300, 0)
-    chill.projectiles.push({ ...snowballAt(chill, 300, sb), vx: 0, ticksLeft: 600 })
+    chill.projectiles.push({ ...snowballAt(chill, 300, sb), vx: 0, ticksLeft: ticks(10) })
     const d2 = death(chill)
     expect(d2).toMatchObject({ cause: 'snowball', kb: 0 })
   })
@@ -121,5 +121,5 @@ describe("'death' reports the cause, knockback and position of the lethal instan
 
 /** a Snowball owned by player 0 at (x, 0), r75, rolling +x at 400 */
 function snowballAt(s: SimState, x: number, data: Record<string, number>) {
-  return { id: s.nextEntityId++, owner: 0, spell: 'snowball', x, y: 0, vx: 400, vy: 0, radius: 75, ticksLeft: 60, data: { ...data } }
+  return { id: s.nextEntityId++, owner: 0, spell: 'snowball', x, y: 0, vx: 400, vy: 0, radius: 75, ticksLeft: ticks(1), data: { ...data } }
 }

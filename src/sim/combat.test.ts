@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { heal, knockbackSpeed, receiveDamage } from './combat'
+import { ticks } from './config'
 import { cmd, newMatch, pawn, place, run, runUntil, toCombat } from './testkit'
 import type { SimEvent } from './types'
 
@@ -70,7 +71,7 @@ describe('damage pipeline (spells.md §4.1)', () => {
     expect(p1.invulnerable).toBe(true)
     expect(receiveDamage(s, p1, { cause: 'test', amount: 500, source: 0, normal: { x: 1, y: 0 } })).toBe(0)
     expect(p1.hp).toBe(1000)
-    run(s, 120) // 2 s
+    run(s, ticks(2))
     expect(p1.invulnerable).toBe(false)
     expect(receiveDamage(s, p1, { cause: 'test', amount: 100, source: 0 })).toBe(100)
   })
@@ -129,13 +130,13 @@ describe('lava (systems.md §5.2)', () => {
     toCombat(s)
     const p1 = pawn(s, 1)
     place(p1, 3000, 0)
-    const events = run(s, 60)
+    const events = run(s, ticks(1))
     const burns = events.filter((e) => e.type === 'damage' && e.target === p1.id)
     expect(burns).toHaveLength(4)
     for (const b of burns) if (b.type === 'damage') expect(b).toMatchObject({ amount: 25, source: null, kb: 0 })
     expect(p1.kbPoints).toBeCloseTo(50 - 0.04, 6) // 4 x 25 x 0.5 minus 1 s of DP decay
     expect(p1.vx).toBe(0)
-    expect(p1.lavaTicks).toBe(60)
+    expect(p1.lavaTicks).toBe(ticks(1))
   })
 
   test('a lava death credits the last pawn that hit you', () => {
@@ -169,7 +170,7 @@ describe('lava (systems.md §5.2)', () => {
     const s = newMatch()
     const p1 = pawn(s, 1)
     place(p1, 3000, 0)
-    run(s, 120, () => [cmd(1, { kind: 'stop' })])
+    run(s, ticks(2), () => [cmd(1, { kind: 'stop' })])
     expect(p1.hp).toBe(1000)
   })
 })

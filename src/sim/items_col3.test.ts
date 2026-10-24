@@ -6,7 +6,7 @@ import { spawnProjectile } from './projectiles'
 import { RELEASED_SPELLS } from './spells/data'
 import { debuffFactor } from './stats'
 import { cmd, grant, newMatch, pawn, place, run, toCombat } from './testkit'
-import type { SimEvent, SimState } from './types'
+import { TICK_HZ, type SimEvent, type SimState } from './types'
 
 const of = <T extends SimEvent['type']>(events: SimEvent[], type: T) =>
   events.filter((e): e is Extract<SimEvent, { type: T }> => e.type === type)
@@ -111,7 +111,7 @@ describe('Redirector (spells.md §8.3)', () => {
     expect(Math.hypot(fb.vx, fb.vy)).toBeCloseTo(1000, 9)
     expect(fb.vy).toBeGreaterThan(900)
     // +0.5 x 1.12 s once (the original re-scaled the remaining lifetime by rm as well)
-    expect(fb.ticksLeft).toBeCloseTo(before - (s.tick - t0) + 0.5 * 1.12 * 60, 6)
+    expect(fb.ticksLeft).toBeCloseTo(before - (s.tick - t0) + 0.5 * 1.12 * TICK_HZ, 6)
     expect(p0.kbFactor).toBeCloseTo(1.3, 12)
     const pen = p0.modifiers.find((m) => m.id === 'redirectorPenalty')!
     expect(pen.ticksLeft).toBeGreaterThan(ticks(8) - 3)
@@ -140,7 +140,7 @@ describe('Pact (spells.md §8.4)', () => {
     castNow(s, 0, grant(s, 0, 'teleport'), 0, 100)
     expect(p0.modifiers.some((m) => m.id === 'pact')).toBe(true)
     place(p0, 0, 0, 0)
-    const events = [...castNow(s, 0, FIREBALL_SLOT, 300, 0), ...run(s, 20)]
+    const events = [...castNow(s, 0, FIREBALL_SLOT, 300, 0), ...run(s, ticks(1 / 3))]
     expect(of(events, 'damage').find((e) => e.target === p1.id)!.amount).toBe(105)
     expect(p0.modifiers.some((m) => m.id === 'pact')).toBe(false)
     expect(p0.moveSpeed).toBe(210 - 66)
@@ -164,7 +164,7 @@ describe('Cluster (spells.md §8.12)', () => {
     const p1 = pawn(s, 1)
     place(p0, 0, 0, 0)
     place(p1, 90, 0)
-    const events = [...castNow(s, 0, grant(s, 0, 'cluster'), 500, 0), ...run(s, 10)]
+    const events = [...castNow(s, 0, grant(s, 0, 'cluster'), 500, 0), ...run(s, ticks(1 / 6))]
     const hits = of(events, 'damage').filter((e) => e.target === p1.id)
     expect(hits.map((h) => h.amount)).toEqual([33, 33, 33, 33])
     expect(hits[0].kb).toBeCloseTo(knockbackSpeed(33, 33, 1, 0.65, 1), 9)
@@ -190,7 +190,7 @@ describe('Drain (spells.md §8.13)', () => {
     place(p1, 300, 0)
     p0.hp = 500
     p0.kbPoints = 100
-    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, 60)]
+    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, ticks(1))]
     const dmg = of(events, 'damage').find((e) => e.target === p1.id)!
     expect(dmg.amount).toBe(60)
     expect(dmg.kb).toBeCloseTo(knockbackSpeed(60, 60, 1, 0.2, 1), 9)
@@ -209,7 +209,7 @@ describe('Drain (spells.md §8.13)', () => {
     place(p1, 300, 0)
     p1.hp = 400
     p1.kbPoints = 100
-    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, 30)]
+    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, ticks(0.5))]
     expect(of(events, 'damage')).toHaveLength(0)
     expect(of(events, 'heal')[0]).toMatchObject({ target: p1.id, amount: 60 })
     expect(p1.moveSpeed).toBe(260)
@@ -221,7 +221,7 @@ describe('Drain (spells.md §8.13)', () => {
     place(pawn(s, 0), 0, 0, 0)
     const p1 = pawn(s, 1)
     place(p1, 300, 400)
-    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, 90)]
+    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 300, 0), ...run(s, ticks(1.5))]
     expect(of(events, 'damage').find((e) => e.target === p1.id)).toBeDefined()
   })
 
@@ -230,7 +230,7 @@ describe('Drain (spells.md §8.13)', () => {
     place(pawn(s, 0), 0, 50, 0)
     const p1 = pawn(s, 1)
     place(p1, 400, 0)
-    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 2000, 50), ...run(s, 60)]
+    const events = [...castNow(s, 0, grant(s, 0, 'drain'), 2000, 50), ...run(s, ticks(1))]
     expect(of(events, 'damage').find((e) => e.target === p1.id)).toBeDefined()
   })
 
@@ -254,7 +254,7 @@ describe('Bouncer (spells.md §8.14)', () => {
     place(pawn(s, 0), -600, 0, 0) // within the 1 s x 900 u/s TTL
     place(pawn(s, 1), 0, 0)
     place(pawn(s, 2), 0, 250)
-    const events = [...castNow(s, 0, grant(s, 0, 'bouncer'), 0, 0), ...run(s, 400)]
+    const events = [...castNow(s, 0, grant(s, 0, 'bouncer'), 0, 0), ...run(s, ticks(7))]
     const amounts = of(events, 'damage').filter((e) => e.source === 0).map((e) => +e.amount.toFixed(4))
     expect(amounts).toEqual([54, 37.8, 26.46, 18.522, 12.9654])
     expect(s.projectiles).toHaveLength(0)
@@ -265,7 +265,7 @@ describe('Bouncer (spells.md §8.14)', () => {
     place(pawn(s, 0), -600, 0, 0)
     place(pawn(s, 1), 0, 0) // ally first on the path
     place(pawn(s, 2), 0, 300)
-    const events = [...castNow(s, 0, grant(s, 0, 'bouncer'), 0, 0), ...run(s, 120)]
+    const events = [...castNow(s, 0, grant(s, 0, 'bouncer'), 0, 0), ...run(s, ticks(2))]
     const dmg = of(events, 'damage')
     expect(dmg.find((e) => e.target === pawn(s, 1).id)).toBeUndefined()
     expect(dmg.find((e) => e.target === pawn(s, 2).id)?.amount).toBe(54)
@@ -290,13 +290,13 @@ describe('Recharge (spells.md §8.15)', () => {
     place(p0, 0, 0, 0)
     place(p1, 300, 0)
     const slot = grant(s, 0, 'recharge')
-    const events = [...castNow(s, 0, slot, 300, 0), ...run(s, 60)]
+    const events = [...castNow(s, 0, slot, 300, 0), ...run(s, ticks(1))]
     expect(of(events, 'damage')[0].amount).toBe(60)
     expect(of(events, 'streak')).toEqual([{ type: 'streak', pawn: p0.id, spell: 'recharge', value: 1 }])
     expect(of(events, 'cooldownReset')).toEqual([{ type: 'cooldownReset', pawn: p0.id, slot, spell: 'recharge' }])
     expect(p0.cooldowns[slot]).toBe(0)
     place(p1, 300, 0)
-    const again = [...castNow(s, 0, slot, 300, 0), ...run(s, 30)]
+    const again = [...castNow(s, 0, slot, 300, 0), ...run(s, ticks(0.5))]
     expect(of(again, 'damage')[0].amount).toBe(70)
   })
 
@@ -307,9 +307,9 @@ describe('Recharge (spells.md §8.15)', () => {
     place(pawn(s, 1), 300, 0)
     const slot = grant(s, 0, 'recharge')
     castNow(s, 0, slot, 300, 0)
-    run(s, 60)
+    run(s, ticks(1))
     place(pawn(s, 1), 0, 2000)
-    const events = [...castNow(s, 0, slot, 300, 0), ...run(s, 80)]
+    const events = [...castNow(s, 0, slot, 300, 0), ...run(s, ticks(4 / 3))]
     expect(of(events, 'streak').at(-1)?.value).toBe(0)
   })
 })

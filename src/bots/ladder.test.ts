@@ -9,7 +9,7 @@
  * wide on purpose.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, createMatch, step, ticks } from '../sim'
 import type { BotDifficulty, PlayerSlot } from '../sim'
 import { BOT_ELO, createBot } from './index'
 import { expectedScore } from './rating'
@@ -23,7 +23,7 @@ function roundShare(strong: BotDifficulty, weak: BotDifficulty, seeds: number): 
     const sl: PlayerSlot[] = diffs.map((d, id) => ({ id, name: d, color: 0xff0000 + id, team: id, kind: 'bot', difficulty: d }))
     const state = createMatch({ ...DEFAULT_SETTINGS }, sl, seed)
     const bots = sl.map((s) => createBot(s.id, s.difficulty!, seed * 31 + s.id))
-    for (let i = 0; i < 1500 * 60 && state.phase !== 'gameOver'; i++) {
+    for (let i = 0; i < ticks(1500) && state.phase !== 'gameOver'; i++) {
       step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
     }
     expect(state.phase, `${strong} vs ${weak} seed ${seed} never finished`).toBe('gameOver')

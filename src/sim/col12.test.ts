@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { FIREBALL_SLOT, frictionPerTick } from './config'
+import { FIREBALL_SLOT, frictionPerTick, ticks } from './config'
 import { knockbackSpeed } from './combat'
 import { step } from './index'
 import { spawnProjectile } from './projectiles'
 import { RELEASED_SPELLS, SPELLS } from './spells/data'
 import { IMPLEMENTED_SPELLS } from './spells'
 import { castNow, cmd, fight, grant, newMatch, pawn, place, run, toCombat } from './testkit'
-import type { ProjectileState, SimEvent, SimState } from './types'
+import { DT, TICK_HZ, type ProjectileState, type SimEvent, type SimState } from './types'
 
 const F = frictionPerTick(0.96)
 const of = <T extends SimEvent['type']>(events: SimEvent[], type: T) =>
@@ -30,7 +30,7 @@ describe('Thrust (spells.md §8.10)', () => {
     p0.vy = 500 // existing knockback is replaced
     const slot = grant(s, 0, 'thrust')
     step(s, [cast(0, slot, 2000, 0)])
-    expect(p0.vx).toBeCloseTo(1001 * F + 1733.3333333333333 / 60, 9)
+    expect(p0.vx).toBeCloseTo(1001 * F + 1733.3333333333333 * DT, 9)
     expect(p0.vy).toBeCloseTo(0, 9)
   })
 
@@ -42,7 +42,7 @@ describe('Thrust (spells.md §8.10)', () => {
     place(p1, 400, 0)
     const slot = grant(s, 0, 'thrust')
     step(s, [cast(0, slot, 400, 0)])
-    const events = [...s.events, ...run(s, 30)]
+    const events = [...s.events, ...run(s, ticks(0.5))]
     const hit = of(events, 'spellHit')[0]
     expect(hit).toMatchObject({ spell: 'thrust', pawn: p0.id, target: p1.id })
     const dmg = of(events, 'damage').find((e) => e.target === p1.id)!
@@ -69,8 +69,8 @@ describe('Thrust (spells.md §8.10)', () => {
       step(s, [])
       ticksActive++
     }
-    expect(ticksActive).toBe(Math.round((0.09 + 900 / 1300) * 60))
-    expect(p0.vx).toBeCloseTo((prev * F + 1733.3333333333333 / 60) * 0.2, 6)
+    expect(ticksActive).toBe(ticks(0.09 + 900 / 1300))
+    expect(p0.vx).toBeCloseTo((prev * F + 1733.3333333333333 * DT) * 0.2, 6)
   })
 
   test('two thrusters colliding hit each other at full factor', () => {
@@ -82,7 +82,7 @@ describe('Thrust (spells.md §8.10)', () => {
     const a = grant(s, 0, 'thrust')
     const b = grant(s, 1, 'thrust')
     step(s, [cast(0, a, 300, 0), cast(1, b, -300, 0)])
-    const dmg = of([...s.events, ...run(s, 30)], 'damage')
+    const dmg = of([...s.events, ...run(s, ticks(0.5))], 'damage')
     expect(dmg.map((d) => d.amount).sort()).toEqual([50, 50])
   })
 })
@@ -98,7 +98,7 @@ describe('Swap (spells.md §8.11)', () => {
     p1.vy = 200
     const slot = grant(s, 0, 'swap')
     step(s, [cast(0, slot, 900, 0)])
-    const events = [...s.events, ...run(s, 20)]
+    const events = [...s.events, ...run(s, ticks(1 / 3))]
     const sw = of(events, 'swap')[0]
     expect(sw).toMatchObject({ spell: 'swap', pawn: p0.id, other: p1.id, fromX: 0 })
     expect(p0.x).toBeGreaterThan(395)
@@ -113,7 +113,7 @@ describe('Swap (spells.md §8.11)', () => {
     place(pawn(s, 1), 0, 2000)
     const slot = grant(s, 0, 'swap')
     step(s, [cast(0, slot, 500, 500)])
-    const events = [...s.events, ...run(s, 40)]
+    const events = [...s.events, ...run(s, ticks(2 / 3))]
     expect(of(events, 'swap')[0]).toMatchObject({ other: null })
     expect(Math.hypot(p0.x - 500, p0.y - 500)).toBeLessThan(40)
   })
@@ -125,7 +125,7 @@ describe('Swap (spells.md §8.11)', () => {
     place(pawn(s, 1), 0, 2000)
     const slot = grant(s, 0, 'swap')
     step(s, [cast(0, slot, 5000, 0)])
-    run(s, 60)
+    run(s, ticks(1))
     expect(p0.x).toBeGreaterThan(933)
     expect(p0.x).toBeLessThan(933 + 40)
   })
@@ -137,7 +137,7 @@ describe('Swap (spells.md §8.11)', () => {
     place(pawn(shop, 1), 0, 2000)
     shop.obstacles.push({ id: shop.nextEntityId++, x: 300, y: 0, radius: 60, hp: 400, variant: 0 })
     step(shop, [cast(0, grant(shop, 0, 'swap'), 600, 0)])
-    run(shop, 40)
+    run(shop, ticks(2 / 3))
     expect(a.x).toBeGreaterThan(560) // flew past the pillar and blinked
     expect(shop.obstacles[0].x).toBe(300)
 
@@ -147,9 +147,9 @@ describe('Swap (spells.md §8.11)', () => {
     place(pawn(s, 1), 0, 2000)
     s.obstacles.push({ id: s.nextEntityId++, x: 300, y: 0, radius: 60, hp: 400, variant: 0 })
     // an enemy fireball in the path does not stop it
-    s.projectiles.push({ id: s.nextEntityId++, owner: 1, spell: 'fireball', x: 150, y: 0, vx: 0, vy: 0, radius: 25, ticksLeft: 60, data: { damage: 70, kb: 1 } })
+    s.projectiles.push({ id: s.nextEntityId++, owner: 1, spell: 'fireball', x: 150, y: 0, vx: 0, vy: 0, radius: 25, ticksLeft: ticks(1), data: { damage: 70, kb: 1 } })
     step(s, [cast(0, grant(s, 0, 'swap'), 600, 0)])
-    const events = [...s.events, ...run(s, 40)]
+    const events = [...s.events, ...run(s, ticks(2 / 3))]
     expect(of(events, 'swap')[0].other).toBe(s.obstacles[0].id)
     expect(s.obstacles[0].x).toBe(0) // the pillar now stands where the caster was
   })
@@ -160,7 +160,7 @@ describe('Lightning (spells.md §8.6)', () => {
   function zap(s: SimState, x: number, y: number, level = 1): SimEvent[] {
     const slot = grant(s, 0, 'lightning', level)
     step(s, [cast(0, slot, x, y)])
-    return [...s.events, ...run(s, 14)]
+    return [...s.events, ...run(s, ticks(0.2) + 2)] // cast point, then the beam
   }
 
   test('instantly strikes the first enemy on the line, pushing along the beam (kb 0.92)', () => {
@@ -308,12 +308,12 @@ describe('Boomerang (spells.md §8.5)', () => {
     place(p0, 0, 0, 0)
     place(pawn(s, 1), 0, 3000)
     step(s, [cast(0, grant(s, 0, 'boomerang'), 2000, 0)])
-    run(s, 12) // cast point
+    run(s, ticks(0.2)) // cast point
     let maxX = 0
     let minY = 0
     let maxY = 0
     let alive = 0
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < ticks(7); i++) {
       step(s, [])
       const b = s.projectiles.find((p) => p.spell === 'boomerang')
       if (!b) break
@@ -327,7 +327,7 @@ describe('Boomerang (spells.md §8.5)', () => {
     expect(maxX).toBeLessThan(840)
     // launched with +300 lateral, then curving the other way: a lopsided loop
     expect(maxY).toBeGreaterThan(50)
-    expect(alive / 60).toBeGreaterThan(2)
+    expect(alive / TICK_HZ).toBeGreaterThan(2)
   })
 
   test('hits an enemy (kb 0.95), bounces off at 500 u/s and starts returning', () => {
@@ -336,7 +336,7 @@ describe('Boomerang (spells.md §8.5)', () => {
     const p1 = pawn(s, 1)
     place(p1, 300, 0)
     step(s, [cast(0, grant(s, 0, 'boomerang'), 2000, 0)])
-    const events = [...s.events, ...run(s, 30)]
+    const events = [...s.events, ...run(s, ticks(0.5))]
     const dmg = of(events, 'damage').find((e) => e.target === p1.id)!
     expect(dmg.amount).toBe(70)
     expect(dmg.kb).toBeCloseTo(knockbackSpeed(70, 70, 1, 0.95, 1), 9)
@@ -349,7 +349,7 @@ describe('Boomerang (spells.md §8.5)', () => {
     place(pawn(s, 1), 1000, 2000)
     const b = spawnProjectile(s, 0, 'boomerang', 0, 0, 0, 0, 38, { lifetime: null, data: { returning: 1 } })
     spawnProjectile(s, 1, 'fireball', 200, 0, -1000, 0, 25, { lifetime: 1, data: { damage: 70, kb: 1 } })
-    run(s, 10)
+    run(s, ticks(1 / 6))
     expect(s.projectiles.some((p) => p.id === b.id)).toBe(true)
     expect(s.projectiles.some((p) => p.spell === 'fireball')).toBe(true)
   })
@@ -363,7 +363,7 @@ describe('Homing (spells.md §8.7, intended behavior)', () => {
     const p1 = pawn(s, 1)
     place(p1, 500, 90) // 90 off the line: a straight r30 bolt misses the r30 pawn
     step(s, [cast(0, grant(s, 0, 'homing'), 500, 0)])
-    const events = [...s.events, ...run(s, 120)]
+    const events = [...s.events, ...run(s, ticks(2))]
     expect(of(events, 'damage').find((e) => e.target === p1.id)?.amount).toBe(70)
   })
 
@@ -372,7 +372,7 @@ describe('Homing (spells.md §8.7, intended behavior)', () => {
     place(pawn(s, 0), -3000, 0)
     place(pawn(s, 1), 4000, 0) // dead ahead: desired velocity stays (1000, 0)
     const h = spawnProjectile(s, 0, 'homing', 0, 0, 800, 0, 30, { lifetime: 4.5, data: { damage: 70, target: -1, cruise: 1000 } })
-    run(s, 60) // one second = 1 / 0.035 original ticks
+    run(s, ticks(1)) // one second = 1 / 0.035 original ticks
     // original: v_n = 1000 - 200 * 0.97^n after n ticks of 0.035 s
     expect(h.vx).toBeCloseTo(1000 - 200 * Math.pow(0.97, 1 / 0.035), 6)
     expect(h.vy).toBe(0)
@@ -405,19 +405,19 @@ describe('Homing (spells.md §8.7, intended behavior)', () => {
 
 // ---------------------------------------------------------------------------
 describe('Twin (spells.md §8.8)', () => {
-  function flight(s: SimState): { end: ProjectileState[]; ticks: number; maxSide: number } {
-    let ticks = 0
+  function flight(s: SimState): { end: ProjectileState[]; n: number; maxSide: number } {
+    let n = 0
     let maxSide = 0
     let last: ProjectileState[] = []
-    while (ticks < 200) {
+    while (n < 200) {
       step(s, [])
-      ticks++
+      n++
       const t = s.projectiles.filter((p) => p.spell === 'twin')
       if (t.length === 0) break
       last = t.map((p) => ({ ...p }))
       for (const p of t) maxSide = Math.max(maxSide, Math.abs(p.y))
     }
-    return { end: last, ticks, maxSide }
+    return { end: last, n, maxSide }
   }
 
   test('two mirrored arcs (semi-axes 400 x 161) converge on the target in ~0.92 s', () => {
@@ -425,14 +425,14 @@ describe('Twin (spells.md §8.8)', () => {
     place(pawn(s, 0), 0, 0, 0)
     place(pawn(s, 1), 0, 3000)
     step(s, [cast(0, grant(s, 0, 'twin'), 800, 0)])
-    run(s, 12) // cast point
-    const { end, ticks, maxSide } = flight(s)
+    run(s, ticks(0.2)) // cast point
+    const { end, n, maxSide } = flight(s)
     expect(end).toHaveLength(2)
     for (const p of end) expect(Math.hypot(p.x - 800, p.y)).toBeLessThan(25)
     expect(maxSide).toBeGreaterThan(155)
     expect(maxSide).toBeLessThan(165)
-    expect(ticks / 60).toBeGreaterThan(0.85)
-    expect(ticks / 60).toBeLessThan(1)
+    expect(n / TICK_HZ).toBeGreaterThan(0.85)
+    expect(n / TICK_HZ).toBeLessThan(1)
   })
 
   test('both bolts can hit the same warlock (2 x damage)', () => {
@@ -441,7 +441,7 @@ describe('Twin (spells.md §8.8)', () => {
     const p1 = pawn(s, 1)
     place(p1, 800, 0)
     step(s, [cast(0, grant(s, 0, 'twin'), 800, 0)])
-    const events = run(s, 90)
+    const events = run(s, ticks(1.5))
     expect(of(events, 'damage').filter((e) => e.target === p1.id).map((e) => e.amount)).toEqual([44, 44])
   })
 })

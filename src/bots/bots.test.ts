@@ -10,7 +10,7 @@ import { BOT_SPELLS, ESCAPE_SPELLS, escapeRange } from './spells'
 import { BUILD_IDS, drawBuild } from './plan'
 import { Rng } from './prng'
 import { firstBlocking, routeAround } from './pillars'
-import { DEFAULT_SETTINGS, RELEASED_SPELLS, SPELLS, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, RELEASED_SPELLS, SPELLS, createMatch, step, ticks } from '../sim'
 import type { PlayerSlot } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
@@ -26,7 +26,7 @@ const HIT_DIST = 25 + 30 // fireball radius + pawn radius
 function runKinematic(
   bot: Bot | null,
   state: SimState,
-  ticks: number,
+  n: number,
   onTick?: (tick: number, s: SimState) => void,
 ): { minDist: number; hit: boolean; log: { tick: number; cmds: InputCommand[] }[] } {
   const me = state.pawns.find((p) => p.owner === BOT)!
@@ -34,7 +34,7 @@ function runKinematic(
   let minDist = Infinity
   let hit = false
   const log: { tick: number; cmds: InputCommand[] }[] = []
-  for (let t = 0; t < ticks; t++) {
+  for (let t = 0; t < n; t++) {
     state.tick = t
     onTick?.(t, state)
     const cmds = bot ? bot.think(state) : []
@@ -73,7 +73,7 @@ function runKinematic(
 function incomingShot(difficulty: BotDifficulty | null, withShot = true) {
   const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 1500, 600)])
   const bot = difficulty ? createBot(BOT, difficulty, 7) : null
-  return runKinematic(bot, state, 90, (t, s) => {
+  return runKinematic(bot, state, ticks(1.5), (t, s) => {
     if (t === 1 && withShot) s.projectiles.push(makeFireball(ENEMY, 900, 0, -1000, 0))
   })
 }
@@ -111,9 +111,9 @@ describe('bots: dummy', () => {
     state.scores[0].gold = 100
     state.projectiles.push(makeFireball(ENEMY, 900, 0, -1000, 0))
     const bot = createBot(BOT, 'dummy', 1)
-    for (let t = 0; t < 600; t++) {
+    for (let t = 0; t < ticks(10); t++) {
       state.tick = t
-      state.phase = t < 300 ? 'shop' : 'fight'
+      state.phase = t < ticks(5) ? 'shop' : 'fight'
       expect(bot.think(state)).toEqual([])
     }
   })
@@ -125,7 +125,7 @@ describe('bots: never mutate state', () => {
     state.projectiles.push(makeFireball(ENEMY, 700, 0, -1000, 0))
     const before = JSON.stringify(state)
     const bot = createBot(BOT, 'brutal', 3)
-    for (let t = 0; t < 120; t++) {
+    for (let t = 0; t < ticks(2); t++) {
       state.tick = t
       const snapshot = JSON.stringify({ ...state, tick: 0 })
       bot.think(state)
@@ -162,7 +162,7 @@ describe('bots: dodging an incoming fireball', () => {
     for (const d of ['hard', 'brutal'] as const) {
       for (let seed = 1; seed <= 20; seed++) {
         const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 1500, 600)])
-        const r = runKinematic(createBot(BOT, d, seed), state, 90, (t, s) => {
+        const r = runKinematic(createBot(BOT, d, seed), state, ticks(1.5), (t, s) => {
           if (t === 1) s.projectiles.push(makeFireball(ENEMY, 900, 0, -1000, 0))
         })
         expect(r.hit, `${d} seed ${seed}`).toBe(false)
@@ -173,8 +173,9 @@ describe('bots: dodging an incoming fireball', () => {
   it('easy does not react before its next think: its commands until impact ignore the shot', () => {
     const withShot = incomingShot('easy', true)
     const without = incomingShot('easy', false)
-    // impact would be ~tick 52; easy thinks at tick 0 and next at tick 60
-    const upTo = (log: typeof withShot.log) => JSON.stringify(log.filter((e) => e.tick <= 52))
+    // impact would be ~tick 52 (at 60 Hz: shot at tick 1, 845 u at 1000 u/s); easy thinks at tick 0 and next 1 s later
+    const impact = 1 + ticks((900 - HIT_DIST) / 1000)
+    const upTo = (log: typeof withShot.log) => JSON.stringify(log.filter((e) => e.tick <= impact))
     expect(upTo(withShot.log)).toBe(upTo(without.log))
   })
 })
@@ -223,7 +224,7 @@ describe('bots: lead aim', () => {
     const state = makeState([makePawn(BOT, 0, 0), target])
     const bot = createBot(BOT, 'brutal', 11)
     let shot: { tick: number; x: number; y: number } | null = null
-    for (let t = 0; t < 240 && !shot; t++) {
+    for (let t = 0; t < ticks(4) && !shot; t++) {
       state.tick = t
       target.vx = v.x
       target.vy = v.y
@@ -249,7 +250,7 @@ describe('bots: Windwalk hides an enemy', () => {
     const state = makeState([makePawn(BOT, 0, 0), target])
     const bot = createBot(BOT, difficulty, 11)
     let casts = 0
-    for (let t = 0; t < 240; t++) {
+    for (let t = 0; t < ticks(4); t++) {
       state.tick = t
       for (const c of bot.think(state)) if (c.kind === 'cast') casts++
     }
@@ -276,15 +277,15 @@ describe('bots: a warlock standing still is a target (FFA)', () => {
     const state = makeState([makePawn(BOT, 0, 0), mover, still])
     const bot = createBot(BOT, 'hard', 5) as BotController
     const picks: (number | null)[] = []
-    for (let t = 0; t < 60 * 5; t++) {
+    for (let t = 0; t < ticks(5); t++) {
       state.tick = t
-      mover.y = 220 * Math.sin(t / 30) * 2
-      mover.vy = 220 * Math.cos(t / 30) * 2 / 30 * 60
+      mover.y = 220 * Math.sin(2 * t * DT) * 2
+      mover.vy = 220 * Math.cos(2 * t * DT) * 2 * 2
       bot.think(state)
       picks.push(bot.targetPlayer)
     }
-    expect(picks.slice(30, 60)).toContain(1)
-    expect(picks.slice(-30).every((p) => p === 2)).toBe(true)
+    expect(picks.slice(ticks(0.5), ticks(1))).toContain(1)
+    expect(picks.slice(-ticks(0.5)).every((p) => p === 2)).toBe(true)
   })
 })
 
@@ -304,7 +305,7 @@ describe('bots: lava escape', () => {
       expect(isSafe(8, 1000, 0)).toBe(false)
       const bot = createBot(BOT, d, 5)
       let cast: InputCommand | null = null
-      for (let t = 0; t < 600 && !cast; t++) {
+      for (let t = 0; t < ticks(10) && !cast; t++) {
         state.tick = t
         cast = bot.think(state).find((c) => c.kind === 'cast' && c.slot === TELEPORT_SLOT) ?? null
       }
@@ -327,10 +328,10 @@ describe('bots: lava escape', () => {
   })
 
   it('with Teleport on cooldown, a lava-aware bot walks toward the nearest tile', () => {
-    const state = onLavaWithTeleport(600)
+    const state = onLavaWithTeleport(ticks(10))
     const bot = createBot(BOT, 'hard', 5) as BotController
     let move: InputCommand | null = null
-    for (let t = 0; t < 60 && !move; t++) {
+    for (let t = 0; t < ticks(1) && !move; t++) {
       state.tick = t
       move = bot.think(state).find((c) => c.kind === 'move') ?? null
     }
@@ -346,7 +347,7 @@ describe('bots: scourge and shop', () => {
     const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 150, 0)])
     const bot = createBot(BOT, 'hard', 2)
     let scourged = false
-    for (let t = 0; t < 600 && !scourged; t++) {
+    for (let t = 0; t < ticks(10) && !scourged; t++) {
       state.tick = t
       scourged = bot.think(state).some((c) => c.kind === 'cast' && c.slot === 7)
     }
@@ -354,7 +355,7 @@ describe('bots: scourge and shop', () => {
   })
 
   it('cancels a Scourge windup to dodge a fireball', () => {
-    const me = makePawn(BOT, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: 40, x: 0, y: 0 } })
+    const me = makePawn(BOT, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(2 / 3), x: 0, y: 0 } })
     const state = makeState([me, makePawn(ENEMY, 150, 0)])
     state.projectiles.push(makeFireball(ENEMY, 0, 800, 0, -1000))
     const bot = createBot(BOT, 'hard', 2) as BotController
@@ -368,7 +369,7 @@ describe('bots: scourge and shop', () => {
     fight.scores[0].gold = 30
     const b1 = createBot(BOT, 'medium', 4)
     const fightCmds: InputCommand[] = []
-    for (let t = 0; t < 120; t++) {
+    for (let t = 0; t < ticks(2); t++) {
       fight.tick = t
       fightCmds.push(...b1.think(fight))
     }
@@ -378,7 +379,7 @@ describe('bots: scourge and shop', () => {
     shop.scores[0].gold = 30
     const b2 = createBot(BOT, 'medium', 4)
     const shopCmds: InputCommand[] = []
-    for (let t = 0; t < 120; t++) {
+    for (let t = 0; t < ticks(2); t++) {
       shop.tick = t
       shopCmds.push(...b2.think(shop))
     }
@@ -390,14 +391,14 @@ describe('bots: scourge and shop', () => {
     state.scores[0].gold = 30
     const bot = createBot(BOT, 'brutal', 4)
     const bought: { tick: number; spell: string }[] = []
-    for (let t = 0; t < 60 * 20; t++) {
+    for (let t = 0; t < ticks(20); t++) {
       state.tick = t
       // the "sim" here never grants anything: every purchase is rejected
-      state.phase = t < 600 ? 'shop' : t < 660 ? 'fight' : 'shop'
+      state.phase = t < ticks(10) ? 'shop' : t < ticks(11) ? 'fight' : 'shop'
       for (const c of bot.think(state)) if (c.kind === 'buySpell') bought.push({ tick: t, spell: c.spell })
     }
-    const first = bought.filter((b) => b.tick < 600)
-    const second = bought.filter((b) => b.tick >= 660)
+    const first = bought.filter((b) => b.tick < ticks(10))
+    const second = bought.filter((b) => b.tick >= ticks(11))
     // each buyable spell tried at most once per shop phase
     expect(first.length).toBeGreaterThan(0)
     expect(new Set(first.map((b) => b.spell)).size).toBe(first.length)
@@ -409,7 +410,7 @@ describe('bots: scourge and shop', () => {
     state.scores[0].gold = 500
     for (let seed = 1; seed <= 30; seed++) {
       const bot = createBot(BOT, 'medium', seed)
-      for (let t = 0; t < 120; t++) {
+      for (let t = 0; t < ticks(2); t++) {
         state.tick = t
         for (const c of bot.think(state)) if (c.kind === 'buySpell') expect(RELEASED_SPELLS.has(c.spell)).toBe(true)
       }
@@ -440,8 +441,8 @@ describe('bots: determinism', () => {
 
 describe('bots: M1 spells', () => {
   /** Run a bot until it casts from `slot` (or give up); the target walks at `v`. */
-  function firstCast(bot: Bot, state: SimState, slot: number, ticks = 600, walk?: { pawn: number; vx: number; vy: number }) {
-    for (let t = 0; t < ticks; t++) {
+  function firstCast(bot: Bot, state: SimState, slot: number, n = ticks(10), walk?: { pawn: number; vx: number; vy: number }) {
+    for (let t = 0; t < n; t++) {
       state.tick = t
       const p = walk ? state.pawns.find((q) => q.owner === walk.pawn)! : null
       if (p && walk) {
@@ -474,14 +475,14 @@ describe('bots: M1 spells', () => {
   it('brutal detonates its own Fireball with Lightning as it passes an enemy', () => {
     const me = makePawn(BOT, 0, 0)
     me.slots[0] = 'lightning'
-    me.cooldowns[FIREBALL_SLOT] = 600 // Fireball already in flight
+    me.cooldowns[FIREBALL_SLOT] = ticks(10) // Fireball already in flight
     const enemy = makePawn(ENEMY, 520, 160)
     const state = makeState([me, enemy])
     // our Fireball flying past the enemy, ~100 units off its path, inside Lightning's reach
     state.projectiles.push({ ...makeFireball(BOT, 200, 60, 1000, 0), id: 77 })
     const bot = createBot(BOT, 'brutal', 21) as BotController
     let combo: { x: number; y: number } | null = null
-    for (let t = 0; t < 30 && !combo; t++) {
+    for (let t = 0; t < ticks(0.5) && !combo; t++) {
       state.tick = t
       const c = bot.think(state).find((x) => x.kind === 'cast' && x.slot === 0)
       if (c && c.kind === 'cast') combo = c
@@ -509,7 +510,7 @@ describe('bots: M1 spells', () => {
     me.slots[3] = 'meteor'
     me.slots[FIREBALL_SLOT] = null
     const state = makeState([me, makePawn(ENEMY, 600, -300)])
-    const shot = firstCast(createBot(BOT, 'brutal', 8), state, 3, 600, { pawn: ENEMY, vx: 0, vy: 210 })
+    const shot = firstCast(createBot(BOT, 'brutal', 8), state, 3, ticks(10), { pawn: ENEMY, vx: 0, vy: 210 })
     expect(shot).not.toBeNull()
     const enemy = state.pawns[1]
     // lands 0.2 s cast point + 1.15 s fall after the order executes; meteor radius >= 225
@@ -525,14 +526,14 @@ describe('bots: M1 spells', () => {
       me.slots[1] = 'thrust'
       me.levels[1] = 1
       me.slots[FIREBALL_SLOT] = null
-      me.cooldowns[7] = 600 // no Scourge, so the dash is the only close-range option
+      me.cooldowns[7] = ticks(10) // no Scourge, so the dash is the only close-range option
       return makeState([me, makePawn(ENEMY, enemyX, 0)], { arena: { layer, nextShrinkTick: -1, theme: 0 } })
     }
-    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 15), 1, 300)).not.toBeNull()
+    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 15), 1, ticks(5))).not.toBeNull()
     // layer 5 (radius 400): past the enemy at x=300 is lava, so no dash
-    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 5), 1, 300)).toBeNull()
+    expect(firstCast(createBot(BOT, 'hard', 4), setup(300, 5), 1, ticks(5))).toBeNull()
     // easy keeps the original behaviour: Thrust only to leave lava
-    expect(firstCast(createBot(BOT, 'easy', 4), setup(300, 15), 1, 300)).toBeNull()
+    expect(firstCast(createBot(BOT, 'easy', 4), setup(300, 15), 1, ticks(5))).toBeNull()
   })
 })
 
@@ -550,12 +551,12 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
       me.levels[TELEPORT_SLOT] = 1
     }
     me.slots[FIREBALL_SLOT] = null // keep the test about moving
-    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: 54, x: 0, y: 0, started: true } })
+    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(0.9), x: 0, y: 0, started: true } })
     const state = makeState([me, enemy], { arena: { layer, nextShrinkTick: -1, theme: 0 } })
     const bot = createBot(BOT, difficulty, seed)
     let goal: Vec2 | null = null
     let lava = false
-    for (let t = 0; t < 54; t++) {
+    for (let t = 0; t < ticks(0.9); t++) {
       state.tick = t
       for (const c of bot.think(state)) {
         if (c.kind === 'move') goal = { x: c.x, y: c.y }
@@ -565,7 +566,7 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
           const k = Math.min(1, 770 / Math.max(1, d))
           me.x += (c.x - me.x) * k
           me.y += (c.y - me.y) * k
-          me.cooldowns[TELEPORT_SLOT] = 600
+          me.cooldowns[TELEPORT_SLOT] = ticks(10)
           goal = null
         } else if (c.kind === 'cast') goal = null
       }
@@ -620,13 +621,13 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
   it('routes around a pillar instead of fleeing into it', () => {
     const me = makePawn(BOT, 150, 0)
     me.slots[FIREBALL_SLOT] = null
-    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: 54, x: 0, y: 0, started: true } })
+    const enemy = makePawn(ENEMY, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(0.9), x: 0, y: 0, started: true } })
     const state = makeState([me, enemy])
     // a pillar right on the straight way out
     state.obstacles.push({ id: 90, x: 260, y: 0, radius: 60, hp: 400, variant: 0 })
     const bot = createBot(BOT, 'hard', 1)
     let move: Extract<InputCommand, { kind: 'move' }> | null = null
-    for (let t = 0; t < 30 && !move; t++) {
+    for (let t = 0; t < ticks(0.5) && !move; t++) {
       state.tick = t
       const c = bot.think(state).find((x) => x.kind === 'move')
       if (c && c.kind === 'move') move = c
@@ -662,11 +663,11 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
         vy: 0,
         radius: 0,
         ticksLeft: 0,
-        data: { tx: 120, ty: 0, radius: 225, hoverTicks: 33, fallTicks: 36, elapsed: 0, falling: 0, noTimer: 1 },
+        data: { tx: 120, ty: 0, radius: 225, hoverTicks: ticks(0.55), fallTicks: ticks(0.6), elapsed: 0, falling: 0, noTimer: 1 },
       })
       const bot = createBot(BOT, d, 3)
       let goal: Vec2 | null = null
-      for (let t = 0; t < 69; t++) {
+      for (let t = 0; t < ticks(0.55) + ticks(0.6); t++) {
         state.tick = t
         for (const c of bot.think(state)) if (c.kind === 'move') goal = { x: c.x, y: c.y }
         if (goal) {
@@ -690,10 +691,10 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
     const me = makePawn(BOT, 0, 0)
     me.slots[FIREBALL_SLOT] = null
     const state = makeState([me, makePawn(ENEMY, -900, 0)])
-    state.projectiles.push({ id: 62, owner: ENEMY, spell: 'gravity', x: 100, y: 50, vx: 0, vy: 0, radius: 25, ticksLeft: 200, data: { dpsRadius: 250 } })
+    state.projectiles.push({ id: 62, owner: ENEMY, spell: 'gravity', x: 100, y: 50, vx: 0, vy: 0, radius: 25, ticksLeft: ticks(3), data: { dpsRadius: 250 } })
     const bot = createBot(BOT, 'hard', 3) as BotController
     let goal: Vec2 | null = null
-    for (let t = 0; t < 120; t++) {
+    for (let t = 0; t < ticks(2); t++) {
       state.tick = t
       for (const c of bot.think(state)) if (c.kind === 'move') goal = { x: c.x, y: c.y }
       if (goal) {
@@ -720,7 +721,7 @@ describe('bots: pillars', () => {
       const state = makeState([me, makePawn(ENEMY, 1200, 600)])
       for (let i = 0; i < 12; i++) state.obstacles.push(pillar(-600 + i * 110, (i % 3) * 200 - 200, 50))
       const bot = createBot(BOT, d, 7)
-      for (let t = 0; t < 60 * 30; t++) {
+      for (let t = 0; t < ticks(30); t++) {
         state.tick = t
         for (const c of bot.think(state)) {
           if (c.kind !== 'move') continue
@@ -752,7 +753,7 @@ describe('bots: pillars', () => {
       state.projectiles.push(makeFireball(ENEMY, 700, 0, -1000, 0))
       const bot = createBot(BOT, d, 2) as BotController
       let dodge: Extract<InputCommand, { kind: 'move' }> | null = null
-      for (let t = 0; t < 80 && !dodge; t++) {
+      for (let t = 0; t < ticks(4 / 3) && !dodge; t++) {
         state.tick = t
         const c = bot.think(state).find((x) => x.kind === 'move')
         if (c && c.kind === 'move' && bot.lastAction === 'dodge') dodge = c
@@ -773,7 +774,7 @@ describe('bots: pillars', () => {
       state.projectiles.push(makeFireball(ENEMY, 800, 0, -1000, 0))
       const bot = createBot(BOT, d, 4) as BotController
       const actions = new Set<string>()
-      for (let t = 0; t < 30; t++) {
+      for (let t = 0; t < ticks(0.5); t++) {
         state.tick = t
         bot.think(state)
         actions.add(bot.lastAction)
@@ -792,7 +793,7 @@ describe('bots: Scourge timing', () => {
     me.slots[FIREBALL_SLOT] = null // only Scourge to use
     const state = makeState([me, makePawn(ENEMY, d, 0)])
     const bot = createBot(BOT, difficulty, 5)
-    for (let t = 0; t < seconds * 60; t++) {
+    for (let t = 0; t < ticks(seconds); t++) {
       state.tick = t
       if (bot.think(state).some((c) => c.kind === 'cast' && c.slot === 7)) return true
     }
@@ -815,11 +816,11 @@ describe('bots: Scourge timing', () => {
     for (const d of ['brutal', 'uber'] as const) {
       const me = makePawn(BOT, 0, 0)
       me.slots[FIREBALL_SLOT] = null
-      const rooted = makePawn(ENEMY, 215, 0, { modifiers: [{ id: 'grip', ticksLeft: 200, source: BOT, data: {} }] })
+      const rooted = makePawn(ENEMY, 215, 0, { modifiers: [{ id: 'grip', ticksLeft: ticks(3), source: BOT, data: {} }] })
       const state = makeState([me, rooted])
       const bot = createBot(BOT, d, 5)
       let cast = false
-      for (let t = 0; t < 600 && !cast; t++) {
+      for (let t = 0; t < ticks(10) && !cast; t++) {
         state.tick = t
         cast = bot.think(state).some((c) => c.kind === 'cast' && c.slot === 7)
       }
@@ -833,15 +834,15 @@ describe('bots: punishing openings (Brutal)', () => {
   // With castChance 0 the only shots left are punish shots, so each case shows what counts as
   // an opening, and that the shot still waits for the preset's reaction delay.
   const PUNISHER = { ...BOT_PRESETS.brutal, castChance: 0, punish: 1 }
-  function firstShot(enemyX: number, enemy: Partial<Parameters<typeof makePawn>[3]> = {}, ticks = 30) {
+  function firstShot(enemyX: number, enemy: Partial<Parameters<typeof makePawn>[3]> = {}, n = ticks(0.5)) {
     const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, enemyX, 0, enemy)])
     const bot = new BotController(BOT, 'brutal', 7, PUNISHER)
-    const { log } = runKinematic(bot, state, ticks)
+    const { log } = runKinematic(bot, state, n)
     return log.find((l) => l.cmds.some((c) => c.kind === 'cast' && c.slot === FIREBALL_SLOT))?.tick ?? null
   }
 
   it('fires at once at a target committed to a Scourge windup, after the reaction delay', () => {
-    const tick = firstShot(500, { cast: { slot: 7, spell: 'scourge', ticksLeft: 50, x: 500, y: 0, started: true } })
+    const tick = firstShot(500, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(0.8), x: 500, y: 0, started: true } })
     expect(tick).not.toBeNull()
     // the first decision is at tick 0: the order lands exactly one reaction delay later
     expect(tick).toBe(Math.round(BOT_PRESETS.brutal.reactionDelay / DT))

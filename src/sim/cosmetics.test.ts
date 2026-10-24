@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, createMatch, hashState, step } from './index'
+import { ticks } from './config'
 import type { MatchSettings, PlayerSlot, SimState } from './index'
 import { createBot } from '../bots'
 import { COSMETICS, COSMETIC_SLOTS, EMPTY_EQUIPMENT, type CosmeticEquipment } from '../game/progressionCatalog'
@@ -20,7 +21,7 @@ function run(dressed: boolean): number[] {
   const state: SimState = createMatch(SETTINGS, slots, 7)
   const bots = slots.map((s) => createBot(s.id, 'hard', 7 * 31 + s.id))
   const hashes: number[] = []
-  for (let i = 0; i < 60 * 60 && state.phase !== 'gameOver'; i++) {
+  for (let i = 0; i < ticks(60) && state.phase !== 'gameOver'; i++) {
     step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
     const worn = state.slots.map((s) => s.cosmetics)
     for (const s of state.slots) delete s.cosmetics
@@ -35,7 +36,7 @@ describe('cosmetics', () => {
     expect(COSMETIC_SLOTS.every((slot) => DRESSED[slot])).toBe(true)
     const bare = run(false)
     const dressed = run(true)
-    expect(bare.length).toBeGreaterThan(600)
+    expect(bare.length).toBeGreaterThan(ticks(10))
     expect(dressed).toEqual(bare)
   })
 })

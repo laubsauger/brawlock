@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { frictionPerTick } from './config'
+import { frictionPerTick, ticks } from './config'
 import { step } from './index'
 import { timeOfImpact } from './physics'
 import { cmd, newMatch, pawn, place, run, toCombat } from './testkit'
+import { DT, ORIGINAL_TICK } from './types'
 
 const F = frictionPerTick(0.96)
 
@@ -22,8 +23,8 @@ describe('swept time of impact', () => {
     const p1 = pawn(s, 1)
     place(pawn(s, 0), -2000, 0)
     place(p1, 0, 0)
-    // a 25-radius bolt moving 3000 u/s jumps 50 u per tick, more than the 30 u pawn radius
-    s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -80, y: 0, vx: 3000, vy: 0, radius: 25, ticksLeft: 60, data: { damage: 70, kb: 1 } })
+    // a 25-radius bolt moving 3000 u/s jumps 50 u per tick (at 60 Hz), more than the 30 u pawn radius
+    s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -80, y: 0, vx: 3000, vy: 0, radius: 25, ticksLeft: ticks(1), data: { damage: 70, kb: 1 } })
     step(s, [])
     expect(s.events.some((e) => e.type === 'projectileHit' && e.target === p1.id)).toBe(true)
   })
@@ -56,7 +57,7 @@ describe('elastic response (spells.md §3.2)', () => {
     place(b, 20, 0)
     step(s, [])
     // dif 40, r = 40^2 - 60^2 = -2000, s = sqrt(2000); push dif/s per original 0.035 s tick
-    const push = (40 / Math.sqrt(2000)) * ((1 / 60) / 0.035)
+    const push = (40 / Math.sqrt(2000)) * (DT / ORIGINAL_TICK)
     expect(a.x).toBeCloseTo(-20 - push, 9)
     expect(b.x).toBeCloseTo(20 + push, 9)
     expect(a.vx).toBe(0)
@@ -78,7 +79,7 @@ describe('elastic response (spells.md §3.2)', () => {
     const s = newMatch()
     const ob = { id: s.nextEntityId++, x: 0, y: 0, radius: 60, hp: 400, variant: 0 }
     s.obstacles.push(ob)
-    s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -100, y: 0, vx: 1000, vy: 0, radius: 25, ticksLeft: 60, data: { damage: 70, kb: 1 } })
+    s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -100, y: 0, vx: 1000, vy: 0, radius: 25, ticksLeft: ticks(1), data: { damage: 70, kb: 1 } })
     run(s, 5)
     expect(s.projectiles).toHaveLength(0) // the bolt died on the pillar
     expect(ob.hp).toBe(400) // shop phase: obstacles take no damage
@@ -89,8 +90,8 @@ describe('elastic response (spells.md §3.2)', () => {
     place(near, 150, 0) // explosion: 5 + 5 * (1 - 150/300) = 7.5, pushed away from the pillar
     place(pawn(s, 0), -1000, 0)
     for (let i = 0; i < 6; i++) {
-      s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -100, y: 0, vx: 1000, vy: 0, radius: 25, ticksLeft: 60, data: { damage: 70, kb: 1 } })
-      run(s, 4)
+      s.projectiles.push({ id: s.nextEntityId++, owner: 0, spell: 'fireball', x: -100, y: 0, vx: 1000, vy: 0, radius: 25, ticksLeft: ticks(1), data: { damage: 70, kb: 1 } })
+      run(s, ticks(1 / 15)) // the bolt hits within its first tick; HP regen after the blast stays under 0.5
     }
     expect(s.obstacles).toHaveLength(0)
     expect(near.hp).toBeCloseTo(1000 - 7.5, 0)
@@ -120,7 +121,7 @@ describe('collision matrix by alliance', () => {
     place(pawn(s, 0), -300, 0, 0)
     place(ally, 0, 0)
     step(s, [cmd(0, { kind: 'cast', slot: 6, x: 300, y: 0 })])
-    const events = run(s, 60)
+    const events = run(s, ticks(1))
     expect(events.some((e) => e.type === 'projectileHit')).toBe(false)
     expect(ally.vx).toBe(0)
   })

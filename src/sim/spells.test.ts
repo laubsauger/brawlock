@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { DT } from './types'
+import { DT, TICK_HZ } from './types'
 import type { SimEvent } from './types'
-import { FIREBALL_SLOT, SCOURGE_SLOT, frictionPerTick } from './config'
+import { FACING_TOLERANCE, FIREBALL_SLOT, SCOURGE_SLOT, TURN_PER_TICK, frictionPerTick, ticks } from './config'
 import { step } from './index'
 import { cmd, newMatch, pawn, place, run, runUntil, toCombat } from './testkit'
 
 const TELEPORT_SLOT = 1 // column 2
+/** ticks a pawn facing away needs to face within 0.2 rad (5 at 60 Hz); it acts on the last one */
+const TURN_AROUND = Math.ceil((Math.PI - FACING_TOLERANCE) / TURN_PER_TICK)
 const of = <T extends SimEvent['type']>(events: SimEvent[], type: T) =>
   events.filter((e): e is Extract<SimEvent, { type: T }> => e.type === type)
 
@@ -18,7 +20,7 @@ describe('Fireball (spells.md §8.1)', () => {
     place(p0, -300, 0, 0)
     place(p1, 0, 0)
     step(s, [cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 0, y: 0 })])
-    const events = runUntil(s, () => !p1.alive || p1.hp < 1000, 120)
+    const events = runUntil(s, () => !p1.alive || p1.hp < 1000, ticks(2))
     const dmg = of([...s.events, ...events], 'damage').find((e) => e.target === p1.id)!
     expect(dmg.amount).toBe(70)
     expect(dmg.source).toBe(0)
@@ -35,11 +37,11 @@ describe('Fireball (spells.md §8.1)', () => {
     const p0 = pawn(s, 0)
     place(p0, 0, -500, Math.PI / 2)
     run(s, 1, () => [cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 0, y: 2000 })])
-    const events = run(s, 80)
+    const events = run(s, ticks(4 / 3))
     const exp = of(events, 'projectileExpire')[0]
     expect(exp).toBeDefined()
-    // cast point 12 ticks, then 67.2 ticks of flight -> 68 moves of 1000/60
-    expect(exp.y).toBeCloseTo(-500 + 68 * (1000 / 60), 6)
+    // cast point 0.2 s, then 1.12 s of flight (67.2 ticks at 60 Hz) -> 68 moves of 1000 * DT
+    expect(exp.y).toBeCloseTo(-500 + Math.ceil(1.12 * TICK_HZ) * (1000 * DT), 6)
   })
 
   test('enemy fireballs destroy each other; own fireballs never hit the caster', () => {
@@ -49,7 +51,7 @@ describe('Fireball (spells.md §8.1)', () => {
     place(p0, -400, 0, 0)
     place(p1, 400, 0, Math.PI)
     run(s, 1, () => [cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 400, y: 0 }), cmd(1, { kind: 'cast', slot: FIREBALL_SLOT, x: -400, y: 0 })])
-    const events = run(s, 40)
+    const events = run(s, ticks(2 / 3))
     const hits = of(events, 'projectileHit')
     expect(hits).toHaveLength(2)
     expect(hits[0].target).toBe(hits[1].id)
@@ -72,9 +74,9 @@ describe('turning and walking (Dota unit model)', () => {
       step(s, [])
       walk.push(p0.walkVx)
     }
-    // ticks 1-4 turning in place (pi rad at 40 rad/s), tick 5 walking
-    expect(walk.slice(0, 4)).toEqual([0, 0, 0, 0])
-    expect(walk[4]).toBeCloseTo(-210, 9)
+    // ticks 1-4 turning in place (pi rad at 40 rad/s), tick 5 walking (at 60 Hz)
+    expect(walk.slice(0, TURN_AROUND - 1)).toEqual(Array(TURN_AROUND - 1).fill(0))
+    expect(walk[TURN_AROUND - 1]).toBeCloseTo(-210, 9)
     expect(walk[6]).toBeCloseTo(-210, 9)
   })
 
@@ -83,13 +85,13 @@ describe('turning and walking (Dota unit model)', () => {
     const p0 = pawn(s, 0)
     place(p0, 0, 0, 0)
     step(s, [cmd(0, { kind: 'move', x: 100, y: 0 })])
-    run(s, 60) // 100 u at 210 u/s ~ 29 ticks
+    run(s, ticks(1)) // 100 u at 210 u/s ~ 0.48 s
     expect(p0.x).toBeCloseTo(100, 6)
     expect(p0.moveTarget).toBeNull()
     expect(p0.walkVx).toBe(0)
   })
 
-  test('the cast point exactly follows the turn: fire = turn ticks + 12', () => {
+  test(`the cast point exactly follows the turn: fire = turn ticks + ${ticks(0.2)}`, () => {
     const s = newMatch()
     const p0 = pawn(s, 0)
     place(p0, 0, 0, 0)
@@ -104,8 +106,8 @@ describe('turning and walking (Dota unit model)', () => {
         if (e.type === 'cast') fireAt = s.tick - 1 - t0
       }
     }
-    expect(startAt).toBe(4) // facing reached on the 5th tick (index 4)
-    expect(fireAt).toBe(startAt + 12)
+    expect(startAt).toBe(TURN_AROUND - 1) // facing reached on the 5th tick (index 4) at 60 Hz
+    expect(fireAt).toBe(startAt + ticks(0.2))
   })
 })
 
@@ -118,9 +120,9 @@ describe('Scourge (spells.md §8.2)', () => {
     place(p0, 0, 0)
     place(p1, 100, 0)
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
-    const events = [...s.events, ...run(s, 30)]
+    const events = [...s.events, ...run(s, ticks(0.5))]
     step(s, [cmd(0, { kind: 'stop' })])
-    events.push(...s.events, ...run(s, 60))
+    events.push(...s.events, ...run(s, ticks(1)))
     expect(of(events, 'castStart')).toHaveLength(1)
     expect(of(events, 'cast')).toHaveLength(0)
     expect(of(events, 'explosion')).toHaveLength(0)
@@ -135,7 +137,7 @@ describe('Scourge (spells.md §8.2)', () => {
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
     step(s, [cmd(0, { kind: 'move', x: 0, y: 0 })])
     expect(p0.cast).toBeNull()
-    expect(of(run(s, 60), 'cast')).toHaveLength(0)
+    expect(of(run(s, ticks(1)), 'cast')).toHaveLength(0)
   })
 
   test('fires after 0.9 s: hits enemies in 250 with 0.75..1.0 knockback, costs 100 HP but never kills', () => {
@@ -147,9 +149,9 @@ describe('Scourge (spells.md §8.2)', () => {
     place(p1, 125, 0) // half radius: kb factor 0.875
     p0.hp = 50
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
-    const early = [...s.events, ...run(s, 53)]
-    expect(of(early, 'cast')).toHaveLength(0) // still winding up after 53 ticks
-    const events = [...early, ...run(s, 1)] // fires 54 ticks (0.9 s) after the windup started
+    const early = [...s.events, ...run(s, ticks(0.9) - 1)]
+    expect(of(early, 'cast')).toHaveLength(0) // still winding up one tick before 0.9 s
+    const events = [...early, ...run(s, 1)] // fires 0.9 s after the windup started
     const blast = of(events, 'damage').find((e) => e.target === p1.id)!
     expect(blast).toBeDefined()
     expect(blast.amount).toBe(100)
@@ -170,12 +172,12 @@ describe('Scourge (spells.md §8.2)', () => {
     p0.levels[SCOURGE_SLOT] = 3 // bought in the shop phase
     p0.kbPoints = 50
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
-    const events = [...s.events, ...run(s, 54)]
+    const events = [...s.events, ...run(s, ticks(0.9))]
     expect(of(events, 'damage').find((e) => e.target === pawn(s, 1).id)!.amount).toBe(120)
-    // 50 - 30 refund, minus 55 ticks of the -0.04/s DP decay
-    expect(p0.kbPoints).toBeCloseTo(20 - 0.04 * (55 / 60), 9)
+    // 50 - 30 refund, minus 0.9 s + 1 tick of the -0.04/s DP decay
+    expect(p0.kbPoints).toBeCloseTo(20 - 0.04 * (ticks(0.9) + 1) * DT, 9)
     // full HP during the windup, then -100 and one tick of regen
-    expect(p0.hp).toBeCloseTo(900 + 5 / 60, 9)
+    expect(p0.hp).toBeCloseTo(900 + 5 * DT, 9)
   })
 })
 
@@ -191,8 +193,8 @@ describe('Teleport (spells.md §8.9)', () => {
     expect(p0.x).toBeCloseTo(462, 9)
     expect(p0.y).toBeCloseTo(616, 9)
     expect(of(s.events, 'teleport')[0]).toMatchObject({ fromX: 0, fromY: 0 })
-    // level 1 cooldown 16 s: refused for 959 more ticks, castable on tick 960 after the blink
-    run(s, 959, () => [cmd(0, { kind: 'cast', slot: TELEPORT_SLOT, x: 0, y: 0 })])
+    // level 1 cooldown 16 s: refused until the tick before, castable exactly 16 s after the blink
+    run(s, ticks(16) - 1, () => [cmd(0, { kind: 'cast', slot: TELEPORT_SLOT, x: 0, y: 0 })])
     expect(p0.x).toBeCloseTo(462, 6)
     step(s, [cmd(0, { kind: 'cast', slot: TELEPORT_SLOT, x: 0, y: 0 })])
     expect(p0.x).toBeCloseTo(0, 6)
@@ -234,7 +236,7 @@ describe('Teleport (spells.md §8.9)', () => {
     step(s, [cmd(0, { kind: 'buySpell', spell: 'teleport' }, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
     step(s, [cmd(0, { kind: 'cast', slot: TELEPORT_SLOT, x: 0, y: 300 })])
     expect(p0.cast).toBeNull()
-    expect(of(run(s, 60), 'cast')).toHaveLength(0)
+    expect(of(run(s, ticks(1)), 'cast')).toHaveLength(0)
   })
 })
 
@@ -244,14 +246,14 @@ describe('casting rules', () => {
     const p0 = pawn(s, 0)
     place(p0, 0, 0, 0)
     step(s, [cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 500, y: 0 })])
-    run(s, 15)
+    run(s, ticks(0.25))
     expect(p0.cooldowns[FIREBALL_SLOT]).toBeGreaterThan(0)
     step(s, [cmd(0, { kind: 'move', x: 300, y: 0 }), cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 500, y: 0 })])
     expect(p0.moveTarget).toEqual({ x: 300, y: 0 })
     expect(p0.cast).toBeNull()
   })
 
-  test('a point spell is castable again exactly cooldown ticks after it fired (4.8 s = 288)', () => {
+  test(`a point spell is castable again exactly cooldown ticks after it fired (4.8 s = ${ticks(4.8)})`, () => {
     const s = newMatch()
     const p0 = pawn(s, 0)
     place(p0, 0, 0, 0)
@@ -259,8 +261,8 @@ describe('casting rules', () => {
     step(s, [fire])
     while (!s.events.some((e) => e.type === 'cast')) step(s, [])
     const firedAt = s.tick - 1 // index of the tick that fired
-    run(s, firedAt + 287 - s.tick)
-    step(s, [fire]) // tick firedAt + 287
+    run(s, firedAt + ticks(4.8) - 1 - s.tick)
+    step(s, [fire]) // tick firedAt + 287 (at 60 Hz)
     expect(p0.cast).toBeNull()
     step(s, [fire]) // tick firedAt + 288
     expect(p0.cast).not.toBeNull()
@@ -272,10 +274,10 @@ describe('casting rules', () => {
     place(p0, 0, 0)
     const scourge = cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 10, y: 10 })
     step(s, [scourge])
-    run(s, 30, () => [scourge]) // e.g. redundant network resends
-    expect(p0.cast!.ticksLeft).toBe(54 - 30)
+    run(s, ticks(0.5), () => [scourge]) // e.g. redundant network resends
+    expect(p0.cast!.ticksLeft).toBe(ticks(0.9) - ticks(0.5))
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 20, y: 10 })])
-    expect(p0.cast!.ticksLeft).toBe(54) // a genuinely new order restarts, as in Dota
+    expect(p0.cast!.ticksLeft).toBe(ticks(0.9)) // a genuinely new order restarts, as in Dota
   })
 
   test('cooldowns are reset on respawn (next shop phase)', () => {
@@ -283,7 +285,7 @@ describe('casting rules', () => {
     toCombat(s)
     const p0 = pawn(s, 0)
     step(s, [cmd(0, { kind: 'cast', slot: SCOURGE_SLOT, x: 0, y: 0 })])
-    run(s, 54)
+    run(s, ticks(0.9))
     expect(p0.cooldowns[SCOURGE_SLOT]).toBeGreaterThan(0)
     place(pawn(s, 1), 3000, 0)
     runUntil(s, (st) => st.phase === 'shop')

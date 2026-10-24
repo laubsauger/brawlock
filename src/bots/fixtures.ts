@@ -2,6 +2,7 @@
  * Hand-built SimState fixtures for bot tests (independent of the sim implementation).
  * Slot layout follows the contract: 0..5 spell columns, 6.. items (Fireball 6, Scourge 7).
  */
+import { ticks } from '../sim/config'
 import type { MatchSettings, PawnState, PlayerSlot, ProjectileState, SimState } from '../sim/types'
 
 export const FIREBALL_SLOT = 6
@@ -62,7 +63,7 @@ export function makePawn(owner: number, x: number, y: number, patch: Partial<Paw
 }
 
 export function makeFireball(owner: number, x: number, y: number, vx: number, vy: number, id = 500): ProjectileState {
-  return { id, owner, spell: 'fireball', x, y, vx, vy, radius: 25, ticksLeft: 60, data: {} }
+  return { id, owner, spell: 'fireball', x, y, vx, vy, radius: 25, ticksLeft: ticks(1), data: {} }
 }
 
 export function makeState(pawns: PawnState[], patch: Partial<SimState> = {}): SimState {

@@ -4,7 +4,7 @@
  * forbidding a good contested finish, forcing retreat or imposing a chase timer.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, createMatch, hashState, step } from '../sim'
+import { DEFAULT_SETTINGS, DT, createMatch, hashState, step, ticks } from '../sim'
 import type { BotDifficulty, PlayerSlot, SimState } from '../sim'
 import { BotController } from './controller'
 import { makePawn, makeState } from './fixtures'
@@ -20,9 +20,9 @@ function ffa(diffs: BotDifficulty[], seed: number) {
 function piles(diffs: BotDifficulty[], seed: number, fightSeconds: number): number[] {
   const { state, bots } = ffa(diffs, seed)
   const out: number[] = []
-  for (let i = 0; i < 60 * 600 && out.length < fightSeconds * 2; i++) {
+  for (let i = 0; i < ticks(600) && out.length < fightSeconds * 2; i++) {
     step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
-    if (state.phase !== 'fight' || state.tick % 30 !== 0) continue
+    if (state.phase !== 'fight' || state.tick % ticks(0.5) !== 0) continue
     const alive = new Set(state.pawns.filter((p) => p.alive).map((p) => p.owner))
     if (alive.size < 4) continue
     const on = new Map<number, number>()
@@ -50,7 +50,7 @@ describe('bots: FFA targeting', () => {
     const other = makePawn(2, -350, 120, near)
     const state: SimState = makeState([me, weak, other])
     const bot = new BotController(0, difficulty, seed)
-    for (let t = 0; t < 30; t++) {
+    for (let t = 0; t < ticks(0.5); t++) {
       state.tick = t
       bot.think(state)
     }
@@ -64,7 +64,7 @@ describe('bots: FFA targeting', () => {
         const state = makeState([me, makePawn(1, 1350, 0, { hp: 150, kbPoints: 400 }), makePawn(2, -350, 120)])
         state.events.push({ type: 'damage', target: me.id, source: 2, amount: 100, x: 0, y: 0, kb: 0 })
         const bot = new BotController(0, d, seed)
-        for (let t = 0; t < 30; t++) {
+        for (let t = 0; t < ticks(0.5); t++) {
           state.tick = t
           bot.think(state)
           state.events = []
@@ -100,7 +100,7 @@ describe('bots: FFA targeting', () => {
     const state = makeState([me, weak, ...crowd, free])
     for (const d of ['hard', 'brutal', 'uber'] as const) {
       const bot = new BotController(0, d, 3)
-      for (let t = 0; t < 30; t++) {
+      for (let t = 0; t < ticks(0.5); t++) {
         state.tick = t
         bot.think(state)
       }
@@ -129,7 +129,7 @@ describe('bots: FFA targeting', () => {
     expect(bot.targetPlayer).toBe(1)
     first.x = 1350
     second.x = -200
-    for (let tick = 1; tick <= 12; tick++) {
+    for (let tick = 1; tick <= ticks(0.2); tick++) {
       state.tick = tick
       bot.think(state)
     }
@@ -139,9 +139,9 @@ describe('bots: FFA targeting', () => {
   it('keeps a worthwhile fight through small score fluctuations without a maximum chase timer', () => {
     const state = makeState([makePawn(0, 0, 0), makePawn(1, 400, 0), makePawn(2, -420, 0)])
     const bot = new BotController(0, 'hard', 1)
-    for (let tick = 0; tick < 60 * 20; tick++) {
+    for (let tick = 0; tick < ticks(20); tick++) {
       state.tick = tick
-      state.pawns[2].x = -400 + Math.sin(tick / 60) * 15
+      state.pawns[2].x = -400 + Math.sin(tick * DT) * 15
       bot.think(state)
       expect(bot.targetPlayer).toBe(1)
     }
@@ -155,7 +155,7 @@ describe('bots: FFA targeting', () => {
     bot.think(state)
     expect(bot.targetPlayer).toBe(2)
     state.events = []
-    for (let tick = 1; tick <= 60 * 20; tick++) {
+    for (let tick = 1; tick <= ticks(20); tick++) {
       state.tick = tick
       bot.think(state)
     }
@@ -173,7 +173,7 @@ describe('bots: FFA targeting', () => {
       me.slots.fill(null) // Only the movement decision is under test.
       const state = makeState([me, makePawn(1, 250, 0), makePawn(2, -650, 0)])
       const bot = new BotController(0, 'hard', index + 1)
-      for (let tick = 0; tick < 30; tick++) {
+      for (let tick = 0; tick < ticks(0.5); tick++) {
         state.tick = tick
         const move = bot.think(state).find((command) => command.kind === 'move')
         if (move?.kind === 'move') return Math.hypot(move.x - 250, move.y)
@@ -192,7 +192,7 @@ describe('bots: FFA targeting', () => {
   it('8-bot FFA matches are reproducible', () => {
     const run = () => {
       const { state, bots } = ffa(['easy', 'medium', 'hard', 'hard', 'brutal', 'brutal', 'uber', 'medium'], 9)
-      for (let i = 0; i < 60 * 90; i++) step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
+      for (let i = 0; i < ticks(90); i++) step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
       return hashState(state)
     }
     expect(run()).toBe(run())

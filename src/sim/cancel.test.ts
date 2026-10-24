@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { FIREBALL_SLOT, SCOURGE_SLOT } from './config'
+import { FIREBALL_SLOT, SCOURGE_SLOT, ticks } from './config'
 import { step } from './index'
 import { receiveDamage } from './combat'
 import { cmd, newMatch, pawn, place, run, toCombat } from './testkit'
@@ -16,12 +16,12 @@ describe('cast canceling', () => {
     const p0 = pawn(s, 0)
     place(p0, 0, 0, 0)
     step(s, [cmd(0, { kind: 'cast', slot: FIREBALL_SLOT, x: 500, y: 0 })])
-    const events = [...s.events, ...run(s, 5)]
+    const events = [...s.events, ...run(s, ticks(0.1))]
     expect(of(events, 'castStart')).toHaveLength(1)
     step(s, [cmd(0, { kind: 'stop' })])
     expect(of(s.events, 'castCancel')).toEqual([{ type: 'castCancel', pawn: p0.id, spell: 'fireball', slot: FIREBALL_SLOT, started: true }])
     expect(p0.cooldowns[FIREBALL_SLOT]).toBe(0)
-    expect(of(run(s, 30), 'cast')).toHaveLength(0)
+    expect(of(run(s, ticks(0.5)), 'cast')).toHaveLength(0)
   })
 
   test.each(['fireball', 'snowball', 'twin', 'cluster', 'bouncer', 'boomerang', 'lightning', 'homing', 'drain', 'recharge', 'redirector', 'gravity', 'grip', 'link', 'magnetize', 'meteor', 'rockpillar', 'warpzone', 'pact', 'scourge'])('%s cannot launch when canceled on its final windup tick', (spell) => {
@@ -40,7 +40,7 @@ describe('cast canceling', () => {
     expect(of(s.events, 'castCancel')).toHaveLength(1)
     expect(p0.cast).toBeNull()
     expect(p0.cooldowns[0]).toBe(0)
-    const later = run(s, 30)
+    const later = run(s, ticks(0.5))
     expect(of(later, 'cast')).toHaveLength(0)
     expect(of(later, 'projectileSpawn')).toHaveLength(0)
     expect(s.projectiles).toHaveLength(0)

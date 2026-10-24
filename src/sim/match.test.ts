@@ -20,17 +20,17 @@ describe('rounds mode (systems.md §7.2)', () => {
     const s = newMatch(ORIGINAL_RULES)
     expect(s.phase).toBe('shop')
     expect(s.arena.layer).toBe(14)
-    expect(s.phaseTicksLeft).toBe(30 * 60)
+    expect(s.phaseTicksLeft).toBe(ticks(30))
     // 1v1 spawn: radius (13 + 2) * 100 - 600 = 900, opposite sides, facing the centre
     expect(pawn(s, 0).x).toBeCloseTo(900, 9)
     expect(pawn(s, 1).x).toBeCloseTo(-900, 9)
 
-    const shop = run(s, 30 * 60)
+    const shop = run(s, ticks(30))
     expect(phases(shop)).toEqual(['fight'])
     expect(s.round).toBe(1)
     expect(s.arena.layer).toBe(15) // 13 + 2 players
     expect(pawn(s, 0).invulnerable).toBe(true)
-    run(s, 120)
+    run(s, ticks(2))
     expect(pawn(s, 0).invulnerable).toBe(false)
 
     const fight: SimEvent[] = []
@@ -72,14 +72,14 @@ describe('rounds mode (systems.md §7.2)', () => {
     expect(s.settings.shopSeconds).toBe(DEFAULT_SETTINGS.shopSeconds)
     expect(s.settings.lavaDps).toBe(DEFAULT_SETTINGS.lavaDps)
     expect(s.settings.friction).toBe(DEFAULT_SETTINGS.friction)
-    run(s, DEFAULT_SETTINGS.shopSeconds * 60)
+    run(s, ticks(DEFAULT_SETTINGS.shopSeconds))
     expect(s.phase).toBe('fight')
   })
 
   test('the arena shrinks one layer every 10 s of fighting', () => {
     const s = newMatch({ shopSeconds: 0 })
     runUntil(s, (st) => st.phase === 'fight')
-    const events = run(s, 600 * 3)
+    const events = run(s, ticks(10 * 3))
     const shrinks = events.filter((e) => e.type === 'arenaShrink')
     expect(shrinks).toEqual([
       { type: 'arenaShrink', layer: 14 },
@@ -136,7 +136,7 @@ describe('default lobby rules (PLAN §2 deviation)', () => {
   test('a default match is short: first to 5, a 25 s shop, and the round winner earns 2 bonus gold', () => {
     // the original first-to-11 with a 30 s shop dragged on; win gold rewards taking the round
     const s = createMatch(DEFAULT_SETTINGS, slots(2), 7)
-    expect(s.phaseTicksLeft).toBe(25 * 60)
+    expect(s.phaseTicksLeft).toBe(ticks(25))
     for (let i = 0; i < 200000 && s.phase !== 'gameOver'; i++) step(s, loserWalksIntoLava(s))
     expect(s.phase).toBe('gameOver')
     expect(s.round).toBe(5)

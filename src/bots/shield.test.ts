@@ -5,7 +5,7 @@
  * bubble. Alteration's bubble swaps the first projectile with its caster.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, FIREBALL_SLOT, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, DT, FIREBALL_SLOT, TICK_HZ, createMatch, step, ticks } from '../sim'
 import type { BotDifficulty, InputCommand, PawnState, PlayerSlot, SimState } from '../sim'
 import { BOT_PRESETS, createBot } from './index'
 import { makeFireball, makePawn, makeState } from './fixtures'
@@ -32,7 +32,7 @@ function turtle(state: SimState, me: PawnState, foe: PawnState, early: boolean):
       if (Math.hypot(dx, dy) < 320 && p.vx * dx + p.vy * dy > 0) return shield
     }
   }
-  if (foe.alive && me.cooldowns[FIREBALL_SLOT] === 0 && !me.cast && state.tick % 150 === 0) return [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }]
+  if (foe.alive && me.cooldowns[FIREBALL_SLOT] === 0 && !me.cast && state.tick % ticks(2.5) === 0) return [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }]
   return Math.hypot(me.x, me.y) > 250 ? [{ kind: 'move', x: 0, y: 0 }] : []
 }
 
@@ -77,7 +77,7 @@ function againstTurtle(difficulty: BotDifficulty, seed: number, early: boolean, 
   let lastAt = -1
   let decidedIntoBubble = false
   const intoBubble = new Map<number, boolean>() // our projectile id -> decided while a bubble was up
-  for (let i = 0; i < seconds * 60; i++) {
+  for (let i = 0; i < ticks(seconds); i++) {
     const t = state.pawns.find((p) => p.owner === ENEMY)!
     const b = state.pawns.find((p) => p.owner === BOT)!
     t.slots[SHIELD_SLOT] = 'shield'
@@ -112,10 +112,10 @@ function duel(d: number, enemyPatch: Partial<PawnState> = {}) {
 }
 
 /** First tick the bot casts its Fireball at the enemy, running the enemy's bubble down as it goes. */
-function firstFireball(difficulty: BotDifficulty, state: SimState, ticks = 400): number | null {
+function firstFireball(difficulty: BotDifficulty, state: SimState, n = ticks(7)): number | null {
   const bot = createBot(BOT, difficulty, 5)
   const foe = state.pawns.find((p) => p.owner === ENEMY)!
-  for (let t = 0; t < ticks; t++) {
+  for (let t = 0; t < n; t++) {
     state.tick = t
     if (bot.think(state).some((c) => c.kind === 'cast' && c.slot === FIREBALL_SLOT)) return t
     for (const m of foe.modifiers) if (m.ticksLeft > 0) m.ticksLeft--
@@ -129,32 +129,32 @@ describe('bots: Shield awareness', () => {
     for (const d of ['medium', 'hard', 'brutal', 'uber'] as const) {
       // a long bubble (4 s: duration mastery) on an enemy 700 away that does not own Shield
       // itself (an ally's): the shot takes reaction + 0.2 s windup + 0.5 s flight to the bubble
-      const UP = 240
+      const UP = ticks(4)
       const bubble = () => duel(700, { modifiers: [{ id: 'shield', ticksLeft: UP, source: ENEMY, data: { radius: 200 } }] })
-      const arrive = (BOT_PRESETS[d].reactionDelay + 0.2 + (700 - 200) / 1000) * 60
+      const arrive = (BOT_PRESETS[d].reactionDelay + 0.2 + (700 - 200) / 1000) * TICK_HZ
       // without the bubble this bot fires while such a bubble would still be up ...
-      const free = firstFireball(d, duel(700), 1500)
+      const free = firstFireball(d, duel(700), ticks(25))
       expect(free, d).not.toBeNull()
       expect(UP - free!, `${d}: the control must shoot into the bubble`).toBeGreaterThan(arrive)
       // ... with it, only once the shot would get there after the bubble drops
-      const t = firstFireball(d, bubble(), 1500)
+      const t = firstFireball(d, bubble(), ticks(25))
       expect(t, d).not.toBeNull()
       expect(UP - t!, `${d} fired with ${UP - t!} ticks of bubble left, arriving in ${arrive.toFixed(0)}`).toBeLessThanOrEqual(arrive)
       // from release (t is when the order reaches the sim) the bolt's front (radius 25) reaches
       // the bubble after the 0.2 s windup; the bubble must be gone 0.1 s before that, not a tick
       // or two (the old self-hits; Uber here had 5.5 ticks)
-      const front = (0.2 + (700 - 200 - 25) / 1000) * 60
-      expect(front - (UP - t!), `${d}: ticks between the bubble dropping and the bolt arriving`).toBeGreaterThanOrEqual(6)
+      const front = (0.2 + (700 - 200 - 25) / 1000) * TICK_HZ
+      expect(front - (UP - t!), `${d}: ticks between the bubble dropping and the bolt arriving`).toBeGreaterThanOrEqual(ticks(0.1))
     }
   })
 
   it('wastes no Lightning on a bubble: the beam stops there', () => {
-    const s = duel(500, { modifiers: [{ id: 'alteration', ticksLeft: 600, source: ENEMY, data: { radius: 120 } }] })
+    const s = duel(500, { modifiers: [{ id: 'alteration', ticksLeft: ticks(10), source: ENEMY, data: { radius: 120 } }] })
     const me = s.pawns[0]
     me.slots[0] = 'lightning'
     me.slots[FIREBALL_SLOT] = null
     const bot = createBot(BOT, 'hard', 3)
-    for (let t = 0; t < 300; t++) {
+    for (let t = 0; t < ticks(5); t++) {
       s.tick = t
       expect(bot.think(s).some((c) => c.kind === 'cast' && c.slot === 0), `tick ${t}`).toBe(false)
     }
@@ -167,9 +167,9 @@ describe('bots: Shield awareness', () => {
       s.pawns[1].levels[SHIELD_SLOT] = 1
       return s
     }
-    for (const d of ['medium', 'hard', 'brutal', 'uber'] as const) expect(firstFireball(d, owns(450), 300), `${d} at 450`).toBeNull()
+    for (const d of ['medium', 'hard', 'brutal', 'uber'] as const) expect(firstFireball(d, owns(450), ticks(5)), `${d} at 450`).toBeNull()
     // (Uber's shot gate skips long shots at a target free to walk: tested elsewhere)
-    for (const d of ['medium', 'hard', 'brutal'] as const) expect(firstFireball(d, owns(950), 600), `${d} at 950`).not.toBeNull()
+    for (const d of ['medium', 'hard', 'brutal'] as const) expect(firstFireball(d, owns(950), ticks(10)), `${d} at 950`).not.toBeNull()
     // not so a Drain: stolen, it re-aims at the closest pawn but its new owner, the caster.
     // (Most of the bait shots that came back did so as a Drain: 7 of 8 over 200 turtle runs.)
     const DRAIN_SLOT = 2
@@ -179,7 +179,7 @@ describe('bots: Shield awareness', () => {
       s.pawns[0].slots[DRAIN_SLOT] = 'drain'
       s.pawns[0].levels[DRAIN_SLOT] = 1
       const bot = createBot(BOT, d, 5)
-      for (let t = 0; t < 600; t++) {
+      for (let t = 0; t < ticks(10); t++) {
         s.tick = t
         expect(bot.think(s).some((c) => c.kind === 'cast' && c.slot === DRAIN_SLOT), `${d} Drain at 950, tick ${t}`).toBe(false)
       }
@@ -193,8 +193,8 @@ describe('bots: Shield awareness', () => {
         { id: ENEMY, name: 'turtle', color: 0x0000ff, team: 1, kind: 'human' },
       ]
       const state = createMatch({ ...DEFAULT_SETTINGS }, slots, 50 + k)
-      for (let i = 0; i < 60 * 60 && state.phase !== 'fight'; i++) step(state, [])
-      for (let i = 0; i < 150; i++) step(state, [])
+      for (let i = 0; i < ticks(60) && state.phase !== 'fight'; i++) step(state, [])
+      for (let i = 0; i < ticks(2.5); i++) step(state, [])
       state.obstacles = []
       const me = state.pawns.find((p) => p.owner === BOT)!
       const foe = state.pawns.find((p) => p.owner === ENEMY)!
@@ -214,7 +214,7 @@ describe('bots: Shield awareness', () => {
       const watch = reflectWatch()
       // our Fireball is already on its way (cast before the bot takes over)
       step(state, [{ player: BOT, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }] }])
-      for (let i = 0; i < 180; i++) {
+      for (let i = 0; i < ticks(3); i++) {
         const shield =
           foe.cooldowns[SHIELD_SLOT] === 0 && state.projectiles.some((p) => p.owner === BOT && Math.hypot(p.x - foe.x, p.y - foe.y) < 450)
         step(state, [
@@ -242,10 +242,10 @@ describe('bots: Shield awareness', () => {
       bolt.spell = spell
       s.projectiles.push(bolt)
       const bot = createBot(BOT, difficulty, seed)
-      for (let t = 0; t < 40; t++) {
+      for (let t = 0; t < ticks(2 / 3); t++) {
         s.tick = t
         if (bot.think(s).some((c) => c.kind === 'cast' && c.slot === SHIELD_SLOT)) return true
-        bolt.x += bolt.vx / 60
+        bolt.x += bolt.vx * DT
       }
       return false
     }
