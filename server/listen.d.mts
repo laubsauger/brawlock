@@ -12,6 +12,8 @@ export interface ServerOptions {
   trustProxy?: boolean
   /** tests only: session clocks run this many times faster than wall time (clients must match) */
   timeScale?: number
+  /** lossless stream peers get a packet every this many ticks (default 1; session.ts) */
+  streamEvery?: number
   log?: LogFn
   /** directory of leaderboard.sqlite; '' / missing = no leaderboard */
   dataDir?: string

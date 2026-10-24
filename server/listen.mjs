@@ -203,6 +203,7 @@ export async function startServer(opts = {}) {
       defaultSettings: DEFAULT_SETTINGS,
       // timeScale > 1 (tests): sim time runs faster than wall time; clients must use the same scale
       startClock: timeScale === 1 ? pulseClock : (onPulse) => pulseClock((t) => onPulse(t * timeScale)),
+      streamEvery: opts.streamEvery ?? 1,
       now: () => performance.now() * timeScale,
       random: Math.random,
       build,

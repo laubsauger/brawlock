@@ -64,7 +64,7 @@ import type { LobbyVoteChoice, LobbyVoteSetting, LobbyVoteWire, LobbyVoteResult 
 import type { ChatLine } from './chat'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 
 /** Snapshots carry the events of this many most recent ticks. */
 export const EVENT_REDUNDANCY_TICKS = 10
@@ -154,7 +154,8 @@ export type Msg =
       ds: number | null
     }
   | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; in?: PlayerInput[]; state: SimState }
-  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; s?: WireSlot[]; h?: [number, number] }
+  /** `p`: this tick's changed bot plans, riding the packet on lossless links (else a `plans` message) */
+  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; s?: WireSlot[]; h?: [number, number]; p?: BotPlan[] }
   | { t: 'need'; m: number; from: number; k?: 1 }
   | { t: 'hint'; m: number; p: PlayerId; f: [number, InputCommand[]][] }
   /** A bot's complete pending schedule as of tick n; newer plans replace older future commands. */
@@ -200,7 +201,7 @@ const TYPES = new Set<Msg['t']>([
 
 export function encode(msg: Msg): string {
   if (msg.t === 'plan') return JSON.stringify({ ...msg, f: msg.f.map(([tick, cmds]) => [tick, cmds.map(encodeCmd)]) })
-  if (msg.t === 'plans') return JSON.stringify({ t: msg.t, m: msg.m, plans: msg.plans.map((p) => [p.p, p.n, p.f.map(([tick, cmds]) => [tick - p.n, cmds.map(encodeCmd)])]) })
+  if (msg.t === 'plans') return `{"t":"plans","m":${msg.m},"plans":${encodePlans(msg.plans)}}`
   return JSON.stringify(msg)
 }
 
@@ -217,15 +218,13 @@ export function decode(data: string): Msg | null {
   if (typeof t !== 'string' || !TYPES.has(t as Msg['t'])) return null
   if (t === 'plans') {
     const msg = v as Extract<Msg, { t: 'plans' }>
-    if (!Array.isArray(msg.plans)) return null
-    const plans: BotPlan[] = []
-    for (const p of msg.plans as unknown[]) {
-      if (!Array.isArray(p) || !Number.isInteger(p[0]) || !Number.isInteger(p[1]) || !Array.isArray(p[2])) return null
-      const decoded = decodeBotPlan(p[0], p[1], p[2], true)
-      if (!decoded) return null
-      plans.push(decoded)
-    }
-    return { ...msg, plans }
+    const plans = decodePlans(msg.plans)
+    return plans ? { ...msg, plans } : null
+  }
+  if (t === 'is' && (v as { p?: unknown }).p !== undefined) {
+    const msg = v as Extract<Msg, { t: 'is' }>
+    const plans = decodePlans(msg.p)
+    return plans ? { ...msg, p: plans } : null
   }
   if (t === 'plan') {
     const plan = v as Extract<Msg, { t: 'plan' }>
@@ -233,6 +232,23 @@ export function decode(data: string): Msg | null {
     return decoded ? { ...plan, ...decoded } : null
   }
   return v as Msg
+}
+
+/** Bot plans on the wire: [player, asOf, frames with ticks relative to asOf]. */
+export function encodePlans(plans: readonly BotPlan[]): string {
+  return JSON.stringify(plans.map((p) => [p.p, p.n, p.f.map(([tick, cmds]) => [tick - p.n, cmds.map(encodeCmd)])]))
+}
+
+function decodePlans(wire: unknown): BotPlan[] | null {
+  if (!Array.isArray(wire)) return null
+  const plans: BotPlan[] = []
+  for (const p of wire as unknown[]) {
+    if (!Array.isArray(p) || !Number.isInteger(p[0]) || !Number.isInteger(p[1]) || !Array.isArray(p[2])) return null
+    const decoded = decodeBotPlan(p[0], p[1], p[2], true)
+    if (!decoded) return null
+    plans.push(decoded)
+  }
+  return plans
 }
 
 function decodeBotPlan(player: number, asOf: number, frames: unknown, relative: boolean): BotPlan | null {
@@ -265,8 +281,8 @@ export function encodeSnap(match: number, n: number, iv: number, ack: number, ev
  * Stream packet encoder: `body` is the JSON after the per-client fields (`"to":…,"r":…`
  * plus optional i / c / h), built once per tick and shared by every client.
  */
-export function encodeStreamPacket(match: number, n: number, ack: number, body: string): string {
-  return `{"t":"is","m":${match},"n":${n},"a":${ack},${body}}`
+export function encodeStreamPacket(match: number, n: number, ack: number, body: string, plansJson?: string): string {
+  return `{"t":"is","m":${match},"n":${n},"a":${ack},${body}${plansJson ? `,"p":${plansJson}` : ''}}`
 }
 
 /** A reported link metric: finite, clamped to 0..1e6, else null. */

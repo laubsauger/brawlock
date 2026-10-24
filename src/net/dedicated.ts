@@ -120,6 +120,8 @@ export interface RoomSummary {
 }
 
 export interface RoomDeps {
+  /** lossless stream peers get a packet every this many ticks (session.ts sendStream; default 1) */
+  streamEvery?: number
   createMatch: (settings: MatchSettings, slots: PlayerSlot[], seed: number) => SimState
   step: (state: SimState, inputs: PlayerInput[]) => void
   createBot: (player: PlayerId, difficulty: BotDifficulty, seed: number) => Bot
@@ -249,6 +251,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
       join: () => Promise.reject(new Error('a room does not join')),
     },
     startClock: deps.startClock,
+    streamEvery: deps.streamEvery,
     now: deps.now,
     random: deps.random,
     joinUrl: (code) => code,

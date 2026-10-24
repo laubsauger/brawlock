@@ -1795,3 +1795,50 @@ describe('automatic room last-human cleanup', () => {
     } finally { a.session.leave(); reserved.session.leave() }
   }, 10000)
 })
+
+describe('stream over a lossless link', () => {
+  /**
+   * Why: over a WebSocket (TCP) the loss repeats of the raw P2P channel were pure overhead, the
+   * server's main cost being per message. Bot plans now ride the tick's stream packet, and with
+   * streamEvery 2 one packet carries two 60 Hz steps; prediction must stay exact either way.
+   */
+  it('carries bot plans in the stream packet, batches steps with streamEvery and never desyncs', async () => {
+    const counts = new Map<string, number>()
+    const Native = globalThis.WebSocket
+    vi.stubGlobal('WebSocket', class extends Native {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args)
+        this.addEventListener('message', (e) => {
+          const t = typeof e.data === 'string' ? /^\{"t":"(\w+)"/.exec(e.data)?.[1] ?? '?' : 'binary'
+          counts.set(t, (counts.get(t) ?? 0) + 1)
+        })
+      }
+    })
+    try {
+      for (const every of [1, 2]) {
+        const { base } = await start({}, 'dev-server', { streamEvery: every })
+        const owner = headlessClient(base, { key: `lossless-${every}`, play: true })
+        try {
+          await owner.session.join(await owner.online.createRoom('test'))
+          for (const d of ['hard', 'hard', 'brutal'] as const) owner.session.addBot(d)
+          owner.session.updateSettings({ shopSeconds: 1, winScore: 99 })
+          await until(() => owner.lobby().slots.length === 4 && owner.lobby().settings?.shopSeconds === 1, 3000, 'lobby')
+          owner.session.startMatch()
+          await until(() => owner.shown()?.phase === 'fight', 8000, 'fight')
+          const before = { is: counts.get('is') ?? 0, plans: counts.get('plans') ?? 0, tick: owner.session.debug().streamTick }
+          await new Promise((r) => setTimeout(r, 1500))
+          const ticks = owner.session.debug().streamTick - before.tick
+          const packets = (counts.get('is') ?? 0) - before.is
+          expect(ticks).toBeGreaterThan(200)
+          // bots act nearly every tick: one packet a tick, or one every second tick
+          expect(packets / ticks).toBeGreaterThan(every === 1 ? 0.8 : 0.4)
+          expect(packets / ticks).toBeLessThan(every === 1 ? 1.05 : 0.55)
+          expect((counts.get('plans') ?? 0) - before.plans).toBe(0)
+          expect(owner.session.debug().streamChecks).toBeGreaterThan(0)
+          expect(owner.session.debug().streamDesyncs).toBe(0)
+        } finally { owner.session.leave() }
+      }
+    } finally { vi.unstubAllGlobals() }
+  }, 30000)
+})
+

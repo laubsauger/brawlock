@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { MatchSettings, PlayerSlot, SimState } from '../sim/types'
+import type { InputCommand, MatchSettings, PlayerSlot, SimState } from '../sim/types'
 import { DEFAULT_SETTINGS } from '../sim/config'
 import { decodeCmd, encodeCmd } from './stream'
 import {
   PROTOCOL_VERSION,
   decode,
   encode,
+  encodePlans,
   encodeSnap,
+  encodeStreamPacket,
   sanitizeCommand,
   sanitizeFrames,
   sanitizeName,
@@ -174,5 +176,23 @@ describe('client input validation (clients are untrusted)', () => {
     expect(sanitizeName('')).toBe('Warlock')
     expect(sanitizeName(5)).toBe('Warlock')
     expect(sanitizeName('x'.repeat(50))).toHaveLength(20)
+  })
+})
+
+describe('stream packets', () => {
+  it('carry bot plans that decode to the same schedule as a plans message', () => {
+    // Why: on lossless links the tick's bot plans ride the stream packet instead of their own
+    // message; a client must predict the bots exactly as before.
+    const plans = [
+      { p: 3, n: 600, f: [[600, [{ kind: 'move' as const, x: 12.5, y: -40 }]], [611, [{ kind: 'cast' as const, slot: 0, x: 100, y: 25.25 }]]] as [number, InputCommand[]][] },
+      { p: 7, n: 600, f: [] as [number, InputCommand[]][] },
+    ]
+    const packet = decode(encodeStreamPacket(4, 99, 12, '"to":601,"r":1', encodePlans(plans)))
+    const message = decode(encode({ t: 'plans', m: 4, plans }))
+    expect(packet).toMatchObject({ t: 'is', m: 4, n: 99, a: 12, to: 601, r: 1 })
+    expect(packet && packet.t === 'is' && packet.p).toEqual(message && message.t === 'plans' && message.plans)
+    expect(decode(encodeStreamPacket(4, 100, 12, '"to":602,"r":1'))).not.toHaveProperty('p')
+    // a malformed plan is rejected like a malformed plans message
+    expect(decode('{"t":"is","m":4,"n":1,"a":0,"to":2,"r":1,"p":[[1,"x",[]]]}')).toBeNull()
   })
 })

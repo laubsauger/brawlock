@@ -62,6 +62,7 @@ import {
   decode,
   encode,
   encodeSnap,
+  encodePlans,
   encodeStreamPacket,
   sanitizeColor,
   sanitizeFrames,
@@ -173,6 +174,12 @@ export interface SessionDeps {
   hostDelayCapTicks?: number
   /** host relays stamped input frames to the other players on arrival (prediction hints); default true */
   inputHints?: boolean
+  /**
+   * Host: a lossless stream peer gets a packet every this many ticks, carrying all steps since
+   * the last (default 1). 2 halves the server's messages at 60 Hz simulation; remote inputs and
+   * acks then arrive up to one tick later. Gap repairs still go out at once.
+   */
+  streamEvery?: number
   /** persistent anonymous device id (game/device.ts): reconnect after a browser restart, future ranked */
   device?: () => string
   /** this build's id (vite define __BUILD_ID__, 'dev-…' for dev builds); dedicated servers refuse other release builds */
@@ -417,6 +424,10 @@ interface HostMatch {
   /** Reserved seats until the fight ends: original bot slot, or null for an empty seat. */
   waiting: Map<PlayerId, PlayerSlot | null>
   botPlans: Map<PlayerId, { message: Extract<Msg, { t: 'plan' }>; repeats: number }>
+  /** this tick's bot plans to send (sendToPeers) */
+  tickPlans: Extract<Msg, { t: 'plan' }>[]
+  /** bot plans waiting for the next stream packet of lossless peers (streamEvery > 1) */
+  streamPlans: Extract<Msg, { t: 'plan' }>[]
   recent: TickEvents[]
   /** inputs stepped since the last snapshot went out (snap.in) */
   stepped: PlayerInput[]
@@ -1497,10 +1508,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         cancelBotPlan(m, id)
       }
     }
-    if (plans.length) {
-      const data = encode({ t: 'plans', m: m.id, plans })
-      for (const p of peers) if (p.stream && p.matchId === m.id) p.t.sendUnreliable(data)
-    }
+    // sent with this tick's stream (sendToPeers)
+    m.tickPlans = plans
 
     // the previous state was handed to render: step a copy (plain data: cloneState is
     // the same deep copy as structuredClone, ~4× cheaper). A dedicated server renders nothing
@@ -1587,9 +1596,24 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       if (p.stream && !p.keyframe) streams = true
       else snaps = true
     }
+    // Bot plans ride the stream packet of a lossless stream peer (one message a tick instead of
+    // two); anyone else streaming gets them on their own, before the stream as always.
+    const plans = m.tickPlans
+    m.tickPlans = []
+    let separate: string | null = null
+    if (plans.length) {
+      for (const p of peers) if (p.stream && p.matchId === m.id && !planInStream(p)) p.t.sendUnreliable((separate ??= encode({ t: 'plans', m: m.id, plans })))
+    }
     if (snaps) sendSnapshots(m, s)
     else m.stepped.length = 0
+    for (const p of plans) m.streamPlans.push(p)
     if (streams) sendStream(m, s)
+    else m.streamPlans.length = 0
+  }
+
+  /** This peer gets the tick's bot plans inside its stream packet (sendStream sends it one). */
+  function planInStream(p: RemotePeer): boolean {
+    return p.playerId !== null && !p.keyframe && lossless(p.t)
   }
 
   function sendSnapshots(m: HostMatch, s: SimState): void {
@@ -1625,7 +1649,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     // checkpoint hash: computed only when someone streams, repeated a few ticks against loss
     if (to % HASH_EVERY === 0) m.hash = [to, hashState({ ...s, events: [] })]
     const lossy = lossyStreams(m)
-    const hashJson = m.hash && to - m.hash[0] < (lossy ? HASH_REPEAT_TICKS : 1) ? `,"h":${JSON.stringify(m.hash)}` : ''
+    const every = Math.max(1, deps.streamEvery ?? 1)
+    // lossless peers get a packet on this tick (else the steps, plans and hash wait for the next)
+    const flush = to % every === 0
+    const hashJson = m.hash && to - m.hash[0] < (lossy ? HASH_REPEAT_TICKS : every) ? `,"h":${JSON.stringify(m.hash)}` : ''
     const bodies = new Map<number, string>()
     const body = (from: number) => {
       let b = bodies.get(from)
@@ -1638,7 +1665,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
     const recent = Math.max(to - REDUNDANCY, h.start)
     // a step with inputs goes out the tick it is stepped; empty stretches as a heartbeat
-    const content = h.hasContent(recent, to) || to % HASH_EVERY === 0
+    const plans = flush ? m.streamPlans : []
+    const content = h.hasContent(recent, to) || to % HASH_EVERY === 0 || plans.length > 0
+    const plansJson = plans.length ? encodePlans(plans) : undefined
     for (const p of peers) {
       if (p.playerId === null || p.matchId !== m.id || !p.stream || p.keyframe) continue
       let from: number
@@ -1646,11 +1675,13 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         if (!h.covers(p.needFrom)) {
           p.keyframe = true
           p.needFrom = -1
+          if (plansJson && lossless(p.t)) p.t.sendUnreliable(encode({ t: 'plans', m: m.id, plans: [...plans] }))
           continue
         }
         from = p.needFrom
       } else {
         const last = p.sentTo.length ? p.sentTo[0] : -1
+        if (!flush && lossless(p.t) && p.needFrom < 0) continue
         if (!content && p.needFrom < 0 && last >= 0 && to - last < HEARTBEAT_TICKS) continue
         // reach back three packets: empty steps ride as many packets as steps with inputs
         // (the range costs nothing, empty steps are implied). A lossless link gets each step once.
@@ -1660,8 +1691,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       p.needFrom = -1
       p.sentTo.unshift(to)
       if (p.sentTo.length > 2) p.sentTo.length = 2
-      p.t.sendUnreliable(encodeStreamPacket(m.id, ++p.streamN, ackOf(p), body(from)))
+      p.t.sendUnreliable(encodeStreamPacket(m.id, ++p.streamN, ackOf(p), body(from), planInStream(p) ? plansJson : undefined))
     }
+    if (flush) m.streamPlans = []
   }
 
   /**
@@ -2153,6 +2185,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
    */
   function onStream(cm: ClientMatch, st: ClientStream, m: Extract<Msg, { t: 'is' }>): void {
     const now = deps.now()
+    // bot plans riding this packet, as a `plans` message before it would
+    if (m.p && cm.pred) for (const p of m.p) cm.pred.plan(p.p, p.n, p.f)
     if (typeof m.to !== 'number' || typeof m.r !== 'number') return
     st.arrival.push(m.to, now)
     st.loss.track(m.n)
@@ -2639,6 +2673,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         slotPatch: new Map(),
         waiting: new Map(),
         botPlans: new Map(),
+        tickPlans: [],
+        streamPlans: [],
         recent: [],
         stepped: [],
         history: new StreamHistory(),
