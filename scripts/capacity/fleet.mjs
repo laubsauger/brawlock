@@ -9,7 +9,7 @@ import { acquireFleetLock, validateConfig } from '../../deploy/release.mjs'
 
 const fleet = validateConfig(JSON.parse(readFileSync('deploy/release.config.json', 'utf8')))
 const region = process.argv[2], target = fleet.regions.find(r => r.id === region), mode = process.argv[3] ?? 'pilot'
-if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ceiling-bots', 'bot-cost-rooms'].includes(mode)) throw new Error('Usage: node scripts/capacity/fleet.mjs eu [pilot|ceiling-humans|ceiling-bots|bot-cost-rooms|components]')
+if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ceiling-bots', 'ceiling-bots-high', 'bot-cost-rooms'].includes(mode)) throw new Error('Usage: node scripts/capacity/fleet.mjs eu [pilot|ceiling-humans|ceiling-bots|ceiling-bots-high|bot-cost-rooms|components]')
 const run = `${region}-${Date.now()}`, dir = resolve(`artifacts/capacity/${run}`), remote = `/var/lib/brawlock/capacity/${run}`
 const unit = `brawlock-capacity-${run}`, timer = `${unit}-cleanup`
 mkdirSync(dir, { recursive: true })
@@ -19,6 +19,8 @@ for (const name of ['server.mjs', 'worker.mjs', 'bot-cost.mjs', 'manifest.json',
 const token = randomBytes(32).toString('hex'), base = `${target.origin}/_capacity/${run}`
 const stages = mode === 'ceiling-humans' ? [4, 6, 8, 10, 12, 16].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 75 }))
   : mode === 'ceiling-bots' ? [4, 8, 12, 16, 24, 32].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 75 }))
+  // around the predicted bot-room ceiling of a build that passes 32 (extrapolated from ceiling-bots)
+  : mode === 'ceiling-bots-high' ? [32, 36, 40, 44, 48].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 75 }))
   : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 120 }))
   : [1, 10].flatMap(humans => [1, 2, 4].map(rooms => ({ rooms, humans, players: 10, seconds: 60 })))
 writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })

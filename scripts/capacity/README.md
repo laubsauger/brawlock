@@ -15,6 +15,7 @@ node scripts/capacity/build.mjs a25274d
 node scripts/capacity/fleet.mjs eu pilot
 node scripts/capacity/fleet.mjs eu ceiling-humans
 node scripts/capacity/fleet.mjs eu ceiling-bots
+node scripts/capacity/fleet.mjs eu ceiling-bots-high   # 32/36/40/44/48 rooms, for a build that passes 32
 node scripts/capacity/fleet.mjs eu bot-cost-rooms
 node scripts/capacity/fleet.mjs eu components
 ```

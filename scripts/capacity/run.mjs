@@ -8,7 +8,7 @@ import { cpus, totalmem } from 'node:os'
 const config = JSON.parse(readFileSync(process.argv[2], 'utf8'))
 const direct = config.base === `https://eu.brawlock.osc.link/_capacity/${config.run}` && /^eu-\d+$/.test(config.run)
 if (!(direct || /^http:\/\/127\.0\.0\.1:\d+$/.test(config.base)) || !config.token || !Array.isArray(config.stages) || config.stages.length < 1 || config.stages.length > 8 || config.stages.reduce((n, s) => n + s.seconds, 0) > 720
-  || config.stages.some(s => !Number.isInteger(s.rooms) || s.rooms < 1 || s.rooms > 32 || ![1, 10].includes(s.humans) || !Number.isInteger(s.players) || s.players < Math.max(2, s.humans) || s.players > 10 || !Number.isInteger(s.seconds) || s.seconds < 10 || s.seconds > 300)) throw new Error('Explicit bounded isolated capacity configuration required')
+  || config.stages.some(s => !Number.isInteger(s.rooms) || s.rooms < 1 || s.rooms > 48 || ![1, 10].includes(s.humans) || !Number.isInteger(s.players) || s.players < Math.max(2, s.humans) || s.players > 10 || !Number.isInteger(s.seconds) || s.seconds < 10 || s.seconds > 300)) throw new Error('Explicit bounded isolated capacity configuration required')
 const out = resolve(config.out); mkdirSync(out, { recursive: true })
 copyFileSync(import.meta.filename, `${out}/runner-used.mjs`)
 const buildDir = resolve(config.buildDir)

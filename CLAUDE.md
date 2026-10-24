@@ -24,6 +24,14 @@ Browser remake of Warlock / Warlock Brawl. Plan: `docs/PLAN.md`. Original mechan
 - `npm run dev`, `npm run build`, `npm test`, `npm run typecheck`
 - Deploy: push to `main`, GitHub Actions publishes to Pages.
 
+## Testing: selective by default
+
+The full suite and a cold typecheck take minutes. Run what covers the change:
+
+- After an edit: `npx vitest run <touched files/dirs>` (or `npx vitest run --changed`), plus the suites that use the changed module. `npm run typecheck` in the main tree is incremental; never run a cold `tsc -b` in a fresh worktree or export just to re-check code that already passed.
+- Full `npm test` only when asked, for a release, or when a change reaches far into shared core (sim rules, net protocol, session flow used everywhere). Not as a routine end step: a specific, smaller change gets its own suites only. Never again for the same diff on another base, after a commit-only step, or to re-check unchanged code.
+- A test that takes more than ~2 s is a cost to fix (shorter simulated time, fewer seeds, earlier exit once its condition holds), not to accept.
+
 ## Gotchas
 
 - Bare `three` is aliased to `three/webgpu` in Vite (one three instance). Tests run without the alias.
