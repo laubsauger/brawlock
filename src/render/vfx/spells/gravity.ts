@@ -10,6 +10,7 @@
  * End: the singularity collapses and pops. Pillar bounce: spark burst.
  */
 import * as THREE from 'three/webgpu'
+import { secondsOf } from '../../../sim/config'
 import {
   atan, dot, float, instancedBufferAttribute, length, mix, normalView, positionGeometry, positionView, pow, saturate, screenUV,
   smoothstep, texture, uv, vec2, vec3, viewportSharedTexture,
@@ -192,7 +193,7 @@ function drawOrb(p: ProjectileState, x: number, y: number, ctx: VfxCtx): void {
   const t = ctx.now
   const intro = Math.min(1, (t - o.born) / 0.25)
   const fh = floorH(ctx, x, y)
-  const left = p.ticksLeft / 60
+  const left = secondsOf(p.ticksLeft)
   const outro = Math.min(1, Math.max(0, left / 0.25))
   const k = intro * outro
   const pullR = d.pawnRadius || 550

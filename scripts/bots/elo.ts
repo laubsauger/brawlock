@@ -28,6 +28,7 @@ import { BOT_PRESETS, BotController, type BotParams } from '../../src/bots'
 import { Rng } from '../../src/bots/prng'
 import { bradleyTerry, type PairRecord, type Rating } from '../../src/bots/rating'
 import { DEFAULT_SETTINGS, createMatch, step } from '../../src/sim'
+import { TICK_HZ } from '../../src/sim/types'
 import type { BotDifficulty, PlayerSlot } from '../../src/sim'
 
 const argv = process.argv.slice(2)
@@ -125,7 +126,7 @@ function play(job: Job, index: number): GameResult {
   const rounds: number[][] = []
   let died: number[] = []
   let prev = state.phase
-  const maxTicks = MAX_SECONDS * 60
+  const maxTicks = MAX_SECONDS * TICK_HZ
   let ticks = 0
   for (; ticks < maxTicks && state.phase !== 'gameOver'; ticks++) {
     step(
@@ -145,7 +146,7 @@ function play(job: Job, index: number): GameResult {
     tiers: job.tiers,
     scores: job.tiers.map((_, id) => state.scores.find((s) => s.id === id)?.score ?? 0),
     rounds,
-    seconds: ticks / 60,
+    seconds: ticks / TICK_HZ,
   }
 }
 

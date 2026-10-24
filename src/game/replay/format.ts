@@ -13,7 +13,7 @@
  * must match, because an older sim re-simulates the same inputs differently.
  */
 import { decodeCmd, encodeCmd, type WireCmd } from '../../net/stream'
-import { ticks } from '../../sim/config'
+import { ticks, secondsOf } from '../../sim/config'
 import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../../sim/types'
 
 export const REPLAY_FORMAT = 'brawlock-replay'
@@ -80,7 +80,7 @@ export function metaOf(d: ReplayData, bytes: number, pinned = false): ReplayMeta
     players: d.slots.map((s) => ({ id: s.id, name: s.name, color: s.color })),
     winners: [...d.winners],
     rounds: d.rounds.length,
-    durationSec: Math.round((d.endTick - d.start.tick) / 60),
+    durationSec: Math.round(secondsOf(d.endTick - d.start.tick)),
     bytes,
   }
 }

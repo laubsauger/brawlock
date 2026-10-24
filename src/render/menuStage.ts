@@ -44,7 +44,7 @@ export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000
     bots = slots.map((slot) => new BotController(slot.id, slot.difficulty!, matchSeed))
     // Finish genuine buying and the opening approach before showing a new
     // match. Subsequent rounds retain their short visible recovery and shop.
-    for (let i = 0; i < 11 * 60; i++) advance()
+    for (let i = 0; i < ticks(11); i++) advance()
     sim.settings.shopSeconds = 2
   }
   begin(0)

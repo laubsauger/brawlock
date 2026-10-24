@@ -10,6 +10,7 @@
  *   Destroyed by damage ('obstacleDestroyed'): render's blast plays; we add an amber rune flash.
  */
 import { SPELLS, attr } from '../../../sim/spells/data'
+import { secondsOf } from '../../../sim/config'
 import type { SimEvent } from '../../../sim/types'
 import { S, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
@@ -151,7 +152,7 @@ registerSpellVfx({
         light(ctx, p.x, p.y, p.r * 1.2, 0.8 * rune, RUNE, 0.4)
       }
       // last 0.5 s: trembling, grit falling
-      const secs = p.ticksLeft / 60
+      const secs = secondsOf(p.ticksLeft)
       if (secs > 0 && secs < 0.5 && Math.random() < ctx.dt * 30) {
         const a = Math.random() * TAU
         ctx.debris.spawn(p.x + Math.cos(a) * p.r * 0.8, p.y + Math.sin(a) * p.r * 0.8, TILE_TOP_H + rand(60, 200), 0, 0, 0, 0.6, rand(5, 9), 3, GRIT[0], GRIT[1], GRIT[2], -1500, 0, 0)

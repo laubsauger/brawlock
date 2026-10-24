@@ -12,6 +12,7 @@
  *   the feet
  */
 import type { SimEvent } from '../../../sim/types'
+import { secondsOf } from '../../../sim/config'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
 import { G_DISC, G_SHOCK, G_SIGIL, acquireKit, kflash, kring, palFor, pawnById, pspawn, releaseKit, trailFrom, windupProgress, type KitA, type TrailStyle } from './kitA'
@@ -135,7 +136,7 @@ const mod: SpellVfx = {
     const info = ctx.pawn(pawn.id)
     const h0 = info ? info.h : k.floor(x, y)
     const now = ctx.now
-    const left = m.ticksLeft / 60
+    const left = secondsOf(m.ticksLeft)
     const ps = ctx.particles
     if (m.id === 'pact') {
       // armed: slow-turning sigil, rising blood motes, smouldering hand
