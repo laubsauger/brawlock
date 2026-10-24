@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { DT, TICK_HZ } from './types'
+import { DT } from './types'
 import type { SimEvent } from './types'
 import { FACING_TOLERANCE, FIREBALL_SLOT, SCOURGE_SLOT, TURN_PER_TICK, frictionPerTick, ticks } from './config'
 import { step } from './index'
@@ -40,8 +40,8 @@ describe('Fireball (spells.md §8.1)', () => {
     const events = run(s, ticks(4 / 3))
     const exp = of(events, 'projectileExpire')[0]
     expect(exp).toBeDefined()
-    // cast point 0.2 s, then 1.12 s of flight (67.2 ticks at 60 Hz) -> 68 moves of 1000 * DT
-    expect(exp.y).toBeCloseTo(-500 + Math.ceil(1.12 * TICK_HZ) * (1000 * DT), 6)
+    // cast point 0.2 s, then exactly 1.12 s of flight at 1000 u/s, whatever the tick rate
+    expect(exp.y).toBeCloseTo(-500 + 1000 * 1.12, 6)
   })
 
   test('enemy fireballs destroy each other; own fireballs never hit the caster', () => {

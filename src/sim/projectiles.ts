@@ -77,6 +77,16 @@ export function timeScale(p: ProjectileState): number {
   return t === undefined ? 1 : t
 }
 
+/**
+ * This tick's share of a projectile step: timeScale, cut on its last tick to the lifetime left,
+ * so a timed bolt flies exactly speed x lifetime at any tick rate. It used to fly whole ticks,
+ * up to one too far (Swap ~933 flew 958 at 60 Hz, 991 at 30 Hz).
+ */
+export function stepScale(p: ProjectileState): number {
+  const t = timeScale(p)
+  return p.data.noTimer === 1 || p.ticksLeft >= t ? t : Math.max(0, p.ticksLeft)
+}
+
 export function isAlive(p: ProjectileState): boolean {
   return !p.data.dead && (p.data.noTimer === 1 || p.ticksLeft > 0)
 }
