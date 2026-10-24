@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { BotController } from '../../src/bots'
 import { DEFAULT_SETTINGS, createMatch, step } from '../../src/sim'
+import { TICK_HZ } from '../../src/sim/types'
 import type { BotDifficulty, PlayerSlot } from '../../src/sim'
 
 const argv = process.argv.slice(2)
@@ -58,13 +59,14 @@ function play(lineup: string, seed: number): Result {
   // HP shares of the living, every 0.5 s, for "was the victim the weakest 3 s before"
   const history: Map<number, number>[] = []
   let ticks = 0
-  for (; ticks < 1500 * 60 && state.phase !== 'gameOver'; ticks++) {
-    if (state.tick % 30 === 0) {
+  const SAMPLE_TICKS = TICK_HZ / 2
+  for (; ticks < 1500 * TICK_HZ && state.phase !== 'gameOver'; ticks++) {
+    if (state.tick % SAMPLE_TICKS === 0) {
       history.push(new Map(state.pawns.filter((p) => p.alive).map((p) => [p.owner, p.hp / p.maxHp])))
       if (history.length > 6) history.shift()
     }
     step(state, bots.map((b) => ({ player: b.player, tick: state.tick, cmds: b.think(state) })))
-    if (state.phase === 'fight') r.fightSeconds += 1 / 60
+    if (state.phase === 'fight') r.fightSeconds += 1 / TICK_HZ
     for (const e of state.events) {
       if (e.type === 'roundWin') r.rounds++
       if (e.type !== 'death' || e.killer === null || e.killer === e.owner) continue
@@ -73,7 +75,7 @@ function play(lineup: string, seed: number): Result {
       const mine = then?.get(e.owner)
       if (mine !== undefined && [...then.values()].every((s) => mine <= s + 1e-9)) r.weakestKills++
     }
-    if (state.phase !== 'fight' || state.tick % 30 !== 0) continue
+    if (state.phase !== 'fight' || state.tick % SAMPLE_TICKS !== 0) continue
     const alive = state.pawns.filter((p) => p.alive)
     if (alive.length < 3) continue
     r.samples++
@@ -107,7 +109,7 @@ function play(lineup: string, seed: number): Result {
       }
     r.pairDistSum += pd / pn
   }
-  r.seconds = ticks / 60
+  r.seconds = ticks / TICK_HZ
   return r
 }
 
