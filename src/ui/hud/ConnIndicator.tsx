@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useGame } from '../../game/store'
 import { useNet } from '../lib/netmonitor'
+import { useClientPerformance } from '../lib/clientPerformance'
+import { FpsReadout } from '../PerfHud'
 import { GRADE_BARS, GRADE_COLOR, GRADE_LABEL, peerLines, peerTitle, worstGrade, type NetGrade } from '../lib/netstats'
 
 /** Four signal bars, lit and colored by grade. */
@@ -44,6 +46,9 @@ export function WarnGlyph({ size = 16, color = '#ff8a3d' }: { size?: number; col
 export function ConnIndicator() {
   const role = useGame((s) => s.lobby.role)
   const slots = useGame((s) => s.lobby.slots)
+  const showPerf = useGame((s) => s.settings.showPerf)
+  const diagnosticsOpen = useGame((s) => s.settings.netGraph)
+  const local = useClientPerformance()
   // tooltip anchor (viewport px); the card is portaled to <body> so the shop docks never cover it
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const show = (el: HTMLElement) => {
@@ -68,7 +73,7 @@ export function ConnIndicator() {
     },
     (x) => `${x.role}|${x.worst}|${x.ms}|${x.warnings.map((w) => w.text).join(',')}|${x.flagged.join(',')}|${open ? x.peers.map((p) => peerTitle(p)).join(';') : ''}`,
   )
-  if (role === 'offline') return null
+  if (role === 'offline' && !showPerf) return null
   const alert = v.warnings.length > 0 || v.flagged.length > 0
   const name = (id: number) => slots.find((s) => s.id === id)?.name ?? `Player ${id + 1}`
   const label = v.ms === null ? (role === 'host' ? 'Host' : '–') : `${v.ms} ms`
@@ -77,25 +82,36 @@ export function ConnIndicator() {
       <button
         type="button"
         className="hud-backing hud-text-shadow flex items-center gap-2 py-0.5 text-[0.92rem] font-semibold focus-visible:outline-2 focus-visible:outline-gold"
-        aria-label={`Connection ${v.worst ? GRADE_LABEL[v.worst] : 'unknown'}, ${label}${alert ? ', warning' : ''}`}
-        aria-expanded={!!open}
+        aria-label={`${role === 'offline' ? 'Performance' : `Connection ${v.worst ? GRADE_LABEL[v.worst] : 'unknown'}, ${label}`}. Open latency and performance diagnostics`}
+        aria-expanded={!!open || diagnosticsOpen}
+        aria-controls={diagnosticsOpen ? 'net-graph-panel' : undefined}
+        data-testid="connection-performance"
+        onClick={() => { setOpen(null); useGame.getState().setSettings({ netGraph: !useGame.getState().settings.netGraph }) }}
         onFocus={(e) => show(e.currentTarget)}
         onBlur={() => setOpen(null)}
       >
-        <SignalBars grade={v.worst} />
+        {role !== 'offline' && <SignalBars grade={v.worst} />}
         {role === 'host' && <span className="text-bone/80">Host</span>}
-        <span className="tabular" style={{ color: v.worst ? GRADE_COLOR[v.worst] : undefined }}>
+        {role !== 'offline' && <span className="tabular" style={{ color: v.worst ? GRADE_COLOR[v.worst] : undefined }}>
           {role === 'host' && v.ms === null ? 'no clients' : label}
-        </span>
+        </span>}
+        {showPerf && <FpsReadout />}
+        {local.mainThreadStallMs > 0 && <span className="text-[#ffcf8d]" data-testid="local-stall">Device stall {Math.round(local.mainThreadStallMs)} ms</span>}
         {alert && (
           <span className="net-alert" data-testid="net-alert">
             <WarnGlyph size={15} />
           </span>
         )}
       </button>
-      {open &&
+      {open && !diagnosticsOpen &&
         createPortal(
           <div className="panel pop-in pointer-events-none fixed z-[75] w-[300px] p-3 text-[0.88rem]" style={{ left: open.x, top: open.y }} role="tooltip">
+            <div className="mb-2 border-b border-white/10 pb-2">
+              <p className="font-semibold text-bone">This device</p>
+              <p className="text-bone/80">{local.frames ? `${Math.round(local.frames.fps)} page FPS · worst frame ${Math.round(local.frames.frameMaxMs)} ms` : 'Measuring frames…'}</p>
+              <p className="text-bone/80">Scheduling stall: {Math.round(local.mainThreadStallMs)} ms · last 5 s</p>
+              <p className="mt-1 text-xs text-ash">Round-trip time includes processing on both ends. Local stalls can inflate it; this is not a measurement of network delay alone.</p>
+            </div>
             {v.warnings.length > 0 && (
               <ul className="mb-2 flex flex-col gap-1">
                 {v.warnings.map((w) => (
@@ -128,7 +144,7 @@ export function ConnIndicator() {
             ))}
             <p className="mt-2 text-[0.8rem] text-ash">
               {v.source === 'derived' ? 'Estimated from ping and loss. ' : ''}
-              Net graph: F3
+              Click for diagnostics · F2: FPS · F3: details
             </p>
           </div>,
           document.body,

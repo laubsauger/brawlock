@@ -152,7 +152,7 @@ describe('tabbed settings', () => {
 
   it('preserves every interface control', () => {
     const html = markup('interface')
-    for (const label of ['HUD layout', 'HUD scale', 'Colorblind-safe player colors', 'Key hints', 'Performance overlay', 'Net graph']) expect(html).toContain(`aria-label="${label}"`)
+    for (const label of ['HUD layout', 'HUD scale', 'Colorblind-safe player colors', 'Key hints', 'Show FPS', 'Net graph']) expect(html).toContain(`aria-label="${label}"`)
     expect(html).not.toContain('aria-label="Player name"')
   })
 

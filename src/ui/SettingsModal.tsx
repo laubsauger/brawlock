@@ -527,8 +527,8 @@ export function SettingsModal() {
               <Row label="Key hints" hint="The small key legend at the bottom left of a match">
                 <Switch label="Key hints" checked={s.showHints ?? true} onChange={(showHints) => setSettings({ showHints })} />
               </Row>
-              <Row label="Performance overlay" hint="Frame rate, frame time, GPU time and ping. Also F2">
-                <Switch label="Performance overlay" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />
+              <Row label="Show FPS" hint="Frame rate beside the top-left connection indicator. Click it for diagnostics. Also F2">
+                <Switch label="Show FPS" checked={s.showPerf} onChange={(showPerf) => setSettings({ showPerf })} />
               </Row>
               <Row label="Net graph" hint="Ping, jitter, loss, local frame stalls and server load. Copy recent diagnostic samples. Also F3">
                 <Switch label="Net graph" checked={!!s.netGraph} onChange={(netGraph) => setSettings({ netGraph })} />

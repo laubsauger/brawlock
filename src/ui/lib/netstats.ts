@@ -188,11 +188,11 @@ export class NetWarnings {
   flagged = new Set<number>()
 
   /** Returns the toast lines to show now (at most one per call). */
-  update(snap: NetSnapshot, now: number, nameOf: (id: number) => string): string[] {
+  update(snap: NetSnapshot, now: number, nameOf: (id: number) => string, localStallMs = 0): string[] {
     const out: string[] = []
-    if (snap.role === 'client' && snap.peers[0]) this.updateOwn(snap.peers[0], now, out)
+    if (snap.role === 'client' && snap.peers[0]) this.updateOwn(snap.peers[0], now, out, localStallMs)
     else this.resetOwn()
-    if (snap.role === 'host') this.updatePlayers(snap.peers, now, nameOf, out)
+    if (snap.role === 'host') this.updatePlayers(snap.peers, now, nameOf, out, localStallMs)
     else this.flagged.clear()
     return out
   }
@@ -222,14 +222,19 @@ export class NetWarnings {
     out.push(text)
   }
 
-  private updateOwn(p: PeerNet, now: number, out: string[]): void {
+  private updateOwn(p: PeerNet, now: number, out: string[], localStallMs: number): void {
     const active: NetWarning[] = []
     for (const kind of Object.keys(LIMITS) as (keyof typeof LIMITS)[]) {
       const lim = LIMITS[kind]
       const v = lim.value(p)
       const t = this.hold(this.own.get(kind), v !== null && v >= lim.on, v === null || v < lim.off, now)
       this.own.set(kind, t)
-      if (t.active) active.push({ kind, text: warnText(kind, p) })
+      if (t.active) {
+        const text = localStallMs > 0 && kind !== 'loss'
+          ? `${kind === 'ping' ? `High round-trip time ${Math.round(p.rttMs ?? 0)} ms` : kind === 'jitter' ? 'Variable round-trip time' : 'Delayed game updates'} · local device stall observed`
+          : warnText(kind, p)
+        active.push({ kind, text })
+      }
     }
     const rel = this.hold(this.own.get('reliable'), p.channel === 'reliable', p.channel !== 'reliable', now)
     this.own.set('reliable', rel)
@@ -256,7 +261,7 @@ export class NetWarnings {
     this.desyncAt = -Infinity
   }
 
-  private updatePlayers(peers: readonly PeerNet[], now: number, nameOf: (id: number) => string, out: string[]): void {
+  private updatePlayers(peers: readonly PeerNet[], now: number, nameOf: (id: number) => string, out: string[], localStallMs: number): void {
     const seen = new Set<number>()
     for (const p of peers) {
       seen.add(p.playerId)
@@ -265,7 +270,7 @@ export class NetWarnings {
       this.players.set(p.playerId, t)
       if (t.active && !this.flagged.has(p.playerId)) {
         this.flagged.add(p.playerId)
-        this.emit(`player:${p.playerId}`, `${nameOf(p.playerId)}: unstable connection`, now, out)
+        this.emit(`player:${p.playerId}`, localStallMs > 0 ? `${nameOf(p.playerId)}: delayed link · local device stall observed` : `${nameOf(p.playerId)}: unstable connection`, now, out)
       } else if (!t.active) this.flagged.delete(p.playerId)
     }
     for (const id of [...this.players.keys()]) {

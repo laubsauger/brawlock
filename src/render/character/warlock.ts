@@ -3,7 +3,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import type { PawnState, SimEvent } from '../../sim/types'
 import { S, facingToYaw } from '../coords'
 import { Animator } from './animator'
-import type { WarlockAsset } from './asset'
+import type { CharacterVisual, WarlockAsset } from './asset'
 import { CC0_SCALE, facingUniform, type CastFrom } from './config'
 import type { StaffVariant } from './geometry'
 import { WarlockGpu } from './gpuState'
@@ -149,7 +149,9 @@ class HemSpring {
 }
 
 export class CC0Warlock implements WarlockHandle {
-  readonly style = 'cc0' as const
+  readonly style: 'cc0' | 'tripo'
+  private visual: CharacterVisual | undefined
+  private visualWasOffscreen = false
   readonly object3d = new THREE.Group()
   private tilt = new THREE.Group()
   private yawG = new THREE.Group()
@@ -247,6 +249,7 @@ export class CC0Warlock implements WarlockHandle {
     staff: StaffVariant | null,
     castFrom: CastFrom,
   ) {
+    this.style = asset.style
     this.model = cloneSkinned(asset.template)
     this.model.scale.set(CC0_SCALE.xz, CC0_SCALE.y, CC0_SCALE.xz)
     // one skeleton for every skinned part (clone() gives each mesh its own copy)
@@ -265,6 +268,9 @@ export class CC0Warlock implements WarlockHandle {
     this.object3d.add(this.tilt)
     this.object3d.name = 'Warlock'
 
+    this.gpu.phase = Math.random() * 100
+    this.visual = asset.createVisual?.(this.model, this.gpu)
+
     // sockets: rest offsets (model metres) expressed in their bones' frames
     this.model.updateMatrixWorld(true)
     const socket = (bone: THREE.Bone, restModel: THREE.Vector3, o: THREE.Object3D) => {
@@ -280,11 +286,10 @@ export class CC0Warlock implements WarlockHandle {
     this.buildFist(asset.rest.curlAxisL)
 
     // bigger hands read better from the gameplay camera (the casting hand most)
-    this.bone.hand_l.scale.setScalar(1.18)
-    this.bone.hand_r.scale.setScalar(1.18)
+    this.bone.hand_l.scale.setScalar(asset.handScale)
+    this.bone.hand_r.scale.setScalar(asset.handScale)
     this.anim = new Animator(this.model, asset.clips, asset.additive)
     this.anim.full('idle', { fade: 0.001 })
-    this.gpu.phase = Math.random() * 100
     this.setColor(color)
     this.baseStaff = staff
     this.setStaff(staff)
@@ -555,6 +560,7 @@ export class CC0Warlock implements WarlockHandle {
           // blink: the cloth arrives settled, with a small flutter
           this.coat.reset()
           this.cape.reset()
+          this.visual?.reset()
           this.flutterKick = Math.max(this.flutterKick, 0.6)
           this.lastVx = p.vx
           this.lastVy = p.vy
@@ -753,6 +759,7 @@ export class CC0Warlock implements WarlockHandle {
     this.coat.reset()
     this.cape.reset()
     this.anim.full('idle', { fade: 0.05, restart: true })
+    this.visual?.reset()
   }
 
   /** Death look timeline (material fx, sink / shrink); returns false when the clip should freeze. */
@@ -1031,6 +1038,7 @@ export class CC0Warlock implements WarlockHandle {
     }
 
     if (this.detail >= 2) {
+      this.visualWasOffscreen = true
       // offscreen: nothing visible depends on pose offsets, capsules or cloth
       this.frameNo++
       this.fxTick(p, dt)
@@ -1214,6 +1222,9 @@ export class CC0Warlock implements WarlockHandle {
     if (this.staffMesh) this.placeStaff(dt)
 
     this.fxTick(p, dt)
+    if (this.visualWasOffscreen) this.visual?.reset()
+    this.visualWasOffscreen = false
+    this.visual?.update(dt)
   }
 
   private fxTick(p: PawnState, dt: number): void {
@@ -1512,6 +1523,7 @@ export class CC0Warlock implements WarlockHandle {
   }
 
   dispose(): void {
+    this.visual?.dispose()
     this.anim.mixer.stopAllAction()
     this.anim.mixer.uncacheRoot(this.model)
     this.object3d.removeFromParent()

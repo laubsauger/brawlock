@@ -891,7 +891,6 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <FeedbackButton />
           <Button sound="back" onClick={onBack}>
             Back <Kbd>Esc</Kbd>
           </Button>
@@ -935,6 +934,7 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
           {tab === 'replays' && <Replays />}
         </div>
       </section>
+      <footer className="shrink-0 pt-3"><FeedbackButton /></footer>
     </div>
   )
 }

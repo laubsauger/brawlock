@@ -49,7 +49,6 @@ export function Credits() {
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <h1 className="display text-6xl leading-none text-[#ffd890]">Credits</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <FeedbackButton />
           <Button sound="back" onClick={() => setScreen('menu')}>
             Back <Kbd>Esc</Kbd>
           </Button>
@@ -138,6 +137,7 @@ export function Credits() {
           </div>
         </div>
       </div>
+      <footer className="shrink-0 pt-3"><FeedbackButton /></footer>
     </div>
   )
 }

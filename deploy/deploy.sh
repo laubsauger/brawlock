@@ -96,7 +96,7 @@ cd "$runtime_home"
 runtime_exec() {
   runuser -u "$runtime_user" -- env -i HOME="$runtime_home" USER="$runtime_user" LOGNAME="$runtime_user" PATH=/usr/local/bin:/usr/bin:/bin PM2_HOME="$pm2_home" "$@"
 }
-runtime_exec node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' || fail 'Node 22+ is missing from the brawlock runtime PATH.'
+runtime_exec node -e 'process.exit(+process.versions.node.split(".")[0] >= 24 ? 0 : 1)' || fail 'Node 24+ is missing from the brawlock runtime PATH.'
 runtime_exec sh -c 'command -v pm2 >/dev/null && test -r "$1" && test -x "$2" && test -w "$2/data"' sh "$config" "$app_dir" || fail 'The brawlock runtime cannot read its protected config/code or write its data directory.'
 # Check protected regional values without printing any credentials.
 runtime_exec node - "$config" "$app" "$app_dir" "$port" "$region" <<'NODE'

@@ -24,6 +24,7 @@ export interface ServerOptions {
   ratingAuthorityAllowInsecureForTests?: boolean
   ratingAuthorityRequestMs?: number
   ratingAuthorityRetryMs?: number
+  accountsRegisterRetryMs?: number
   accountsAuthorityUrl?: string
   accountsAllowInsecureForTests?: boolean
   /** Tests inject a private operator token; production reads MAINTENANCE_SECRET_FILE. */

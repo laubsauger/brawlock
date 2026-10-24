@@ -5,11 +5,13 @@ import { FrameWindow, watchServerPerf, type LocalFrameSample, type ServerProbe }
 import { netState } from './lib/netmonitor'
 import { usePolled, useTick } from './lib/ticker'
 import { renderPerf } from './renderBridge'
+import { clientPerformance, useClientPerformance } from './lib/clientPerformance'
 
 const EMPTY: ServerProbe = { state: 'waiting', sample: null, fetchMs: null, receivedAt: null }
 
 /** Local measurements only: no uploads, and sampling stops when F3 is closed. */
 export function ConnectionDiagnostics() {
+  const device = useClientPerformance()
   const region = usePolled(() => session.region(), (r) => r?.url ?? '', 1)
   // every region at once: a spike on all of them is this device's connection, not one server
   const [probes, setProbes] = useState<Record<string, ServerProbe>>({})
@@ -41,7 +43,7 @@ export function ConnectionDiagnostics() {
     if (!sample) return
     const render = renderPerf()
     setLocal({ ...sample, renderCpuMs: render ? render.cpuMs : null, renderGpuMs: render && render.gpuMs >= 0 ? render.gpuMs : null })
-    history.current.push({ at: Date.now(), local: sample,
+    history.current.push({ at: Date.now(), local: { ...sample, ...clientPerformance() },
       render: render ? { cpuMs: render.cpuMs, gpuMs: render.gpuMs, fps: render.fps } : null,
       server: region ? latest.current[region.id] ?? null : null,
       regionsRttMs: Object.fromEntries(online.regions.map((r) => [r.id, latest.current[r.id]?.fetchMs ?? null])),
@@ -62,7 +64,9 @@ export function ConnectionDiagnostics() {
   const age = server.receivedAt === null ? null : Math.max(0, Math.round((Date.now() - server.receivedAt) / 1000))
   return <div className="mt-1 border-t border-white/15 pt-1.5 text-[11.5px] text-bone/80" aria-label="Connection diagnostics">
     <div className="flex items-center justify-between"><span className="font-semibold text-bone">This device</span><span>{local ? `${Math.round(local.fps)} fps` : 'Measuring frames…'}</span></div>
-    {local && <div className="grid grid-cols-2 gap-x-3"><span>frame avg {ms(local.frameAvgMs)}</span><span>frame max {ms(local.frameMaxMs)}</span><span>render CPU {local.renderCpuMs === null ? '–' : ms(local.renderCpuMs)}</span><span>GPU {local.renderGpuMs === null ? 'unavailable' : ms(local.renderGpuMs)}</span><span className="col-span-2">frames over 50 ms: {local.framesOver50Ms}</span></div>}
+    {local && <div className="grid grid-cols-2 gap-x-3"><span>frame avg {ms(local.frameAvgMs)}</span><span>frame max {ms(local.frameMaxMs)}</span><span>render CPU {local.renderCpuMs === null ? '–' : ms(local.renderCpuMs)}</span><span title="A missing timing sample does not mean the GPU stopped rendering.">GPU timing {local.renderGpuMs === null ? 'not measured' : ms(local.renderGpuMs)}</span><span className="col-span-2">frames over 50 ms: {local.framesOver50Ms}</span></div>}
+    <p className={device.mainThreadStallMs > 0 ? 'mt-1 text-[#ffcf8d]' : 'mt-1 text-bone/80'}>Local scheduling stall: {ms(device.mainThreadStallMs)} · last 5 s</p>
+    {device.mainThreadStallMs > 0 && <p className="text-[10.5px] text-ash">A local stall overlapped recent latency readings. Network delay alone cannot be isolated from this RTT.</p>}
     {region && <>
       <div className="mt-1 flex justify-between text-bone"><span>{region.label} server</span>{age !== null && <span className="text-ash">received {age}s ago</span>}</div>
       {perf ? <div className="grid grid-cols-2 gap-x-3">
@@ -75,7 +79,7 @@ export function ConnectionDiagnostics() {
     {online.regions.length > 1 && <div className="mt-1 flex flex-wrap gap-x-3"><span className="text-bone">Health RTT</span>
       {online.regions.map((r) => <span key={r.id}>{r.label} {probes[r.id]?.fetchMs == null ? '–' : ms(probes[r.id].fetchMs!)}</span>)}
     </div>}
-    <p className="mt-1 text-[10.5px] leading-snug text-ash">RTT includes processing delays on both devices. Every region spiking together points to this device or its network; one region with a loop max spike points to that server.</p>
+    <p className="mt-1 text-[10.5px] leading-snug text-ash">RTT includes processing delays on both devices. Compare local scheduling stalls with server loop max; high RTT alone cannot identify a network fault.</p>
     <button type="button" className="pointer-events-auto mt-1 rounded px-1.5 py-0.5 text-[#f3c58c] underline-offset-2 hover:underline focus-visible:outline-1 focus-visible:outline-gold" onClick={() => void copy()}>{copied}</button>
   </div>
 }

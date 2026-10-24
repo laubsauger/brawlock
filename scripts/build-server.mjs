@@ -21,7 +21,7 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node22',
+  target: 'node24',
   outfile: 'dist-server/server.mjs',
   define: { __NET_ID__: JSON.stringify(release), __RELEASE_COMMIT__: JSON.stringify(commit === 'unknown' ? null : commit), 'import.meta.env.DEV': 'false' },
   logLevel: 'warning',

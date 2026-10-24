@@ -392,7 +392,6 @@ export function EscMenu() {
               Resume <Kbd>Esc</Kbd>
             </Button>
             <Button onClick={() => toggle('settingsOpen', true)}>Settings</Button>
-            <FeedbackButton />
             {!offline && <Button onClick={() => {
               toggle('paused', false)
               useGame.getState().setScreen('menu')
@@ -409,7 +408,10 @@ export function EscMenu() {
             </Button>
           </>
         )}
-        <div className="mt-1 text-center"><ReleaseStamp /></div>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-gold/10 pt-3">
+          {!confirm && <FeedbackButton />}
+          <ReleaseStamp />
+        </div>
       </div>
     </div>
   )

@@ -253,3 +253,17 @@ Announcer voice generated with ElevenLabs (text-to-speech on the user's own acco
 | `public/audio/announcer/maverick_well_mail_the_ashes.ogg`, `.m4a` | ElevenLabs text-to-speech, voice Maverick (`V33LkP9pVLdcjeB2y5Na`), `eleven_multilingual_v2`, stability 0.4, style 0.7; picked `art/archive/audio/announcer/maverick/well_mail_the_ashes_take1.mp3` (loudest clean delivery (ties: shorter)) | trimmed, softened upper mids/highs, short dark arena reflections, -16 LUFS, Opus 96 kbps + AAC 96 kbps | Generated for this project with ElevenLabs on the user's account |
 | `public/audio/announcer/maverick_not_today.ogg`, `.m4a` | ElevenLabs text-to-speech, voice Maverick (`V33LkP9pVLdcjeB2y5Na`), `eleven_multilingual_v2`, stability 0.4, style 0.7; picked `art/archive/audio/announcer/maverick/not_today_take2.mp3` (loudest clean delivery (ties: shorter)) | trimmed, softened upper mids/highs, short dark arena reflections, -16 LUFS, Opus 96 kbps + AAC 96 kbps | Generated for this project with ElevenLabs on the user's account |
 | `public/audio/announcer/maverick_cheated_death.ogg`, `.m4a` | ElevenLabs text-to-speech, voice Maverick (`V33LkP9pVLdcjeB2y5Na`), `eleven_multilingual_v2`, stability 0.4, style 0.7; picked `art/archive/audio/announcer/maverick/cheated_death_take1.mp3` (loudest clean delivery (ties: shorter)) | trimmed, softened upper mids/highs, short dark arena reflections, -16 LUFS, Opus 96 kbps + AAC 96 kbps | Generated for this project with ElevenLabs on the user's account |
+
+### Tripo starter integration candidate
+
+`public/models/warlock/tripo/warlock-10k.glb` and `cloth-proxy.json` are the
+user-provided Tripo warlock, fitted to the existing canonical rig with the reviewed
+10K source-material mesh, split rear hem and authored cloth bindings. The original
+source texture is embedded in the GLB. `provenance.json` records the paired build
+identity and file hashes. This candidate is explicitly selected as `tripo` in the
+character Inspector and development previews; `cc0` remains the default. It uses
+the existing canonical animation clips and runtime staff/casting controller.
+Editable masters remain in ignored `art/source/tripo-warlock-v1`; reproduce the
+runtime pair with `src/render/character/pipeline/stage-tripo-runtime.mjs` after
+running the asset and garment checks documented beside it. This entry records
+user-provided generated art, not a new third-party CC0 attribution.

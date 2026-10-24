@@ -12,7 +12,7 @@ import { InnateRow, ItemRow, SpellRow } from './SpellBar'
 import { ShrinkWarning, TopCenter, FinalBrawlStatus, displayRound, roundLabel } from './TopBar'
 import { ConnIndicator } from './ConnIndicator'
 import { InspectCard, SpectateChip } from './Inspect'
-import { Gold, ProtectChip } from './Vitals'
+import { Gold, ProtectChip, Vitals } from './Vitals'
 import { Button, KeyCaps } from '../widgets'
 import { Wordmark } from '../Brand'
 import { matchRenderReady } from '../renderBridge'
@@ -363,6 +363,7 @@ export function Hud() {
       <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
         <div className="hud-scale relative">
           <ProtectChip />
+          <Vitals compact />
           <div className="hud-plate hud-bottom" data-layout={hudLayout}>
             <InnateRow />
             <SpellRow />

@@ -451,9 +451,18 @@ export async function startServer(opts = {}) {
     })
     // Registration fences previous room claims only after this process owns the port.
     analytics?.recover()
-    if (accounts) await accounts.register()
+    // On the US host pm2 resurrects the account service alongside this process after a
+    // reboot; wait for it to listen instead of failing the start.
+    for (let attempt = 1; accounts; attempt++) {
+      try { await accounts.register(); break } catch (error) {
+        if (attempt >= 30) throw error
+        log('warn', 'accounts.register.retry', { attempt, error: String(error) })
+        await new Promise((resolve) => setTimeout(resolve, opts.accountsRegisterRetryMs ?? 1000))
+      }
+    }
     ready = true
   } catch (error) {
+    accounts?.close()
     machine.close()
     perf.close()
     core.close()

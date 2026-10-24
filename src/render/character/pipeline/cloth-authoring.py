@@ -7,6 +7,76 @@ from mathutils.bvhtree import BVHTree
 from mathutils.geometry import barycentric_transform
 
 
+WAIST_FIT={'start':.55,'end':1.,'gap':.008,'skinStart':1.05,'skinEnd':1.15,'binding':'torso'}
+REST_FIT_PANELS=('Tripo_Hanging_Panel_L','Tripo_Hanging_Panel_R')
+WAIST_PANELS=(*REST_FIT_PANELS,'Tripo_Front_Tabard')
+
+def fit_panel_waists(parts):
+    """Fit front panels to the trousers and bind their waist to the torso."""
+    trousers=next(obj for obj in parts if obj.name=='Tripo_Trousers');pants=trousers.data
+    tree=BVHTree.FromPolygons([v.co for v in pants.vertices],[tuple(f.vertices) for f in pants.polygons],all_triangles=True)
+    start,end,gap=(WAIST_FIT[key] for key in ['start','end','gap'])
+    report=[]
+    for obj in parts:
+        if obj.name not in WAIST_PANELS:continue
+        mesh=obj.data;shift=0.;samples=0
+        # Belt-hung fabric must not inherit opposing thigh motion.
+        for vertex in mesh.vertices:
+            axial=[(obj.vertex_groups[g.group],g.weight) for g in vertex.groups if not obj.vertex_groups[g.group].name.startswith('thigh_')]
+            total=sum(weight for _,weight in axial)
+            if total<=0:raise RuntimeError('Missing torso attachment: '+obj.name)
+            for index in [g.group for g in vertex.groups]:obj.vertex_groups[index].remove([vertex.index])
+            for group,weight in axial:group.add([vertex.index],weight/total,'REPLACE')
+        for vertex in mesh.vertices:
+            p=vertex.co;t=min(1,max(0,(p.z-start)/(end-start)));weight=t*t*(3-2*t)
+            if weight==0:continue
+            hit,_,_,_=tree.ray_cast(Vector((p.x,-1,p.z)),Vector((0,1,0)),2)
+            if hit is None:continue  # No trouser surface at this cross-section.
+            needed=p.y-hit.y+gap
+            if needed>0 and obj.name in REST_FIT_PANELS:shift=max(shift,needed/weight);samples+=1
+        if obj.name in REST_FIT_PANELS and not(0<shift<.03):raise RuntimeError('Review changed source-panel fit: '+obj.name+' '+str(shift))
+        normals=[]
+        for loop,normal in zip(mesh.loops,mesh.corner_normals):
+            t=min(1,max(0,(mesh.vertices[loop.vertex_index].co.z-start)/(end-start)))
+            slope=shift*6*t*(1-t)/(end-start)
+            n=normal.vector.copy();n.z+=slope*n.y;normals.append(n.normalized())
+        for vertex in mesh.vertices:
+            t=min(1,max(0,(vertex.co.z-start)/(end-start)))
+            vertex.co.y-=shift*t*t*(3-2*t)
+        mesh.update();mesh.normals_split_custom_set(normals)
+        # Use the underlying torso weights for these belt attachments.
+        # Individual thigh weights pull neighbouring waist vertices apart.
+        bound=0
+        for vertex in mesh.vertices:
+            p=vertex.co;t=min(1,max(0,(p.z-WAIST_FIT['skinStart'])/(WAIST_FIT['skinEnd']-WAIST_FIT['skinStart'])));weight=t*t*(3-2*t)
+            if weight==0:continue
+            hit,_,face,_=tree.ray_cast(Vector((p.x,-1,p.z)),Vector((0,1,0)),2)
+            if hit is None:continue
+            ids=list(pants.polygons[face].vertices)
+            if len(ids)!=3:raise RuntimeError('Body weight transfer requires source triangles')
+            a,b,c=[pants.vertices[i].co for i in ids]
+            bary=barycentric_transform(hit,a,b,c,Vector((1,0,0)),Vector((0,1,0)),Vector((0,0,1)))
+            bary=Vector([max(0,x) for x in bary]);bary/=sum(bary)
+            weights={obj.vertex_groups[g.group].name:g.weight*(1-weight) for g in vertex.groups}
+            for i,influence in zip(ids,bary):
+                for group in pants.vertices[i].groups:
+                    name=trousers.vertex_groups[group.group].name
+                    weights[name]=weights.get(name,0)+group.weight*influence*weight
+            selected=sorted(((name,value) for name,value in weights.items() if value>1e-8 and not name.startswith('thigh_')),key=lambda pair:-pair[1])[:4]
+            total=sum(value for _,value in selected)
+            if total<=0:raise RuntimeError('Invalid body-matched waist binding')
+            for index in [group.group for group in vertex.groups]:obj.vertex_groups[index].remove([vertex.index])
+            for name,value in selected:
+                group=obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+                group.add([vertex.index],value/total,'REPLACE')
+            bound+=1
+        if bound==0:raise RuntimeError('Missing source waist binding samples: '+obj.name)
+        obj['cloth_waist_shift']=shift
+        report.append({'name':obj.name,'shift':shift,'samples':samples,'bound':bound})
+    if len(report)!=3:raise RuntimeError('Missing front panel for waist fit')
+    return report
+
+
 def xyz(p):
     return [p.x, p.z, -p.y]  # Blender Z-up to glTF Y-up
 
@@ -56,6 +126,8 @@ def outer_driver(original):
                 group.add([vertex.index],weight,'REPLACE')
     return obj
 
+
+MOTION_PROFILES={'Tripo_Front_Tabard':1,'Tripo_Hip_Overlays':2}
 
 OVERLAY_PARTS=('Hip_Overlays','Front_Tabard','Hanging_Panel')
 
@@ -194,7 +266,7 @@ def make_proxy(parts, rig):
                                  'pinned':sum(m == 0 for m in data['mobility'][offset:])})
         if 'Upper_Robe' not in original.name:
             padding=.014 if 'Outer_Robe' in original.name else .018 if 'Hip_Overlays' in original.name else .010 if 'Front_Tabard' in original.name else .006
-            data['legCloth'].append({'name':original.name,'nodes':list(range(offset,offset+len(points))),'padding':padding})
+            data['legCloth'].append({'name':original.name,'nodes':list(range(offset,offset+len(points))),'padding':padding,'motion':MOTION_PROFILES.get(original.name,0)})
         surfaces[original.name] = (BVHTree.FromPolygons(points, faces, all_triangles=True), points, faces, offset, face_offset)
         bpy.data.objects.remove(obj, do_unlink=True)
     if len(data['positions']) > 512: raise RuntimeError('Proxy particle budget exceeded')
@@ -259,30 +331,46 @@ def make_proxy(parts, rig):
             radius=distances[int(.95*len(distances))]+.004
             end=b+center
             if start=='foot_':
-                # The ball joint is inside the boot, not at its toe. Fit the
-                # end hemisphere to the actual toe reach without widening it.
-                direction=ab.normalized()
-                tip=max((vertex.co-a-center).dot(direction) for vertex in obj.data.vertices)
-                extension=max(0,tip-ab.length-radius+.006)
+                # Fit both width and finite endpoint support to the weighted
+                # forefoot. tip-radius misses wide, diagonal toe corners.
+                direction=ab.normalized();forefoot=[]
+                for vertex in obj.data.vertices:
+                    groups={obj.vertex_groups[g.group].name:g.weight for g in vertex.groups}
+                    t=(vertex.co-a).dot(ab)/ab.length_squared
+                    if groups.get(left,0)+groups.get(right,0)>.45 and t>.15:
+                        relative=vertex.co-a-center;along=relative.dot(direction)
+                        radial=(relative-direction*along).length
+                        forefoot.append((along,radial))
+                if not forefoot:raise RuntimeError('Missing forefoot samples: '+left)
+                support_radius=max(radial for _,radial in forefoot)
+                radius=support_radius+.004
+                reach=max(along-math.sqrt(max(0,support_radius**2-radial**2)) for along,radial in forefoot)
+                extension=max(0,reach-ab.length)
                 end+=direction*extension
-            local_a=rig.data.bones[left].matrix_local.inverted()@(a+center)
-            local_b=rig.data.bones[right].matrix_local.inverted()@end
+                if any(math.hypot(max(0,along-ab.length-extension),radial)>radius-.0039 for along,radial in forefoot):
+                    raise RuntimeError('Foot capsule misses a weighted toe corner: '+left)
+            driver_a='pelvis' if start=='thigh_' else left
+            driver_b=left if start=='thigh_' else right
+            local_a=rig.data.bones[driver_a].matrix_local.inverted()@(a+center)
+            local_b=rig.data.bones[driver_b].matrix_local.inverted()@end
             # glTF converts the armature's world frame to Y-up, but preserves
             # each joint's local axes. Local offsets must stay in bone space;
             # xyz(local_a) would rotate the offset a second time.
-            colliders.append([left,right,radius,'leg',list(local_a),list(local_b)])
+            colliders.append([left,right,radius,'leg',list(local_a),list(local_b),driver_a,driver_b])
             collider_rest.append([xyz(a+center),xyz(end)])
         for start,end,radius in [('upperarm_','lowerarm_',.055),('lowerarm_','hand_',.05)]:
-            colliders.append([start+side,end+side,radius,'arm',[0,0,0],[0,0,0]])
+            colliders.append([start+side,end+side,radius,'arm',[0,0,0],[0,0,0],start+side,end+side])
             collider_rest.append([xyz(rig.data.bones[start+side].head_local),xyz(rig.data.bones[end+side].head_local)])
     # Short central hip capsule fills the gap between the two thigh surfaces.
     a=rig.data.bones['pelvis'].head_local.copy();a.y=-.07;a.z=1.05
     b=a.copy();b.z=1.10
     inv=rig.data.bones['pelvis'].matrix_local.inverted()
-    colliders.append(['pelvis','pelvis',.115,'body',list(inv@a),list(inv@b)])
+    colliders.append(['pelvis','pelvis',.115,'body',list(inv@a),list(inv@b),'pelvis','pelvis'])
     collider_rest.append([xyz(a),xyz(b)])
     data['colliders']=colliders
     data['colliderRest']=collider_rest
+    data['waistFit']={**WAIST_FIT,'panels':[{'name':obj.name,'shift':obj['cloth_waist_shift']} for obj in parts if obj.name in WAIST_PANELS]}
+    data['rearVent']={'version':1,'seamEdges':40,'top':1.13}
     data['id'] = hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()[:16]
     surfaces['__id__'] = data['id']
     return data, surfaces
@@ -290,13 +378,16 @@ def make_proxy(parts, rig):
 
 def bind_proxy(obj, garment, surfaces):
     obj['cloth_proxy_id'] = surfaces['__id__']
-    for name in ['_WL_PROXY_INDICES','_WL_PROXY_WEIGHTS','_WL_PROXY_FACE']:
+    for name in ['_WL_PROXY_INDICES','_WL_PROXY_WEIGHTS','_WL_PROXY_FACE','_WL_MOTION_PROFILE']:
         if name in obj.data.attributes: obj.data.attributes.remove(obj.data.attributes[name])
     indices = obj.data.attributes.new('_WL_PROXY_INDICES','FLOAT_VECTOR','POINT')
     weights = obj.data.attributes.new('_WL_PROXY_WEIGHTS','FLOAT_VECTOR','POINT')
     face_ids = obj.data.attributes.new('_WL_PROXY_FACE','FLOAT','POINT')
+    panels=obj.data.attributes.new('_WL_MOTION_PROFILE','FLOAT','POINT')
+    panel=MOTION_PROFILES.get(garment,0)
     motion = obj.data.attributes['_WL_CLOTH']
     for v in obj.data.vertices:
+        panels.data[v.index].value=panel
         if garment not in surfaces or motion.data[v.index].vector.x <= 0:
             weights.data[v.index].vector = (1,0,0)
             continue

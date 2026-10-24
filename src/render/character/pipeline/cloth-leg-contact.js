@@ -7,11 +7,19 @@ const point = new Vector3(), carried = new Vector3(), restKnee = new Vector3()
 const restAxis = new Vector3(), currentAxis = new Vector3(), translation = new Vector3()
 const pelvisRotation = new Quaternion(), correction = new Quaternion(), basis = new Matrix4(), actorInverse = new Matrix4()
 const hipPosition = new Vector3(), kneePosition = new Vector3()
-const freeHem = new Vector3()
+const freeHem = new Vector3(),ventRest=new Vector3()
 const rearAxis = new Vector3()
 const rearTarget = new Vector3()
 const smooth = value => { const t = Math.max(0, Math.min(1, value)); return t*t*(3-2*t) }
 const rayOffset=new Vector3(),projectedAxis=new Vector3(),projectedOffset=new Vector3()
+
+export const CLOTH_MOTION={SKIRT:0,CENTER_PANEL:1,HIP_OVERLAY:2}
+
+export const CLOTH_SKIN={OUTER:.006,OVERLAY:.004}
+
+export const CENTER_PANEL={top:1.15,blend:.3}
+
+export const REAR_VENT={edge:.12,motionEdge:.06,round:.012,motionRound:.038,ownerTop:1.13,ownerBlend:.30,motionOwnerBlend:.15,kneeStart:.2,kneeRange:.35}
 
 export const REAR_CONTACT={edge:.06,radius:.006,gap:.003,layer:.008,release:.05,heightBlend:.12}
 
@@ -26,7 +34,8 @@ export function clearRearCloth(p,capsules,direction,weight) {
     const axisLength=axis.lengthSq(),axisAlong=axis.dot(direction),offsetAlong=rayOffset.dot(direction)
     projectedAxis.copy(axis).addScaledVector(direction,-axisAlong)
     projectedOffset.copy(rayOffset).addScaledVector(direction,-offsetAlong)
-    const t=Math.max(0,Math.min(1,projectedOffset.dot(projectedAxis)/Math.max(1e-12,projectedAxis.lengthSq())))
+    const projectedLength=projectedAxis.lengthSq()
+    const t=Math.max(0,Math.min(1,projectedOffset.dot(projectedAxis)/Math.max(1e-30,projectedLength)))
     const distance=projectedOffset.addScaledVector(projectedAxis,-t).length(),radius=cap.radius+padding
     if(distance>=radius+edge)continue
     const support=1-smooth((distance-radius)/edge)
@@ -34,7 +43,13 @@ export function clearRearCloth(p,capsules,direction,weight) {
     // its endpoint spheres gives the actual capsule boundary in this direction.
     // Outside the silhouette, continue the tangent-axis depth through a smooth
     // footprint band, so neighbouring triangles start moving before contact.
-    let far=t*axisAlong-offsetAlong
+    // When the projected axis is narrower than the footprint fade, its two
+    // endpoint depths cannot be distinguished smoothly. Continue the far end
+    // through that band, approaching the ordinary tangent depth continuously
+    // as the projected axis opens. An exact-parallel branch would just move
+    // the original jump to its angular threshold.
+    const endOn=1-smooth(projectedLength/(edge*edge))
+    let far=t*axisAlong+(Math.max(0,axisAlong)-t*axisAlong)*endOn-offsetAlong
     const axisOffset=axis.dot(rayOffset),a=axisLength-axisAlong*axisAlong
     const b=axisLength*offsetAlong-axisOffset*axisAlong
     const c=axisLength*rayOffset.lengthSq()-axisOffset*axisOffset-radius*radius*axisLength
@@ -58,16 +73,17 @@ export function clearRearCloth(p,capsules,direction,weight) {
 
 // A monotone surface map keeps a thin layer's front/back vertices distinct.
 // A hard radius clamp would put both sides on one surface and cause z-fighting.
-export function conformClothToLegs(p, capsules) {
+export function conformClothToBody(p, capsules, padding=CLOTH_SKIN.OVERLAY) {
   for(const cap of capsules) {
-    if(cap.kind!=='leg')continue
+    if(cap.kind==='arm')continue
     axis.subVectors(cap.b,cap.a)
     const t=Math.max(0,Math.min(1,delta.copy(p).sub(cap.a).dot(axis)/axis.lengthSq()))
     nearest.copy(cap.a).addScaledVector(axis,t);delta.copy(p).sub(nearest)
     const distance=delta.length()
     if(distance<1e-8)throw new Error('Visible cloth lies on a limb axis')
-    const skin=.003+.1*cap.radius
-    const mapped=distance<cap.radius ? cap.radius+.003+.1*distance : distance+skin*Math.exp(-(distance-cap.radius)/.05)
+    const radius=cap.radius+padding
+    const skin=.003+.1*radius
+    const mapped=distance<radius ? radius+.003+.1*distance : distance+skin*Math.exp(-(distance-radius)/.05)
     p.copy(nearest).addScaledVector(delta,mapped/distance)
   }
   return p
@@ -75,6 +91,8 @@ export function conformClothToLegs(p, capsules) {
 
 export class ClothLegContact {
   constructor(definition, simulation) {
+    if(!Object.values(CLOTH_MOTION).includes(definition.motion))throw new Error('Rebuild cloth data: garment motion profile is required')
+    this.motion=definition.motion
     this.sim = simulation
     this.nodes = definition.nodes
     this.padding = definition.padding
@@ -92,7 +110,7 @@ export class ClothLegContact {
       const calfLength=new Vector3(...simulation.data.colliderRest[calfIndex][0]).distanceTo(new Vector3(...simulation.data.colliderRest[calfIndex][1]))
       const hip = new Vector3().setFromMatrixPosition(simulation.skinMatrices.get(cap.left).bind.clone().invert())
       const knee = new Vector3().setFromMatrixPosition(simulation.skinMatrices.get(cap.right).bind.clone().invert())
-      return {cap,calf,calfLength,rearCarry:new Vector3(),hip,knee,matrix:new Matrix4(),hangingMatrix:new Matrix4(),hangingRotation:new Quaternion(),hangingPosition:new Vector3()}
+      return {cap,calf,calfLength,rearCarry:new Vector3(),rearOpening:new Vector3(),hip,knee,matrix:new Matrix4(),hangingMatrix:new Matrix4(),hangingRotation:new Quaternion(),hangingPosition:new Vector3()}
     })
     this.pelvis=simulation.actor.getObjectByName('pelvis')
     if (!this.pelvis?.isBone) throw new Error('Missing skirt attachment: pelvis')
@@ -131,12 +149,23 @@ export class ClothLegContact {
     return p
   }
 
-  shape(rest, reference, out) {
+  shape(rest, reference, out,side=0,motion=CLOTH_MOTION.SKIRT) {
+    if(motion===CLOTH_MOTION.HIP_OVERLAY)return out.copy(reference)
+    const centerPanel=motion===CLOTH_MOTION.CENTER_PANEL
+    const vent=(1-smooth(rest.z/.08))*(1-smooth((rest.y-.55)/.58))*Math.abs(side)
+    const ownerBlend=REAR_VENT.ownerBlend+REAR_VENT.motionOwnerBlend*this.thighs[side>0?0:1].rearOpening.y
     point.set(0,0,0)
-    this.thighs.forEach(({cap,hip,knee,matrix,hangingMatrix,calfLength,rearCarry}, index) => {
-      const weight = index === 0 ? smooth((rest.x+.08)/.16) : 1-smooth((rest.x+.08)/.16)
-      carried.copy(rest).applyMatrix4(matrix)
-      const dx=rest.x-hip.x,dz=rest.z-hip.z
+    this.thighs.forEach(({cap,hip,knee,matrix,hangingMatrix,calfLength,rearCarry,rearOpening}, index) => {
+      const own=(1-smooth(rest.z/.08))*Math.abs(side)*smooth((REAR_VENT.ownerTop-rest.y)/ownerBlend)
+      let left=smooth((rest.x+.08)/.16)*(1-own)+(side>0?1:0)*own
+      // One tabard is a single sheet: opposing leg frames must not pull
+      // neighbouring columns in different directions.
+      if(centerPanel)left=.5
+      const weight=index===0?left:1-left
+      const yaw=-side*rearOpening.x*vent,c=Math.cos(yaw),s=Math.sin(yaw),x=rest.x-hip.x,z=rest.z-hip.z
+      ventRest.set(hip.x+x*c+z*s,rest.y,hip.z-x*s+z*c)
+      carried.copy(ventRest).applyMatrix4(matrix)
+      const dx=ventRest.x-hip.x,dz=ventRest.z-hip.z
       const radial=Math.min(1,(cap.radius+.025)/Math.max(.000001,Math.hypot(dx,dz)))
       restKnee.set(hip.x+dx*radial,knee.y,hip.z+dz*radial).applyMatrix4(hangingMatrix)
       freeHem.set(dx*(1-radial),0,dz*(1-radial)).applyMatrix4(this.hemFrame)
@@ -145,9 +174,9 @@ export class ClothLegContact {
       // Distribute a backward calf swing through the hanging rear panel before
       // contact. A vertical reference otherwise kinks around the raised boot.
       const rear=(1-smooth(rest.z/.08))*Math.max(0,Math.min(1,(knee.y-rest.y)/calfLength))
-      restKnee.addScaledVector(rearCarry,rear)
-      carried.lerp(restKnee,1-smooth((rest.y-knee.y+.07)/.14))
-      const attachment = smooth((hip.y+.04-rest.y)/.18)
+      restKnee.addScaledVector(rearCarry,rear*(1-Math.abs(side)))
+      carried.lerp(restKnee,1-smooth((rest.y-knee.y+.12)/.24))
+      const attachment = centerPanel?smooth((CENTER_PANEL.top-rest.y)/CENTER_PANEL.blend):smooth((hip.y+.16-rest.y)/.30)
       carried.lerp(reference, 1-attachment)
       point.addScaledVector(carried, weight)
     })
@@ -160,7 +189,18 @@ export class ClothLegContact {
     pelvisRotation.setFromRotationMatrix(basis)
     this.hemFrame.copy(basis)
     rearAxis.set(0,0,-1).transformDirection(this.hemFrame)
-    for (const {cap,calf,rearCarry,hip,knee,matrix,hangingMatrix,hangingRotation,hangingPosition} of this.thighs) {
+    for (const {cap,calf,calfLength,rearCarry,rearOpening,hip,knee,matrix,hangingMatrix,hangingRotation,hangingPosition} of this.thighs) {
+      const lead=dt>0?Math.min(2,.04/dt):0
+      rearTarget.copy(calf.b).addScaledVector(axis.subVectors(calf.b,calf.oldB),lead).sub(cap.a)
+      const behind=smooth((rearTarget.dot(rearAxis)-.12)/.20)
+      const heelRelease=behind*smooth((axis.subVectors(calf.b,calf.a).dot(rearAxis)/calfLength-.05)/.5)
+      // A forward knee can catch the back tail even while its ankle is
+      // still ahead of the hip. Release for that bend as well as the heel.
+      const forward=-axis.subVectors(cap.b,cap.a).normalize().dot(rearAxis)
+      const kneeRelease=smooth((forward-REAR_VENT.kneeStart)/REAR_VENT.kneeRange)
+      const release=1-(1-heelRelease)*(1-kneeRelease)
+      if(dt===0)rearOpening.set(release,release,0)
+      else rearOpening.lerp(translation.set(release,release,0),1-Math.exp(-18*dt))
       rearTarget.copy(rearAxis).multiplyScalar(Math.max(0,axis.subVectors(calf.b,calf.a).dot(rearAxis)))
       if(dt===0)rearCarry.copy(rearTarget)
       else rearCarry.lerp(rearTarget,1-Math.exp(-18*dt))
@@ -171,17 +211,45 @@ export class ClothLegContact {
       correction.setFromUnitVectors(restAxis,currentAxis).multiply(pelvisRotation)
       translation.copy(hip).applyQuaternion(correction).negate().add(hipPosition)
       matrix.compose(translation,correction,restAxis.set(1,1,1))
-      if(dt===0) {hangingRotation.copy(correction);hangingPosition.copy(hipPosition)}
+      if(dt===0) hangingRotation.copy(correction)
       else {
         const follow=1-Math.exp(-18*dt)
-        hangingRotation.slerp(correction,follow);hangingPosition.lerp(hipPosition,follow)
+        hangingRotation.slerp(correction,follow)
       }
-      translation.copy(hip).applyQuaternion(hangingRotation).negate().add(hangingPosition)
+      // Rotation trails the thigh; the support point stays on the actual knee.
+      // Lagging that point as well stretched the blend across two different knees.
+      hangingPosition.copy(kneePosition)
+      translation.copy(knee).applyQuaternion(hangingRotation).negate().add(hangingPosition)
       hangingMatrix.compose(translation,hangingRotation,restAxis)
     }
     for (const i of this.nodes) {
       if (this.sim.weights[i] === 0) continue
-      this.shape(this.sim.rest[i],this.sim.references[i],this.sim.references[i])
+      this.shape(this.sim.rest[i],this.sim.references[i],this.sim.references[i],0,this.motion)
     }
   }
+}
+
+// Conservative, rounded lateral envelope for the split rear tails. The cylinder
+// and endpoint support are both outer bounds; their minimum avoids an end-on
+// singularity without choosing a different side of the leg.
+export function clearVentedRearCloth(p,capsules,direction,weight,release) {
+ const {edge:baseEdge,motionEdge,round:baseRound,motionRound}=REAR_VENT
+ const {radius:padding,gap,layer,release:fade}=REAR_CONTACT
+ const round=baseRound+motionRound*release,edge=baseEdge+motionEdge*release
+ for(const cap of capsules) {
+  if(cap.kind!=='leg')continue
+  axis.subVectors(cap.b,cap.a);rayOffset.copy(p).sub(cap.a)
+  const axisLength=axis.lengthSq(),along=axis.dot(direction),offsetAlong=rayOffset.dot(direction)
+  projectedAxis.copy(axis).addScaledVector(direction,-along)
+  projectedOffset.copy(rayOffset).addScaledVector(direction,-offsetAlong)
+  const planeLength=projectedAxis.lengthSq(),t=Math.max(0,Math.min(1,projectedOffset.dot(projectedAxis)/Math.max(1e-30,planeLength)))
+  const distance=projectedOffset.addScaledVector(projectedAxis,-t).length(),radius=cap.radius+padding
+  if(distance>=radius+edge)continue
+  const d=radius*radius-distance*distance
+  const root=Math.sqrt((d+Math.sqrt(d*d+4*round**4))/2)
+  const far=Math.min(t*along+root*Math.sqrt(axisLength/Math.max(1e-30,planeLength)),Math.max(0,along)+radius+round)-offsetAlong
+  const correction=far>=0?far+gap+layer/(1+far/layer):(gap+layer)*Math.exp(far/fade)
+  p.addScaledVector(direction,correction*(1-smooth((distance-radius)/edge))*weight)
+ }
+ return p
 }

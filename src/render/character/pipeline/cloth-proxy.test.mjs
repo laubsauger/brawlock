@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three/webgpu'
+import { deformClothVertex } from './cloth-deformation.js'
 import { ClothProxy, fitClothRotation } from './cloth-proxy.js'
-import { conformClothToLegs, clearRearCloth } from './cloth-leg-contact.js'
+import { conformClothToBody, clearRearCloth, clearVentedRearCloth, CLOTH_MOTION } from './cloth-leg-contact.js'
 
 function fittedSkirt() {
   const actor=new THREE.Group(),pelvis=new THREE.Bone()
@@ -19,14 +20,14 @@ function fittedSkirt() {
   mesh.bind(new THREE.Skeleton(bones));actor.add(mesh)
   for(const side of ['l','r'])for(const [a,b] of [['thigh_','calf_'],['calf_','foot_']]) {
     const left=actor.getObjectByName(a+side),right=actor.getObjectByName(b+side)
-    colliders.push([left.name,right.name,.07,'leg',[0,0,0],[0,0,0]])
+    colliders.push([left.name,right.name,.07,'leg',a==='thigh_'?[left.position.x,0,0]:[0,0,0],a==='thigh_'?[0,-.4,0]:[0,0,0],a==='thigh_'?'pelvis':left.name,a==='thigh_'?left.name:right.name])
     colliderRest.push([left.getWorldPosition(new THREE.Vector3()).toArray(),right.getWorldPosition(new THREE.Vector3()).toArray()])
   }
   const positions=[[0,0,0],[-.13,1.1,.12],[.13,1.1,.12],[.13,.78,.12],[.13,.34,.18],[-.13,.78,.12],[-.13,.34,.18]]
   const data={version:1,positions,skin:[[],...positions.slice(1).map(()=>[['pelvis',1]])],
     contact:positions.map(()=>[0,0,1]),drape:positions,mobility:[0,0,0,.35,1,.35,1],
     region:[0,1,1,1,1,1,1],edges:[],triangles:[[0,0,0],[1,2,3]],layers:[],sleeves:[],garmentEnvelopes:[],
-    legCloth:[{name:'test skirt',nodes:[1,2,3,4,5,6],padding:.006}],clearance:positions.map(()=>.006),colliderRest}
+    legCloth:[{name:'test skirt',nodes:[1,2,3,4,5,6],padding:.006,motion:0}],clearance:positions.map(()=>.006),colliderRest}
   return {actor,pelvis,data,simulation:new ClothProxy(data,actor,colliders),thigh:actor.getObjectByName('thigh_l')}
 }
 
@@ -76,12 +77,12 @@ test('leg conformation keeps thin layers distinct and stays local to the limb',(
   const cap={kind:'leg',a:new THREE.Vector3(),b:new THREE.Vector3(0,1,0),radius:.1}
   let previous=0
   for(const radius of [.02,.0201,.06,.09,.1,.1001,.15,.3]) {
-    const p=new THREE.Vector3(radius,.5,0);conformClothToLegs(p,[cap])
+    const p=new THREE.Vector3(radius,.5,0);conformClothToBody(p,[cap])
     assert(p.x>.1&&p.x>previous,'Thin layers collapsed onto the same surface');previous=p.x
   }
-  const far=new THREE.Vector3(.6,.5,0);conformClothToLegs(far,[cap])
+  const far=new THREE.Vector3(.6,.5,0);conformClothToBody(far,[cap])
   assert(Math.abs(far.x-.6)<1e-6,'A distant limb inflated the cloth')
-  assert.throws(()=>conformClothToLegs(new THREE.Vector3(0,.5,0),[cap]),/limb axis/)
+  assert.throws(()=>conformClothToBody(new THREE.Vector3(0,.5,0),[cap]),/limb axis/)
 })
 
 test('a rear sheet clears a passing calf without splitting across its two sides',()=>{
@@ -133,6 +134,42 @@ test('rear contact follows the actor frame rather than a fixed world axis',()=>{
   assert(actual.distanceTo(expected.applyQuaternion(q))<1e-8)
 })
 
+test('end-on rear contact stays continuous across the capsule silhouette',()=>{
+  const rear=new THREE.Vector3(0,0,-1)
+  const rotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(.4,.7,-.2))
+  for(const reverse of [false,true])for(const rotated of [false,true]) {
+    const a=new THREE.Vector3(0,0,0),b=new THREE.Vector3(0,0,-.8)
+    const cap={kind:'leg',a:reverse?b:a,b:reverse?a:b,radius:.1}
+    const direction=rear.clone()
+    const points=[.106-1e-7,.106,.106+1e-7].map(x=>new THREE.Vector3(x,0,.02))
+    if(rotated) {
+      cap.a.applyQuaternion(rotation);cap.b.applyQuaternion(rotation)
+      direction.applyQuaternion(rotation)
+      points.forEach(p=>p.applyQuaternion(rotation))
+    }
+    points.forEach(p=>clearRearCloth(p,[cap],direction,1))
+    assert(points[0].distanceTo(points[1])<.001,'Contact jumped inside the silhouette')
+    assert(points[1].distanceTo(points[2])<.001,'Contact jumped outside the silhouette')
+  }
+})
+
+test('rear contact stays continuous as a calf rotates through end-on alignment',()=>{
+  const direction=new THREE.Vector3(0,0,-1)
+  for(const reverse of [false,true]) {
+    const sample=angle=>{
+      const a=new THREE.Vector3(),b=new THREE.Vector3(.8*Math.sin(angle),0,-.8*Math.cos(angle))
+      const cap={kind:'leg',a:reverse?b:a,b:reverse?a:b,radius:.1}
+      return clearRearCloth(new THREE.Vector3(-.13,0,.02),[cap],direction,1)
+    }
+    assert(sample(.999e-6).distanceTo(sample(1.001e-6))<1e-6,'Contact jumped near parallel alignment')
+    for(let step=0;step<=4000;step++) {
+      const angle=-.2+step*.0001
+      assert(sample(angle-1e-9).distanceTo(sample(angle+1e-9))<.0001,
+        'A rotating contact introduced a discontinuity')
+    }
+  }
+})
+
 test('fitted hem follow-through agrees across frame rates and actor placement',()=>{
   const fixtures=[30,60,120].map((fps,index)=>{
     const fixture=fittedSkirt()
@@ -157,7 +194,7 @@ function curtain() {
   const positions=[[0,0,0],[-.12,1.2,.1],[.12,1.2,.1],[-.12,.5,.1],[.12,.5,.1]]
   const edges=[[1,2],[1,3],[2,4],[3,4],[1,4],[2,3]].map(([a,b])=>[a,b,new THREE.Vector3(...positions[a]).distanceTo(new THREE.Vector3(...positions[b])),1])
   const data={version:1,positions,contact:positions.map((_,i)=>i>0?[0,0,1]:[0,0,0]),drape:positions,skin:[[],...positions.slice(1).map(()=>[['anchor',1]])],mobility:[0,0,0,1,1],region:[0,1,1,1,1],garmentEnvelopes:[],legCloth:[],clearance:positions.map(()=>.006),sleeves:[],layers:[],triangles:[[0,0,0],[1,2,3],[2,4,3]],edges}
-  const simulation=new ClothProxy(data,actor,[['knee','ankle',.17,'leg',[0,0,0],[0,0,0]]])
+  const simulation=new ClothProxy(data,actor,[['knee','ankle',.17,'leg',[0,0,0],[0,0,0],'knee','ankle']])
   return {actor,root,knee,ankle,simulation,data}
 }
 
@@ -229,7 +266,7 @@ test('sleeve fabric also collides with the hips and legs',()=>{
   const fixture=curtain(),{actor,knee,ankle,data}=fixture
   data.region=[0,4,4,4,4];data.contact=data.positions.map(()=>[0,0,0])
   knee.position.z=ankle.position.z=.12;actor.updateMatrixWorld(true)
-  const sim=new ClothProxy(data,actor,[['knee','ankle',.17,'leg',[0,0,0],[0,0,0]]])
+  const sim=new ClothProxy(data,actor,[['knee','ankle',.17,'leg',[0,0,0],[0,0,0],'knee','ankle']])
   for(let i=0;i<30;i++)sim.update(1/60)
   assert.equal(sim.inspect().penetrations,0,'Cuff fabric ignored a leg collision')
 })
@@ -407,4 +444,139 @@ test('a garment envelope stays in its attachment joint frame after translation a
   }
   results[0].applyMatrix4(fixtures[1].root.matrixWorld)
   assert(results[0].distanceTo(results[1])<1e-7,'The clearance volume used world axes instead of joint-local coordinates')
+})
+
+
+test('the hanging support stays on the posed knee while its orientation trails',()=>{
+  const {actor,thigh,simulation}=fittedSkirt()
+  thigh.rotation.x=-.9;actor.updateMatrixWorld(true);simulation.update(1/60)
+  const limb=simulation.legCloth[0].thighs[0]
+  const support=limb.knee.clone().applyMatrix4(limb.hangingMatrix)
+  assert(support.distanceTo(thigh.children[0].getWorldPosition(new THREE.Vector3()))<1e-8)
+  const hanging=new THREE.Quaternion().setFromRotationMatrix(limb.hangingMatrix)
+  const immediate=new THREE.Quaternion().setFromRotationMatrix(limb.matrix)
+  assert(hanging.angleTo(immediate)>.1,'The angular follow-through disappeared')
+})
+
+test('vented tail clearance is finite on the limb axis and conservative through end-on rotation',()=>{
+  const direction=new THREE.Vector3(1,0,0)
+  for(let step=-100;step<=100;step++) {
+    const angle=step*.0001
+    const cap={kind:'leg',a:new THREE.Vector3(),b:new THREE.Vector3(Math.cos(angle),Math.sin(angle),0),radius:.1}
+    const p=cap.b.clone().multiplyScalar(.5)
+    clearVentedRearCloth(p,[cap],direction,1,1)
+    const axis=cap.b.clone().sub(cap.a),t=THREE.MathUtils.clamp(p.clone().sub(cap.a).dot(axis)/axis.lengthSq(),0,1)
+    assert(p.toArray().every(Number.isFinite))
+    assert(p.distanceTo(cap.a.clone().addScaledVector(axis,t))>cap.radius+.006)
+  }
+})
+
+test('vented tails preserve layer order and leave distant fabric alone',()=>{
+  const cap={kind:'leg',a:new THREE.Vector3(),b:new THREE.Vector3(0,1,0),radius:.1}
+  const direction=new THREE.Vector3(1,0,0)
+  let previous=-Infinity
+  for(const x of [-.5,-.1,0,.1,.5]) {
+    const p=new THREE.Vector3(x,.5,.02);clearVentedRearCloth(p,[cap],direction,1,1)
+    assert(p.x>previous);previous=p.x
+  }
+  const far=new THREE.Vector3(0,.5,.5);clearVentedRearCloth(far,[cap],direction,1,1)
+  assert.deepEqual(far.toArray(),[0,.5,.5])
+})
+
+test('the wider rear clearance footprint engages with leg release instead of flaring idle cloth',()=>{
+  const cap={kind:'leg',a:new THREE.Vector3(),b:new THREE.Vector3(0,1,0),radius:.1}
+  const direction=new THREE.Vector3(1,0,0),rest=new THREE.Vector3(0,.5,.24)
+  const idle=clearVentedRearCloth(rest.clone(),[cap],direction,1,0)
+  assert.deepEqual(idle.toArray(),rest.toArray(),'The moving contact footprint inflated resting cloth')
+  const moving=clearVentedRearCloth(rest.clone(),[cap],direction,1,1)
+  assert(moving.x>idle.x,'A released leg did not start moving neighbouring fabric earlier')
+})
+
+test('a fully vented visible vertex bypasses the unused radial map on the capsule axis',()=>{
+  const scalar=value=>new THREE.Float32BufferAttribute([value],1)
+  const attributes={position:new THREE.Float32BufferAttribute([0,.3,-.1],3),_wl_cloth:new THREE.Float32BufferAttribute([1,0,1],3),
+    _wl_motion_profile:scalar(0),_wl_rear_side:scalar(1),_wl_proxy_indices:new THREE.Float32BufferAttribute([0,0,0],3),_wl_proxy_weights:new THREE.Float32BufferAttribute([1,0,0],3)}
+  const leg={thighs:[{knee:new THREE.Vector3(0,.6,0),rearOpening:new THREE.Vector3()},{rearOpening:new THREE.Vector3()}],hemFrame:new THREE.Matrix4(),shape:(rest,reference,out)=>out.copy(rest)}
+  const simulation={targets:[new THREE.Vector3()],offsets:[new THREE.Vector3()],primaryOffsets:[new THREE.Vector3()],rotations:[new THREE.Quaternion()],legCloth:[leg],
+    capsules:[{kind:'leg',a:new THREE.Vector3(0,0,-.1),b:new THREE.Vector3(0,1,-.1),radius:.1}]}
+  const mesh={geometry:{attributes},applyBoneTransform:()=>{}}
+  const out=deformClothVertex(mesh,0,simulation,new THREE.Vector3())
+  assert(out.toArray().every(Number.isFinite));assert(out.x>.106)
+})
+
+test('a withdrawing heel opens only its own vented tail without dragging its length backward',()=>{
+  const {actor,simulation}=fittedSkirt(),cloth=simulation.legCloth[0]
+  const left=new THREE.Vector3(.13,.34,-.18),right=new THREE.Vector3(-.13,.34,-.18)
+  const rest=cloth.shape(left,left,new THREE.Vector3(),1)
+  assert(rest.distanceTo(left)<1e-8,'The idle vent changed the authored drape')
+  actor.getObjectByName('calf_l').rotation.x=1;actor.updateMatrixWorld(true);simulation.update(1/60)
+  assert(cloth.thighs[0].rearOpening.x>.1,'Heel release started too late')
+  for(let i=0;i<120;i++)simulation.update(1/60)
+  const opened=cloth.shape(left,left,new THREE.Vector3(),1)
+  assert(opened.z>rest.z+.03,'The tail followed the withdrawing heel backward')
+  assert(Math.abs(Math.hypot(opened.x-.1,opened.z)-Math.hypot(left.x-.1,left.z))<1e-8,'Opening stretched the tail instead of rotating it')
+  assert(cloth.shape(right,right,new THREE.Vector3(),-1).distanceTo(right)<1e-8,'The opposite tail opened')
+})
+
+test('the front tabard shares a leg blend across its width and retains its waist attachment',()=>{
+  const {actor,thigh,simulation}=fittedSkirt(),cloth=simulation.legCloth[0]
+  thigh.rotation.x=-.9;actor.getObjectByName('thigh_r').rotation.x=.9
+  actor.updateMatrixWorld(true);simulation.update(1/60)
+  const a=new THREE.Vector3(-.02,.34,.2),b=new THREE.Vector3(.02,.34,.2)
+  const legacy=[a,b].map(p=>cloth.shape(p,p,new THREE.Vector3()))
+  const panel=[a,b].map(p=>cloth.shape(p,p,new THREE.Vector3(),0,CLOTH_MOTION.CENTER_PANEL))
+  assert(legacy[0].distanceTo(legacy[1])>a.distanceTo(b)*2,'Fixture no longer exercises transverse stretch')
+  assert(panel[0].distanceTo(panel[1])<a.distanceTo(b)*1.1,'The front tabard stretched across opposing leg frames')
+  const waist=new THREE.Vector3(-.02,1.15,.15)
+  assert(cloth.shape(waist,waist,new THREE.Vector3(),0,CLOTH_MOTION.CENTER_PANEL).distanceTo(waist)<1e-8,'The panel moved its authored waist attachment')
+})
+
+
+test('the short hip overlay retains its waist reference while opposing thighs move',()=>{
+  const {actor,thigh,simulation}=fittedSkirt(),cloth=simulation.legCloth[0]
+  thigh.rotation.x=-1.1;actor.getObjectByName('thigh_r').rotation.x=1.1
+  actor.updateMatrixWorld(true);simulation.update(1/60)
+  for(const x of [-.04,0,.04]) {
+    const rest=new THREE.Vector3(x,.9,-.12),reference=rest.clone().add(new THREE.Vector3(.02,-.05,.03))
+    assert(cloth.shape(rest,reference,new THREE.Vector3(),0,CLOTH_MOTION.HIP_OVERLAY).distanceTo(reference)<1e-8,'The hip overlay was pulled apart by the thighs')
+    assert(cloth.shape(rest,reference,new THREE.Vector3()).distanceTo(reference)>.01,'Fixture no longer exercises thigh motion')
+  }
+})
+
+
+test('visible contact includes the pelvis and preserves clearance while ignoring arm colliders',()=>{
+  const body={kind:'body',a:new THREE.Vector3(),b:new THREE.Vector3(0,1,0),radius:.1}
+  const p=new THREE.Vector3(.05,.5,0)
+  conformClothToBody(p,[body],.004)
+  assert(p.x>.104,'The pelvis collider or cloth clearance was omitted')
+  const armPoint=new THREE.Vector3(.05,.5,0)
+  conformClothToBody(armPoint,[{...body,kind:'arm'}],.004)
+  assert.deepEqual(armPoint.toArray(),[.05,.5,0])
+})
+
+test('a forward raised knee opens its rear tail before the ankle passes behind the hip',()=>{
+  const {actor,thigh,simulation}=fittedSkirt(),cloth=simulation.legCloth[0]
+  thigh.rotation.x=-.9;actor.updateMatrixWorld(true)
+  for(let i=0;i<120;i++)simulation.update(1/60)
+  assert(cloth.thighs[0].rearOpening.x>.9,'The rear tail waited for the heel despite a raised knee')
+  assert(cloth.thighs[1].rearOpening.x<1e-8,'The opposite resting leg opened its tail')
+  const rest=new THREE.Vector3(.13,.34,-.18),source=rest.clone().applyMatrix4(simulation.skinMatrices.get(simulation.actor.getObjectByName('pelvis')).matrix)
+  const opened=cloth.shape(rest,source,new THREE.Vector3(),1)
+  assert(opened.x>rest.x+.05,'The raised knee did not open space beside its leg')
+})
+
+
+test('a flexing calf cannot torque the thigh collision surface away from its socket',()=>{
+  const {actor,pelvis,thigh,simulation}=fittedSkirt()
+  const cap=simulation.capsules.find(cap=>cap.left===thigh)
+  cap.offsetA.z=.03;cap.offsetB.z=.03
+  simulation.sampleTargets()
+  const socket=cap.a.clone()
+  thigh.rotation.x=-1;actor.updateMatrixWorld(true);simulation.sampleTargets()
+  assert(cap.a.distanceTo(socket)<1e-8,'The fitted socket rotated with the raised thigh')
+  const knee=cap.b.clone()
+  actor.getObjectByName('calf_l').rotation.x=1.2;actor.updateMatrixWorld(true);simulation.sampleTargets()
+  assert(cap.b.distanceTo(knee)<1e-8,'Calf flexion torqued the thigh collision endpoint')
+  pelvis.rotation.y=.4;actor.updateMatrixWorld(true);simulation.sampleTargets()
+  assert(cap.a.distanceTo(cap.offsetA.clone().applyMatrix4(pelvis.matrixWorld))<1e-8,'The socket stopped following the pelvis')
 })

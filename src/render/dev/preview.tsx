@@ -13,7 +13,7 @@ import { installErrorCapture } from '../errorCapture'
 installErrorCapture()
 import { useGame, type Quality } from '../../game/store'
 import { input } from '../../game/input'
-import { MatchView, MenuBackdrop, recenterCamera, renderStats, warlockParams } from '../index'
+import { MatchView, MenuBackdrop, preloadWarlock, recenterCamera, renderStats, warlockParams } from '../index'
 import { devTime, perfProbe } from '../stats'
 import { cullFlags } from '../frameCull'
 import { startSimDriver } from './simDriver'
@@ -28,7 +28,16 @@ const params = new URLSearchParams(location.search)
 const q = params.get('q') as Quality | null
 if (q) useGame.getState().setSettings({ quality: q })
 const style = params.get('style')
-if (style === 'procedural' || style === 'cc0') warlockParams.style = style
+if (style === 'procedural' || style === 'cc0' || style === 'tripo') {
+  await preloadWarlock(style)
+  warlockParams.style = style
+}
+const staff = params.get('staff')
+if (staff === 'gnarled' || staff === 'iron' || staff === 'bone') {
+  warlockParams.staff = true
+  warlockParams.staffVariant = staff
+}
+if (params.get('castFrom') === 'palm') warlockParams.castFrom = 'palm'
 if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
 if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(params.get('fx')) })
 

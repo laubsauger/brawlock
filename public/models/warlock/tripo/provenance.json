@@ -1,0 +1,14 @@
+{
+  "model": "User-provided Tripo starter warlock; opt-in integration candidate",
+  "proxy": "8edc6affd3add8bc",
+  "files": {
+    "warlock-10k.glb": {
+      "source": "tripo-10k-original.glb",
+      "sha256": "19c45a1d4fa9e0c77351a429f2e6a25b6895b3abf5d8dc391075b007a49cb8bf"
+    },
+    "cloth-proxy.json": {
+      "source": "cloth-proxy.json",
+      "sha256": "bde0ca52140bf057272258da217337fc7fe54c8012559934c8fe78ce814f2c18"
+    }
+  }
+}

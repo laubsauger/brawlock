@@ -33,12 +33,15 @@ for(const name of ['walk','run','throw','death']) {
   const action=mixer.clipAction(clip).play()
   if(['throw','death'].includes(name)){action.setLoop(LoopOnce,1);action.clampWhenFinished=true}
   mixer.update(0);simulation.reset()
-  let maxMotion=0,lateMotion=0,maxSecondary=0,flips=0
+  let maxMotion=0,lateMotion=0,maxSecondary=0,flips=0,maxExcessMotion=0
   const before=simulation.position.map(p=>p.clone()),rotations=simulation.rotations.map(q=>q.clone())
+  const solverTravel=new Vector3(),referenceTravel=new Vector3()
+  const previousReference=simulation.references.map(p=>p.clone())
   const frames=Math.ceil((Math.max(5,clip.duration*3)+2)*60)
   for(let frame=0;frame<frames;frame++) {
     simulation.position.forEach((p,i)=>before[i].copy(p))
     simulation.rotations.forEach((q,i)=>rotations[i].copy(q))
+    simulation.references.forEach((p,i)=>previousReference[i].copy(p))
     mixer.update(1/60);actor.updateMatrixWorld(true);simulation.update(1/60)
     for(let i=1;i<simulation.position.length;i++) {
       const p=simulation.position[i]
@@ -46,6 +49,9 @@ for(const name of ['walk','run','throw','death']) {
       if(simulation.weights[i]===0)continue
       assert(p.y>=.045-1e-8,'Cloth crossed the floor: '+name)
       const motion=p.distanceTo(before[i])
+      referenceTravel.subVectors(simulation.references[i],previousReference[i])
+      const solverMotion=solverTravel.subVectors(p,before[i]).sub(referenceTravel).length()
+      maxExcessMotion=Math.max(maxExcessMotion,solverMotion)
       maxMotion=Math.max(maxMotion,motion)
       if(frame>=frames-120)lateMotion=Math.max(lateMotion,motion)
       const secondary=new Vector3().fromArray(simulation.secondary,i*3).length()
@@ -56,9 +62,12 @@ for(const name of ['walk','run','throw','death']) {
     }
   }
   assert.equal(flips,0,'Cloth frame flipped during '+name)
-  if(name==='walk')assert(maxMotion<.035,'Walking cloth jumped more than 3.5 cm in one frame')
+  if(name==='walk') {
+    assert(maxMotion<.035,'Walking cloth jumped more than 3.5 cm in one frame')
+    assert(maxExcessMotion<.035,'Walking cloth jumped more than 3.5 cm beyond its attachment travel')
+  }
   if(['throw','death'].includes(name))assert(lateMotion<1e-5,'Stopped cloth failed to settle: '+name)
-  proof.push({name,frames,maxMotion,lateMotion,maxSecondary,flips})
+  proof.push({name,frames,maxMotion,lateMotion,maxSecondary,flips,maxExcessMotion})
 }
 writeFileSync(join(directory,'continuous-cloth-motion.json'),JSON.stringify(proof,null,2))
 console.log(JSON.stringify(proof,null,2))

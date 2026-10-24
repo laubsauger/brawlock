@@ -289,14 +289,16 @@ export function Modal({
         <div className="flex flex-wrap items-center justify-between gap-2 px-7 pt-6 pb-3">
           <h2 className="display text-4xl text-[#ffd890]">{title}</h2>
           <div className="flex items-center gap-1">
-            {help && <FeedbackButton compact />}
             <Button variant="ghost" size="sm" sound="back" onClick={onClose} aria-label="Close">
               Close <Kbd>Esc</Kbd>
             </Button>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-6">{children}</div>
-        {footer && <div className="border-t border-[rgba(255,170,100,0.12)] px-7 py-4">{footer}</div>}
+        {(help || footer) && <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-[rgba(255,170,100,0.12)] px-7 py-4">
+          {help && <FeedbackButton />}
+          {footer && <div className="min-w-0 flex-1 text-right">{footer}</div>}
+        </div>}
       </div>
     </div>
   )

@@ -31,7 +31,7 @@ import type { Quality } from '../game/store'
 import { ZOOM_MAX, ZOOM_MIN, cameraParams, cameraZoomParam } from './cameraRig'
 import { useEffectiveQuality } from './GpuCanvas'
 import { tweakParams } from './tweaks'
-import { warlockParams } from './character'
+import { preloadWarlock, warlockParams, type WarlockStyle } from './character'
 import { tierConfig } from './quality'
 import { postState } from './scene/MatchWorld'
 import { getNoiseTexture } from './scene/noiseTexture'
@@ -285,7 +285,16 @@ export function RenderLoop({
       g.add(cameraZoomParam, 'distance', ZOOM_MIN, ZOOM_MAX, 10)
       // character style (cc0 default, the render placeholder as 'procedural'), staff, cast origin
       const ch = ins.createParameters('Character')
-      ch.add(warlockParams, 'style', ['cc0', 'procedural'] as const)
+      const characterChoice = { style: warlockParams.style }
+      let styleRequest = 0
+      ch.add(characterChoice, 'style', ['cc0', 'tripo', 'procedural'] as const).onChange(async (style: WarlockStyle) => {
+        const request = ++styleRequest
+        await preloadWarlock(style)
+        if (!disposed && request === styleRequest) warlockParams.style = style
+      })
+      ch.add(warlockParams, 'tripoShoulders', ['none', 'crescent', 'thorn'] as const)
+      ch.add(warlockParams, 'tripoSigils')
+      ch.add(warlockParams, 'tripoCape')
       ch.add(warlockParams, 'staff')
       ch.add(warlockParams, 'staffVariant', ['gnarled', 'iron', 'bone'] as const)
       ch.add(warlockParams, 'castFrom', ['palm', 'staff'] as const)

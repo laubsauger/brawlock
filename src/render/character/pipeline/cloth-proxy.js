@@ -1,8 +1,8 @@
-// Authoring viewer only. Animation-driven cloth with bounded, damped secondary motion.
+// Shared fitted-character cloth with bounded, damped secondary motion.
 import { Matrix4, Quaternion, Vector3, Vector4 } from 'three/webgpu'
 import { uniformArray } from 'three/tsl'
 import { projectConvexGarmentContact } from './garment-contact.js'
-import { ClothLegContact } from './cloth-leg-contact.js'
+import { ClothLegContact, CLOTH_SKIN } from './cloth-leg-contact.js'
 
 export const MAX_CLOTH_STEP = 1 / 50
 const ab = new Vector3(), nearest = new Vector3(), delta = new Vector3()
@@ -82,11 +82,13 @@ export class ClothProxy {
       if(!(radius>0))throw new Error('Sleeve attachment radius is required')
       return [i,{frame:this.sleeveFrames.get(key),along,drop,across,radius}]
     }))
-    this.capsules = definitions.map(([left,right,radius,kind,offsetA,offsetB]) => {
+    this.capsules = definitions.map(([left,right,radius,kind,offsetA,offsetB,driverA,driverB]) => {
       const a = actor.getObjectByName(left), b = actor.getObjectByName(right)
       if (!a?.isBone || !b?.isBone) throw new Error('Missing cloth collision joint')
       if(!offsetA || !offsetB) throw new Error('Collision endpoints require fitted local offsets')
-      return {left:a,right:b,radius,kind,offsetA:new Vector3(...offsetA),offsetB:new Vector3(...offsetB),a:new Vector3(),b:new Vector3(),oldA:new Vector3(),oldB:new Vector3(),at:new Vector3(),bt:new Vector3()}
+      const start=actor.getObjectByName(driverA),end=actor.getObjectByName(driverB)
+      if(!start?.isBone||!end?.isBone)throw new Error('Collision endpoint drivers are required; rebuild the cloth data')
+      return {left:a,right:b,driverA:start,driverB:end,radius,kind,offsetA:new Vector3(...offsetA),offsetB:new Vector3(...offsetB),a:new Vector3(),b:new Vector3(),oldA:new Vector3(),oldB:new Vector3(),at:new Vector3(),bt:new Vector3()}
     })
     this.p = new Float64Array(data.positions.flat())
     this.prev = new Float64Array(this.p)
@@ -165,8 +167,8 @@ export class ClothProxy {
       envelope.toLocal.copy(envelope.toActor).invert()
     }
     for (const cap of this.capsules) {
-      cap.a.copy(cap.offsetA).applyMatrix4(cap.left.matrixWorld).applyMatrix4(inverse)
-      cap.b.copy(cap.offsetB).applyMatrix4(cap.right.matrixWorld).applyMatrix4(inverse)
+      cap.a.copy(cap.offsetA).applyMatrix4(cap.driverA.matrixWorld).applyMatrix4(inverse)
+      cap.b.copy(cap.offsetB).applyMatrix4(cap.driverB.matrixWorld).applyMatrix4(inverse)
     }
     for(const cloth of this.legCloth)cloth.sample(dt)
     for(let i=1;i<this.rest.length;i++)this.primaryOffsets[i].copy(this.references[i]).sub(this.targets[i])
@@ -259,7 +261,7 @@ export class ClothProxy {
       if(cap.kind==='arm' && (region!==4 || cap.left.name.endsWith('_l')!==left)) continue
       const ax=cap.at.x,ay=cap.at.y,az=cap.at.z,bx=cap.bt.x-ax,by=cap.bt.y-ay,bz=cap.bt.z-az
       let fx=normal.x,fy=normal.y,fz=normal.z
-      const radius=cap.radius+(region===1 ? .006 : .004)
+      const radius=cap.radius+(region===1 ? CLOTH_SKIN.OUTER : CLOTH_SKIN.OVERLAY)
       const nearestT=Math.max(0,Math.min(1,((x-ax)*bx+(y-ay)*by+(z-az)*bz)/(bx*bx+by*by+bz*bz)))
       const nx0=ax+bx*nearestT,ny0=ay+by*nearestT,nz0=az+bz*nearestT
       if((x-nx0)**2+(y-ny0)**2+(z-nz0)**2>=radius*radius)continue

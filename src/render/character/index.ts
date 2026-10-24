@@ -82,6 +82,7 @@ import { warlockParams, type CastFrom, type WarlockLook, type WarlockStyle } fro
 import type { StaffVariant } from './geometry'
 import { ProceduralWarlock } from './procedural'
 import type { CastArm, DeathKind, WarlockHandle, WarlockOptions } from './types'
+import { getTripoAsset, loadTripoAsset } from './tripo'
 import { CC0Warlock } from './warlock'
 
 export type { CastArm, DeathKind, WarlockHandle, WarlockOptions, WarlockStyle, WarlockLook, CastFrom, StaffVariant }
@@ -93,19 +94,21 @@ export { CAST_CATEGORY, CAST_HANDS, castCategory, type CastCategory, type CastHa
 export { clothParams } from './materials'
 export { PROGRESSION_LOCATIONS, POWER_STEPS } from './progression'
 
-/** Loads and prepares the CC0 warlock (GLB, materials, cloth). Safe to call repeatedly. */
-export async function preloadWarlock(): Promise<void> {
-  await loadWarlockAsset()
+/** Loads the selected fitted character and its cloth. Procedural needs no assets. */
+export async function preloadWarlock(style: WarlockStyle = warlockParams.style): Promise<void> {
+  if (style === 'tripo') await loadTripoAsset()
+  else if (style === 'cc0') await loadWarlockAsset()
 }
 
-/** True once preloadWarlock() resolved (createWarlock('cc0') falls back to 'procedural' before that). */
-export function warlockReady(): boolean {
-  return getWarlockAsset() !== null
+/** Readiness of the selected style; authored Tripo creation requires its preload. */
+export function warlockReady(style: WarlockStyle = warlockParams.style): boolean {
+  return style === 'procedural' || (style === 'tripo' ? getTripoAsset() : getWarlockAsset()) !== null
 }
 
 export function createWarlock(opts: WarlockOptions): WarlockHandle {
   const style = opts.style ?? warlockParams.style
-  const asset = getWarlockAsset()
+  const asset = style === 'tripo' ? getTripoAsset() : getWarlockAsset()
+  if (style === 'tripo' && !asset) throw new Error('Tripo character must finish preloadWarlock before creation')
   if (style === 'procedural' || !asset) {
     if (style === 'cc0' && !asset) console.warn('createWarlock: preloadWarlock() not finished, using the procedural warlock')
     return new ProceduralWarlock(opts.color, opts.ctx)

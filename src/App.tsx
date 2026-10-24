@@ -17,6 +17,7 @@ import { PerfHud } from './ui/PerfHud'
 import { MatchLayer } from './ui/MatchLayer'
 import { NetGraph } from './ui/NetGraph'
 import { startNetMonitor } from './ui/lib/netmonitor'
+import { startClientPerformance } from './ui/lib/clientPerformance'
 import { InkFilters } from './ui/InkFilters'
 import { Toasts } from './ui/Toasts'
 import { undoRemap } from './ui/lib/remap'
@@ -218,6 +219,7 @@ export default function App() {
   useGlobalKeys()
   useUiScale()
   // connection stats at 4 Hz for the HUD indicator, net graph and warnings
+  useEffect(() => startClientPerformance(), [])
   useEffect(() => startNetMonitor(), [])
 
   // remember where you play: the menu asks before Auto moves you off it for maintenance

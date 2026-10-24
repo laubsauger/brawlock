@@ -457,3 +457,39 @@ describe('account-ranked production TCP boundary', () => {
     f.safeLogs()
   }, 30_000)
 })
+
+describe('regional startup against the account service', () => {
+  // After a reboot pm2 resurrects the game server and the US account service together.
+  // A refused first register used to leave a process that never listened on its port.
+  async function start(refusals: number) {
+    const dir = tempDir('brawlock-account-start-')
+    cleanup.push(() => removeDir(dir))
+    const ops: string[] = []
+    let refused = 0
+    vi.stubGlobal('fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+      ops.push(JSON.parse(String(init?.body)).op)
+      if (refused++ < refusals) throw new TypeError('fetch failed')
+      return Response.json({ ok: true })
+    })
+    const logs: { event: string }[] = []
+    const started = startServer({ port: 0, build: 'dev-account-start', dataDir: dir, config: { region: 'us' },
+      accountsAuthorityUrl: authOrigin, accountsAllowInsecureForTests: true, accountsRegisterRetryMs: 1,
+      ratingAuthorityToken: regionsToken, log: (_level, event) => logs.push({ event }) })
+    return { started, ops, logs }
+  }
+
+  it('waits for an account service that starts after the game server', async () => {
+    const { started, ops, logs } = await start(2)
+    const srv = await started
+    cleanup.push(() => srv.close())
+    expect(ops).toEqual(['register', 'register', 'register'])
+    expect(logs.filter((l) => l.event === 'accounts.register.retry')).toHaveLength(2)
+    expect(logs.some((l) => l.event === 'server.start')).toBe(true)
+  })
+
+  it('fails the start when the account service never comes up, so pm2 can restart it', async () => {
+    const { started, ops } = await start(Infinity)
+    await expect(started).rejects.toThrow(/fetch failed/)
+    expect(ops).toHaveLength(30)
+  })
+})

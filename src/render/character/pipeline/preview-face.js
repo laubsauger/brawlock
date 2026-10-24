@@ -1,4 +1,4 @@
-// Recessed face insert for this authoring model. No production asset mutation.
+// Recessed face insert shared by the authoring model and its runtime adapter.
 import * as THREE from 'three/webgpu'
 import { attribute, float, length, mix, select, smoothstep, uniform, uv, vec3 } from 'three/tsl'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'

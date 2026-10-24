@@ -126,7 +126,7 @@ DEPLOY_HOST=root@167.99.216.102 DOMAIN=eu.brawlock.osc.link REGION=eu deploy/dep
 
 Routine updates do not use `--setup`; that option is for initial nginx/certificate setup. Supported script environment overrides are `DEPLOY_HOST`, `DOMAIN`, `REGION`, `PORT`, `APP_DIR`; protected regional settings stay in the host config.
 
-GitHub Pages uses [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml): `main` pushes or manual dispatch build the root-path client with Node22, accounts, the Pages media base and both `us-west`/`eu` entries. It publishes `client-package/pages` and uploads the matching `first-party-client` artifact. Verify its source SHA matches the approved release; activate only that app package. Do not publish a later moving branch accidentally; confirm the actual deployment succeeded, not merely that a push completed.
+GitHub Pages uses [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml): `main` pushes or manual dispatch build the root-path client with Node 24, accounts, the Pages media base and both `us-west`/`eu` entries. It publishes `client-package/pages` and uploads the matching `first-party-client` artifact. Verify its source SHA matches the approved release; activate only that app package. Do not publish a later moving branch accidentally; confirm the actual deployment succeeded, not merely that a push completed.
 
 ## Post-release proof and recovery
 

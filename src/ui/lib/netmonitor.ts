@@ -3,6 +3,7 @@ import { session } from '../../game/session'
 import { useGame } from '../../game/store'
 import { onTick, usePolled } from './ticker'
 import { toast } from './toast'
+import { clientPerformance } from './clientPerformance'
 import { JitterEstimate, NetWarnings, normalizePeer, gradeOf, type NetSnapshot, type NetWarning, type PeerNet } from './netstats'
 
 /**
@@ -136,7 +137,7 @@ function sample(now: number): void {
   record(snap)
   // warnings only where they matter: in the lobby and in a match
   const screen = useGame.getState().screen
-  const toasts = screen === 'match' || screen === 'lobby' ? warn.update(forWarnings(snap), now, nameOf) : warn.update({ ...snap, role: 'offline' }, now, nameOf)
+  const toasts = screen === 'match' || screen === 'lobby' ? warn.update(forWarnings(snap), now, nameOf, clientPerformance().mainThreadStallMs) : warn.update({ ...snap, role: 'offline' }, now, nameOf)
   for (const t of toasts) toast(t, 'warn')
   state = { snap, warnings: warn.active, flagged: new Set(warn.flagged) }
 }

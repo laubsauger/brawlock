@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
@@ -98,10 +98,18 @@ export function SpectatorBets() {
 function BetPanel({ value }: { value: BetView }) {
   // Show the actual choices on knockout. A deliberate collapse lasts this round.
   const [expanded, setExpanded] = useState(true)
+  const toggle = useRef<HTMLButtonElement>(null)
+  const wasExpanded = useRef(expanded)
+  useEffect(() => {
+    if (wasExpanded.current === expanded) return
+    wasExpanded.current = expanded
+    toggle.current?.focus({ preventScroll: true })
+  }, [expanded])
   const result = value.payout
   const open = value.window === 'open' && value.affordable && !value.selected && !result && value.choices.length > 0
   const tracking = !!value.selected && !result && value.phase === 'fight'
   const status = result ? 'Settled' : value.selected ? 'Bet locked' : value.window !== 'open' ? 'Betting closed' : !value.affordable ? 'Not enough gold' : 'Betting open'
+  const collapsedStatus = result ? 'Bet settled' : value.selected ? 'Bet placed' : 'No bet'
   const closedReason = value.window === 'roundEnded' ? 'Betting closed for this round'
     : value.window === 'timedOut' ? `Betting closed: the first ${BET_TWO_STARTER_SECONDS} seconds are over`
       : value.window === 'decided' ? 'Betting closed: only one team remains'
@@ -116,6 +124,12 @@ function BetPanel({ value }: { value: BetView }) {
       input.issue({ kind: 'spectateBet', round: value.round, target })
     }
   }
+  if (!expanded) return <div className="pointer-events-none absolute right-0 bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px)] flex justify-end">
+    <button ref={toggle} type="button" className={`interactive pointer-events-auto hud-scale flex h-7 origin-bottom-right items-center justify-center gap-1.5 rounded-l border border-r-0 bg-black/45 px-2 text-[11px] font-semibold whitespace-nowrap hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-gold ${value.selected && !result ? 'border-heal/30 text-heal' : 'border-gold/25 text-gold/75'}`} aria-label={`Show spectator betting: ${collapsedStatus}`} aria-expanded={false} title={value.selected ? `Your bet: ${value.selected}. Show betting.` : `${collapsedStatus} this round. Show betting.`} data-testid="spectator-bets-collapsed" onClick={() => setExpanded(true)}>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="8" cy="8" r="5.5" /><path d="M13.3 6.7a5.5 5.5 0 1 1-6.6 6.6M8 5v6M6.5 6.5h2.2a1 1 0 0 1 0 2H7.3a1 1 0 0 0 0 2h2.2" /></svg>
+      <span>{collapsedStatus}</span>
+    </button>
+  </div>
   return <div className="spectator-bets-dock pointer-events-none absolute inset-x-3 bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px)] flex justify-center max-sm:bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px+var(--room-chat-offset,0px))] max-sm:[display:var(--spectator-bets-display,flex)] sm:[@media(min-height:521px)_and_(max-width:1199px)]:bottom-[calc(var(--hud-bottom-h)*var(--ui-scale,1)+18px+var(--room-chat-offset,0px))] sm:[@media(min-height:521px)_and_(max-width:1199px)]:[display:var(--spectator-bets-display,flex)] sm:[@media(max-height:520px)]:inset-x-auto sm:[@media(max-height:520px)]:right-3 sm:[@media(max-height:520px)]:w-[min(52vw,540px)]">
     <section data-testid="spectator-bets" data-betting-state={result ? 'settled' : value.selected ? 'locked' : open ? 'open' : 'closed'} className="interactive hud-scale hud-plate w-[min(600px,calc((100vw-24px)/var(--ui-scale,1)))] shrink-0 origin-bottom rounded border border-gold/40 px-3 py-2.5 text-sm shadow-lg [@media(min-width:1200px)_and_(min-height:521px)]:w-[min(600px,calc((100vw-760px)/var(--ui-scale,1)))] sm:[@media(max-height:520px)]:w-full sm:[@media(max-height:520px)]:max-h-[calc((100dvh_-_100px)/var(--ui-scale,1))] sm:[@media(max-height:520px)]:overflow-y-auto" aria-label="Spectator betting" onKeyDown={(event) => {
       if (event.key !== 'Escape') return
@@ -125,18 +139,18 @@ function BetPanel({ value }: { value: BetView }) {
         event.stopPropagation()
         rules.open = false
         rules.querySelector('summary')?.focus()
-      } else if (open && expanded) {
+      } else if (expanded) {
         event.preventDefault()
         event.stopPropagation()
         setExpanded(false)
-        event.currentTarget.querySelector<HTMLButtonElement>('button[aria-controls="spectator-bet-choices"]')?.focus()
       }
     }}>
       <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <span className="font-display text-lg font-bold text-[#e7c58c]">{value.teams ? 'Bet on which team wins' : 'Bet on who wins'}</span>
-        <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-bold ${open ? 'border-[#8ccf85]/40 bg-[#223d1e] text-[#b4efa8]' : 'border-gold/20 text-ash'}`}>
+        <div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-bold ${open ? 'border-[#8ccf85]/40 bg-[#223d1e] text-[#b4efa8]' : 'border-gold/20 text-ash'}`}>
           {open && <i className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />}{status}
         </span>
+        <button ref={toggle} type="button" className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gold/70 hover:bg-white/5 hover:text-gold focus-visible:outline-2 focus-visible:outline-gold" aria-label="Collapse spectator betting" aria-expanded={true} aria-controls="spectator-bet-choices" title="Collapse betting" onClick={() => setExpanded(false)}><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="m3 6 5 5 5-5" /></svg></button></div>
       </header>
       {result ? <p role="status" className="mt-1 break-words text-bone">{result.correct ? result.amount > BET_STAKE ? `You won ${result.amount} gold from the ${value.pot} gold pot · +${result.amount - BET_STAKE} gold profit` : `Correct pick · ${result.amount} gold returned (your stake)` : result.amount > 0 ? `Bet refunded: ${result.amount} gold` : `You lost your ${BET_STAKE} gold bet`}{value.bountyAdded > 0 ? ` · ${value.bountyAdded} gold added to bounties` : ''}</p>
         : value.selected ? <p role="status" className="mt-1 break-words text-bone">Your bet: {value.selected} · {BET_STAKE} gold placed{value.selectedPays !== null && value.phase === 'fight' && <span className="text-gold"> · pays {value.selectedPays} gold if right</span>}</p>
@@ -145,7 +159,6 @@ function BetPanel({ value }: { value: BetView }) {
       {(open || tracking) && <>
         <div className="mt-1 flex items-center justify-between gap-2">
           <p className="text-xs text-bone">{tracking ? <>Live odds <span className="text-gold">· Pot: {value.pot} gold</span></> : <>Choose a {value.teams ? 'team' : 'player'} · costs {BET_STAKE} gold <span className="text-gold">· correct bets split the {value.pot > 0 ? `${value.pot} gold ` : ''}pot</span></>}</p>
-          <button type="button" className="min-h-9 shrink-0 rounded px-2 text-xs text-gold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-gold" aria-expanded={expanded} aria-controls="spectator-bet-choices" onClick={() => setExpanded(!expanded)}>{expanded ? tracking ? 'Hide odds' : 'Hide picks' : tracking ? 'Show odds' : 'Show picks'}</button>
         </div>
         {expanded && <div id="spectator-bet-choices" className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-4">{value.choices.map((choice) => {
           const content = <span className="flex w-full min-w-0 flex-col gap-0.5">

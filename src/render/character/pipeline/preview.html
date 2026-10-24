@@ -22,7 +22,22 @@
     <label>Playback speed<select id="speed"><option value="1">Normal</option><option value="0.25">Quarter speed</option></select></label>
     <label>Timeline<input id="timeline" type="range" min="0" max="1" step="0.001" value="0" /></label>
     <label><input id="cloth" type="checkbox" checked />Simulated cloth</label>
+    <label><input id="cape" type="checkbox" checked />Emblem cape</label>
+    <label>Back emblem<select id="emblem"><option value="">No emblem</option></select></label>
+    <label>Shoulder ornaments<select id="regalia"><option value="none" selected>None</option><option value="crescent">Crescent mantle</option><option value="thorn">Thorn mantle</option></select></label>
+    <label><input id="sigils" type="checkbox" checked />Hood, chest, belt &amp; wrist sigils</label>
     <label>Eye color <input id="eyeColor" type="color" value="#b365ff" /></label>
+    <label>Player color<select id="playerLook"><option value="original">Original texture</option></select></label>
+    <div style="display:flex;gap:6px"><button id="previousColor" type="button" aria-label="Previous player color">◀ Color</button><button id="nextColor" type="button" aria-label="Next player color">Color ▶</button></div>
+    <details><summary>Player color treatment</summary>
+      <label>Custom color <input id="playerCustom" type="color" value="#a24bff" /></label>
+      <label>Cloth tint<input id="playerTint" type="range" min="0" max="1" step="0.01" value="0.35" /></label>
+      <label>Highlights<input id="playerHighlights" type="range" min="0" max="1" step="0.01" value="0.35" /></label>
+      <label>Clearcoat<input id="playerCoat" type="range" min="0" max="1" step="0.01" value="0.03" /></label>
+      <label>Accent glow<input id="playerGlow" type="range" min="0" max="1" step="0.01" value="0.45" /></label>
+      <label><input id="playerEyes" type="checkbox" checked />Eyes follow player color</label>
+      <p class="note">Game palette and cloth response adapted to the source texture's red accents.</p>
+    </details>
     <label><input id="wire" type="checkbox" />Wireframe</label>
     <label><input id="albedo" type="checkbox" checked />Color texture</label>
     <label><input id="normals" type="checkbox" checked /><span id="normalLabel">Baked normal map</span></label>
@@ -32,6 +47,7 @@
     <label><input id="markers" type="checkbox" />Hand attachment markers</label>
     <label><input id="outer" type="checkbox" checked />Outer skirt</label>
     <p class="note">Separate skirt visibility is available on the 20K working mesh. Reduced exports combine pieces into two material batches.</p>
+    <p class="note"><a href="../dev/preview.html?style=tripo&amp;staff=gnarled&amp;studio">Staff &amp; animation review</a> · <a href="../../vfx/dev/b/labB.html?style=tripo&amp;staff=gnarled&amp;ai=0&amp;place=-200_0,200_0&amp;script=0:fireball:t1&amp;every=3">Casting effects</a> · <a href="../../dev/preview.html?style=tripo&amp;staff=gnarled&amp;inspect">Playable match</a></p>
     <output id="stats">Loading…</output>
     <p class="note">Cloth uses a small constrained surface with moving body collisions and floor contact. Experimental; layer intersections and equipment fit still need review. This page is served only in development.</p>
     <p id="error" role="alert"></p>

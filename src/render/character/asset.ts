@@ -5,6 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { KIND, buildCloth, buildStaff, buildVoid, setCalfRadiusHint, type RigRest, type StaffGeometry, type StaffVariant } from './geometry'
 import { clothParams, createClothMaterial, createOutfitMaterial, createStaffMaterial, createTrinketMaterial } from './materials'
+import type { WarlockGpu } from './gpuState'
 import { buildOutfit, type Outfit } from './wardrobe'
 
 /**
@@ -30,7 +31,17 @@ export interface ClipPair {
   up: THREE.AnimationClip
 }
 
+export interface CharacterVisual {
+  update(dt: number): void
+  reset(): void
+  dispose(): void
+}
+
 export interface WarlockAsset {
+  style: 'cc0' | 'tripo'
+  handScale: number
+  /** Per-instance authored cloth/materials; called on a rest-pose clone. */
+  createVisual?(model: THREE.Object3D, gpu: WarlockGpu): CharacterVisual
   /** cloned per warlock (SkeletonUtils.clone) */
   template: THREE.Group
   clips: Record<string, ClipPair>
@@ -336,39 +347,8 @@ async function build(url: string): Promise<WarlockAsset> {
     addSkinned(clothGeo, createClothMaterial(rig.pos('neck_01').z), 'WarlockCloth')
   }
 
-  // ---- clips: lower / upper halves for layered playback, additive hits
-  const clips: Record<string, ClipPair> = {}
-  const additive: Record<string, THREE.AnimationClip> = {}
-  const boneOf = (track: THREE.KeyframeTrack) => track.name.slice(0, track.name.lastIndexOf('.'))
-  // Fingers are 30 of the 65 bones but a few pixels on screen: they stay in a
-  // relaxed pose (the idle clip's first frame, baked into the rest pose) and
-  // only the cast clips animate them (open palm). Halves the mixer's work.
-  {
-    const idle = gltf.animations.find((c) => c.name === 'idle')
-    if (idle) {
-      for (const t of idle.tracks) {
-        const b = boneOf(t)
-        if (!FINGER.test(b) || !t.name.endsWith('.quaternion')) continue
-        const bone = bones[boneIndex.get(b) ?? -1]
-        if (bone) bone.quaternion.fromArray(t.values as unknown as number[], 0)
-      }
-    }
-  }
-  for (const clip of gltf.animations) {
-    const keepFingers = FINGER_CLIPS.has(clip.name)
-    const tracks = keepFingers ? clip.tracks : clip.tracks.filter((t) => !FINGER.test(boneOf(t)))
-    const full = keepFingers ? clip : new THREE.AnimationClip(clip.name, clip.duration, tracks)
-    const lo = new THREE.AnimationClip(`${clip.name}_lo`, clip.duration, tracks.filter((t) => LOWER.test(boneOf(t))))
-    const up = new THREE.AnimationClip(`${clip.name}_up`, clip.duration, tracks.filter((t) => !LOWER.test(boneOf(t))))
-    clips[clip.name] = { full, lo, up }
-  }
-  for (const name of ['hit', 'hitHead']) {
-    const c = clips[name]?.full
-    if (!c) continue
-    // translation would shove the whole body; keep rotations only
-    const rot = new THREE.AnimationClip(`${name}_add`, c.duration, c.tracks.filter((t) => t.name.endsWith('.quaternion')).map((t) => t.clone()))
-    additive[name] = THREE.AnimationUtils.makeClipAdditive(rot)
-  }
+  relaxWarlockFingers(scene, gltf.animations)
+  const { clips, additive } = prepareWarlockClips(gltf.animations)
 
   const template = new THREE.Group()
   template.name = 'WarlockTemplate'
@@ -385,6 +365,8 @@ async function build(url: string): Promise<WarlockAsset> {
   const box = new THREE.Box3().setFromBufferAttribute(opos as THREE.BufferAttribute)
   const outfits = new Map<string, THREE.BufferGeometry | null>()
   return {
+    style: 'cc0',
+    handScale: 1.18,
     outfit(o) {
       const key = `${o.head ?? ''}|${o.back ?? ''}`
       if (!outfits.has(key)) outfits.set(key, buildOutfit(rig, o))
@@ -398,5 +380,45 @@ async function build(url: string): Promise<WarlockAsset> {
     staffMaterial: createStaffMaterial(),
     rest: { height: box.max.y, palmL, palmR, gripL, gripAxisL, curlAxisL, eyes: rig.pos('Head').add(new THREE.Vector3(0, 0.068, 0.068)) },
     triangles,
+  }
+}
+
+/** Same animation layering for every fitted canonical rig. */
+export function prepareWarlockClips(animations: THREE.AnimationClip[]) {
+  const clips: Record<string, ClipPair> = {}
+  const additive: Record<string, THREE.AnimationClip> = {}
+  const boneOf = (track: THREE.KeyframeTrack) => track.name.slice(0, track.name.lastIndexOf('.'))
+  // Fingers are 30 of the 65 bones but a few pixels on screen: they stay in a
+  // relaxed pose (the idle clip's first frame, baked into the rest pose) and
+  // only the cast clips animate them (open palm). Halves the mixer's work.
+  for (const clip of animations) {
+    const keepFingers = FINGER_CLIPS.has(clip.name)
+    const tracks = keepFingers ? clip.tracks : clip.tracks.filter((t) => !FINGER.test(boneOf(t)))
+    const full = keepFingers ? clip : new THREE.AnimationClip(clip.name, clip.duration, tracks)
+    const lo = new THREE.AnimationClip(`${clip.name}_lo`, clip.duration, tracks.filter((t) => LOWER.test(boneOf(t))))
+    const up = new THREE.AnimationClip(`${clip.name}_up`, clip.duration, tracks.filter((t) => !LOWER.test(boneOf(t))))
+    clips[clip.name] = { full, lo, up }
+  }
+  for (const name of ['hit', 'hitHead']) {
+    const c = clips[name]?.full
+    if (!c) continue
+    // translation would shove the whole body; keep rotations only
+    const rot = new THREE.AnimationClip(`${name}_add`, c.duration, c.tracks.filter((t) => t.name.endsWith('.quaternion')).map((t) => t.clone()))
+    additive[name] = THREE.AnimationUtils.makeClipAdditive(rot)
+  }
+
+  return { clips, additive }
+}
+
+/** Bake the authored relaxed pose before removing idle/walk finger tracks. */
+export function relaxWarlockFingers(model: THREE.Object3D, animations: THREE.AnimationClip[]): void {
+  const idle = animations.find(c => c.name === 'idle')
+  if (!idle) throw new Error('Warlock rig has no idle animation')
+  for (const track of idle.tracks) {
+    const name = track.name.slice(0, track.name.lastIndexOf('.'))
+    if (!FINGER.test(name) || !track.name.endsWith('.quaternion')) continue
+    const bone = model.getObjectByName(name)
+    if (!(bone as THREE.Bone | undefined)?.isBone) throw new Error(`Warlock idle finger joint missing: ${name}`)
+    bone!.quaternion.fromArray(track.values, 0)
   }
 }

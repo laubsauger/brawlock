@@ -137,8 +137,9 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
   const expanded = !compact || composer.open
   return (
     <section
-      className={`interactive pointer-events-auto w-full min-w-0 ${compact ? 'max-w-[340px]' : 'flex h-full flex-col'} ${expanded ? 'hud-plate rounded-md p-3' : ''}`}
+      className={`${compact && !expanded ? 'pointer-events-none' : 'pointer-events-auto'} w-full min-w-0 ${compact ? 'room-chat-overlay max-w-[340px]' : 'flex h-full flex-col'} ${expanded ? `${compact ? 'room-chat-composing' : 'hud-plate'} rounded-md p-3` : ''}`}
       aria-label="Room-wide chat"
+      data-chat-presentation={!compact ? 'docked' : expanded ? 'composing' : 'passive'}
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
@@ -147,7 +148,7 @@ function ChatBody({ compact, onExpandedChange }: { compact: boolean; onExpandedC
       <header className="flex items-center justify-between gap-2">
         {!compact ? <h2 className="font-semibold text-bone">Room chat</h2> : <button
           type="button"
-          className="flex items-center gap-2 rounded px-1 py-0.5 text-sm font-semibold text-bone hover:text-gold"
+          className="pointer-events-auto flex items-center gap-2 rounded px-1 py-0.5 text-sm font-semibold text-bone hover:text-gold"
           aria-expanded={composer.open}
           aria-label={composer.open ? 'Close room chat' : `Open room chat${unread ? `, ${unread} unread messages` : ''}`}
           onClick={() => dispatch(composer.open ? { type: 'close' } : { type: 'open', lastId })}

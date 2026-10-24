@@ -5,6 +5,7 @@
  *         &slow=0.3  &zoom=<camera distance 500..1500>  &inspect
  *         &lvl=1..7 (level of every granted spell; power tiers 1-2 / 3-5 / 6-7)
  *         &pillars (keep the round's random pillars)  &lethal (dummies die on the first hit)
+ *         &style=tripo|cc0|procedural  &staff=gnarled|iron|bone  &castFrom=staff|palm
  *         &shots=t1,t2,..  capture: freeze at each tick after script step 0 (resume via __labA.ctl.resume)
  *         &freeze=<step>,<ticks>  pause the world <ticks> after script step <step> (first loop);
  *         resume / re-freeze from the console: __labA.ctl.resume(0.3), __labA.ctl.freezeIn(10)
@@ -13,17 +14,32 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../../../index.css'
 import { useGame, type Quality } from '../../../../game/store'
-import { MatchView, renderStats } from '../../../index'
+import { MatchView, preloadWarlock, renderStats, warlockParams } from '../../../index'
+import type { WarlockStyle } from '../../../character'
 import { cameraZoomParam } from '../../../cameraRig'
 import { devTime } from '../../../stats'
 import { labControl, startLabDriver } from './labDriverA'
 
 const params = new URLSearchParams(location.search)
+const style = params.get('style')
+if (style !== null && style !== 'tripo' && style !== 'cc0' && style !== 'procedural') throw new Error('Unknown character style: ' + style)
+const staff = params.get('staff')
+if (staff !== null) {
+  if (staff !== 'gnarled' && staff !== 'iron' && staff !== 'bone') throw new Error('Unknown staff variant: ' + staff)
+  warlockParams.staff = true
+  warlockParams.staffVariant = staff
+  warlockParams.castFrom = 'staff'
+}
+const castFrom = params.get('castFrom')
+if (castFrom !== null) {
+  if (castFrom !== 'staff' && castFrom !== 'palm') throw new Error('Unknown cast origin: ' + castFrom)
+  warlockParams.castFrom = castFrom
+}
 const q = params.get('q') as Quality | null
 if (q) useGame.getState().setSettings({ quality: q })
 if (params.has('slow')) devTime.scale = Number(params.get('slow')) || 1
 if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(params.get('fx')) })
-;(window as unknown as Record<string, unknown>).__labA = { devTime, stats: renderStats, zoom: cameraZoomParam, ctl: labControl }
+;(window as unknown as Record<string, unknown>).__labA = { devTime, stats: renderStats, zoom: cameraZoomParam, ctl: labControl, warlock: warlockParams, store: useGame }
 
 function Hud({ label }: { label: string }) {
   const [txt, setTxt] = useState('')
@@ -62,8 +78,23 @@ function Lab() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Lab />
-  </StrictMode>,
-)
+async function mountLab(selectedStyle: WarlockStyle | null) {
+  // Keep the existing CC0 startup; a requested Tripo must load successfully
+  // before the real match view can create its characters.
+  if (selectedStyle === 'tripo') await preloadWarlock('tripo')
+  if (selectedStyle !== null) warlockParams.style = selectedStyle
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <Lab />
+    </StrictMode>,
+  )
+}
+
+void mountLab(style).catch((error: unknown) => {
+  console.error('VFX lab character loading failed', error)
+  const root = document.getElementById('root')!
+  root.style.color = '#fca5a5'
+  root.style.padding = '1rem'
+  root.style.whiteSpace = 'pre-wrap'
+  root.textContent = `VFX lab character loading failed:\n${error instanceof Error ? error.message : String(error)}`
+})

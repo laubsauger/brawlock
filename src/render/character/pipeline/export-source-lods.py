@@ -62,6 +62,10 @@ for label,ratio in [('5k',.25),('10k',.5)]:
             if total<=0:raise RuntimeError('Unweighted source LOD vertex')
             for group,_ in groups:group.remove([vertex.index])
             for group,weight in selected:group.add([vertex.index],weight/total,'REPLACE')
+        # Decimation interpolates scalar attributes. Keep the rear vent's
+        # categorical side discrete on both small meshes.
+        for item in obj.data.attributes['_WL_REAR_SIDE'].data:
+            item.value=1 if item.value>0 else -1 if item.value<0 else 0
         author.bind_proxy(obj,original.name,surfaces)
         mod=obj.modifiers.new('Fitted canonical skeleton','ARMATURE');mod.object=rig
         parts.append(obj)

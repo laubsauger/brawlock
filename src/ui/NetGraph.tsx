@@ -32,6 +32,7 @@ function NetGraphPanel() {
   const name = (id: number) => slots.find((s) => s.id === id)?.name ?? `Player ${id + 1}`
   return (
     <div
+      id="net-graph-panel"
       className="tabular pointer-events-none fixed bottom-11 z-[60] max-h-[calc(100vh-140px)] w-[340px] overflow-hidden rounded bg-black/80 px-3 py-2 text-[12px] font-semibold text-[#e9dccb] ring-1 ring-white/10"
       style={{ left: besideDock ? 'calc(var(--dock-left-w, 330px) * var(--ui-scale, 1) + 24px)' : 12 }}
       role="region"
@@ -79,7 +80,7 @@ function PeerRow({ peer: p, label, flagged, compact }: { peer: PeerNet; label: s
           {GRADE_LABEL[p.grade]}
         </span>
       </div>
-      <Spark id={p.playerId} series="rtt" label="ping" value={fmtMs(p.rttMs)} color="#ffc548" floor={150} />
+      <Spark id={p.playerId} series="rtt" label="RTT" value={fmtMs(p.rttMs)} color="#ffc548" floor={150} />
       <Spark id={p.playerId} series="jitter" label="jitter" value={p.jitterMs === null ? '–' : `±${Math.round(p.jitterMs)} ms`} color="#8fd0ff" floor={40} />
       <Spark id={p.playerId} series="loss" label="loss" value={p.lossPct === null ? '–' : `${p.lossPct.toFixed(1)}%`} color="#ff7a5c" floor={10} />
       <div className="mt-0.5 grid grid-cols-2 gap-x-3 text-[11.5px] text-bone/75">

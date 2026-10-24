@@ -1,7 +1,8 @@
 import { uniform } from 'three/tsl'
+import type { TripoShoulders } from './tripoAccessories'
 import type { StaffVariant } from './geometry'
 
-export type WarlockStyle = 'cc0' | 'procedural'
+export type WarlockStyle = 'cc0' | 'tripo' | 'procedural'
 /**
  * Material look of the cc0 warlock (live switch, no rebuild):
  *   readable  dark-but-not-black robe tinted by the player colour, mid-value
@@ -40,6 +41,9 @@ export const RIG_HEIGHT_M = 1.865
 export const warlockParams = {
   _style: 'cc0' as WarlockStyle,
   _staff: false,
+  tripoShoulders: 'none' as TripoShoulders,
+  tripoSigils: true,
+  tripoCape: true,
   _staffVariant: 'gnarled' as StaffVariant,
   // with a staff, spells leave from its crystal by default ('palm' keeps the
   // hand casts for comparison); without one this has no effect

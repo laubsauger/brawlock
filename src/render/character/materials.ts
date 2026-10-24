@@ -120,7 +120,7 @@ const segDist = (p: V2, a: V2, b: V2): F => {
  * Rune glyph in a unit cell, picked by the cell hash: separator dot, ring,
  * diamond, or a branching stave rune. 0..1 coverage, antialiased.
  */
-const glyph = Fn(([cellArg, pArg]: [unknown, unknown]) => {
+export const glyph = Fn(([cellArg, pArg]: [unknown, unknown]) => {
   const cell = f(cellArg)
   const p = v2(pArg)
   const h0 = hash(cell.add(3.1))
@@ -167,7 +167,7 @@ function bumpNormal(h: F): V3 {
  * the hem, invulnerability rim, and the death burn-up (via opacity +
  * alphaTest). Heights are model metres (0 feet .. 1.9 hood tip).
  */
-function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2, surfaceIn?: F): void {
+export function applyFx(m: THREE.MeshStandardNodeMaterial, base: V3, emissive: V3, heightNode: F, cover?: V2, surfaceIn?: F): void {
   // 1 = robe / body surface; 0 = the hood void (no flash, burn, fill or sweep on it)
   const surface = surfaceIn ?? float(1)
   const t = tF

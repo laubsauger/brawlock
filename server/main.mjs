@@ -43,7 +43,11 @@ if (process.env.NODE_ENV === 'production' && !process.env.ACCOUNTS_AUTHORITY_URL
 if (process.env.NODE_ENV === 'production' && !process.env.MAINTENANCE_SECRET_FILE) throw new Error('Production requires MAINTENANCE_SECRET_FILE for regional updates')
 // Production regions probe the internet path for the operations dashboard; dev and tests stay offline.
 const anchors = process.env.NODE_ENV === 'production' ? INTERNET_ANCHORS : []
-const server = await startServer({ port, host, config, trustProxy, dataDir, anchors })
+// pm2 only logs an unhandled rejection; exit so it restarts us instead of leaving a dead process.
+const server = await startServer({ port, host, config, trustProxy, dataDir, anchors }).catch((error) => {
+  jsonLog('error', 'server.start.failed', { error: String(error) })
+  process.exit(1)
+})
 
 const demo = arg('demo', 'DEMO_ROOM', '')
 if (demo) {

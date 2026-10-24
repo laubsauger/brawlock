@@ -1,7 +1,7 @@
 // CPU counterpart of the review shader, for audits of visible render geometry.
 import { Quaternion, Vector3, Vector4 } from 'three/webgpu'
 import { clothPrimaryFreedom } from './cloth-proxy.js'
-import { conformClothToLegs, clearRearCloth, REAR_CONTACT } from './cloth-leg-contact.js'
+import { conformClothToBody, clearRearCloth, clearVentedRearCloth, REAR_CONTACT, CLOTH_SKIN } from './cloth-leg-contact.js'
 const anchor=new Vector3(),offset=new Vector3(),primary=new Vector3(),residual=new Vector3(),rest=new Vector3(),carried=new Vector3(),rotation=new Vector4(),part=new Vector4(),q=new Quaternion()
 const rearDirection=new Vector3()
 const smooth=value=>{const t=Math.max(0,Math.min(1,value));return t*t*(3-2*t)}
@@ -24,15 +24,21 @@ export function deformClothVertex(mesh,index,simulation,out,enabled=true) {
   const t=Math.min(1,mobility/.12),sway=t*t*(3-2*t),shape=clothPrimaryFreedom(mobility,a._wl_cloth.getZ(index))
   if([1,2].includes(a._wl_cloth.getZ(index))) {
     rest.fromBufferAttribute(a.position,index)
-    simulation.legCloth[0].shape(rest,out,carried)
+    simulation.legCloth[0].shape(rest,out,carried,a._wl_rear_side.getX(index),a._wl_motion_profile.getX(index))
     carried.sub(out)
     out.addScaledVector(offset,sway).addScaledVector(primary,-sway).addScaledVector(carried,shape)
-    carried.copy(out);conformClothToLegs(carried,simulation.capsules);out.lerp(carried,shape)
     const legCloth=simulation.legCloth[0],knee=legCloth.thighs[0].knee.y
-    const rearWeight=(1-smooth(rest.z/.08))*(1-smooth((rest.y-knee)/REAR_CONTACT.heightBlend))*shape
+    const side=a._wl_rear_side.getX(index)
+    const rearWeight=(1-smooth(rest.z/.08))*(1-smooth(side!==0?(rest.y-.95)/.18:(rest.y-knee)/REAR_CONTACT.heightBlend))*shape
+    const radialWeight=shape-rearWeight*Math.abs(side)
+    if(radialWeight>0) {
+      carried.copy(out);conformClothToBody(carried,simulation.capsules,a._wl_cloth.getZ(index)===1?CLOTH_SKIN.OUTER:CLOTH_SKIN.OVERLAY);out.lerp(carried,radialWeight)
+    }
     if(rearWeight>0) {
-      rearDirection.set(0,0,-1).transformDirection(legCloth.hemFrame)
-      clearRearCloth(out,simulation.capsules,rearDirection,rearWeight)
+      const release=side===0?0:legCloth.thighs[side>0?0:1].rearOpening.y
+      rearDirection.set(side,0,Math.abs(side)-1).normalize().transformDirection(legCloth.hemFrame)
+      if(side!==0)clearVentedRearCloth(out,simulation.capsules,rearDirection,rearWeight,release)
+      else clearRearCloth(out,simulation.capsules,rearDirection,rearWeight)
     }
   } else out.addScaledVector(offset,sway).addScaledVector(primary,shape-sway).addScaledVector(residual,shape)
   out.y=Math.max(.012,out.y)

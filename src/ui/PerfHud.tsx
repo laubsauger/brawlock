@@ -1,55 +1,25 @@
-import { useRef } from 'react'
-import { frame } from '../game/frame'
 import { useGame } from '../game/store'
-import { useTick } from './lib/ticker'
+import { useClientPerformance } from './lib/clientPerformance'
+import { usePolled } from './lib/ticker'
 import { renderPerf } from './renderBridge'
 
-/**
- * Perf overlay (settings toggle or F2): fps over a 500 ms window, average and
- * worst frame time, GPU time and draw calls when render reports them, sim
- * tick and ping. Writes text from the shared rAF; no React renders.
- */
+/** F2 / Interface setting. During a match the same readout lives beside RTT. */
 export function PerfHud() {
   const on = useGame((s) => s.settings.showPerf)
-  if (!on) return null
-  return <PerfReadout />
+  const screen = useGame((s) => s.screen)
+  if (!on || screen === 'match') return null
+  return <div className="tabular pointer-events-none fixed top-10 left-3 z-[60] rounded bg-black/80 px-2.5 py-1 text-[12px] font-semibold text-[#e9dccb] ring-1 ring-white/10"><FpsReadout /></div>
 }
 
-function PerfReadout() {
-  const ref = useRef<HTMLDivElement>(null)
-  const st = useRef({ last: 0, acc: 0, n: 0, worst: 0 })
-  useTick((now) => {
-    const s = st.current
-    if (s.last) {
-      const dt = now - s.last
-      s.acc += dt
-      s.n++
-      if (dt > s.worst) s.worst = dt
-    }
-    s.last = now
-    if (s.acc < 500 || !ref.current) return
-    const avg = s.acc / s.n
+export function FpsReadout() {
+  const local = useClientPerformance()
+  const render = usePolled(() => {
     const p = renderPerf()
-    const parts = [`${Math.round(1000 / avg)} fps`, `${avg.toFixed(1)} ms`, `worst ${s.worst.toFixed(0)} ms`]
-    // under an fps cap the scene renders less often than the page
-    const cap = useGame.getState().settings.fpsCap ?? 0
-    if (cap > 0 && p?.fps) parts.splice(1, 0, `scene ${Math.round(p.fps)} fps (cap ${cap})`)
-    if (p && p.gpuMs >= 0) parts.push(`gpu ${p.gpuMs.toFixed(1)} ms`)
-    if (p && p.cpuMs > 0) parts.push(`cpu ${p.cpuMs.toFixed(1)} ms`)
-    if (p && p.drawCalls > 0) parts.push(`${p.drawCalls} draws`, `${(p.triangles / 1000).toFixed(0)}k tris`)
-    if (p?.backend) parts.push(`${p.backend}${p.tier ? ` ${p.tier}` : ''} @${p.dpr.toFixed(2)}x`)
-    if (frame.curr) parts.push(`tick ${frame.curr.tick}`)
-    if (frame.net.rttMs > 0) parts.push(`ping ${Math.round(frame.net.rttMs)} ms`, `loss ${frame.net.lossPct.toFixed(1)}%`)
-    ref.current.textContent = parts.join('   ')
-    s.acc = 0
-    s.n = 0
-    s.worst = 0
-  })
-  return (
-    <div
-      ref={ref}
-      className="tabular pointer-events-none fixed top-10 left-3 z-[60] rounded bg-black/80 px-2.5 py-1 text-[12px] font-semibold whitespace-pre text-[#e9dccb] ring-1 ring-white/10"
-      aria-hidden
-    />
-  )
+    return p ? { fps: p.fps ?? null, cpuMs: p.cpuMs, gpuMs: p.gpuMs, draws: p.drawCalls, triangles: p.triangles } : null
+  }, (p) => JSON.stringify(p), 4)
+  const fps = render?.fps
+  const detail = [local.frames ? `Page ${Math.round(local.frames.fps)} FPS; worst frame ${Math.round(local.frames.frameMaxMs)} ms` : 'Measuring frames',
+    `Local scheduling delay ${Math.round(local.mainThreadStallMs)} ms in the last 5 s`,
+    render ? `Render CPU ${render.cpuMs.toFixed(1)} ms; GPU ${render.gpuMs >= 0 ? `${render.gpuMs.toFixed(1)} ms` : 'timing not measured'}; ${render.draws} draws; ${Math.round(render.triangles / 1000)}k triangles` : 'Waiting for renderer'].join('\n')
+  return <span className="tabular text-bone" title={detail} data-testid="fps-readout">{fps !== null && fps !== undefined && fps > 0 ? Math.round(fps) : '–'} FPS</span>
 }

@@ -11,7 +11,7 @@ This release introduces the dedicated runtime on both hosts and shared global ra
 | | |
 |---|---|
 | Region | `us-west` ("US West") |
-| Host | `root@147.182.251.185` (DigitalOcean SFO3, Ubuntu 22.04, Node 22, pm2, nginx, certbot already installed) |
+| Host | `root@147.182.251.185` (DigitalOcean SFO3, Ubuntu 22.04, Node 24, pm2, nginx, certbot already installed) |
 | Domain | `us.brawlock.osc.link` →147.182.251.185; old `brawlock.osc.link` alias retained |
 | Europe | `eu.brawlock.osc.link` →167.99.216.102, Amsterdam3 Ubuntu24.04; TLS and runtime prepared |
 | App | `/opt/apps/brawlock-server` (`server.mjs`, `version.json`), root:brawlock directory0750 / files0640; PM2 name `brawlock-server` |
@@ -43,7 +43,7 @@ Script variables are `DEPLOY_HOST`, `DOMAIN`, `REGION`, `PORT`, and `APP_DIR`, w
 
 Provisioning and the one-time root-app migration are manual infrastructure work. The deploy script requires them to be complete and never falls back to root PM2.
 
-1. Install Node 22+, PM2, rsync, and the existing nginx/certbot setup. Create the system account `brawlock` with private home `/var/lib/brawlock` and no login shell.
+1. Install Node 24+, PM2, rsync, and the existing nginx/certbot setup. Create the system account `brawlock` with private home `/var/lib/brawlock` and no login shell.
 2. Prepare `/opt/apps/brawlock-server` as root:brawlock0750; code files root:brawlock0640. Only its `data` directory is runtime-writable: brawlock0700, database/outbox files0600. Do not recursively transfer ownership of the app code to the runtime account.
 3. Prepare `/etc/brawlock` as root:brawlock0750 and install the ecosystem template as root:brawlock0640. Set its absolute `cwd`, port, origin allowlist, and region. Supply `rating-authority-token` and `turn-secret` there as root:brawlock0640; the live config loads the token from the file and provides `TURN_SECRET_FILE` / JSON `TURN_URLS` to the server. Replace every template placeholder manually.
 4. Keep the **existing US SQLite database as the single rating authority**. US sets `RATING_AUTHORITY_URL` to an empty string. EU and subsequent regions set it to the US HTTPS URL and use the same protected server-only token (at least 32 characters). They retain local durable outboxes. Never clone the US database into a second independent ladder, or start EU before its authority token/URL are ready.

@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.0-alpha.10",
+    "releaseDate": "2026-10-24",
+    "title": "Clearer combat at a glance",
+    "changes": [
+      "A slim strip above your abilities shows health, healing per second and accumulated knockback.",
+      "Toggle FPS with F2 beside your connection indicator. Click the readout for diagnostics that distinguish local stalls from round-trip delay.",
+      "In-game chat stays transparent when idle and uses a light backing while you type.",
+      "Collapsed betting stays at the right edge and shows whether you placed a bet. Reopen it to follow live odds.",
+      "Leave lobby stays at the top right. Bugs & feedback has a consistent place in menu footers.",
+      "Panel outlines follow their angled corners, including dialogs and ability cards.",
+      "Round-win announcements are shorter and more varied. Denied calls are reserved for close escapes and have a cooldown."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.9",
     "releaseDate": "2026-10-21",
     "title": "Find a game",

@@ -62,6 +62,23 @@ describe('grading', () => {
 })
 
 describe('own link warnings', () => {
+  it('keeps high RTT visible but identifies a simultaneous local stall without adjusting the ping', () => {
+    const w = new NetWarnings()
+    const snap = client({ rttMs: 300 })
+    w.update(snap, 0, names, 220)
+    expect(w.update(snap, WARN_HOLD_MS, names, 220)).toEqual(['High round-trip time 300 ms · local device stall observed'])
+    expect(snap.peers[0].rttMs).toBe(300)
+    w.update(snap, WARN_HOLD_MS + 250, names, 0)
+    expect(w.active).toContainEqual({ kind: 'ping', text: 'High ping 300 ms' })
+  })
+
+  it('still reports measured packet loss when local scheduling also stalls', () => {
+    const w = new NetWarnings()
+    const snap = client({ lossPct: 10 })
+    w.update(snap, 0, names, 220)
+    expect(w.update(snap, WARN_HOLD_MS, names, 220)).toEqual(['Packet loss 10%'])
+  })
+
   it('stays quiet for one slow packet', () => {
     const w = new NetWarnings()
     run(w, client(), 0, 1000)

@@ -12,7 +12,8 @@ const KB_HOT = 1000
  * HP bar with a lagging damage trail, regen readout, and the knockback
  * points meter. All numbers written from the shared rAF through refs.
  */
-export function Vitals() {
+export function Vitals({ compact = false }: { compact?: boolean }) {
+  const root = useRef<HTMLDivElement>(null)
   const hpFrame = useRef<HTMLDivElement>(null)
   const hpFill = useRef<HTMLDivElement>(null)
   const hpTrail = useRef<HTMLDivElement>(null)
@@ -29,6 +30,7 @@ export function Vitals() {
     const s = st.current
     const dt = s.lastNow ? Math.min(0.1, (now - s.lastNow) / 1000) : 0
     s.lastNow = now
+    if (root.current) root.current.hidden = !pawn
     if (!pawn) return
 
     const hp = Math.max(0, Math.round(pawn.alive ? pawn.hp : 0))
@@ -42,6 +44,8 @@ export function Vitals() {
       s.max = max
       if (hpFill.current) hpFill.current.style.transform = `scaleX(${frac})`
       if (hpText.current) hpText.current.textContent = `${hp} / ${max}`
+      hpFrame.current?.setAttribute('aria-valuenow', String(hp))
+      hpFrame.current?.setAttribute('aria-valuemax', String(max))
       const low = pawn.alive && frac < 0.25
       if (low !== s.low && hpFrame.current) {
         hpFrame.current.dataset.low = String(low)
@@ -55,7 +59,7 @@ export function Vitals() {
       s.trailShown = s.trail
     }
 
-    const regen = Math.round(pawn.hpRegen * 10) / 10
+    const regen = Math.round((pawn.alive ? pawn.hpRegen : 0) * 10) / 10
     if (regen !== s.regen && regenText.current) {
       regenText.current.textContent = `+${regen.toFixed(1)}/s`
       s.regen = regen
@@ -69,6 +73,8 @@ export function Vitals() {
       if (kbFrame.current) kbFrame.current.style.setProperty('--kb-span', `${100 / Math.max(f, 0.05)}%`)
       if (kbMult.current) kbMult.current.textContent = `×${kbMultiplier(kb).toFixed(2)}`
       if (kbPts.current) kbPts.current.textContent = String(kb)
+      kbFrame.current?.setAttribute('aria-valuenow', String(kb))
+      kbFrame.current?.setAttribute('aria-valuemax', String(Math.max(KB_METER_FULL, kb)))
       const hot = kb >= KB_HOT
       if (hot !== s.hot && kbFrame.current) {
         kbFrame.current.dataset.hot = String(hot)
@@ -77,8 +83,20 @@ export function Vitals() {
     }
   })
 
+  if (compact) return <div ref={root} className="hotbar-vitals" data-testid="hotbar-vitals" hidden>
+    <div ref={hpFrame} className="hp-frame" role="meter" aria-label="Health" aria-valuemin={0}>
+      <div ref={hpTrail} className="hp-trail" />
+      <div ref={hpFill} className="hp-fill" />
+      <div className="hotbar-vital-label"><span>HP <span ref={hpText}>–</span></span><span ref={regenText} /></div>
+    </div>
+    <div ref={kbFrame} className="kb-frame" role="meter" aria-label="Knockback points" aria-valuemin={0} title="Knockback points and push multiplier. The meter fills at 2000 points; the number keeps counting.">
+      <div ref={kbFill} className="kb-fill" style={{ transform: 'scaleX(0)' }} />
+      <div className="hotbar-vital-label"><span>KB <span ref={kbPts}>0</span></span><span ref={kbMult}>×1.00</span></div>
+    </div>
+  </div>
+
   return (
-    <div className="flex flex-col gap-1">
+    <div ref={root} className="flex flex-col gap-1">
       <div ref={hpFrame} className="hp-frame" role="meter" aria-label="Health">
         <div ref={hpTrail} className="hp-trail" />
         <div ref={hpFill} className="hp-fill" />

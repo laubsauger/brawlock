@@ -18,18 +18,24 @@ import { S } from '../../coords'
 import { lavaDeathDepth } from '../../scene/Lava'
 import { clothParams, createWarlock, preloadWarlock, warlockParams, type DeathKind, type StaffVariant, type WarlockHandle, type WarlockStyle } from '../index'
 import { getWarlockAsset } from '../asset'
+import { getTripoAsset } from '../tripo'
 import { getSpellColor } from '../../vfx/palette'
 import { frame } from '../../../game/frame'
+import { NO_OUTFIT } from '../wardrobe'
+import { COSMETICS, type EmblemCosmeticId } from '../../../game/progressionCatalog'
+import { PLAYER_COLOR_OPTIONS } from '../../../net/lobbyColors'
 
 const params = new URLSearchParams(location.search)
 const DT = 1 / 60
 const FRICTION = Math.pow(0.96, DT / 0.035)
-const COLORS = [0x2fd6c8, 0xe0352b, 0x4f7dff, 0xf2b630, 0x9b4dff, 0x3ccf4e, 0xff6fb5, 0xe8e8e8, 0xff8a1f, 0x18b0ff]
+const COLORS: readonly number[] = PLAYER_COLOR_OPTIONS.map(option => option.color)
 
 type Mode = 'idle' | 'circle' | 'line' | 'walk' | 'treadmill' | 'treadwalk'
 
 interface Actor {
   pawn: PawnState
+  color: number
+  emblem: EmblemCosmeticId | null
   prev: PawnState
   w: WarlockHandle
   holder: THREE.Group
@@ -155,11 +161,13 @@ async function main() {
     } else pipeline.outputNode = col
   }
 
+  if (params.get('style')) warlockParams.style = params.get('style') as WarlockStyle
   const t0 = performance.now()
   try {
     await preloadWarlock()
   } catch (e) {
-    // keep the page alive: show the error and run the procedural style
+    if (warlockParams.style === 'tripo') throw e
+    // keep the legacy preview error behavior
     console.error(e)
     warlockParams.style = 'procedural'
     document.body.insertAdjacentHTML('beforeend', `<pre style="color:#f88;position:absolute;bottom:8px;left:8px;max-width:60vw;white-space:pre-wrap">CC0 warlock failed to build, showing the procedural style:\n${String((e as Error)?.stack ?? e)}</pre>`)
@@ -180,6 +188,8 @@ async function main() {
     const pawn = newPawn(i)
     const a: Actor = {
       pawn,
+      color: COLORS[i % COLORS.length],
+      emblem: 'emblem-moon',
       prev: structuredClone(pawn),
       w: createWarlock({ color: COLORS[i % COLORS.length] }),
       holder: new THREE.Group(),
@@ -195,6 +205,7 @@ async function main() {
       pawn.x = Math.cos(a.phase) * (250 + i * 40)
       pawn.y = Math.sin(a.phase) * (250 + i * 40)
     }
+    a.w.setOutfit({ ...NO_OUTFIT, emblem: a.emblem })
     a.holder.add(a.w.object3d)
     a.w.object3d.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) o.castShadow = true
@@ -206,7 +217,8 @@ async function main() {
   const rebuild = () => {
     for (const a of actors) {
       a.w.dispose()
-      a.w = createWarlock({ color: COLORS[a.pawn.id % COLORS.length] })
+      a.w = createWarlock({ color: a.color })
+      a.w.setOutfit({ ...NO_OUTFIT, emblem: a.emblem })
       a.holder.add(a.w.object3d)
     }
   }
@@ -284,6 +296,8 @@ async function main() {
     p.lavaTicks = a.burning && p.alive ? p.lavaTicks + 1 : 0
   }
 
+  let syncColorControl = () => {}
+  let styleRequest = 0
   const ctl = {
     mode(m: Mode) {
       hero().mode = m
@@ -361,7 +375,10 @@ async function main() {
     invuln(on?: boolean) {
       hero().pawn.invulnerable = on ?? !hero().pawn.invulnerable
     },
-    style(s: WarlockStyle) {
+    async style(s: WarlockStyle) {
+      const request = ++styleRequest
+      await preloadWarlock(s)
+      if (request !== styleRequest) return
       warlockParams.style = s
       rebuild()
     },
@@ -375,7 +392,19 @@ async function main() {
       for (const a of actors) a.w.setCastFrom(f)
     },
     color(c: number) {
+      hero().color = c
       hero().w.setColor(c)
+      syncColorControl()
+    },
+    emblem(id: EmblemCosmeticId | null) {
+      hero().emblem = id
+      hero().w.setOutfit({ ...NO_OUTFIT, emblem: id })
+    },
+    cape(on: boolean) { warlockParams.tripoCape = on },
+    cycleColor(direction: -1 | 1) {
+      const current = COLORS.indexOf(hero().color)
+      const index = current < 0 ? (direction > 0 ? 0 : COLORS.length - 1) : (current + direction + COLORS.length) % COLORS.length
+      ctl.color(COLORS[index])
     },
     view(v: 'close' | 'game' | 'side' | 'top') {
       view = v
@@ -454,9 +483,11 @@ async function main() {
         p.cast = null
         p.alive = true
         a.mode = state === 'run' ? 'treadmill' : 'idle'
-        a.w.setColor(colors[i])
+        a.color = colors[i]
+        a.w.setColor(a.color)
         a.prev = structuredClone(p)
       })
+      syncColorControl()
       ctl.step(0.6)
       if (state === 'cast') {
         for (const a of actors) {
@@ -496,7 +527,7 @@ async function main() {
       controls.update()
     },
     info() {
-      const asset = getWarlockAsset()
+      const asset = warlockParams.style === 'tripo' ? getTripoAsset() : getWarlockAsset()
       return { loadMs: Math.round(loadMs), triangles: asset?.triangles, fps: Math.round(fps), actors: actors.length, calls: renderer.info.render.drawCalls }
     },
   }
@@ -504,13 +535,14 @@ async function main() {
 
   // ---------------------------------------------------------------- UI
   const ui = document.createElement('div')
-  ui.style.cssText = 'position:absolute;left:8px;top:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:560px;font:12px ui-monospace,monospace'
+  ui.style.cssText = 'position:absolute;left:8px;top:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:560px;font:12px ui-monospace,monospace;color:#e8e0d5'
   const btn = (label: string, fn: () => void) => {
     const b = document.createElement('button')
     b.textContent = label
     b.style.cssText = 'background:#1d1822;color:#e8dcff;border:1px solid #4a3d5a;border-radius:4px;padding:4px 8px;cursor:pointer'
     b.onclick = fn
     ui.appendChild(b)
+    return b
   }
   btn('idle', () => ctl.mode('idle'))
   btn('walk', () => ctl.mode('walk'))
@@ -539,15 +571,47 @@ async function main() {
   btn('next round', () => ctl.nextRound())
   btn('burn', () => ctl.burn())
   btn('invuln', () => ctl.invuln())
-  btn('style', () => ctl.style(warlockParams.style === 'cc0' ? 'procedural' : 'cc0'))
-  // known issue: the staff has no grip / animations yet (shelved, off by default)
-  btn('staff (wip)', () => ctl.staff(warlockParams.staff ? null : warlockParams.staffVariant))
+  for (const style of ['cc0', 'tripo', 'procedural'] as const) btn(style, () => { void ctl.style(style) })
+  for (const shoulders of ['none', 'crescent', 'thorn'] as const) btn(`shoulders: ${shoulders}`, () => { warlockParams.tripoShoulders = shoulders })
+  btn('sigil fittings', () => { warlockParams.tripoSigils = !warlockParams.tripoSigils })
+  const capeLabel = document.createElement('label')
+  const capeCheck = document.createElement('input')
+  capeCheck.type = 'checkbox'; capeCheck.id = 'short-cape'; capeCheck.checked = warlockParams.tripoCape
+  capeCheck.addEventListener('change', () => ctl.cape(capeCheck.checked))
+  capeLabel.append(capeCheck, ' Cape'); ui.appendChild(capeLabel)
+  const emblemSelect = document.createElement('select')
+  emblemSelect.id = 'back-emblem'; emblemSelect.setAttribute('aria-label', 'Back emblem')
+  emblemSelect.add(new Option('No emblem', ''))
+  for (const item of COSMETICS) if (item.slot === 'emblem') emblemSelect.add(new Option(item.name, item.id))
+  emblemSelect.value = hero().emblem ?? ''
+  emblemSelect.addEventListener('change', () => ctl.emblem(emblemSelect.value ? emblemSelect.value as EmblemCosmeticId : null))
+  ui.appendChild(emblemSelect)
+  btn('back view', () => ctl.cam('back'))
+  btn('front view', () => ctl.cam('front'))
+  btn('staff', () => ctl.staff(warlockParams.staff ? null : warlockParams.staffVariant))
   btn('staff variant (wip)', () => {
     const order: StaffVariant[] = ['gnarled', 'iron', 'bone']
     ctl.staff(order[(order.indexOf(warlockParams.staffVariant) + 1) % order.length])
   })
   btn('cast from', () => ctl.castFrom(warlockParams.castFrom === 'palm' ? 'staff' : 'palm'))
-  btn('color', () => ctl.color(COLORS[Math.floor(Math.random() * COLORS.length)]))
+  const colorRow = document.createElement('div')
+  colorRow.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:4px 0'
+  const previousColor = btn('◀', () => ctl.cycleColor(-1))
+  previousColor.setAttribute('aria-label', 'Previous player color')
+  colorRow.append('Player color ', previousColor)
+  const colorSelect = document.createElement('select')
+  colorSelect.id = 'player-color'
+  colorSelect.setAttribute('aria-label', 'Player color')
+  for (const { color, name } of PLAYER_COLOR_OPTIONS) colorSelect.add(new Option(name, String(color)))
+  const customColorOption = new Option('Custom', 'custom'); customColorOption.disabled = true
+  colorSelect.add(customColorOption)
+  colorSelect.addEventListener('change', () => ctl.color(Number(colorSelect.value)))
+  syncColorControl = () => { colorSelect.value = COLORS.includes(hero().color) ? String(hero().color) : 'custom' }
+  syncColorControl()
+  const nextColor = btn('▶', () => ctl.cycleColor(1))
+  nextColor.setAttribute('aria-label', 'Next player color')
+  colorRow.append(colorSelect, nextColor)
+  ui.appendChild(colorRow)
   btn('view', () => ctl.view(view === 'close' ? 'game' : view === 'game' ? 'side' : 'close'))
   btn('turntable', () => ctl.turntable())
   btn('freeze', () => ctl.pause())
@@ -654,7 +718,7 @@ async function main() {
     controls.update()
     pipeline.render()
     const hp = hero()
-    hud.textContent = `${hp.w.style}  fps ${fps.toFixed(0)}  draws ${renderer.info.render.drawCalls}  tris ${getWarlockAsset()?.triangles ?? '-'} / warlock
+    hud.textContent = `${hp.w.style}  fps ${fps.toFixed(0)}  draws ${renderer.info.render.drawCalls}  tris ${(warlockParams.style === 'tripo' ? getTripoAsset() : getWarlockAsset())?.triangles ?? '-'} / warlock
 charge ${hp.w.castCharge.toFixed(2)}  mode ${hp.mode}  kb ${Math.hypot(hp.pawn.vx - hp.pawn.walkVx, hp.pawn.vy - hp.pawn.walkVy).toFixed(0)}
 load ${loadMs.toFixed(0)} ms`
   })

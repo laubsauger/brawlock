@@ -3,14 +3,28 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve, join } from 'node:path'
-import { Matrix4, Quaternion, Vector3 } from 'three'
+import { Matrix4, Quaternion, Vector3, Ray, Triangle } from 'three'
 
 const directory = resolve(process.argv[2] ?? 'art/source/tripo-warlock-v1')
 const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
 const preparation = JSON.parse(readFileSync(join(directory, 'preparation.json'), 'utf8'))
 const rigging = JSON.parse(readFileSync(join(directory, 'rigging.json'), 'utf8'))
 const bakeRecords = process.argv.includes('--include-bake-studies') ? JSON.parse(readFileSync(join(directory, 'lods.json'), 'utf8')).lods : []
+const rearCut=JSON.parse(readFileSync(join(directory,'rear-cut.json'),'utf8'))
+assert.equal(rearCut.removedTriangles,53,'Rear opening selection changed')
+assert.equal(rearCut.workingTriangles,20077-rearCut.removedTriangles)
+assert.equal(rearCut.removedFaceIds.length,53)
+assert.equal(new Set(rearCut.removedFaceIds).size,53)
+assert(rearCut.removedBounds[0][0]>=-.09&&rearCut.removedBounds[0][1]<=.09&&rearCut.removedBounds[2][1]<=.34,'Rear cut escaped the small central tip')
+assert.equal(rearCut.retainedOuterTriangles,rearCut.sourceOuterTriangles-rearCut.removedTriangles)
+assert.match(rearCut.retainedGeometryHash,/^[0-9a-f]{64}$/)
+const waistFit=JSON.parse(readFileSync(join(directory,'waist-fit.json'),'utf8'))
 const proxy = JSON.parse(readFileSync(join(directory, 'cloth-proxy.json'), 'utf8'))
+assert.deepEqual(proxy.rearVent,{version:1,seamEdges:40,top:1.13},'Rebuild matching rear-vent meshes and proxy data')
+assert.deepEqual(waistFit.profile,{start:.55,end:1,gap:.008,skinStart:1.05,skinEnd:1.15,binding:'torso'})
+assert.deepEqual(proxy.waistFit,{...waistFit.profile,panels:waistFit.panels.map(({name,shift})=>({name,shift}))})
+assert.equal(waistFit.panels.length,3)
+assert(waistFit.panels.every(({name,shift,samples,bound})=>bound>0&&(name==='Tripo_Front_Tabard'?shift===0:shift>0&&shift<.03&&samples>0)))
 const sourceLods=JSON.parse(readFileSync(join(directory,'source-lods.json'),'utf8'))
 assert(proxy.positions.length <= 512)
 assert(proxy.garments.every(garment=>garment.pinned>0),'Every garment needs an attachment band')
@@ -22,7 +36,8 @@ assert.equal(proxy.clearance.length,proxy.positions.length)
 assert(proxy.clearance.every(gap=>Number.isFinite(gap)&&gap>=0&&gap<.15))
 assert(Array.isArray(proxy.legCloth)&&proxy.legCloth.length>0)
 const clothNodes=new Set()
-for(const {name,nodes,padding} of proxy.legCloth) {
+for(const {name,nodes,padding,motion} of proxy.legCloth) {
+  assert.equal(motion,({'Tripo_Front_Tabard':1,'Tripo_Hip_Overlays':2})[name]??0,'Garment motion profile is required')
   const garment=proxy.garments.find(garment=>garment.name===name)
   assert(garment&&padding>0&&padding<.03)
   assert.equal(nodes.length,garment.count)
@@ -58,8 +73,9 @@ for(const envelope of proxy.garmentEnvelopes) {
 assert(proxy.colliders.length===11)
 assert(Array.isArray(proxy.colliderRest),'Rebuild cloth data with exported collision reference points')
 assert.equal(proxy.colliderRest.length,proxy.colliders.length)
-for(const [left,right,radius,kind,a,b] of proxy.colliders) {
+for(const [left,right,radius,kind,a,b,driverA,driverB] of proxy.colliders) {
   assert(typeof left==='string'&&typeof right==='string')
+  assert.deepEqual([driverA,driverB],left.startsWith('thigh_')?['pelvis',left]:[left,right],'Invalid collision endpoint attachments')
   assert(['leg','arm','body'].includes(kind)&&radius>.01&&radius<.25)
   assert(a.length===3&&b.length===3&&[...a,...b].every(Number.isFinite))
 }
@@ -121,9 +137,67 @@ function imageSize(data, mime) {
   throw new Error('JPEG dimensions missing')
 }
 
+// Independently verify the exported rest fit and fully bound waist roots.
+// Rays and bone names come from the actual GLB, after Blender's export.
+function verifyWaist(doc,accessor) {
+  const part=name=>{
+    const node=doc.nodes.find(node=>node.name===name);assert(node&&node.mesh!==undefined,'Missing waist mesh: '+name)
+    const primitive=doc.meshes[node.mesh].primitives[0],a=primitive.attributes
+    return{positions:accessor(a.POSITION).map(p=>new Vector3(...p)),weights:accessor(a.WEIGHTS_0),joints:accessor(a.JOINTS_0),
+      indices:accessor(primitive.indices).flat(),bones:doc.skins[node.skin].joints.map(i=>doc.nodes[i].name)}
+  }
+  const body=part('Tripo_Trousers'),ray=new Ray(),hit=new Vector3(),nearest=new Vector3(),bary=new Vector3(),result=[]
+  for(const {name} of waistFit.panels) {
+    const panel=part(name);let matched=0,fitted=0
+    assert(panel.weights.every((weights,i)=>weights.every((w,j)=>w<1e-7||!panel.bones[panel.joints[i][j]].startsWith('thigh_'))),'Belt-hung fabric must not bind to individual thighs: '+name)
+    for(let i=0;i<panel.positions.length;i++) {
+      const p=panel.positions[i]
+      if(p.y<waistFit.profile.end)continue
+      ray.origin.set(p.x,p.y,1);ray.direction.set(0,0,-1)
+      let best=Infinity,face=null
+      for(let j=0;j<body.indices.length;j+=3) {
+        const ids=body.indices.slice(j,j+3),[a,b,c]=ids.map(i=>body.positions[i])
+        if(!ray.intersectTriangle(a,b,c,false,hit))continue
+        const distance=ray.origin.distanceToSquared(hit)
+        if(distance<best){best=distance;nearest.copy(hit);face=ids}
+      }
+      if(!face)continue // No trousers at this height/width, above their opening.
+      if(name!=='Tripo_Front_Tabard') {
+        assert(p.z-nearest.z>=waistFit.profile.gap-1e-5,'Source waist fit lost its trouser clearance: '+name)
+        fitted++
+      }
+      if(p.y<waistFit.profile.skinEnd)continue
+      const [a,b,c]=face.map(i=>body.positions[i]);Triangle.getBarycoord(nearest,a,b,c,bary)
+      const expected=new Map(),actual=new Map()
+      face.forEach((vertex,k)=>body.weights[vertex].forEach((weight,j)=>{
+        const name=body.bones[body.joints[vertex][j]]
+        expected.set(name,(expected.get(name)??0)+weight*bary.getComponent(k))
+      }))
+      const selected=[...expected].filter(([name,weight])=>weight>1e-8&&!name.startsWith('thigh_')).sort((a,b)=>b[1]-a[1]).slice(0,4),total=selected.reduce((n,[,w])=>n+w,0)
+      expected.clear();selected.forEach(([name,w])=>expected.set(name,w/total))
+      panel.weights[i].forEach((weight,j)=>actual.set(panel.bones[panel.joints[i][j]],(actual.get(panel.bones[panel.joints[i][j]])??0)+weight))
+      for(const bone of new Set([...expected.keys(),...actual.keys()]))assert(Math.abs((expected.get(bone)??0)-(actual.get(bone)??0))<2e-4,'Waist binding differs from its body surface: '+name+' '+bone)
+      matched++
+    }
+    if(name!=='Tripo_Front_Tabard')assert(fitted>0&&matched>0,'No fitted waist roots inspected: '+name)
+    result.push({name,fitted,matched})
+  }
+  return result
+}
+
 const proof = { status: 'passed', originalsUnchanged: true, shippedCharacterUnchanged: true, assets: [] }
-for (const record of [{ file: 'tripo-rig-test.glb', triangles: 20077, meshes: 12 }, ...sourceLods, ...bakeRecords]) {
+for (const record of [{ file: 'tripo-rig-test.glb', triangles: rearCut.workingTriangles, meshes: 12 }, ...sourceLods, ...bakeRecords]) {
   const { bytes, doc, binary, accessor } = load(record.file)
+  if(record.file==='tripo-rig-test.glb') {
+    proof.waist=verifyWaist(doc,accessor)
+    const node=doc.nodes.find(node=>node.name==='Tripo_Outer_Robe_Skirt')
+    assert(node&&node.mesh!==undefined,'Missing rear panel')
+    const primitive=doc.meshes[node.mesh].primitives[0],positions=accessor(primitive.attributes.POSITION),indices=accessor(primitive.indices).flat(),faces=[]
+    for(let i=0;i<indices.length;i+=3)faces.push(indices.slice(i,i+3).map(index=>positions[index].map(x=>Math.floor(x*1e5+.5)).join(',')).sort().join('|'))
+    assert.equal(faces.length,rearCut.retainedOuterTriangles,'Rear panel has extra deleted triangles')
+    assert.equal(createHash('sha256').update(faces.sort().join('\n')).digest('hex'),rearCut.retainedGeometryHash,'Export changed fabric outside the reviewed rear-tip cut')
+    proof.rearCut={removedTriangles:rearCut.removedTriangles,preservedTriangles:faces.length,preservedGeometry:true}
+  }
   // Prove authoring-space endpoints survived the actual Blender/glTF export.
   // Joint-local offsets are not world-space Y-up vectors.
   const worlds=new Map()
@@ -136,8 +210,8 @@ for (const record of [{ file: 'tripo-rig-test.glb', triangles: 20077, meshes: 12
   }
   for(const root of doc.scenes[doc.scene??0].nodes)worldMatrices(root,new Matrix4())
   for(let i=0;i<proxy.colliders.length;i++) {
-    const [left,right,,,a,b]=proxy.colliders[i]
-    for(const [name,offset,expected] of [[left,a,proxy.colliderRest[i][0]],[right,b,proxy.colliderRest[i][1]]]) {
+    const [,,,,a,b,driverA,driverB]=proxy.colliders[i]
+    for(const [name,offset,expected] of [[driverA,a,proxy.colliderRest[i][0]],[driverB,b,proxy.colliderRest[i][1]]]) {
       const index=doc.nodes.findIndex(node=>node.name===name)
       assert(index>=0&&worlds.has(index),'Missing exported collision joint '+name)
       const actual=new Vector3(...offset).applyMatrix4(worlds.get(index))
@@ -162,11 +236,21 @@ for (const record of [{ file: 'tripo-rig-test.glb', triangles: 20077, meshes: 12
   for (const required of ['root', 'pelvis', 'Head', 'hand_l', 'hand_r', 'foot_l', 'foot_r']) assert(names.includes(required))
   assert.deepEqual(doc.animations.map((clip) => clip.name).sort(), [...rigging.clips].sort())
   assert.equal(doc.meshes.length, record.meshes)
-  let triangles = 0, movableVertices = 0
+  let triangles = 0, movableVertices = 0, centerVertices=0
   for (const mesh of doc.meshes) for (const primitive of mesh.primitives) {
     assert.equal(primitive.mode ?? 4, 4)
     const attributes = primitive.attributes
-    for (const name of ['POSITION', 'NORMAL', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', '_WL_CLOTH','_WL_PROXY_INDICES','_WL_PROXY_WEIGHTS','_WL_PROXY_FACE']) assert(name in attributes, 'Missing ' + name)
+    for (const name of ['POSITION', 'NORMAL', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', '_WL_CLOTH','_WL_PROXY_INDICES','_WL_PROXY_WEIGHTS','_WL_PROXY_FACE','_WL_REAR_SIDE','_WL_MOTION_PROFILE']) assert(name in attributes, 'Missing ' + name)
+    const panels=accessor(attributes._WL_MOTION_PROFILE)
+    assert(panels.every(([kind])=>[0,1,2].includes(kind)),'Garment motion profiles must remain discrete after reduction')
+    centerVertices+=panels.filter(([flag])=>flag===1).length
+    if(record.file==='tripo-rig-test.glb') {
+      const node=doc.nodes.find(node=>node.mesh===doc.meshes.indexOf(mesh))
+      assert(node,'Missing mesh node')
+      assert(panels.every(([flag])=>flag===(({'Tripo_Front_Tabard':1,'Tripo_Hip_Overlays':2})[node.name]??0)),'Motion profile changed another garment')
+    }
+    const rearSides=accessor(attributes._WL_REAR_SIDE)
+    assert(rearSides.every(([side])=>[-1,0,1].includes(side)),'Rear-tail sides must remain discrete after reduction')
     const proxyIndices=accessor(attributes._WL_PROXY_INDICES),proxyWeights=accessor(attributes._WL_PROXY_WEIGHTS),proxyFaces=accessor(attributes._WL_PROXY_FACE)
     for(let i=0;i<proxyIndices.length;i++) {
       assert(proxyIndices[i].every(index=>Number.isInteger(index)&&index>=0&&index<proxy.positions.length))
@@ -204,6 +288,7 @@ for (const record of [{ file: 'tripo-rig-test.glb', triangles: 20077, meshes: 12
   assert.equal(triangles, record.triangles)
   assert(doc.nodes.filter(node=>node.mesh!==undefined).every(node=>node.extras.cloth_proxy_id===proxy.id),'Mesh and proxy build identifiers differ')
   assert(movableVertices > 50)
+  assert(centerVertices>20,'Center flap lost its motion identity')
   for (const clip of doc.animations) for (const sampler of clip.samplers) {
     const times = accessor(sampler.input).flat()
     assert(times.length > 1 && times.every((time, i) => i === 0 || time >= times[i - 1]))
