@@ -350,6 +350,15 @@ function isRelease(build: string | undefined): build is string {
 
 /** a checkpoint hash rides this many stream packets (loss) */
 const HASH_REPEAT_TICKS = 8
+/**
+ * A link whose "unreliable" path is ordered and lossless (WebSocket, or WebRTC on its reliable
+ * fallback) needs none of the repeats that cover packet loss on a raw channel: each input frame,
+ * stream step, bot plan and hash goes out once. Its only losses are frames a congested socket
+ * drops on purpose: stream gaps are repaired by `need`, and inputs are resent all at once when
+ * the oldest has waited this long for its ack.
+ */
+const INPUT_RESEND_MS = 250
+const lossless = (t: Transport): boolean => t.unreliableMode === 'reliable'
 
 // ---------------------------------------------------------------------------
 
@@ -444,6 +453,8 @@ interface ClientMatch {
   inN: number
   /** first send time per unacked frame seq, for the ack lag */
   sentAt: Map<number, number>
+  /** lossless link: when unacked inputs were last resent */
+  inputResentAt: number
   ackLagMs: number | null
   corr: WindowMax
   rebases: number
@@ -1471,7 +1482,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
             const previous = plan?.message.f.filter(([at]) => at > tick) ?? []
             if (JSON.stringify(frames) !== JSON.stringify(previous)) {
               if (cmds.length) frames.unshift([tick, cmds])
-              plan = { message: { t: 'plan', m: m.id, p: id, n: tick, f: frames }, repeats: REDUNDANCY }
+              plan = { message: { t: 'plan', m: m.id, p: id, n: tick, f: frames }, repeats: lossyStreams(m) ? REDUNDANCY : 1 }
               m.botPlans.set(id, plan)
             }
           }
@@ -1600,6 +1611,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
   }
 
+  /** Someone in this match streams over a raw (lossy) channel: keep the loss repeats. */
+  function lossyStreams(m: HostMatch): boolean {
+    for (const p of peers) if (p.stream && p.matchId === m.id && !lossless(p.t)) return true
+    return false
+  }
+
   /** The newest REDUNDANCY steps every tick (shared body), a resend from `needFrom` once. */
   function sendStream(m: HostMatch, s: SimState): void {
     const to = s.tick
@@ -1607,7 +1624,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (h.end !== to) return
     // checkpoint hash: computed only when someone streams, repeated a few ticks against loss
     if (to % HASH_EVERY === 0) m.hash = [to, hashState({ ...s, events: [] })]
-    const hashJson = m.hash && to - m.hash[0] < HASH_REPEAT_TICKS ? `,"h":${JSON.stringify(m.hash)}` : ''
+    const lossy = lossyStreams(m)
+    const hashJson = m.hash && to - m.hash[0] < (lossy ? HASH_REPEAT_TICKS : 1) ? `,"h":${JSON.stringify(m.hash)}` : ''
     const bodies = new Map<number, string>()
     const body = (from: number) => {
       let b = bodies.get(from)
@@ -1635,9 +1653,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const last = p.sentTo.length ? p.sentTo[0] : -1
         if (!content && p.needFrom < 0 && last >= 0 && to - last < HEARTBEAT_TICKS) continue
         // reach back three packets: empty steps ride as many packets as steps with inputs
-        // (the range costs nothing, empty steps are implied)
+        // (the range costs nothing, empty steps are implied). A lossless link gets each step once.
         const back = p.sentTo.length >= 2 ? p.sentTo[p.sentTo.length - 1] : recent
-        from = Math.max(Math.min(recent, back), h.start)
+        from = Math.max(lossless(p.t) && last >= 0 ? last : Math.min(recent, back), h.start)
       }
       p.needFrom = -1
       p.sentTo.unshift(to)
@@ -1901,6 +1919,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       clock: new LeadClock(),
       inN: 0,
       sentAt: new Map(),
+      inputResentAt: -Infinity,
       ackLagMs: null,
       corr: new WindowMax(1000),
       rebases: 0,
@@ -2020,7 +2039,18 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const est = b.latestTick < 0 ? 0 : b.latestTick + Math.round((now - b.latestAt + t.rtt / 2) / DT_MS)
     const seq = cm.sender.add(est, cmds)
     if (seq) cm.sentAt.set(seq, now)
-    if (cm.sender.unacked) t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: cm.sender.frames(), n: ++cm.inN }))
+    const frames = lossless(t) ? losslessInputs(cm, now) : cm.sender.unacked ? cm.sender.frames() : []
+    if (frames.length) t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: frames, n: ++cm.inN }))
+  }
+
+  /** Lossless link: frames never sent, else every unacked frame once the oldest ack is overdue. */
+  function losslessInputs(cm: ClientMatch, now: number): InputFrame[] {
+    const fresh = cm.sender.unsent()
+    if (fresh.length) return fresh
+    const oldest = cm.sender.oldest
+    if (!oldest || now - (cm.sentAt.get(oldest) ?? now) < INPUT_RESEND_MS || now - cm.inputResentAt < INPUT_RESEND_MS) return []
+    cm.inputResentAt = now
+    return cm.sender.frames()
   }
 
   /**
@@ -2078,9 +2108,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       pred.local({ seq, tick, cmds })
       cm.sentAt.set(seq, now)
     }
-    if (cm.sender.unacked && (cmds.length || resend)) {
-      t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: cm.sender.frames(), n: ++cm.inN, s: 1 }))
-    }
+    const frames = lossless(t) ? losslessInputs(cm, now) : cm.sender.unacked && (cmds.length || resend) ? cm.sender.frames() : []
+    if (frames.length) t.sendUnreliable(encode({ t: 'input', match: cm.id, inputs: frames, n: ++cm.inN, s: 1 }))
   }
 
   function noteAck(cm: ClientMatch, ack: number, now: number): void {

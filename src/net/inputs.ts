@@ -6,6 +6,8 @@
  * seq order, each exactly once, and acks the highest applied seq in snapshots.
  * A lost input packet is therefore covered by the next one, and a lost ack only
  * costs a few bytes of resend.
+ * On a lossless link (WebSocket, or WebRTC on its reliable fallback) the session sends
+ * each frame once (unsent) and resends everything unacked only when an ack is overdue.
  */
 import type { InputCommand } from '../sim/types'
 import type { InputFrame } from './protocol'
@@ -16,6 +18,8 @@ export const MAX_FRAMES_PER_PACKET = 32
 export class InputSender {
   private nextSeq = 1
   private pending: InputFrame[] = []
+  /** highest seq handed to a packet so far */
+  private sentSeq = 0
 
   /** Queue one tick of commands. Empty ticks are not sent. Returns the frame's seq, 0 if empty. */
   add(tick: number, cmds: InputCommand[]): number {
@@ -34,7 +38,23 @@ export class InputSender {
 
   /** Frames for the next packet: every unacked frame, oldest first. */
   frames(): InputFrame[] {
-    return this.pending.length <= MAX_FRAMES_PER_PACKET ? this.pending : this.pending.slice(0, MAX_FRAMES_PER_PACKET)
+    const out = this.pending.length <= MAX_FRAMES_PER_PACKET ? this.pending : this.pending.slice(0, MAX_FRAMES_PER_PACKET)
+    if (out.length) this.sentSeq = Math.max(this.sentSeq, out[out.length - 1].seq)
+    return out
+  }
+
+  /** Frames never sent yet, oldest first (lossless links). */
+  unsent(): InputFrame[] {
+    const i = this.pending.findIndex((f) => f.seq > this.sentSeq)
+    if (i < 0) return []
+    const out = this.pending.slice(i, i + MAX_FRAMES_PER_PACKET)
+    this.sentSeq = out[out.length - 1].seq
+    return out
+  }
+
+  /** seq of the oldest unacked frame, 0 when everything is acked */
+  get oldest(): number {
+    return this.pending.length ? this.pending[0].seq : 0
   }
 
   get unacked(): number {
