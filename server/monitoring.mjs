@@ -4,10 +4,13 @@ import { dirname } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 export const MONITOR_INTERVAL = 10_000
-const RETENTION = 7 * 86400_000
+export const MONITOR_RETENTION_DAYS = 30
+const RETENTION = MONITOR_RETENTION_DAYS * 86400_000
 const metrics = ['hostCpu', 'processCpu', 'memory', 'loop', 'step', 'players', 'bots', 'rooms', 'ping', 'loss', 'online']
 // Additive side table, so the schema stays 1 and the preceding release can still open this file.
 const network = ['steal', 'anchor', 'poll']
+const columns = [...metrics, ...network]
+const HOUR = 3600_000
 const finite = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null
 
 /** Projection is deliberately bounded and contains no room/player identifiers. */
@@ -32,15 +35,34 @@ export function openMonitoring(file) {
       PRAGMA user_version=1; COMMIT;`)
     else if (version !== 1) throw new Error('Unsupported monitoring database version')
     db.exec(`CREATE TABLE IF NOT EXISTS network (at INTEGER NOT NULL, region TEXT NOT NULL, ${network.map((key) => `${key} REAL`).join(',')}, PRIMARY KEY(region,at))`)
+    db.exec('CREATE INDEX IF NOT EXISTS network_at ON network(at)')
+    // Month views read at most 30 × 24 rows per service instead of 259,200 raw
+    // samples. Additive tables preserve compatibility with the preceding binary.
+    db.exec(`CREATE TABLE IF NOT EXISTS hourly (at INTEGER NOT NULL, region TEXT NOT NULL, samples INTEGER NOT NULL, failures INTEGER NOT NULL,
+      ${columns.map(key => `${key} REAL`).join(',')}, PRIMARY KEY(region,at));
+      CREATE INDEX IF NOT EXISTS hourly_at ON hourly(at);`)
+    const foldSql = `SELECT CAST(s.at/${HOUR} AS INTEGER)*${HOUR} AS at,s.region AS region,COUNT(*) AS samples,SUM(1-s.ok) AS failures,
+      ${[...metrics.map(key => `MAX(s.${key}) AS ${key}`), ...network.map(key => `MAX(n.${key}) AS ${key}`)].join(',')}
+      FROM samples s LEFT JOIN network n ON n.region=s.region AND n.at=s.at`
+    const replaceHour = db.prepare(`INSERT OR REPLACE INTO hourly ${foldSql}
+      WHERE s.region=? AND s.at>=? AND s.at<? GROUP BY s.region,CAST(s.at/${HOUR} AS INTEGER)`)
+    // One startup backfill also accounts for samples written during a rollback.
+    db.exec(`INSERT OR REPLACE INTO hourly ${foldSql} GROUP BY s.region,CAST(s.at/${HOUR} AS INTEGER)`)
     const insert = db.prepare(`INSERT OR REPLACE INTO samples VALUES (?,?,?,${metrics.map(() => '?').join(',')})`)
     const insertNetwork = db.prepare(`INSERT OR REPLACE INTO network VALUES (?,?,${network.map(() => '?').join(',')})`)
     const latest = db.prepare('INSERT OR REPLACE INTO latest VALUES (?,?)')
     const prune = db.prepare('DELETE FROM samples WHERE at<?')
     const pruneNetwork = db.prepare('DELETE FROM network WHERE at<?')
+    const pruneHourly = db.prepare('DELETE FROM hourly WHERE at<?')
     const history = db.prepare(`SELECT s.region AS region,CAST(s.at/? AS INTEGER)*? AS at,COUNT(*) AS samples,SUM(1-s.ok) AS failures,
       ${[...metrics.map((key) => `MAX(s.${key}) AS ${key}`), ...network.map((key) => `MAX(n.${key}) AS ${key}`)].join(',')}
       FROM samples s LEFT JOIN network n ON n.region=s.region AND n.at=s.at
       WHERE s.at>=? AND s.at<=? GROUP BY s.region,CAST(s.at/? AS INTEGER) ORDER BY 2,1`)
+    const edgeSql = `${foldSql} WHERE s.at>=? AND s.at<=? GROUP BY s.region,CAST(s.at/${HOUR} AS INTEGER)`
+    const monthHistory = db.prepare(`SELECT region,CAST(at/? AS INTEGER)*? AS at,SUM(samples) AS samples,SUM(failures) AS failures,
+      ${columns.map(key => `MAX(${key}) AS ${key}`).join(',')}
+      FROM (SELECT * FROM hourly WHERE at>=? AND at<? UNION ALL ${edgeSql} UNION ALL ${edgeSql})
+      GROUP BY region,CAST(at/? AS INTEGER) ORDER BY 2,1`)
     const cache = new Map()
     return {
       record(region, at, status) {
@@ -49,9 +71,12 @@ export function openMonitoring(file) {
           const projected = { ...(status.ok ? projectSample(status.sample) : {}), poll: finite(status.pollMs) }
           insert.run(at, region, status.ok ? 1 : 0, ...metrics.map((key) => projected[key] ?? null))
           insertNetwork.run(at, region, ...network.map((key) => projected[key] ?? null))
+          const hour = Math.floor(at / HOUR) * HOUR
+          replaceHour.run(region, hour, hour + HOUR)
           latest.run(region, JSON.stringify({ ...status, at }))
           prune.run(at - RETENTION)
           pruneNetwork.run(at - RETENTION)
+          pruneHourly.run(at - RETENTION)
           db.exec('COMMIT')
           cache.clear()
         } catch (error) { db.exec('ROLLBACK'); throw error }
@@ -59,9 +84,13 @@ export function openMonitoring(file) {
       read(hours, now) {
         if (cache.has(hours)) return cache.get(hours)
         const grain = Math.max(MONITOR_INTERVAL, Math.ceil(hours * 3600 / 360) * 1000)
-        const result = { grain, from: now - hours * 3600_000, through: now,
+        const from = now - hours * 3600_000
+        const fullFrom = Math.ceil(from / HOUR) * HOUR, fullThrough = Math.floor(now / HOUR) * HOUR
+        const result = { grain, from, through: now,
           latest: Object.fromEntries(db.prepare('SELECT region,payload FROM latest').all().map((row) => [row.region, JSON.parse(row.payload)])),
-          history: history.all(grain, grain, now - hours * 3600_000, now, grain) }
+          history: hours > 168
+            ? monthHistory.all(grain, grain, fullFrom, fullThrough, from, Math.min(now, fullFrom - 1), Math.max(fullFrom, fullThrough), now, grain)
+            : history.all(grain, grain, from, now, grain) }
         cache.set(hours, result)
         return result
       },

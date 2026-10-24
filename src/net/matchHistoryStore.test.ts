@@ -40,6 +40,26 @@ function rankedRows() {
 }
 
 describe('authoritative match history storage', () => {
+  it('lists only explicitly public games across regions, newest first, bounded and queue filtered', () => {
+    const store = open()
+    const write = (key: string, input: StoredMatchHistory) => store.applyReceipt(key, key, () => ({ rating: { status: 'unrated' }, history: input }))
+    write('legacy-unknown', history('casual', 5000))
+    write('private-game', { ...history('custom', 6000), public: false })
+    write('public-eu', { ...history('casual', 1000), public: true })
+    write('public-us', { ...history('ranked', 2000), region: 'us', public: true })
+    write('public-custom', { ...history('custom', 3000), public: true })
+    const recent = store.recentMatches({ limit: 10 })
+    expect(recent.map(m => [m.region, m.queue, m.at])).toEqual([['eu', 'custom', 3000], ['us', 'ranked', 2000], ['eu', 'casual', 1000]])
+    expect(store.recentMatches({ limit: 1 })).toEqual(recent.slice(0, 1))
+    expect(store.recentMatches({ queue: 'casual', limit: 10 })).toEqual([recent[2]])
+    expect(store.history(device, { limit: 10 })).toHaveLength(5)
+    expect(JSON.stringify(recent)).not.toMatch(/private-|ABCDE|device|receipt|fingerprint|"self"|"outcome"/)
+    expect(() => store.recentMatches({ limit: 11 })).toThrow()
+    // Replaying a receipt must not duplicate a public feed entry.
+    write('public-eu', { ...history('casual', 1000), public: true })
+    expect(store.recentMatches({ limit: 10 })).toEqual(recent)
+  })
+
   it('keeps casual-only players and their builds without creating ranked totals or exposing private identities', () => {
     const store = open()
     const input = history()

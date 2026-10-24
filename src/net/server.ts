@@ -254,6 +254,7 @@ export function createServerCore(
     const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : DEFAULT_SERVER_CONFIG.quickplay
     const officialRewards = !!setup.quick && setup.quick === policy.bots && setup.settings === undefined
     let analyticsMatch: string | null = null
+    let matchPublic = false
     const writeAnalytics = (write: () => void) => {
       try { write() } catch { log('error', 'analytics.write.failed', { room: code }) }
     }
@@ -273,6 +274,7 @@ export function createServerCore(
         hasPendingConnections: () => { const entry = rooms.get(code); return !!entry && reservedNow(entry) > 0 },
         elo: { enabled: !!authority && setup.ranked === true, minSeconds: cfg.leaderboardMinSeconds },
         onMatchStart: (info) => {
+          matchPublic = room.isPublic()
           if (setup.ranked && deps.accounts) deps.accounts.started(code, info.slots.filter((slot) => slot.kind === 'human').map((slot) => {
             const identity = slot.profileId
             if (!identity || !/^a_[A-Za-z0-9_-]{8,60}$/.test(identity)) throw new Error('Ranked participant has no verified account identity')
@@ -322,7 +324,7 @@ export function createServerCore(
               log('error', 'progression.storage.error', { room: code })
               result.progression = { matchId, status: 'unavailable' }
             }) : Promise.resolve()
-            const rating = record(code, m, setup.ranked ? 'ranked' : setup.quick ? 'casual' : 'custom')
+            const rating = record(code, m, setup.ranked ? 'ranked' : setup.quick ? 'casual' : 'custom', matchPublic && room.isPublic())
             ;[result.rating] = await Promise.all([rating, progression])
             if (e && deps.accounts) for (const [id, connected] of e.accounts) if (connected === 0) { deps.accounts.release(code, id); e.accounts.delete(id) }
           } finally { pendingResults-- }
@@ -349,10 +351,10 @@ export function createServerCore(
   }
 
   /** A finished server match: rated and stored when it counts (leaderboard.ts). */
-  async function record(room: string, m: FinishedMatch, queue: 'ranked' | 'casual' | 'custom'): Promise<MatchRating> {
+  async function record(room: string, m: FinishedMatch, queue: 'ranked' | 'casual' | 'custom', listed = false): Promise<MatchRating> {
     if (!authority) return { status: 'unrated', reason: 'This server does not record global Elo.' }
     try {
-      const rating = await authority.record({ key: crypto.randomUUID(), region: cfg.region, room, at: clock(), minSeconds: cfg.leaderboardMinSeconds, match: m, queue })
+      const rating = await authority.record({ key: crypto.randomUUID(), region: cfg.region, room, at: clock(), minSeconds: cfg.leaderboardMinSeconds, match: m, queue, public: listed })
       log(rating.status === 'unavailable' ? 'error' : 'info', rating.status === 'rated' ? 'leaderboard.match' : 'leaderboard.skip', { room, reason: rating.reason, humans: m.seats.length, ticks: m.ticks })
       return rating
     } catch (e) {
@@ -604,7 +606,7 @@ export function createServerCore(
         log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
         return json(201, { code, created: true, region: cfg.region }, req.origin)
       }
-      if ((parts[0] === 'leaderboard' && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && (parts.length === 2 || (parts.length === 3 && parts[2] === 'history')))) {
+      if (((parts[0] === 'leaderboard' || parts[0] === 'matches') && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && (parts.length === 2 || (parts.length === 3 && parts[2] === 'history')))) {
         if (req.method !== 'GET') return json(405, { error: 'method not allowed' }, req.origin)
         if (!authority) return json(404, { error: 'This server keeps no leaderboard.' }, req.origin)
         if (!boardLimit.take(req.ip, deps.now())) {

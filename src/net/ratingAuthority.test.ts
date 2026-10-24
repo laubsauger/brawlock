@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
-import { validMatchHistory } from './matchHistory'
+import { validMatchHistory, validGlobalMatches } from './matchHistory'
 import { createMatch, DEFAULT_SETTINGS } from '../sim'
 import { MatchTracker } from '../game/stats'
 
@@ -84,6 +84,27 @@ describe('account-ranked canonical rating names', () => {
 })
 
 describe('authoritative casual and ranked match history', () => {
+  it('publishes explicit public results from both regions without exposing private or unfinished games', async () => {
+    const authority = localRatingAuthority(openLeaderboard(':memory:'), { minSeconds: 1 })
+    try {
+      for (const [index, region] of ['eu', 'us'].entries()) {
+        await authority.record({ ...submission(`public-match-${region}`, 1000 + index, region), queue: 'casual', public: true })
+      }
+      await authority.record({ ...submission('private-match-result', 3000), queue: 'ranked', public: false })
+      await authority.record({ ...submission('legacy-match-result', 4000), queue: 'custom' })
+      const response = await authority.read('/matches?limit=10')
+      expect(response.status).toBe(200)
+      const matches = (response.body as { matches: unknown }).matches
+      expect(validGlobalMatches(matches)).toBe(true)
+      expect(matches).toMatchObject([{ region: 'us', queue: 'casual' }, { region: 'eu', queue: 'casual' }])
+      expect((matches as unknown[]).length).toBe(2)
+      expect(JSON.stringify(matches)).not.toMatch(/a_account|ABCDE|device|receipt|"self"/)
+      expect((await authority.read('/matches?queue=ranked')).body).toEqual({ matches: [] })
+      for (const path of ['/matches?limit=11', '/matches?limit=0', '/matches?queue=invalid']) expect((await authority.read(path)).status).toBe(400)
+      expect(validRatingSubmission({ ...submission('invalid-public-flag', 5000), public: 'yes' })).toBe(false)
+    } finally { authority.close!() }
+  })
+
   it('keeps casual-only history and equipment without changing Elo, then filters ranked results and deduplicates retries', async () => {
     const store = openLeaderboard(':memory:')
     const authority = localRatingAuthority(store, { minSeconds: 1 })

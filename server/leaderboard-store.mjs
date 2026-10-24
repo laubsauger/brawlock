@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS match_history_seats (
 );
 CREATE INDEX IF NOT EXISTS match_history_device ON match_history_seats(device, match_id);
 CREATE INDEX IF NOT EXISTS match_history_at ON match_history(at DESC, id DESC);
+-- Publication is opt-in. Historical rows with unknown visibility remain unlisted.
+CREATE TABLE IF NOT EXISTS match_history_public (
+  match_id INTEGER PRIMARY KEY REFERENCES match_history(id)
+);
 -- Unfinished and partly played ranked combat (src/net/leaderboard.ts unfinishedActivity):
 -- the same folded aggregate as player_details, kept apart so complete-match coverage stays
 -- exact. No players FK: activity may precede a player's first rated result.
@@ -164,6 +168,7 @@ export function openLeaderboard(file) {
     (receipt_key, public_id, at, region, room, queue, ticks, rounds, team_mode, game_mode, roster)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
   const insHistorySeat = db.prepare('INSERT INTO match_history_seats(match_id, device, player, outcome, delta, rating) VALUES (?, ?, ?, ?, ?, ?)')
+  const insPublicHistory = db.prepare('INSERT INTO match_history_public(match_id) VALUES (?)')
 
   // Add opaque identities to legacy players without changing their results or
   // rating. Old binaries ignore these additive tables and keep working.
@@ -225,6 +230,7 @@ export function openLeaderboard(file) {
       return row
     })
     const id = insHistory.run(key, randomUUID(), h.at, h.region, h.room, h.queue, h.ticks, h.rounds, h.teamMode, h.gameMode, JSON.stringify(roster)).lastInsertRowid
+    if (h.public === true) insPublicHistory.run(id)
     const identities = new Map()
     for (const p of h.players) if (p.device !== undefined && p.kind !== 'bot') identities.set(p.device, (identities.get(p.device) ?? 0) + 1)
     for (const p of h.players) {
@@ -350,6 +356,16 @@ export function openLeaderboard(file) {
         .map((r) => ({ id: r.public_id, at: r.at, region: r.region, queue: r.queue, ticks: r.ticks, rounds: r.rounds,
           teamMode: r.team_mode, gameMode: r.game_mode, self: r.player, outcome: r.outcome,
           delta: r.delta, rating: r.rating, players: JSON.parse(r.roster) }))
+    },
+
+    recentMatches({ queue, limit }) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) throw new Error('Invalid recent matches limit')
+      if (queue !== undefined && !['ranked', 'casual', 'custom'].includes(queue)) throw new Error('Invalid recent matches queue')
+      return stmt(`SELECT h.* FROM match_history h JOIN match_history_public p ON p.match_id = h.id
+        ${queue === undefined ? '' : 'WHERE h.queue = ?'} ORDER BY h.at DESC, h.id DESC LIMIT ?`)
+        .all(...(queue === undefined ? [] : [queue]), limit)
+        .map(r => ({ id: r.public_id, at: r.at, region: r.region, queue: r.queue, ticks: r.ticks, rounds: r.rounds,
+          teamMode: r.team_mode, gameMode: r.game_mode, players: JSON.parse(r.roster) }))
     },
 
     // Operator-only: who played how much in [since, until], across every queue.

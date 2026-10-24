@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-24",
+  "source": "a25274d9069d8e53b5ca65023ab88e32bbe20f83",
+  "net": "d3d1f10fe9d4",
+  "host": "Europe / DO-Premium-Intel / 2 vCPU / 1967.6 MiB",
+  "humanRamp": "eu-1792863175072",
+  "botRamp": "eu-1792863793657",
+  "components": "eu-1792863760395",
+  "costRun": "eu-1792864422986",
+  "cost": [
+    {
+      "botsPerRoom": 1,
+      "rooms": 4,
+      "cpuMedian": 20.454173375430173,
+      "cpuPerRoom": 5.113543343857543,
+      "downlinkKiBPerSecond": 6.8240241509021775,
+      "rttP95": 68.19256124260221,
+      "desyncs": 0
+    },
+    {
+      "botsPerRoom": 4,
+      "rooms": 4,
+      "cpuMedian": 23.910081039092688,
+      "cpuPerRoom": 5.977520259773172,
+      "downlinkKiBPerSecond": 12.120841919129257,
+      "rttP95": 62.52221147869106,
+      "desyncs": 0
+    },
+    {
+      "botsPerRoom": 9,
+      "rooms": 4,
+      "cpuMedian": 30.30220346350085,
+      "cpuPerRoom": 7.575550865875212,
+      "downlinkKiBPerSecond": 23.728391664131227,
+      "rttP95": 62.27114659832129,
+      "desyncs": 0
+    }
+  ],
+  "cpuDeltaPerExtraBot": 0.3077509402522086
+}

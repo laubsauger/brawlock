@@ -24,7 +24,7 @@ export interface FleetSample {
 export type Metric = 'hostCpu' | 'processCpu' | 'memory' | 'loop' | 'step' | 'players' | 'bots' | 'rooms' | 'ping' | 'loss' | 'online' | 'steal' | 'anchor' | 'poll'
 export type HistoryPoint = { at: number; region: string; samples: number; failures: number } & Record<Metric, number | null>
 export interface FleetView {
-  at: number; from: number; through: number; grain: number; intervalMs: number
+  at: number; from: number; through: number; grain: number; intervalMs: number; retentionDays: number
   regions: { id: string; label: string }[]
   /** pollMs: how long the US account host took to fetch this region's sample */
   latest: Record<string, { at: number; ok: boolean; error?: string; sample?: FleetSample; pollMs?: number }>

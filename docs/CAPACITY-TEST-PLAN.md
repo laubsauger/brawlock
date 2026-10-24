@@ -1,7 +1,9 @@
 # Fleet capacity and cost measurement plan
 
-Status: planned on 2026-10-24. **No load test has been started.** Idle CPU readings and
-the configured room limit are not player-capacity measurements.
+Status: a bounded pilot started on 2026-10-24 with explicit authorization during an empty
+maintenance window. See [the pilot report](research/capacity-2026-10-24.md) for measured
+results and exclusions. The full matrix and soak below remain future work. Idle CPU
+readings and the configured room limit are not player-capacity measurements.
 
 ## Questions to answer
 

@@ -7,6 +7,22 @@ const regions = [{ id: 'us-west', label: 'US West', url: 'wss://west.test' }, { 
 const response = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
 
 describe('authoritative match history requests', () => {
+  it('reads the global feed through one region and rejects leaked identities or personal outcomes', async () => {
+    const entry = { id: crypto.randomUUID(), at: 1000, queue: 'casual', region: 'us', ticks: 3600, rounds: 1, teamMode: 'ffa', gameMode: 'rounds',
+      players: [{ player: 0, name: 'Ash', kills: 1, deaths: 0, won: true }] }
+    let body: unknown = { matches: [entry] }
+    const fetch = vi.fn(async (url: string) => response(200, url.endsWith('/health') ? { ok: true, protocol: PROTOCOL_VERSION, build: 'dev-history' } : body))
+    const online = new Online({ regions, build: 'dev-history', fetch })
+    expect(await online.recentMatches('eu', 'casual')).toEqual([entry])
+    expect(fetch.mock.calls.at(-1)?.[0]).toBe('https://eu.test/matches?limit=10&queue=casual')
+    for (const bad of [{ ...entry, room: 'ABCDE' }, { ...entry, self: 0 }, { ...entry, players: [{ ...entry.players[0], device: 'private-device' }] }]) {
+      body = { matches: [bad] }
+      await expect(online.recentMatches('eu')).rejects.toThrow(/invalid global match data/)
+    }
+    body = { matches: [] }
+    expect(await online.recentMatches('eu')).toEqual([])
+  })
+
   it('routes casual and ranked history to the selected identity and rejects corrupt public records', async () => {
     const id = crypto.randomUUID()
     const entry = { id, at: 1000, queue: 'casual', region: 'eu', ticks: 3600, rounds: 1, teamMode: 'ffa', gameMode: 'rounds',

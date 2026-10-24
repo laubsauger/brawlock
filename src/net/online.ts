@@ -21,7 +21,7 @@ import { PROTOCOL_VERSION } from './protocol'
 import type { HostEndpoint, NetFactory, Transport } from './transport'
 import type { RoomSummary } from './dedicated'
 import type { Period, PublicBoardRow, PublicProfileCoverage, PublicProfileDetail, HistoryQueue, MatchHistoryEntry } from './leaderboard'
-import { validMatchHistory } from './matchHistory'
+import { validMatchHistory, validGlobalMatches } from './matchHistory'
 import type { ListingInfo } from './listings'
 import type { BotDifficulty } from '../sim/types'
 import type { RoomRoute } from './rejoin'
@@ -478,6 +478,18 @@ export class Online {
     const body = await this.read(r, `/${publicId ? 'profiles' : 'players'}/${encodeURIComponent(identity)}/history?${params}`)
     if (!body || typeof body !== 'object' || !('matches' in body) || !validMatchHistory(body.matches)) {
       throw new ServerError('error', 'The server returned invalid match history data.')
+    }
+    return body.matches
+  }
+
+  /** One global authority feed, regardless of which region serves the read. */
+  async recentMatches(regionId: string, queue?: HistoryQueue) {
+    const r = await this.usable(regionId)
+    const params = new URLSearchParams({ limit: '10' })
+    if (queue) params.set('queue', queue)
+    const body = await this.read(r, `/matches?${params}`)
+    if (!body || typeof body !== 'object' || !('matches' in body) || !validGlobalMatches(body.matches)) {
+      throw new ServerError('error', 'The server returned invalid global match data.')
     }
     return body.matches
   }

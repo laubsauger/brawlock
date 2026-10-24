@@ -1,3 +1,6 @@
+import { createHeadlessClient, type ClientOpts } from '../testing/headlessClient'
+import type { LobbyView } from '../game/store'
+import type { NetFactory } from './transport'
 /**
  * Dedicated server (M4.1) end to end over real local TCP: server/listen.mjs on an
  * ephemeral port, headless client sessions (predict mode) joining through the same
@@ -5,26 +8,18 @@
  * TIME_SCALE× faster than wall time on both sides (same code paths, shorter matches).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { LobbyView, MatchResult, Screen } from '../game/store'
-import { createBot } from '../bots'
-import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
-import type { SimState } from '../sim/types'
 import { startServer, type DedicatedServer, type ServerOptions } from '../../server/listen.mjs'
 import type { ServerPerfSampler } from '../../server/perf.mjs'
 import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 import type { RatingSubmission } from './ratingAuthority'
 import { DEFAULT_SERVER_CONFIG } from './server'
-import { startClock } from './clock'
 import { Online, ServerError, hybridNet, parseRegions, type ServerRegion } from './online'
 import { PROTOCOL_VERSION, decode, encode } from './protocol'
 import { KeyedLimiter, TokenBucket } from './ratelimit'
-import { createSession } from './session'
-import type { NetFactory } from './transport'
-import { wsNet } from './ws'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
 import { createMemoryNet } from './memory'
 import { Lister, p2pListingTarget } from './lister'
-import { validMatchHistory } from './matchHistory'
+import { validMatchHistory, validGlobalMatches } from './matchHistory'
 import type { ChatLine } from './chat'
 
 /** what people said: the room's join / leave lines left out */
@@ -48,92 +43,7 @@ const until = async (pred: () => boolean, ms: number, what: string) => {
   }
 }
 
-const noP2P: NetFactory = {
-  host: () => Promise.reject(new Error('no p2p in this test')),
-  join: () => Promise.reject(new Error('no p2p in this test')),
-}
-
-interface ClientOpts {
-  key?: string
-  device?: string
-  build?: string
-  /** a bot plays the seat from the predicted view */
-  play?: boolean
-  /** extra regions next to `base` (multi-region builds) */
-  regions?: ServerRegion[]
-  name?: string
-  profileId?: string
-  color?: number
-  /** peer-to-peer net (default: none) */
-  p2p?: NetFactory
-}
-
-/** A headless browser client: the real session, the hybrid net, a bot at the keyboard. */
-function headlessClient(base: string | null, opts: ClientOpts = {}) {
-  let lobby = { role: 'offline', joinUrl: null, roomCode: null, status: 'idle', error: null, slots: [], settings: null, localPlayer: 0, pings: {}, ready: {} } as LobbyView
-  let screen: Screen = 'menu'
-  let shown: SimState | null = null
-  const results: MatchResult[] = []
-  let bot: ReturnType<typeof createBot> | null = null
-  let thought = -1
-  const online = new Online({ regions: [...(base ? [{ id: 'test', label: 'Test', url: base }] : []), ...(opts.regions ?? [])], build: opts.build ?? 'dev-test' })
-  let routed: ServerRegion | null = null
-  const notices: string[] = []
-  const autoStarts: NonNullable<LobbyView['autoStart']>[] = []
-  const session = createSession({
-    ui: {
-      lobby: () => lobby,
-      setLobby: (p) => {
-        lobby = { ...lobby, ...p }
-        if (p.notice) notices.push(p.notice)
-        if (p.autoStart) autoStarts.push({ ...p.autoStart })
-      },
-      screen: () => screen,
-      setScreen: (s) => {
-        screen = s
-      },
-      setResult: () => {},
-      paused: () => false,
-      onScreen: () => () => {},
-    },
-    profile: () => ({ id: opts.profileId ?? `profile-${opts.device ?? opts.key ?? 'headless'}`, name: opts.name ?? 'Headless', color: opts.color ?? null }),
-    recorder: {
-      start: (info) => {
-        bot = opts.play !== false && info.localPlayer >= 0 ? createBot(info.localPlayer, 'hard', 99) : null
-        thought = -1
-      },
-      observe: () => {},
-      finish: (r) => {
-        results.push(r)
-      },
-      abort: () => {},
-    },
-    frame: { reset: () => (shown = null), setLocalPlayer: () => {}, pushState: (s) => (shown = s), pushEvents: () => {}, setNet: () => {} },
-    input: {
-      drain: () => {
-        const s = shown
-        if (!bot || !s || s.tick === thought) return []
-        thought = s.tick
-        return bot.think(s)
-      },
-    },
-    audio: { playEvents: () => {} },
-    createMatch,
-    step,
-    createBot,
-    defaultSettings: DEFAULT_SETTINGS,
-    net: hybridNet(opts.p2p ?? noP2P, online, (url) => wsNet(url), (r) => (routed = r)),
-    startClock: (onPulse) => startClock((t) => onPulse(t * TIME_SCALE)),
-    now: () => performance.now() * TIME_SCALE,
-    random: Math.random,
-    joinUrl: (c) => `http://test/?room=${c}`,
-    clientKey: () => opts.key ?? 'headless-key',
-    netMode: () => 'predict',
-    device: opts.device ? () => opts.device! : undefined,
-    build: opts.build ?? 'dev-test',
-  })
-  return { session, online, lobby: () => lobby, screen: () => screen, results, notices, autoStarts, shown: () => shown, routed: () => routed }
-}
+const headlessClient = (base: string | null, opts: ClientOpts = {}) => createHeadlessClient(base, { ...opts, timeScale: TIME_SCALE })
 
 async function start(config: Record<string, unknown> = {}, build = 'dev-server', extra: Omit<ServerOptions, 'port' | 'build' | 'config' | 'timeScale'> = {}) {
   const srv = await startServer({ ...extra, port: 0, build, config, timeScale: TIME_SCALE, log: extra.log ?? quiet })
@@ -1633,11 +1543,17 @@ describe('shared global ratings authority over TCP', () => {
       expect(history.matches).toMatchObject([{ region: 'eu', queue: 'ranked' }])
       expect(await (await fetch(`${us.http}${historyPath}`)).json()).toEqual(history)
       expect(JSON.stringify(history)).not.toMatch(/global-ann-device|global-bob-device|device/)
-      const casual = { ...submission(), key: crypto.randomUUID(), queue: 'casual' }
+      const casual = { ...submission(), key: crypto.randomUUID(), queue: 'casual', public: true }
       expect(await (await record(casual, { authorization: `Bearer ${token}` })).json()).toMatchObject({ status: 'unrated' })
       const casualRead = await (await fetch(`${eu.http}/players/global-ann-device/history?queue=casual`)).json() as { matches: unknown }
       expect(validMatchHistory(casualRead.matches)).toBe(true)
       expect(casualRead.matches).toMatchObject([{ queue: 'casual' }])
+      const feed = await (await fetch(`${eu.http}/matches?limit=10`)).json() as { matches: unknown }
+      expect(validGlobalMatches(feed.matches)).toBe(true)
+      expect(feed.matches).toMatchObject([{ region: 'us-west', queue: 'casual' }, { region: 'eu', queue: 'ranked' }])
+      expect((feed.matches as unknown[]).length).toBe(2)
+      expect(await (await fetch(`${us.http}/matches?limit=10`)).json()).toEqual(feed)
+      expect(JSON.stringify(feed)).not.toMatch(/global-ann-device|global-bob-device|ABCDE|receipt/)
       expect(await read(us.http, 'us-west')).toEqual(global)
       ann.session.setDisplayName('Ann across regions')
       await until(() => ann.lobby().slots.some((s) => s.name === 'Ann across regions'), 3000, 'EU rename accepted')

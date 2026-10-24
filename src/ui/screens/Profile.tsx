@@ -156,14 +156,15 @@ export function MatchScoreboard({ r }: { r: MatchRecord }) {
   )
 }
 
-function Matches({ openId, onOpen, source, onSource }: { openId: string | null; onOpen: (id: string | null) => void; source: 'online' | 'device'; onSource: (source: 'online' | 'device') => void }) {
+type MatchSource = 'online' | 'device' | 'global'
+function Matches({ openId, onOpen, source, onSource }: { openId: string | null; onOpen: (id: string | null) => void; source: MatchSource; onSource: (source: MatchSource) => void }) {
   const [queue, setQueue] = useState<MatchQueueFilter>('all')
   return <div className="flex flex-col gap-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      {online.configured && <Segmented label="Match history source" value={source} onChange={onSource} options={[{ value: 'online', label: 'Online' }, { value: 'device', label: 'This device' }]} />}
+      {online.configured && <Segmented label="Match history source" value={source} onChange={onSource} options={[{ value: 'online', label: 'Your online games' }, { value: 'global', label: 'Global' }, { value: 'device', label: 'This device' }]} />}
       <MatchQueueTabs value={queue} onChange={setQueue} />
     </div>
-    {source === 'online' ? <ServerMatches queue={queue} /> : <LocalMatches key={queue} queue={queue} openId={openId} onOpen={onOpen} />}
+    {source === 'device' ? <LocalMatches key={queue} queue={queue} openId={openId} onOpen={onOpen} /> : <ServerMatches queue={queue} global={source === 'global'} />}
   </div>
 }
 
@@ -854,7 +855,7 @@ export function Profile({ onBack, initialTab = 'matches', initialBoardScope = 'd
   const [draft, setDraft] = useState(name)
   const [tab, setTab] = useState<Tab>(initialTab)
   const [openMatch, setOpenMatch] = useState<string | null>(null)
-  const [matchSource, setMatchSource] = useState<'online' | 'device'>(online.configured ? 'online' : 'device')
+  const [matchSource, setMatchSource] = useState<MatchSource>(online.configured ? 'online' : 'device')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

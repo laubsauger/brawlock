@@ -29,9 +29,38 @@ test('monitoring survives reopen, retains missing samples, bounds history and ex
     store.close(); store = openMonitoring(file)
     assert.equal(store.read(1, 30_000).history.length, 2)
     store.record('eu', 8 * 86400_000, { ok: true, sample })
-    view = store.read(168, 8 * 86400_000)
-    assert.equal(view.history.length, 1)
-    assert(view.grain >= 168 * 3600_000 / 360)
+    store.record('eu', 29 * 86400_000, { ok: true, sample })
+    view = store.read(720, 29 * 86400_000)
+    assert.equal(view.history.reduce((n, point) => n + point.samples, 0), 4)
+    assert(view.grain >= 720 * 3600_000 / 360)
+    store.record('eu', 31 * 86400_000, { ok: true, sample })
+    view = store.read(720, 31 * 86400_000)
+    assert.equal(view.history.reduce((n, point) => n + point.samples, 0), 3)
+    assert(view.history.every(point => point.at >= 86400_000))
+  } finally { store.close(); rmSync(dir, { recursive: true }) }
+})
+
+test('month summaries preserve peaks, failures, replacements and exact time boundaries through reopen', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'brawlock-month-')), file = join(dir, 'monitoring.sqlite')
+  let store = openMonitoring(file)
+  try {
+    store.record('eu', 10_000, { ok: true, sample: { ...sample, hostCpuPeakPct: 99, anchorMs: 5 } })
+    store.record('eu', 10_000, { ok: true, sample: { ...sample, hostCpuPeakPct: 20, anchorMs: 7 } })
+    store.record('eu', 20_000, { ok: false, error: 'Unavailable' })
+    store.record('eu', 3600_000 + 10_000, { ok: true, sample: { ...sample, hostCpuPeakPct: 40, anchorMs: 12 } })
+    store.record('eu', 3600_000 + 20_000, { ok: true, sample: { ...sample, hostCpuPeakPct: 90, anchorMs: 80 } })
+    // Do not pull a later sample into the partial current hour.
+    let points = store.read(720, 3600_000 + 15_000).history
+    assert.equal(points.reduce((n, p) => n + p.samples, 0), 3)
+    assert.equal(points[0].hostCpu, 40)
+    assert.equal(points[0].anchor, 12)
+    assert.equal(points[0].failures, 1)
+    store.close(); store = openMonitoring(file)
+    points = store.read(720, 7200_000).history
+    assert.equal(points.reduce((n, p) => n + p.samples, 0), 4)
+    assert.equal(points[0].hostCpu, 90)
+    assert.equal(points[0].anchor, 80)
+    assert.equal(points[0].failures, 1)
   } finally { store.close(); rmSync(dir, { recursive: true }) }
 })
 
@@ -135,6 +164,8 @@ test('all dashboard routes require server-verified admin access and block cross-
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.equal(reads, 1)
+  assert.equal((await handle(new Request('https://game.test/api/admin/monitoring?hours=720'))).status, 200)
+  assert.equal(reads, 2)
   assert.equal((await handle(new Request('https://game.test/api/admin/monitoring', { method: 'POST' }))).status, 405)
 })
 

@@ -13,6 +13,7 @@ export interface RatingSubmission {
   minSeconds: number
   match: FinishedMatch
   queue?: HistoryQueue
+  public?: boolean
 }
 
 export interface RatingRead { status: number; body: unknown }
@@ -73,7 +74,8 @@ function validStats(value: unknown, ticks: number): value is PlayerMatchStats {
 
 /** Strict bounded validation at the trusted-server boundary, before SQL or Elo work. */
 export function validRatingSubmission(v: unknown): v is RatingSubmission {
-  if (!object(v) || !only(v, ['key', 'region', 'room', 'at', 'minSeconds', 'match', 'queue'])) return false
+  if (!object(v) || !only(v, ['key', 'region', 'room', 'at', 'minSeconds', 'match', 'queue', 'public'])) return false
+  if (v.public !== undefined && typeof v.public !== 'boolean') return false
   if (typeof v.key !== 'string' || !/^[A-Za-z0-9:_-]{8,128}$/.test(v.key)
     || typeof v.region !== 'string' || !/^[A-Za-z0-9_-]{0,32}$/.test(v.region)
     || typeof v.room !== 'string' || !/^[A-Z]{5}$/.test(v.room)
@@ -186,7 +188,7 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         const current = store.players(m.seats.map((p) => p.device))
         const history: StoredMatchHistory | undefined = s.queue === undefined ? undefined : {
           queue: s.queue, at: s.at, region: s.region, room: s.room, ticks: m.ticks, rounds: m.rounds,
-          teamMode: m.teamMode, gameMode: m.gameMode,
+          teamMode: m.teamMode, gameMode: m.gameMode, public: s.public === true,
           players: m.roster ?? m.seats.map(({ stats: _stats, partialStats: _partial, controlTicks: _control, combatTicks: _ticks, ...seat }) => ({ ...seat, kind: 'human' as const })),
         }
         const settled = s.queue !== undefined && s.queue !== 'ranked'
@@ -230,6 +232,12 @@ export function localRatingAuthority(store: RatingReceiptStore, opts: { minSecon
         })
       }
       const all: BoardQuery = { period: 'all', region: null, since: 0 }
+      if (url.pathname === '/matches') {
+        const queue = url.searchParams.get('queue')
+        const limit = Number(url.searchParams.get('limit') ?? '10')
+        if ((queue !== null && !['ranked', 'casual', 'custom'].includes(queue)) || !Number.isSafeInteger(limit) || limit < 1 || limit > 10) return { status: 400, body: { error: 'Invalid match filter or limit (1–10).' } }
+        return { status: 200, body: { matches: store.recentMatches({ queue: queue === null ? undefined : queue as HistoryQueue, limit }) } }
+      }
       if ((parts[0] === 'players' || parts[0] === 'profiles') && parts.length === 3 && parts[2] === 'history') {
         let id: string
         try { id = decodeURIComponent(parts[1]) } catch { return { status: 400, body: { error: 'bad player id encoding' } } }

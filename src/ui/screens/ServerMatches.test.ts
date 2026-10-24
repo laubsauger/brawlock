@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { frame, pushState, resetFrame } from '../../game/frame'
 import type { MatchRecord } from '../../game/stats'
-import type { MatchHistoryEntry } from '../../net/leaderboard'
+import type { MatchHistoryEntry, GlobalMatchEntry } from '../../net/leaderboard'
 import { DEFAULT_SETTINGS } from '../../sim'
 import { newMatch } from '../../sim/testkit'
 vi.mock('../../game/session', () => ({ online: { configured: true }, session: {} }))
@@ -25,6 +25,19 @@ function match(): MatchHistoryEntry {
 const render = (m: MatchHistoryEntry, personal = true) => renderToStaticMarkup(createElement(ServerMatchList, { matches: [m], personal }))
 
 describe('authoritative match history presentation', () => {
+  it('shows a global match with winners, region and participants without inventing a personal loss or Elo', () => {
+    const { self: _self, outcome: _outcome, delta: _delta, rating: _rating, ...global }: GlobalMatchEntry & Partial<MatchHistoryEntry> = match()
+    global.players = global.players.map(p => ({ ...p, forfeited: undefined }))
+    const html = renderToStaticMarkup(createElement(ServerMatchList, { matches: [global] }))
+    expect(html).toContain('Survivor won')
+    expect(html).toContain('eu')
+    expect(html).toContain('2 players')
+    expect(html).toContain('Recorded players and equipment')
+    expect(html).not.toContain('(you)')
+    expect(html).not.toContain('Loss')
+    expect(html).not.toContain('Elo')
+  })
+
   it('identifies a departure as a loss and retains its rated consequence', () => {
     const html = render(match())
     expect(html).toContain('Loss · left game')

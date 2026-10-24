@@ -37,8 +37,8 @@ import { isPlaySupported, PLAY_REQUIREMENT } from './playAccess'
 import { clearPendingRoom } from '../lib/pendingRoom'
 import { BUILD_UPDATE_REQUIRED, ensureCurrentBuild, getBuildUpdate, onBuildUpdate } from '../lib/buildVersion'
 import { MatchTracker, recordMatch, recordUnfinishedMatch, updateProfileNames } from './stats'
-import type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
-export type { HistoryQueue, MatchHistoryEntry } from '../net/leaderboard'
+import type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/leaderboard'
+export type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/leaderboard'
 import { createReplayHook } from './replay/hook'
 import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
@@ -264,6 +264,7 @@ export interface HostingApi {
   /** An inspectable player profile addressed by its public ID, never its private device identity. */
   publicProfile(publicId: string, region?: RegionChoice): Promise<ServerProfile | null>
   matchHistory(queue?: HistoryQueue, publicId?: string): Promise<MatchHistoryEntry[]>
+  recentMatches(queue?: HistoryQueue): Promise<GlobalMatchEntry[]>
 }
 
 const CANCELLED = 'Hosting was cancelled.'
@@ -558,6 +559,9 @@ export const session: GameSession = {
     const account = useAccount.getState().player
     const identity = publicId ?? (account ? accountRatingKey(account.id) : getDeviceId())
     return online.matchHistory((await serverRegion()).id, identity, queue, publicId !== undefined)
+  },
+  async recentMatches(queue) {
+    return online.recentMatches((await serverRegion()).id, queue)
   },
   setPublic(value) {
     const l = useGame.getState().lobby

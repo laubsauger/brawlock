@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createAuthClient } from 'better-auth/client'
-import type { FleetSample, FleetView, HistoryPoint, Metric } from '../shared/monitoring'
+import type { FleetView, HistoryPoint, Metric } from '../shared/monitoring'
 import './style.css'
+import { FleetCard as Card } from './FleetCard'
 
 const auth = createAuthClient()
 const fmt = (v: number | null | undefined, unit = '', digits = 0) => v == null ? '—' : `${v.toFixed(digits)}${unit}`
@@ -15,33 +16,6 @@ async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
     throw Object.assign(new Error(body.error), { status: response.status })
   }
   return response.json()
-}
-function Version({ sample }: { sample: FleetSample | undefined }) {
-  if (!sample) return <span>Version unavailable</span>
-  return <span title={`Netcode ${sample.release.net ?? 'not applicable'} · released ${sample.release.releaseDate}`}>{sample.release.version} <code>{sample.release.commit?.slice(0, 8) ?? 'development'}</code></span>
-}
-function Card({ id, label, view }: { id: string; label: string; view: FleetView }) {
-  const current = view.latest[id], sample = current?.sample
-  const stale = !current || Date.now() - current.at > 30_000
-  const sampled = current?.ok && !stale
-  return <section className="card">
-    <header><h2>{label}</h2><span className={`status ${!sampled ? 'bad' : sample?.maintenance?.draining ? 'warning' : 'good'}`}>{!current ? 'Awaiting sample' : stale ? 'Stale' : !current.ok ? 'Unavailable' : sample?.maintenance?.draining ? 'Maintenance' : 'Live'}</span></header>
-    <p className="version"><Version sample={sample} /> · {current ? age(current.at) : 'No samples yet'}</p>
-    {!sampled && <p className="error">{current?.error ?? 'No fresh measurements. Check the service and collector.'}</p>}
-    {sample && <><div className="metrics">
-      <div><b>{fmt(sample.hostCpuPeakPct, '%')}</b><span>Host CPU peak</span></div>
-      <div><b>{fmt(sample.processCpuPeakPct, '%')}</b><span>Process CPU peak</span></div>
-      <div><b>{id === 'accounts' ? fmt(sample.online?.total) : fmt(sample.players)}</b><span>{id === 'accounts' ? 'People in app' : 'Human seats'}</span></div>
-      <div><b>{id === 'accounts' ? fmt(sample.perf?.rssMb, ' MiB') : fmt(sample.links?.rttP95Ms, ' ms')}</b><span>{id === 'accounts' ? 'Process memory' : `Player RTT p95 · ${sample.links?.measured ?? 0} measured`}</span></div>
-    </div><div className="details">
-      <span>{sample.host ? `${sample.host.cpus} vCPU · ${fmt(sample.host.availableMb)} / ${fmt(sample.host.totalMb, ' MiB')} available` : 'Host counters unavailable'}</span>
-      <span>Steal {fmt(sample.host?.stealPct, '%', 1)} · load {fmt(sample.host?.load1, '', 2)}</span>
-      {id !== 'accounts' && <span>Internet anchor {fmt(sample.anchorMs, ' ms', 1)} · poll from US {fmt(current?.pollMs, ' ms')}</span>}
-      <span>Event loop max {fmt(sample.loopPeakMs, ' ms', 1)} · process RSS {fmt(sample.perf?.rssMb, ' MiB')}</span>
-      {sample.rooms && <><span>{sample.rooms.length} rooms · {sample.rooms.reduce((sum, room) => sum + room.bots, 0)} bots · {sample.connections} connections</span><span>Simulation {fmt(sample.perf?.simStepsPerSec, ' steps/s', 1)} · step max {fmt(sample.stepPeakMs, ' ms', 2)}</span><span>RTT max {fmt(sample.links?.rttMaxMs, ' ms')} · jitter {fmt(sample.links?.jitterMaxMs, ' ms')} · loss {fmt(sample.links?.lossMaxPct, '%', 1)}</span><span>Prediction correction max {fmt(sample.links?.correctionMaxPx, ' units', 1)} · critical links {sample.links?.critical}</span></>}
-      <span>Uptime {fmt(sample.uptimeSec / 3600, ' h', 1)}</span>
-    </div></>}
-  </section>
 }
 const colors = ['#61d5c0', '#b39cff', '#f7b969']
 function Plot({ title, points, keys, labels, unit, view, hovered, onHover }: { title: string; points: HistoryPoint[]; keys: Metric[]; labels: string[]; unit: string; view: FleetView; hovered: number | null; onHover: (at: number | null) => void }) {
@@ -152,18 +126,18 @@ function Dashboard() {
       <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
       {error && <p className="error" role="alert">{error} The displayed data may be stale.</p>}
       {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : !view ? <p>Waiting for fleet data…</p> : <>
-        <div className="toolbar"><div className="live-label"><i />Automatic collection · 10s samples · last check {requestAt ? age(requestAt) : 'pending'}</div><div><label>Region <select value={region} onChange={(e) => setRegion(e.target.value)}><option value="all">All regions</option>{view.regions.map((r) => <option value={r.id} key={r.id}>{r.label}</option>)}</select></label><label>History <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); setHovered(null) }}><option value={1}>Last hour</option><option value={24}>24 hours</option><option value={168}>7 days</option></select></label></div></div>
-        <div className="deployment"><span><b>Website</b> {view.website?.ok ? `${view.website.version} · ${view.website.build?.slice(0, 8)} · ${view.website.releaseDate}` : 'Version unavailable'}</span><span>History retained 7 days · collected even when this page is closed</span></div>
+        <div className="toolbar"><div className="live-label"><i />Automatic collection · 10s samples · last check {requestAt ? age(requestAt) : 'pending'}</div><div><label>Region <select value={region} onChange={(e) => setRegion(e.target.value)}><option value="all">All regions</option>{view.regions.map((r) => <option value={r.id} key={r.id}>{r.label}</option>)}</select></label><label>History <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); setHovered(null) }}><option value={1}>Last hour</option><option value={24}>24 hours</option><option value={168}>7 days</option><option value={720}>30 days</option></select></label></div></div>
+        <div className="deployment"><span><b>Website</b> {view.website?.ok ? `${view.website.version} · ${view.website.build?.slice(0, 8)} · ${view.website.releaseDate}` : 'Version unavailable'}</span><span>History retained {view.retentionDays} days · collected even when this page is closed</span></div>
         {view.website?.ok && view.regions.some((r) => { const release = view.latest[r.id]?.sample?.release; return release?.commit && release.commit !== view.website?.build }) && <p className="error">Deployment versions differ across the website and game servers. A rollout may still be in progress.</p>}
         <div className="cards">{view.regions.filter((r) => region === 'all' || region === r.id).map((r) => <Card key={r.id} id={r.id} label={r.label} view={view} />)}<Card id="accounts" label="Accounts & presence · US host" view={view} /></div>
-        {view.regions.filter((r) => region === 'all' || region === r.id).map((r) => { const points = view.history.filter((p) => p.region === r.id); return <section key={r.id} className="region-history"><h2>{r.label}</h2><div className="plots">
+        {view.regions.filter((r) => region === 'all' || region === r.id).map((r) => { const points = view.history.filter((p) => p.region === r.id); return <details key={r.id} className="region-history history-details"><summary><b>{r.label}</b><span>CPU, players, latency & network history</span></summary><div className="plots">
           <Plot title="CPU peaks" keys={['hostCpu', 'processCpu', 'steal']} labels={['Host · all cores', 'Game process · one core = 100%', 'Steal · taken by the hypervisor']} unit="%" {...{ points, view, hovered, onHover: setHovered }} />
           <Plot title="People & rooms" keys={['players', 'bots', 'rooms']} labels={['Human seats', 'Bots', 'Rooms']} unit="" {...{ points, view, hovered, onHover: setHovered }} />
           <Plot title="Player latency" keys={['ping', 'loop']} labels={['Player RTT p95', 'Server event loop max']} unit=" ms" {...{ points, view, hovered, onHover: setHovered }} />
           <Plot title="Packet loss" keys={['loss']} labels={['Worst player packet loss']} unit="%" {...{ points, view, hovered, onHover: setHovered }} />
           <Plot title="Server network" keys={['anchor', 'poll', 'loop']} labels={['Internet anchor · TCP connect', 'Poll from US accounts', 'Server event loop max']} unit=" ms" {...{ points, view, hovered, onHover: setHovered }} />
-        </div></section> })}
-        <section className="region-history"><h2>App presence & account service</h2><div className="plots"><Plot title="People in the app" keys={['online']} labels={['Menus, lobbies & games · deduplicated']} unit="" points={view.history.filter((p) => p.region === 'accounts')} {...{ view, hovered, onHover: setHovered }} /><Plot title="Account process CPU" keys={['processCpu']} labels={['One core = 100%']} unit="%" points={view.history.filter((p) => p.region === 'accounts')} {...{ view, hovered, onHover: setHovered }} /></div></section>
+        </div></details> })}
+        <details className="region-history history-details"><summary><b>App presence & account service</b><span>People online & CPU history</span></summary><div className="plots"><Plot title="People in the app" keys={['online']} labels={['Menus, lobbies & games · deduplicated']} unit="" points={view.history.filter((p) => p.region === 'accounts')} {...{ view, hovered, onHover: setHovered }} /><Plot title="Account process CPU" keys={['processCpu']} labels={['One core = 100%']} unit="%" points={view.history.filter((p) => p.region === 'accounts')} {...{ view, hovered, onHover: setHovered }} /></div></details>
         <section className="card"><h2>Current rooms</h2>{view.regions.some((r) => !view.latest[r.id]?.ok || Date.now() - view.latest[r.id].at >= 30_000) && <p className="error">Some regional room lists are unavailable. Only fresh samples are shown.</p>}<div className="table-wrap"><table><thead><tr><th>Region</th><th>Mode</th><th>Phase</th><th>Round</th><th>Humans</th><th>Bots</th></tr></thead><tbody>{view.regions.flatMap((r) => (view.latest[r.id]?.ok && Date.now() - view.latest[r.id].at < 30_000 ? view.latest[r.id]?.sample?.rooms ?? [] : []).map((room, i) => <tr key={`${r.id}-${i}`}><td>{r.label}</td><td>{room.mode}</td><td>{room.phase}</td><td>{room.round ?? '—'}</td><td>{room.humans}</td><td>{room.bots}</td></tr>))}</tbody></table></div></section>
         <p className="footnote">Charts show the maximum in each time bucket; gaps indicate unavailable measurements, and red bands mark failed samples. Host CPU covers all cores; process CPU uses one core as 100%. Player ping comes from gameplay transport probes, not an HTTP health check. Event loop max includes the sampler’s ≈20 ms baseline. Available RAM and steal time are reported on Linux only. Internet anchor is the fastest TCP handshake from the region to 1.1.1.1 or 8.8.8.8 every 10 s; poll from US is how long the US account host took to fetch the region’s sample. A spike in both with a calm event loop is the network between hosts; a spike in the event loop as well is the server itself; calm lines while a player lags point to the player’s own connection. Human seats include reserved disconnected players; connections show current sockets. Simulation steps/s is summed across active rooms.</p>
       </>}

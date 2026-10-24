@@ -1,4 +1,4 @@
-import { fetchMonitoring } from './monitoring.mjs'
+import { fetchMonitoring, MONITOR_RETENTION_DAYS } from './monitoring.mjs'
 import { renderAnalytics } from '../scripts/analytics-report.mjs'
 
 const json = (status, body) => Response.json(body, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
@@ -20,8 +20,8 @@ export function createAdmin({ accounts, store, collector, regions, token, origin
     if (url.pathname === '/api/admin/session') return json(200, admin)
     if (url.pathname === '/api/admin/monitoring') {
       const hours = Number(url.searchParams.get('hours') ?? 1)
-      if (![1, 24, 168].includes(hours) || [...url.searchParams.keys()].some((key) => key !== 'hours')) return json(400, { error: 'Choose 1, 24 or 168 hours.' })
-      return json(200, { at: now(), intervalMs: 10_000, ...store.read(hours, now()), website: collector.website(), regions: regions.map(({ id, label }) => ({ id, label })) })
+      if (![1, 24, 168, 720].includes(hours) || [...url.searchParams.keys()].some((key) => key !== 'hours')) return json(400, { error: 'Choose 1, 24, 168 or 720 hours.' })
+      return json(200, { at: now(), intervalMs: 10_000, retentionDays: MONITOR_RETENTION_DAYS, ...store.read(hours, now()), website: collector.website(), regions: regions.map(({ id, label }) => ({ id, label })) })
     }
     if (url.pathname === '/api/admin/activity') {
       if (url.search) return json(400, { error: 'Unexpected activity query.' })

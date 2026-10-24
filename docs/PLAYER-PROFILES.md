@@ -142,3 +142,26 @@
   Old records omit builds and queue labels instead of reconstructing them.
 - Deploy the upgraded authority before new regional writers/readers. For rollback, drain new
   history submissions with the compatible authority first; preserve pending outboxes intact.
+
+## Recent global matches
+
+Stats → Matches → **Global** shows the ten latest completed public server games across all
+regions, with queue filters, winner(s), region, player/bot counts, duration and completion age.
+Expand a row for the recorded scoreboard and equipment; Refresh matches requests a new page.
+Personal history and device history remain separate. This is completed-game activity, not
+a count of players currently online. Peer-hosted games are not submitted to the authority.
+
+`GET /matches?queue=ranked|casual|custom&limit=1..10` uses the existing shared authority,
+regional read rate limits and private RPC. Responses omit personal outcomes, Elo deltas,
+room codes, internal receipts and device/account identifiers. Publication requires an
+explicit server-side `public:true` receipt, sampled from public room state at match start
+and completion. Private games and legacy rows with unknown visibility stay off the feed;
+they remain available through the existing personal history API. Aborted games publish no
+result. The additive `match_history_public` table is committed with the result and receipt,
+so retries cannot duplicate publication.
+
+Upgrade the US rating authority before EU writers and client readers: older authorities
+strictly reject the new optional `public` receipt field. Old queued receipts still validate
+unchanged. Before rollback, drain these new receipts with the compatible authority; retain
+any undelivered outbox intact. Older binaries ignore the publication table and keep reading
+personal history. No backfill guesses which old games were public.

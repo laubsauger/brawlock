@@ -1,5 +1,5 @@
 import { cleanBuild } from '../game/stats'
-import type { MatchHistoryEntry } from './leaderboard'
+import type { MatchHistoryEntry, GlobalMatchEntry } from './leaderboard'
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const integer = (v: unknown, max: number) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= max
@@ -13,16 +13,22 @@ export function validHistoryBuild(value: unknown): boolean {
 
 /** Reject malformed records and private identity fields at the public response boundary. */
 export function validMatchHistory(value: unknown): value is MatchHistoryEntry[] {
+  return validMatches(value, true)
+}
+export function validGlobalMatches(value: unknown): value is GlobalMatchEntry[] {
+  return validMatches(value, false)
+}
+function validMatches(value: unknown, personal: boolean): boolean {
   if (!Array.isArray(value) || value.length > 10) return false
   const matches = new Set<string>()
   for (const m of value) {
-    if (!object(m) || !only(m, ['id', 'queue', 'at', 'region', 'ticks', 'rounds', 'teamMode', 'gameMode', 'self', 'outcome', 'delta', 'rating', 'players'])
+    if (!object(m) || !only(m, ['id', 'queue', 'at', 'region', 'ticks', 'rounds', 'teamMode', 'gameMode', 'players', ...(personal ? ['self', 'outcome', 'delta', 'rating'] : [])])
       || typeof m.id !== 'string' || !uuid.test(m.id) || matches.has(m.id)
       || !['ranked', 'casual', 'custom'].includes(m.queue as string) || !integer(m.at, 9_000_000_000_000)
       || typeof m.region !== 'string' || m.region.length > 32 || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000)
       || !['ffa', 'teams', 'shuffle'].includes(m.teamMode as string) || !['rounds', 'deathmatch'].includes(m.gameMode as string)
-      || !integer(m.self, 9) || !['win', 'loss', 'forfeit'].includes(m.outcome as string)
-      || ![m.delta, m.rating].every((n) => n === null || typeof n === 'number' && Number.isFinite(n))
+      || (personal && (!integer(m.self, 9) || !['win', 'loss', 'forfeit'].includes(m.outcome as string)
+        || ![m.delta, m.rating].every((n) => n === null || typeof n === 'number' && Number.isFinite(n))))
       || !Array.isArray(m.players) || m.players.length < 1 || m.players.length > 10) return false
     const players = new Set<number>()
     for (const p of m.players) {
@@ -38,9 +44,11 @@ export function validMatchHistory(value: unknown): value is MatchHistoryEntry[] 
         || (p.build !== undefined && !validHistoryBuild(p.build))) return false
       players.add(p.player as number)
     }
-    if (!players.has(m.self as number)) return false
-    const self = m.players.find((p) => object(p) && p.player === m.self)
-    if (m.outcome !== (self.forfeited ? 'forfeit' : self.won ? 'win' : 'loss')) return false
+    if (personal) {
+      if (!players.has(m.self as number)) return false
+      const self = m.players.find((p) => object(p) && p.player === m.self)
+      if (m.outcome !== (self.forfeited ? 'forfeit' : self.won ? 'win' : 'loss')) return false
+    }
     matches.add(m.id)
   }
   return true

@@ -624,6 +624,8 @@ export interface HistoryPlayer {
   build?: InspectedKit
 }
 export interface StoredMatchHistory {
+  /** Explicit publication consent from the authoritative room; absent legacy records stay private. */
+  public?: boolean
   queue: HistoryQueue
   at: number
   region: string
@@ -635,7 +637,7 @@ export interface StoredMatchHistory {
   players: HistoryPlayer[]
   deltas?: Record<string, { delta: number; rating: number }>
 }
-export interface MatchHistoryEntry extends Omit<StoredMatchHistory, 'room' | 'players' | 'deltas'> {
+export interface MatchHistoryEntry extends Omit<StoredMatchHistory, 'room' | 'players' | 'deltas' | 'public'> {
   id: string
   self: PlayerId
   outcome: 'win' | 'loss' | 'forfeit'
@@ -643,6 +645,7 @@ export interface MatchHistoryEntry extends Omit<StoredMatchHistory, 'room' | 'pl
   rating: number | null
   players: Omit<HistoryPlayer, 'device'>[]
 }
+export type GlobalMatchEntry = Omit<MatchHistoryEntry, 'self' | 'outcome' | 'delta' | 'rating'>
 
 export interface LeaderboardStore {
   /** current rows of these devices */
@@ -667,6 +670,7 @@ export interface LeaderboardStore {
   /** Folded casual quick-play combat (complete and partial games), separate from ranked. */
   casual(device: string): { detail: RecordedProfileDetail; firstAt: number; lastAt: number } | null
   history(device: string, options: { queue?: HistoryQueue; limit: number }): MatchHistoryEntry[]
+  recentMatches(options: { queue?: HistoryQueue; limit: number }): GlobalMatchEntry[]
   close(): void
 }
 
