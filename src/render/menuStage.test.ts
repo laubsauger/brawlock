@@ -53,7 +53,9 @@ describe('menu battle', () => {
     let tick = 0
     let freshMatches = 0
     let roundWins = 0
-    for (let i = 0; i < 1200 * 60; i++) {
+    // until a match has ended and a fresh one started: how soon one of eight bots wins three
+    // rounds depends on the seed and the bots' builds, so no fixed window
+    for (let i = 0; i < 3600 * 60 && (freshMatches === 0 || roundWins < 6); i++) {
       const frame = stage.step()
       if (tick && frame.state.tick - tick > 1) freshMatches++
       if (frame.state.tick <= tick) throw new Error('Menu render timeline reversed')

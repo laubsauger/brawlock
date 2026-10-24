@@ -859,14 +859,18 @@ const arcaneCast: Recipe = (v) => {
   whoosh(v, 0.02, 0.22, 1000, 3000, 1, 0.2)
 }
 
-/** Homing propulsion: soft low-mid pulses under broad, warm arcane air. p = seconds */
+/**
+ * Homing propulsion: a soft low hum that throbs gently as it seeks, over a breath of warm air.
+ * p = seconds
+ * Pulse the level rather than the pitch: movement stays audible quietly without a sustained
+ * seeking whistle. The hum carries it: loud, deeply pulsed low-mid noise is the Fireball flame
+ * recipe and played as someone burning.
+ */
 const homingTravel: Recipe = (v, p) => {
   const { env, dur } = loopEnv(v, p)
-  // Pulse the level rather than the pitch: movement stays audible quietly without
-  // a sustained seeking whistle. Keep some air between pulses instead of chopping.
-  const pulse = tremolo(v, 0, dur, 5.2, 0.65, env)
-  v.osc('triangle', 210 * v.vary(0.03), 0, dur, v.gain(0.028, pulse))
-  v.noise('pink', 0, dur, v.filter('bandpass', 540, 0.65, v.gain(0.6, pulse)))
+  const pulse = tremolo(v, 0, dur, 5.2, 0.35, env)
+  v.osc('triangle', 210 * v.vary(0.03), 0, dur, v.gain(0.08, pulse))
+  v.noise('pink', 0, dur, v.filter('bandpass', 540, 0.65, v.gain(0.18, pulse)))
 }
 
 /** Homing detonation: an arcane burst, glassy and bright over a soft blast. */

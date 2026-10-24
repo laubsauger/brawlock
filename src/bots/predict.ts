@@ -27,7 +27,7 @@ export function physVelocity(p: PawnState): Vec2 {
 }
 
 /** Where a slide with this physics velocity comes to rest, from `from`. */
-export function slideRest(state: SimState, from: Vec2, phys: Vec2): Vec2 {
+export function slideRest(state: Pick<SimState, 'settings'>, from: Vec2, phys: Vec2): Vec2 {
   const f = frictionPerTick(state.settings.friction)
   const k = (DT * f) / (1 - f)
   return { x: from.x + phys.x * k, y: from.y + phys.y * k }
@@ -38,7 +38,7 @@ export function slideRest(state: SimState, from: Vec2, phys: Vec2): Vec2 {
  * `moveSpeed` (what anyone does on lava): lava time and damage over `horizon` seconds.
  */
 export function lavaOutcome(
-  state: SimState,
+  state: Pick<SimState, 'settings' | 'arena'>,
   from: Vec2,
   phys: Vec2,
   hp: number,

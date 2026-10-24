@@ -31,9 +31,10 @@
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
  * - "Revenge!": you kill the player who last killed you.
- * - "Denied!" (rotating with DENIED_LINES): a Teleport that escapes deadly lava or a knockback
- *   slide off the arena; at most once per DENIED_COOLDOWN, so a habit of blinking out of every
- *   push is not a running commentary.
+ * - "Denied!" (rotating with DENIED_LINES): a Teleport out of lava or a knockback slide off the
+ *   arena that would have left at most LAVA_DENIED_SECONDS of lava survival (teleportSave.ts);
+ *   at most once per DENIED_COOLDOWN, so a habit of blinking out of every push is not a running
+ *   commentary.
  * - "Close Call!": you are still alive CLOSE_CALL_CONFIRM s after a hit left you at <= 8% HP;
  *   once per round.
  * - "Ace!": in team modes, your team kills every member of an enemy team of 2+ in one round.
@@ -52,7 +53,7 @@ import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
 import { gameWinners } from '../sim/mode'
 import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
-import { isDeniedEscape, slideDecay, slideSnapshot, type SlideSnapshot } from './teleportSave'
+import { isDeniedEscape, slideSnapshot, type SlideSnapshot } from './teleportSave'
 
 export const ROUND_LINES = [
   'round_one',
@@ -380,7 +381,7 @@ export class Announcer {
   private deniedAt = -Infinity
   private deniedCount = 0
   /** the local pawn's last snapshot (Teleport saves) */
-  private slide: (SlideSnapshot & { hp: number; maxHp: number }) | null = null
+  private slide: (SlideSnapshot & { hp: number; moveSpeed: number }) | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
   lineLength: (line: AnnouncerLine) => number = () => 1.1
 
@@ -440,9 +441,8 @@ export class Announcer {
           }
           break
         case 'teleport':
-          if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight') {
-            const layer = state.arena?.layer ?? 0
-            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, layer, slideDecay(state.settings?.friction), state.settings?.lavaDps ?? 0)) {
+          if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight' && state.settings && state.arena) {
+            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, { settings: state.settings, arena: state.arena })) {
               this.deniedAt = now
               this.occasional(DENIED_LINES[this.deniedCount++ % DENIED_LINES.length], local, now)
             }
@@ -497,7 +497,7 @@ export class Announcer {
           this.occasional('close_call', local, now)
         }
       }
-      this.slide = localPawn ? { ...slideSnapshot(localPawn), hp: localPawn.hp, maxHp: localPawn.maxHp } : null
+      this.slide = localPawn ? { ...slideSnapshot(localPawn), hp: localPawn.hp, moveSpeed: localPawn.moveSpeed } : null
     }
     return this.next(now)
   }

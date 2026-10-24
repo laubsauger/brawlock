@@ -3,12 +3,13 @@
  * that would come to rest in the lava. One definition for the match stats ("Teleport saves") and
  * the announcer ("Denied!").
  */
+import { lavaOutcome } from '../bots/predict'
 import { isLocationSafeAtLayer } from '../sim/arena'
-import type { PawnState } from '../sim/types'
+import type { PawnState, SimState } from '../sim/types'
 
 /** a Teleport counts as a save from a slide this fast toward the lava (u/s) */
 export const SAVE_SLIDE_SPEED = 100
-/** "Denied!" from the lava only with at most this much lava survival left (s) */
+/** "Denied!" only with at most this much lava survival left (s), in the lava or after the slide */
 export const LAVA_DENIED_SECONDS = 1
 
 /** The pawn state a Teleport save is judged from: the last snapshot before the Teleport. */
@@ -51,13 +52,23 @@ export function isTeleportSave(before: SlideSnapshot, toX: number, toY: number, 
   return !isLocationSafeAtLayer(layer, before.x + before.kbx / decay, before.y + before.kby / decay)
 }
 
-/** Announce an actual escape from danger, rather than every routine lava blink. */
-export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp' | 'maxHp'>, toX: number, toY: number, layer: number, decay: number, lavaDps: number): boolean {
+/**
+ * Announce an actual escape from death, rather than every routine lava blink or push toward
+ * the edge: at most LAVA_DENIED_SECONDS of lava survival left, now or after the lava the slide
+ * would cost (slide plus walking back, as the bots predict it).
+ */
+export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp' | 'moveSpeed'>, toX: number, toY: number, sim: Pick<SimState, 'settings' | 'arena'>): boolean {
+  const layer = sim.arena.layer
+  const lavaDps = sim.settings.lavaDps
+  const decay = slideDecay(sim.settings.friction)
   if (lavaDps <= 0 || !isTeleportSave(before, toX, toY, layer, decay)) return false
+  const margin = lavaDps * LAVA_DENIED_SECONDS
+  if (before.inLava && pawn.hp <= margin) return true
   const slidingOut = Math.hypot(before.kbx, before.kby) >= SAVE_SLIDE_SPEED && decay > 0 &&
     !isLocationSafeAtLayer(layer, before.x + before.kbx / decay, before.y + before.kby / decay)
-  // from the lava: only when it would kill within LAVA_DENIED_SECONDS
-  return slidingOut || (before.inLava && pawn.hp / lavaDps <= LAVA_DENIED_SECONDS)
+  if (!slidingOut) return false
+  const out = lavaOutcome(sim, before, { x: before.kbx, y: before.kby }, pawn.hp, pawn.moveSpeed, layer)
+  return out.lethal || pawn.hp - out.damage <= margin
 }
 
 function n(v: unknown): number {

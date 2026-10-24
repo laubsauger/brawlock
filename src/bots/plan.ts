@@ -13,8 +13,10 @@
  * - blink: Teleport and Lightning (the Fireball detonation combo); Link or Gravity pulls a
  *   target into a Scourge.
  * - hunter: Teleport, Homing and Grip: root the target, then Scourge or Fireball it.
- * - duelist: Teleport, Twin or Lightning, Bouncer or Drain, later a Shield to send bolts back.
- * - artillery: Teleport, Meteor, Homing or Boomerang, Cluster or Bouncer from range, Ring of Health.
+ * - duelist: Teleport, Twin or Lightning, Bouncer or Drain, Boots to step out of bolts, later a
+ *   Shield to send bolts back.
+ * - artillery: Teleport, Meteor, Homing or Boomerang, Cluster or Bouncer from range, Boots to keep
+ *   its distance, Ring of Health.
  * - brawler: Thrust and Boomerang up close, Gravity or Grip holds a target for the Scourge,
  *   Armor against knockback.
  * - leech: Swap, Drain and Snowball or Splitter, Cape and Ring of Health to outlast.
@@ -106,6 +108,7 @@ export const BUILDS = {
       spell(DUEL_T, 1),
       item('scourge', 2),
       spell('teleport', 2),
+      item('boots', 1),
       item('fireball', 5),
       spell(DUEL_BOLT, 3),
       spell('shield', 1),
@@ -126,6 +129,7 @@ export const BUILDS = {
       spell('meteor', 1),
       spell(BARRAGE, 1),
       spell('teleport', 2),
+      item('boots', 1),
       item('ring_of_health', 1),
       spell('meteor', 3),
       item('scourge', 2),
