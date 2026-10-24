@@ -10,6 +10,7 @@
 import { GRAVITY_CC } from '../collision'
 import { receiveDamage } from '../combat'
 import { ticks } from '../config'
+import { TICK_HZ } from '../types'
 import { behaviorOf, bounceOff, isAlive, isProjectileInstance, spawnProjectile, timeScale } from '../projectiles'
 import { isEnemy } from '../teams'
 import { attr } from './data'
@@ -78,7 +79,7 @@ export const gravityProjectile: ProjectileBehavior = {
       for (const pawn of state.pawns) {
         if (!pawn.alive || !isEnemy(state, p.owner, pawn.owner)) continue
         const d2 = (pawn.x - p.x) * (pawn.x - p.x) + (pawn.y - p.y) * (pawn.y - p.y)
-        if (d2 <= r2) receiveDamage(state, pawn, { amount: d.dps * (d.dpsPeriod / 60), source: p.owner, cause: 'gravity' })
+        if (d2 <= r2) receiveDamage(state, pawn, { amount: d.dps * (d.dpsPeriod / TICK_HZ), source: p.owner, cause: 'gravity' })
       }
     }
   },

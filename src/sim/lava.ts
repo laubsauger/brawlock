@@ -4,13 +4,17 @@
  * knockback). A lava death credits the pawn's last hitter.
  */
 import { isLocationSafe } from './arena'
-import { LAVA_DAMAGE_PERIOD, LAVA_KB_POINT_FACTOR, ticks } from './config'
+import { LAVA_DAMAGE_PERIOD, LAVA_KB_POINT_FACTOR } from './config'
 import { receiveDamage } from './combat'
-import type { SimState } from './types'
+import { TICK_HZ, type SimState } from './types'
+
+const LAVA_DAMAGE_PERIOD_PER_SECOND = 1 / LAVA_DAMAGE_PERIOD
 
 export function lavaTick(state: SimState): void {
-  const period = ticks(LAVA_DAMAGE_PERIOD)
-  const burn = state.tick % period === 0
+  // A burst on each tick that starts a new 0.25 s window: every 15th tick at 60 Hz, every 7th
+  // or 8th at 30 Hz. The bursts keep their original size and average exactly 0.25 s apart.
+  const window = (tick: number) => Math.floor((tick * LAVA_DAMAGE_PERIOD_PER_SECOND) / TICK_HZ)
+  const burn = window(state.tick) !== window(state.tick - 1)
   const amount = state.settings.lavaDps * LAVA_DAMAGE_PERIOD
   for (const pawn of state.pawns) {
     if (!pawn.alive) continue

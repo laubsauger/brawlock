@@ -17,7 +17,7 @@ import { type ModifierBehavior, addModifier, hasModifier, removeModifier } from 
 import { killProjectile, ownerPawn, spawnProjectile } from '../projectiles'
 import { rangeFactor } from '../stats'
 import { isEnemy } from '../teams'
-import { DT } from '../types'
+import { DT, TICK_HZ } from '../types'
 import { attr } from './data'
 import type { ProjectileBehavior, SpellBehavior } from './types'
 import { aim, castAttr } from './util'
@@ -120,7 +120,7 @@ export const linkModifier: ModifierBehavior = {
         d.dpsTimer -= 1
         if (d.dpsTimer <= 0) {
           d.dpsTimer += d.dpsPeriod
-          receiveDamage(state, pawnTarget, { amount: d.dps * (d.dpsPeriod / 60), source: caster.owner, cause: 'link' })
+          receiveDamage(state, pawnTarget, { amount: d.dps * (d.dpsPeriod / TICK_HZ), source: caster.owner, cause: 'link' })
         }
       }
     } else {
