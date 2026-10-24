@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
+import { ticks } from '../../sim/config'
 import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
@@ -995,7 +996,7 @@ export class MatchWorld {
   private consumeEvents(curr: SimState, t: number, first: boolean): void {
     if (first || this.lastEventTick < 0) {
       // skip history older than half a second when (re)attaching mid-match
-      this.lastEventTick = Math.max(this.lastEventTick, curr.tick - 30)
+      this.lastEventTick = Math.max(this.lastEventTick, curr.tick - ticks(0.5))
     }
     const batches = this.opts.source.eventsSince(this.lastEventTick)
     this.frameEvents.length = 0

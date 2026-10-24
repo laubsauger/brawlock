@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { S } from '../coords'
+import { ticks } from '../../sim/config'
 import { tweaks } from '../tweaks'
 import { globalSource, type RenderSource } from '../source'
 import { colorForPawn } from '../teamColors'
@@ -620,7 +621,7 @@ export class WorldOverlay {
     if (!s) return
     // first frame (or a remount): start at "now", never replay old deaths;
     // the tick going backwards means a new match started (frame reset)
-    if (this.evTick === -2 || s.tick + 30 < this.evTick) {
+    if (this.evTick === -2 || s.tick + ticks(0.5) < this.evTick) {
       if (this.evTick !== -2) this.kills.clear()
       this.rival = null
       this.viewer = this.source.buf.localPlayer

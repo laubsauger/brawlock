@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { attr, cooldownSeconds, isEnemy, spellDef } from '../sim'
+import { attr, cooldownSeconds, isEnemy, spellDef, ticks } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -80,7 +80,7 @@ const THRUST_ATTACK_RANGE = 380
 const LIGHTNING_RANGE = 600
 const PAWN_BODY = 30
 /** How often (ticks) a bot checks between decisions whether it is pushing into a pillar. */
-const UNSTICK_TICKS = 6
+const UNSTICK_TICKS = ticks(0.1)
 /** Extra clearance beyond an area threat's radius, units. */
 const THREAT_MARGIN = 30
 /** Directions tried when leaving an area threat (radians off straight away). */
@@ -143,7 +143,6 @@ export type BotAction =
   | 'reposition'
   | 'shield'
 
-const secToTicks = (s: number) => Math.round(s * TICK_HZ)
 const dist = (a: Vec2, b: Vec2) => hypot(a.x - b.x, a.y - b.y)
 
 /** Alliance by current team, as the sim decides it. */
@@ -239,8 +238,8 @@ export class BotController implements Bot {
     this.difficulty = difficulty
     this.params = params
     this.rng = new Rng(botSeed(seed, player))
-    this.thinkTicks = Math.max(1, secToTicks(params.thinkInterval))
-    this.delayTicks = Math.max(0, secToTicks(params.reactionDelay))
+    this.thinkTicks = Math.max(1, ticks(params.thinkInterval))
+    this.delayTicks = Math.max(0, ticks(params.reactionDelay))
     const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
     this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
     this.build = params.buildPlan === 'random' ? null : drawBuild(traits, params.buildPlan === 'plan' ? undefined : params.buildPlan)
@@ -323,14 +322,14 @@ export class BotController implements Bot {
       // The next step of its seeded build, several per shop phase.
       const step = planStep(this.build, me, gold, this.failedBuys)
       if (step) {
-        this.nextBuyTick = tick + secToTicks(0.3)
+        this.nextBuyTick = tick + ticks(0.3)
         this.pendingBuy = { spell: step.id, tick: tick + this.delayTicks, gold }
         return this.act('buy', [step.cmd])
       }
     } else if (canShop && gold >= BUY_MIN_GOLD) {
       const spell = this.chooseBuy(me)
       if (spell) {
-        this.nextBuyTick = tick + secToTicks(BUY_INTERVAL)
+        this.nextBuyTick = tick + ticks(BUY_INTERVAL)
         this.pendingBuy = { spell, tick: tick + this.delayTicks, gold }
         return this.act('buy', [{ kind: 'buySpell', spell }])
       }
@@ -473,7 +472,7 @@ export class BotController implements Bot {
           go = closestDist <= SCOURGE_RADIUS - 20 && this.rng.chance(p.scourgeChance)
         }
         if (go) {
-          this.scourgeEndTick = tick + secToTicks(SCOURGE_CHANNEL_SECONDS)
+          this.scourgeEndTick = tick + ticks(SCOURGE_CHANNEL_SECONDS)
           return this.act('scourge', [{ kind: 'cast', slot: sc, x: me.x, y: me.y }])
         }
       }
@@ -483,7 +482,7 @@ export class BotController implements Bot {
     if (p.comboChance > 0 && this.rng.chance(p.comboChance)) {
       const combo = this.lightningCombo(state, me, enemies)
       if (combo) {
-        this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+        this.spellEndTick = tick + ticks(CAST_LOCK_SECONDS)
         return this.act('combo', [combo])
       }
     }
@@ -495,7 +494,7 @@ export class BotController implements Bot {
         const d = Math.max(1, closestDist)
         const past = { x: closest.x + ((closest.x - me.x) / d) * 150, y: closest.y + ((closest.y - me.y) / d) * 150 }
         if (isSafeWithMargin(safety, past.x, past.y, 60)) {
-          this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+          this.spellEndTick = tick + ticks(CAST_LOCK_SECONDS)
           return this.act('thrust', [{ kind: 'cast', slot, x: past.x, y: past.y }])
         }
       }
@@ -514,7 +513,7 @@ export class BotController implements Bot {
     if (p.punish > 0 && target && !me.cast && this.rng.chance(p.punish)) {
       const shot = this.punishShot(state, me, target)
       if (shot) {
-        this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+        this.spellEndTick = tick + ticks(CAST_LOCK_SECONDS)
         return this.act('shoot', [shot])
       }
     }
@@ -534,7 +533,7 @@ export class BotController implements Bot {
           // avoid: it hits, or it draws the Shield out for its cooldown (and comes back slowly)
           const bait = this.shieldMayRise(at, 0) && dist(me, at) >= SHIELD_STANDOFF
           if (aim && (p.shotGate <= 0 || bait || this.shotChance(state, me, at, spell, aim) >= p.shotGate)) {
-            this.spellEndTick = tick + secToTicks(CAST_LOCK_SECONDS)
+            this.spellEndTick = tick + ticks(CAST_LOCK_SECONDS)
             return this.act('shoot', [{ kind: 'cast', slot, x: aim.x, y: aim.y }])
           }
         }
@@ -1100,7 +1099,7 @@ export class BotController implements Bot {
   private safetyLayer(state: SimState): number {
     const a = state.arena
     const look = this.params.shrinkLookahead
-    if (look > 0 && a.nextShrinkTick >= 0 && a.nextShrinkTick - state.tick <= secToTicks(look) && a.layer > 2) {
+    if (look > 0 && a.nextShrinkTick >= 0 && a.nextShrinkTick - state.tick <= ticks(look) && a.layer > 2) {
       return a.layer - 1
     }
     return a.layer
@@ -1171,7 +1170,7 @@ export class BotController implements Bot {
         nearestTileCentre(state.arena.layer, me.x, me.y, true) ?? { x: 0, y: 0 }
     }
     this.wander = point
-    this.nextWanderTick = state.tick + secToTicks(delay)
+    this.nextWanderTick = state.tick + ticks(delay)
   }
 
   /** Trade firing position, travel and local danger; crowding and low health change the
@@ -1337,11 +1336,11 @@ export class BotController implements Bot {
     if (!pb) return
     if (me?.slots.includes(pb.spell) || gold < pb.gold) {
       this.pendingBuy = null
-    } else if (tick > pb.tick + secToTicks(1)) {
+    } else if (tick > pb.tick + ticks(1)) {
       // rejected (spell not in this build, shop closed, ...): try something else soon
       this.failedBuys.add(pb.spell)
       this.pendingBuy = null
-      this.nextBuyTick = tick + secToTicks(0.5)
+      this.nextBuyTick = tick + ticks(0.5)
     }
   }
 

@@ -5,10 +5,11 @@
  * are close enough to look right (speeds, radii, cast points, kb scale).
  */
 import { DT, type PawnState, type PlayerSlot, type ProjectileState, type SimEvent, type SimState } from '../../sim/types'
+import { ticks } from '../../sim/config'
 import { isLocationSafe, layerRadius } from '../arenaGeom'
 
-const SHOP_TICKS = 150
-const SHRINK_TICKS = 300
+const SHOP_TICKS = ticks(2.5)
+const SHRINK_TICKS = ticks(5)
 const MIN_LAYER = 7
 const FIGHT_LAYER = 15
 const FRICTION = Math.pow(0.96, DT / 0.035)
@@ -99,7 +100,7 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
         nextShrink = layer > MIN_LAYER ? tick + SHRINK_TICKS : -1
       }
       const alive = pawns.filter((p) => p.alive)
-      if (alive.length <= 1 || (nextShrink < 0 && layer <= MIN_LAYER && tick % 600 === 0)) {
+      if (alive.length <= 1 || (nextShrink < 0 && layer <= MIN_LAYER && tick % ticks(10) === 0)) {
         phase = 'roundEnd'
         phaseLeft = 150
         if (alive.length === 1) events.push({ type: 'roundWin', team: slots[alive[0].owner].team, players: [alive[0].owner] })

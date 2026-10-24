@@ -28,6 +28,7 @@
  * killfeed line.
  */
 import type { InputCommand, PlayerId, PlayerInput, SimEvent, SimState } from '../sim/types'
+import { ticks } from '../sim/config'
 import { TICK_HZ } from '../sim/types'
 import { EVENT_REDUNDANCY_TICKS, type TickEvents } from './protocol'
 
@@ -39,13 +40,13 @@ const DT_MS = 1000 / TICK_HZ
  * RTT + margin + the confirmed state's age, or the display pins to the cap: 30 ticks
  * covers RTT up to ~380 ms.
  */
-export const MAX_AHEAD_TICKS = 30
+export const MAX_AHEAD_TICKS = ticks(0.5)
 /**
  * A snapshot that confirms the prediction (only own frames, at their stamps) skips
  * the rollback; one happens at least this often anyway, so a wrong "confirmed" can
  * never drift for longer.
  */
-export const FORCE_REBASE_TICKS = 30
+export const FORCE_REBASE_TICKS = ticks(0.5)
 /** visual error offsets beyond this (game units) snap instead of sliding */
 export const SNAP_DIST = 250
 /** offset multiplier per displayed tick: ~10 % left after 100 ms */

@@ -7,6 +7,7 @@
  * and a bright thread of light joins the two positions for a moment.
  */
 import * as THREE from 'three/webgpu'
+import { ticks } from '../../../sim/config'
 import { atan, float, floor, fract, hash, mix, positionGeometry, pow, saturate, sin, smoothstep, vec3 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
@@ -21,7 +22,7 @@ const GOLD_WHITE = pal('alteration', 'core', 1.9)
 
 const SPELL = 'alteration'
 const WALL_H = 95
-const FADE_TICKS = 15
+const FADE_TICKS = ticks(0.25)
 const PRISM_A: RGB = [1.4, 2.4, 3.0]
 const PRISM_B: RGB = [3.0, 1.4, 2.6]
 

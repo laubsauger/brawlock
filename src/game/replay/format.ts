@@ -13,12 +13,13 @@
  * must match, because an older sim re-simulates the same inputs differently.
  */
 import { decodeCmd, encodeCmd, type WireCmd } from '../../net/stream'
+import { ticks } from '../../sim/config'
 import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../../sim/types'
 
 export const REPLAY_FORMAT = 'brawlock-replay'
 export const REPLAY_VERSION = 1
 /** state hash checkpoint interval, ticks (5 s) */
-export const HASH_EVERY = 300
+export const HASH_EVERY = ticks(5)
 export const REPLAY_EXT = '.brawlock'
 
 /** One recorded step: applied going from `tick` to `tick + 1`. Empty steps are not stored. */

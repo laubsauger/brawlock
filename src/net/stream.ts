@@ -19,6 +19,7 @@
  *   h       [tick, hash] of the newest checkpoint state (every HASH_EVERY ticks)
  */
 import { TICK_HZ, type InputCommand, type PlayerId, type PlayerInput, type PlayerSlot } from '../sim/types'
+import { ticks } from '../sim/config'
 
 const DT_MS = 1000 / TICK_HZ
 
@@ -30,11 +31,11 @@ export const REDUNDANCY = 3
  * packets, so empty steps ride three packets like the others). A step with inputs goes
  * out the tick it is stepped, always.
  */
-export const HEARTBEAT_TICKS = 3
+export const HEARTBEAT_TICKS = ticks(0.05)
 /** Host keeps this many steps for resends; an older gap gets a keyframe. */
-export const HISTORY_TICKS = 180
+export const HISTORY_TICKS = ticks(3)
 /** State hash checkpoint interval, ticks. */
-export const HASH_EVERY = 60
+export const HASH_EVERY = ticks(1)
 
 /** One confirmed step: the inputs and `connected` patches applied from `tick` to `tick + 1`. */
 export interface StreamTick {

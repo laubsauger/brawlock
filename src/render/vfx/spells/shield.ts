@@ -8,6 +8,7 @@
  * the new heading, and when ownership is stolen the lattice flashes the shielder's team colour.
  */
 import * as THREE from 'three/webgpu'
+import { ticks } from '../../../sim/config'
 import { abs, dot, exp, float, max, min, mix, mod, mrt, normalView, positionGeometry, positionView, pow, saturate, select, sin, smoothstep, vec2, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
@@ -28,7 +29,7 @@ const GOLD_WHITE = palSat('shield', 'accent', 3, 1.5)
 
 const SPELL = 'shield'
 const INFLATE = 0.12
-const FADE_TICKS = 12
+const FADE_TICKS = ticks(0.2)
 /** dome height relative to the radius (a full hemisphere would tower over the camera) */
 const DOME_H = 0.62
 

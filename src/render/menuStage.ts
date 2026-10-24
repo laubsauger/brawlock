@@ -1,5 +1,5 @@
 import { cloneState, createMatch, step as stepSim } from '../sim'
-import { DEFAULT_SETTINGS, OBSTACLE_RADII } from '../sim/config'
+import { DEFAULT_SETTINGS, OBSTACLE_RADII, ticks } from '../sim/config'
 import { spawnProjectile } from '../sim/projectiles'
 import { DT } from '../sim/types'
 import type { InputCommand, PlayerInput, PlayerSlot, SimEvent, SimState, Vec2 } from '../sim/types'
@@ -13,7 +13,7 @@ import { Rng } from '../bots/prng'
 export const MENU_LAYER = 14
 export const MENU_FOCUS_ANGLE = -0.62
 const ATTACK_EVERY = 240
-const INTRO_TICKS = 120
+const INTRO_TICKS = ticks(2)
 const PHRASE_BEATS = 8
 const FIREBALL = 0
 const SHIELD = 1

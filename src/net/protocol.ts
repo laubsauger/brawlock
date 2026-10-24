@@ -57,6 +57,7 @@
  * the unreliable path), so every link measures RTT without app involvement.
  */
 import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
+import { ticks } from '../sim/config'
 import type { TickEvents } from '../game/frame'
 import { decodeCmd, encodeCmd, type WireCmd, type WireInput, type WirePatch, type WireSlot } from './stream'
 import type { MatchResult } from '../game/store'
@@ -67,7 +68,7 @@ import type { ChatLine } from './chat'
 export const PROTOCOL_VERSION = 9
 
 /** Snapshots carry the events of this many most recent ticks. */
-export const EVENT_REDUNDANCY_TICKS = 10
+export const EVENT_REDUNDANCY_TICKS = ticks(1 / 6)
 
 export interface InputFrame {
   /** per-client sequence, starts at 1 for every match */

@@ -23,6 +23,7 @@
  * at game over (game/stats.ts). Link monitoring: netstats.ts.
  */
 import type { Bot } from '../bots'
+import { ticks } from '../sim/config'
 import type { Listener } from '../audio'
 import type { LobbyView, MatchResult, NetRole, Screen } from '../game/store'
 import {
@@ -302,7 +303,7 @@ export const MAX_PLAYERS = 10
 
 const DT_MS = 1000 / TICK_HZ
 /** at most this much backlog is simulated after a stall; the rest is dropped */
-const MAX_CATCHUP_TICKS = 15
+const MAX_CATCHUP_TICKS = ticks(0.25)
 /** snapshots above this size go out every 2nd tick (hysteresis down to SNAP_SMALL) */
 const SNAP_BIG = 6000
 const SNAP_SMALL = 4500
@@ -319,15 +320,15 @@ const MAX_QUEUED_CMDS = 256
 /** host broadcasts per-player pings this often */
 const PING_BROADCAST_MS = 1000
 /** stamped frames held on the host at most this far ahead of its tick */
-const MAX_HOLD_TICKS = 30
+const MAX_HOLD_TICKS = ticks(0.5)
 const MAX_SCHED_FRAMES = 256
 /**
  * Host fairness: the host's own inputs run this many ticks late at most. The delay
  * follows the median client one-way latency (rtt / 2), re-evaluated every second
  * and moved one tick at a time.
  */
-export const HOST_DELAY_CAP_TICKS = 6
-const HOST_DELAY_EVAL_TICKS = 60
+export const HOST_DELAY_CAP_TICKS = ticks(0.1)
+const HOST_DELAY_EVAL_TICKS = ticks(1)
 /** client determinism check cadence (re-simulate one snapshot pair, compare hashes) */
 const CHECK_MS = 500
 /** the host is always the lobby's first slot */
@@ -356,7 +357,7 @@ function isRelease(build: string | undefined): build is string {
 }
 
 /** a checkpoint hash rides this many stream packets (loss) */
-const HASH_REPEAT_TICKS = 8
+const HASH_REPEAT_TICKS = ticks(0.133)
 /**
  * A link whose "unreliable" path is ordered and lossless (WebSocket, or WebRTC on its reliable
  * fallback) needs none of the repeats that cover packet loss on a raw channel: each input frame,
