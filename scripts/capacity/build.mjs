@@ -1,5 +1,5 @@
 import { build } from 'esbuild'
-import { mkdirSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { netId } from '../net-id.mjs'
@@ -16,7 +16,9 @@ execFileSync('tar', ['-xf', archive, '-C', snapshot])
 mkdirSync(`${snapshot}/scripts/capacity`, { recursive: true })
 mkdirSync(`${snapshot}/src/testing`, { recursive: true })
 copyFileSync('src/testing/headlessClient.ts', `${snapshot}/src/testing/headlessClient.ts`)
-for (const name of ['server', 'worker', 'bot-cost']) copyFileSync(`scripts/capacity/${name}.mjs`, `${snapshot}/scripts/capacity/${name}.mjs`)
+// a build with room processes (server/shards.mjs) gets the capacity server that can start them
+const sharded = existsSync(`${snapshot}/server/shards.mjs`)
+for (const name of ['server', 'worker', 'bot-cost']) copyFileSync(`scripts/capacity/${name === 'server' && sharded ? 'server-sharded' : name}.mjs`, `${snapshot}/scripts/capacity/${name}.mjs`)
 const net = netId(snapshot)
 for (const name of ['server', 'worker', 'bot-cost']) await build({
   entryPoints: [`${snapshot}/scripts/capacity/${name}.mjs`], outfile: `${out}/${name}.mjs`,
@@ -24,6 +26,6 @@ for (const name of ['server', 'worker', 'bot-cost']) await build({
   define: { __NET_ID__: JSON.stringify(net), __RELEASE_COMMIT__: JSON.stringify(revision), 'import.meta.env.DEV': 'false' },
   logLevel: 'warning',
 })
-writeFileSync(`${out}/manifest.json`, JSON.stringify({ revision, net, builtAt: new Date().toISOString(), timeScale: 1,
+writeFileSync(`${out}/manifest.json`, JSON.stringify({ revision, net, sharded, builtAt: new Date().toISOString(), timeScale: 1,
   scope: 'isolated game process and real prediction clients; no production account/rating authority; network route recorded per run' }, null, 2) + '\n')
 console.log(out)

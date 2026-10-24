@@ -14,6 +14,11 @@ copyFileSync(import.meta.filename, `${out}/runner-used.mjs`)
 const buildDir = resolve(config.buildDir)
 if (!buildDir.startsWith(resolve('artifacts/capacity') + '/')) throw new Error('Build must be an isolated capacity artifact')
 const manifest = JSON.parse(readFileSync(`${buildDir}/manifest.json`, 'utf8'))
+manifest.streamEvery = config.streamEvery ?? 1
+manifest.shards = config.shards ?? 1
+// several room processes: guard the busiest one (each has its own main thread), memory in total
+const busiest = (server) => server.processes ? Math.max(0, ...server.processes.map((p) => p.cpuPct ?? 0)) : server.perf.processCpuPct
+const rssLimitMb = (config.shards ?? 1) > 1 ? 640 : 400
 manifest.transport = direct ? 'independent direct WSS connections through nginx/TLS; SSH control-plane only' : 'local loopback'
 manifest.generator = { node: process.version, cpus: cpus().length, model: cpus()[0].model, memoryMb: totalmem() / 1048576 }
 manifest.bundleSha256 = Object.fromEntries(['server', 'worker'].map(name => [name, createHash('sha256').update(readFileSync(`${buildDir}/${name}.mjs`)).digest('hex')]))
@@ -86,7 +91,7 @@ try {
       })() : Promise.resolve(null)])
       const row = { event: 'server', stage: index, at: Date.now(), ...server, monitorRttMs, controlRttMs, coordinatorLoopMaxMs: loop.max / 1e6 }
       loop.reset(); states.push(row); appendFileSync(samplesFile, JSON.stringify(row) + '\n')
-      highCpu = server.perf.processCpuPct > (config.findCeiling ? 150 : 95) ? highCpu + 1 : 0
+      highCpu = busiest(server) > (config.findCeiling ? 150 : 95) ? highCpu + 1 : 0
       highGenerator = row.coordinatorLoopMaxMs > 150 || [...latest.values()].some(v => v.generatorLoopMaxMs > 150) ? highGenerator + 1 : 0
       const ackP95 = percentile([...latest.values()].flatMap(v => v.ackMs ?? []), .95)
       highInputLag = ackP95 !== null && ackP95 > 500 ? highInputLag + 1 : 0
@@ -96,7 +101,7 @@ try {
       if (failures.length) reason = `generator-error: ${failures[0]}`
       else if ([...latest.values()].some(v => v.desyncs > 0)) reason = 'stream-correctness-failure'
       else if ([...latest.values()].some(v => v.errors?.length)) reason = 'client-disconnect'
-      else if (server.perf.rssMb > 400) reason = 'server-memory-guardrail'
+      else if (server.perf.rssMb > rssLimitMb) reason = 'server-memory-guardrail'
       else if (highCpu >= 10) reason = 'server-cpu-guardrail'
       else if (slowSimulation >= 5) reason = 'simulation-throughput-degraded'
       else if (highInputLag >= 5) reason = 'input-confirmation-degraded'
@@ -117,6 +122,7 @@ try {
     })
     const report = { ...stage, elapsedSeconds: (Date.now() - start) / 1000, reason, interrupted,
       serverCpuP50: percentile(states.map(s => s.perf.processCpuPct), .5), serverCpuP95: percentile(states.map(s => s.perf.processCpuPct), .95),
+      serverBusiestCpuP50: percentile(states.map(busiest), .5), hostCpuP50: percentile(states.map(s => s.host?.cpuPct), .5),
       serverRssMaxMb: Math.max(0, ...states.map(s => s.perf.rssMb)), serverLoopP95MaxMs: Math.max(0, ...states.map(s => s.perf.eventLoopP95Ms)), serverStepMaxMs: Math.max(0, ...states.map(s => s.perf.simStepMaxMs)),
       serverHzPerRoomP50: percentile(states.map(s => s.perf.simStepsPerSec / stage.rooms), .5), serverHzPerRoomP05: percentile(states.map(s => s.perf.simStepsPerSec / stage.rooms), .05),
       controlRttP95Ms: percentile(states.map(s => s.controlRttMs), .95), monitorRttP95Ms: percentile(states.map(s => s.monitorRttMs), .95),

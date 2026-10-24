@@ -15,7 +15,6 @@ node scripts/capacity/build.mjs a25274d
 node scripts/capacity/fleet.mjs eu pilot
 node scripts/capacity/fleet.mjs eu ceiling-humans
 node scripts/capacity/fleet.mjs eu ceiling-bots
-node scripts/capacity/fleet.mjs eu ceiling-bots-high   # 32/36/40/44/48 rooms, for a build that passes 32
 node scripts/capacity/fleet.mjs eu bot-cost-rooms
 node scripts/capacity/fleet.mjs eu components
 ```
@@ -39,10 +38,10 @@ raised because one generator shares one address. This is not an admission-rate
 benchmark. The production health endpoint is sampled independently alongside
 isolated server monitoring to expose shared network delays.
 
-Human-heavy ramps use 4/6/8/10/12/16 rooms of ten clients. Bot-heavy ramps use
-4/8/12/16/24/32 rooms, each with one client and nine server bots (Hard, with one
-Medium and one Brutal). Each stage warms for ten seconds, then samples for 75
-seconds. Shop time is eight seconds, time scale stays **1×**, and clients move,
+Human-heavy ramps use 8/16/24/32 rooms of ten clients. Bot-heavy ramps use
+16/32/48 rooms, each with one client and nine server bots (Hard, with one
+Medium and one Brutal). Each stage warms for ten seconds, then samples for 60
+seconds. STREAM_EVERY=2 runs the server with two ticks per stream packet. Shop time is eight seconds, time scale stays **1×**, and clients move,
 cast, purchase, receive/verify streams and automatically ready for rematches.
 The pilot uses 1/2/4 rooms at 60 seconds in each mix.
 
@@ -56,7 +55,7 @@ backpressure and internet-link limits before attributing failure to server CPU.
 Confirm a boundary with repeats and a longer soak before advertising capacity.
 
 `bot-cost-rooms` holds four rooms/one real client each and compares 1/4/9
-server bots for 120 seconds per roster, with the same warmup. It also captures a
+server bots for 60 seconds per roster, with the same warmup. It also captures a
 1 ms sampled CPU profile of the complete process; attribute it with
 `node scripts/capacity/profile.mjs artifacts/capacity/<run>`. Profile overhead is
 present in all three roster cases. Source maps stay in ignored local artifacts.

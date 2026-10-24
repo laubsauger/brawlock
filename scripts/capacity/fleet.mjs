@@ -9,7 +9,10 @@ import { acquireFleetLock, validateConfig } from '../../deploy/release.mjs'
 
 const fleet = validateConfig(JSON.parse(readFileSync('deploy/release.config.json', 'utf8')))
 const region = process.argv[2], target = fleet.regions.find(r => r.id === region), mode = process.argv[3] ?? 'pilot'
-if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ceiling-bots', 'ceiling-bots-high', 'bot-cost-rooms'].includes(mode)) throw new Error('Usage: node scripts/capacity/fleet.mjs eu [pilot|ceiling-humans|ceiling-bots|ceiling-bots-high|bot-cost-rooms|components]')
+if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ceiling-bots', 'bot-cost-rooms'].includes(mode)) throw new Error('Usage: node scripts/capacity/fleet.mjs eu [pilot|ceiling-humans|ceiling-bots|bot-cost-rooms|components]')
+const streamEvery = Math.max(1, Math.min(4, Number(process.env.STREAM_EVERY ?? 1) || 1))
+// SHARDS=2: room processes behind one front (needs a sharded build, build.mjs)
+const shards = Math.max(1, Math.min(2, Number(process.env.SHARDS ?? 1) || 1))
 const run = `${region}-${Date.now()}`, dir = resolve(`artifacts/capacity/${run}`), remote = `/var/lib/brawlock/capacity/${run}`
 const unit = `brawlock-capacity-${run}`, timer = `${unit}-cleanup`
 mkdirSync(dir, { recursive: true })
@@ -17,13 +20,12 @@ writeFileSync(`${dir}/operator.json`, JSON.stringify({ pid: process.pid, run, mo
 const buildDir = `${dir}/build`; mkdirSync(buildDir)
 for (const name of ['server.mjs', 'worker.mjs', 'bot-cost.mjs', 'manifest.json', ...(mode === 'bot-cost-rooms' ? ['server.mjs.map'] : [])]) copyFileSync(`artifacts/capacity/build/${name}`, `${buildDir}/${name}`)
 const token = randomBytes(32).toString('hex'), base = `${target.origin}/_capacity/${run}`
-const stages = mode === 'ceiling-humans' ? [4, 6, 8, 10, 12, 16].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 75 }))
-  : mode === 'ceiling-bots' ? [4, 8, 12, 16, 24, 32].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 75 }))
-  // around the predicted bot-room ceiling of a build that passes 32 (extrapolated from ceiling-bots)
-  : mode === 'ceiling-bots-high' ? [32, 36, 40, 44, 48].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 75 }))
-  : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 120 }))
+// Coarse ramps: each stage is a clear step in load; the first one already loads the server.
+const stages = mode === 'ceiling-humans' ? [8, 16, 24, 32].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 60 }))
+  : mode === 'ceiling-bots' ? [16, 32, 48].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 60 }))
+  : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 60 }))
   : [1, 10].flatMap(humans => [1, 2, 4].map(rooms => ({ rooms, humans, players: 10, seconds: 60 })))
-writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })
+writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, streamEvery, shards, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })
 // Independent cleanup is installed before drain/routing, and works without the operator.
 writeFileSync(`${dir}/cleanup.cjs`, `const {execFileSync}=require('node:child_process'); const fs=require('node:fs');
 const errors=[];
@@ -48,7 +50,8 @@ try {
   if (!isIP(address)) throw new Error('Cannot identify generator source IP')
   const hostname = new URL(target.origin).hostname
   const snippet = `\n    # isolated capacity run ${run}\n    location ^~ /_capacity/${run}/ {\n        allow ${address};\n        deny all;\n        access_log off;\n        proxy_pass http://127.0.0.1:5388/;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Forwarded-For $remote_addr;\n        proxy_buffering off;\n        proxy_read_timeout 3600s;\n        proxy_send_timeout 3600s;\n        tcp_nodelay on;\n    }\n`
-  writeFileSync(`${dir}/server.json`, JSON.stringify({ run, port: 5388, data: `${remote}/data`, token,
+  // STREAM_EVERY=2: lossless clients get a stream packet every second tick (session.ts streamEvery)
+  writeFileSync(`${dir}/server.json`, JSON.stringify({ run, port: 5388, data: `${remote}/data`, token, streamEvery, shards,
     route: { file: `/etc/nginx/sites-available/${hostname}`, hostname, run, snippet } }), { mode: 0o600 })
   const before = await health()
   if (before.rooms || before.players || before.connections || before.maintenance.draining) throw new Error('Region must be empty and open before this pilot')
@@ -71,7 +74,7 @@ try {
     console.log(JSON.stringify({ event: 'components.end', region, rows: profile.rows.length }))
   } else {
     const profiler = mode === 'bot-cost-rooms' ? `--cpu-prof --cpu-prof-interval=1000 --cpu-prof-dir='${remote}/data' --cpu-prof-name=cpu.cpuprofile` : ''
-    await ssh(`systemd-run --unit='${unit}' --uid=brawlock --gid=brawlock --property=MemoryMax=512M --property=RuntimeMaxSec=13min --property=NoNewPrivileges=yes --working-directory='${remote}' ${target.node} --max-old-space-size=384 --disable-warning=ExperimentalWarning ${profiler} '${remote}/server.mjs' '${remote}/server.json'`)
+    await ssh(`systemd-run --unit='${unit}' --uid=brawlock --gid=brawlock --property=MemoryMax=${shards > 1 ? '768M' : '512M'} --property=RuntimeMaxSec=13min --property=NoNewPrivileges=yes --working-directory='${remote}' ${target.node} --max-old-space-size=384 --disable-warning=ExperimentalWarning ${profiler} '${remote}/server.mjs' '${remote}/server.json'`)
     await ssh(`${target.node} '${remote}/route.cjs' '${remote}/server.json' install`)
     let ready = false
     for (let attempt = 0; attempt < 20 && !interrupted; attempt++) {
