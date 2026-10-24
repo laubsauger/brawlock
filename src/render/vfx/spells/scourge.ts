@@ -68,6 +68,7 @@
  * records, no per-frame allocation.
  */
 import * as THREE from 'three/webgpu'
+import { secondsOf, ticks } from '../../../sim/config'
 import {
   abs, atan, clamp, dot, exp, float, floor, fract, hash, instancedBufferAttribute, length, max, min, mix, mod, mrt,
   positionGeometry, pow, saturate, sin, smoothstep, step, texture, varying, vec2, vec3, vec4,
@@ -842,7 +843,7 @@ registerSpellVfx({
         w.active = true
         w.cancelAt = -1
         w.t0 = now
-        w.total = Math.max(0.1, e.ticks / 60)
+        w.total = Math.max(0.1, secondsOf(e.ticks))
         return true
       }
       case 'castCancel': {
@@ -942,7 +943,7 @@ registerSpellVfx({
           w.pawn = -1
           continue
         }
-        const total = Math.max(1, Math.round(w.total * 60))
+        const total = Math.max(1, ticks(w.total))
         const p = Math.max(0, Math.min(1, 1 - (ps.cast.ticksLeft - ctx.alpha) / total))
         w.x = info.x
         w.y = info.y

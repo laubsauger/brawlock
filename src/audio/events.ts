@@ -4,6 +4,7 @@
  * to compile until it is mapped here or listed in IGNORED_EVENTS with a reason.
  */
 import type { EntityId, PlayerId, SimEvent, SimState, Vec2 } from '../sim/types'
+import { secondsOf, ticks } from '../sim/config'
 import type { SfxId } from './synth'
 
 export interface ListenerLike {
@@ -274,10 +275,10 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
       const owner = c.listener.state?.pawns.find((q) => q.id === e.pawn)?.owner
       const theirs = c.listener.localPlayer !== undefined && owner !== undefined && owner !== c.listener.localPlayer
       const gain = SCOURGE_GAIN[scourgeLevel(e.level) - 1] * (theirs ? SCOURGE_ENEMY_WINDUP : 1)
-      return [cue('scourgeWindup', sp, gain, { param: Math.max(0.2, e.ticks / 60), key })]
+      return [cue('scourgeWindup', sp, gain, { param: Math.max(0.2, secondsOf(e.ticks)), key })]
     }
     // short cast points get an inhale, so a cancelled (fake) cast is heard as inhale + snuff
-    if (e.ticks >= 6) return [cue('castInhale', sp, 0.7, { param: e.ticks / 60, key })]
+    if (e.ticks >= ticks(0.1)) return [cue('castInhale', sp, 0.7, { param: secondsOf(e.ticks), key })]
     return []
   },
   castCancel: (e, c) => {
@@ -301,7 +302,7 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
         ? pr.data.hoverTime + (pr.data.fallTime ?? 0)
         : pr.data.noTimer
           ? 6
-          : Math.max(0.1, Math.min(6, pr.ticksLeft / 60))
+          : Math.max(0.1, Math.min(6, secondsOf(pr.ticksLeft)))
     const path = flightPath(pr.x, pr.y, pr.vx, pr.vy, Math.min(life, 3), c.listener)
     return [{ id, gain: path[0].gain, pan: path[0].pan, param: life, key: projectileKey(e.id), path }]
   },

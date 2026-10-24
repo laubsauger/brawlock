@@ -12,6 +12,7 @@
  *   the last second
  */
 import type { SimEvent } from '../../../sim/types'
+import { secondsOf } from '../../../sim/config'
 import { registerSpellVfx, type PawnRenderInfo, type SpellVfx, type VfxCtx } from '../registry'
 import { G_RETICLE, G_RUNE, G_SHOCK, G_SIGIL, PH, acquireKit, kflash, palFor, pspawn, releaseKit, windupProgress, type KitA } from './kitA'
 import { LivePool } from './livePool'
@@ -220,7 +221,7 @@ const mod: SpellVfx = {
     const info = ctx.pawn(pawn.id)
     const h0 = info ? info.h : k.floor(x, y)
     const now = ctx.now
-    const left = m.ticksLeft / 60
+    const left = secondsOf(m.ticksLeft)
     const fade = Math.min(1, left / 1.0)
     // cracked ward: the sigil shape, permanently half-shattered, flickering
     const flick = 0.75 + 0.25 * Math.sin(now * 23 + pawn.id) * Math.sin(now * 7)

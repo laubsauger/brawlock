@@ -1,4 +1,5 @@
 import { summarizeLinks } from './monitoring'
+import { secondsOf } from '../sim/config'
 /**
  * Dedicated server core (M4.1, docs/M4.md §11): room registry, HTTP API, WebSocket
  * admission, rate limits and structured logs. Transport-agnostic and typed:
@@ -307,7 +308,7 @@ export function createServerCore(
             const matchId = crypto.randomUUID()
             const receipt = officialRewards && deps.accounts ? {
               matchId, queue: setup.ranked ? 'ranked' as const : 'quick' as const, rulesVersion: 1 as const,
-              completedAt: clock(), durationSeconds: Math.floor(m.ticks / 60),
+              completedAt: clock(), durationSeconds: Math.floor(secondsOf(m.ticks)),
               players: m.seats.filter((s) => /^a_[A-Za-z0-9_-]{8,60}$/.test(s.device)).map((s) => ({
                 accountId: s.device.slice(2), completed: !m.abandoned && !s.forfeited && !!s.stats && (e?.accounts.get(s.device.slice(2)) ?? 0) > 0,
                 aliveSeconds: s.stats?.aliveSec ?? 0,

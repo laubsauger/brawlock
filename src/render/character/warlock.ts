@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu'
+import { secondsOf } from '../../sim/config'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import type { PawnState, SimEvent } from '../../sim/types'
 import { S, facingToYaw } from '../coords'
@@ -615,7 +616,7 @@ export class CC0Warlock implements WarlockHandle {
     this.castPhase = 'windup'
     this.gpu.castFizzle = 0
     this.setCategory(spell)
-    const dur = ticks / 60
+    const dur = secondsOf(ticks)
     // standing casts use the clip's legs too (wide, planted stance)
     this.castFullBody = this.standing()
     switch (this.castCat) {

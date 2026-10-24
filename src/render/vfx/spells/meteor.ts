@@ -27,6 +27,7 @@
  * through the particle budget. Worst case (3 meteors at once) ~ 130 live puffs in one draw.
  */
 import * as THREE from 'three/webgpu'
+import { secondsOf, ticks } from '../../../sim/config'
 import {
   abs, dot, exp, float, instancedBufferAttribute, length, max, mix, normalView, normalWorld, positionGeometry, positionView,
   pow, saturate, smoothstep, step, texture, uv, varying, vec2, vec3,
@@ -703,7 +704,7 @@ registerSpellVfx({
       const lvl = pw.levels[c.slot] || 1
       const R = attr(DEF, 'radius', lvl)
       clampTarget(pw.x, pw.y, c.x, c.y, attr(DEF, 'range', lvl), tgt)
-      const total = Math.max(1, Math.round(DEF.castPoint * 60))
+      const total = Math.max(1, ticks(DEF.castPoint))
       const k = 1 - c.ticksLeft / total
       drawTelegraph(ctx, tgt.x, tgt.y, R, 0, ctx.now - k * DEF.castPoint, ctx.colorOf(pw.owner), pw.id * 0.71, tierOfLevel(ctx, lvl))
       const info = ctx.pawn(pw.id)
@@ -785,7 +786,7 @@ registerSpellVfx({
     } else if (f.fallAt < 0) f.fallAt = ctx.now
     const hover = d.hoverTime ?? 0.55
     const fall = d.fallTime ?? 0.6
-    const el = (d.elapsed ?? 0) / 60
+    const el = secondsOf(d.elapsed ?? 0)
     const tLeft = falling ? Math.max(0, fall - el) : hover - el + fall
     const prog = Math.max(0, Math.min(1, 1 - tLeft / (hover + fall)))
     const R = d.radius

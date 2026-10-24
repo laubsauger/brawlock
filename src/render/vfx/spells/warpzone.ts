@@ -9,6 +9,7 @@
  * Spawn: rings snap inward; end: the face collapses.
  */
 import * as THREE from 'three/webgpu'
+import { secondsOf } from '../../../sim/config'
 import { abs, dot, float, mrt, normalView, positionGeometry, positionView, pow, saturate, sin, smoothstep, vec3, vec4 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { SPELLS, attr } from '../../../sim/spells/data'
@@ -87,7 +88,7 @@ function drawZone(p: ProjectileState, ctx: VfxCtx): void {
   const y = p.y
   const fh = floorH(ctx, x, y)
   const intro = Math.min(1, (ctx.now - z.born) / 0.25)
-  const outro = Math.min(1, (p.ticksLeft / 60) / 0.3)
+  const outro = Math.min(1, secondsOf(p.ticksLeft) / 0.3)
   const k = intro * outro
   drawShadow(x, y, fh - 0.3, R * 0.98, 0.32 * k, 0.5, 0.15, p.id)
   drawCircle(x, y, fh + 0.3, R, STYLE_CLOCK, TEAL[0], TEAL[1], TEAL[2], 0.95 * k, 0, 0.35, z.seed, 0.05, 1, 0, z.born)

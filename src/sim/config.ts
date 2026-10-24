@@ -148,6 +148,11 @@ export function ticks(seconds: number): number {
   return Math.round(seconds * TICK_HZ)
 }
 
+/** Sim ticks to seconds: every tick count shown, played or stored as time goes through here. */
+export function secondsOf(tickCount: number): number {
+  return tickCount / TICK_HZ
+}
+
 /**
  * Original friction is applied once per 0.035 s tick. Per 60 Hz tick:
  * friction ** (DT / ORIGINAL_TICK), via the deterministic exp/log from math.ts (not Math.pow,

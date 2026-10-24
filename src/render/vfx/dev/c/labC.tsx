@@ -11,6 +11,7 @@
  *          __labC.devTime.scale = 0 freezes everything (render clock too).
  */
 import { StrictMode, useEffect, useState } from 'react'
+import { secondsOf } from '../../../../sim/config'
 import { createRoot } from 'react-dom/client'
 import '../../../../index.css'
 import { useGame, type Quality } from '../../../../game/store'
@@ -66,11 +67,11 @@ if (params.has('fx')) useGame.getState().setSettings({ fxIntensity: Number(param
   stats: renderStats,
   zoom: cameraZoomParam,
   state: labState,
-  since: () => (labState.deathTick < 0 ? -1 : (labState.tick - labState.deathTick) / 60),
-  sinceHit: () => (labState.hitTick < 0 ? -1 : (labState.tick - labState.hitTick) / 60),
+  since: () => (labState.deathTick < 0 ? -1 : secondsOf(labState.tick - labState.deathTick)),
+  sinceHit: () => (labState.hitTick < 0 ? -1 : secondsOf(labState.tick - labState.hitTick)),
   probe,
   fightT: () => matchState.fightT,
-  sinceCast: () => (labState.castTick < 0 ? -1 : (labState.tick - labState.castTick) / 60),
+  sinceCast: () => (labState.castTick < 0 ? -1 : secondsOf(labState.tick - labState.castTick)),
 }
 
 function Lab() {

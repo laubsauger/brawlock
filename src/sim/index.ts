@@ -43,6 +43,7 @@ export {
   TEAM_DRAW,
   frictionPerTick,
   ticks,
+  secondsOf,
 } from './config'
 export {
   TILE_SIZE,
