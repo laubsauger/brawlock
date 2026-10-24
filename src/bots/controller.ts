@@ -188,6 +188,11 @@ export class BotController implements Bot {
     return this.target
   }
 
+  /** Changes whenever the queue changes other than by releasing due orders (Bot.scheduledVersion). */
+  get scheduledVersion(): number {
+    return this.queueVersion
+  }
+
   /** Make committed future orders available to the host without exposing the mutable queue. */
   scheduled(): readonly { at: number; cmds: InputCommand[] }[] {
     return this.queue.map((frame) => ({ at: frame.at, cmds: frame.cmds.map((command) => ({ ...command })) }))
@@ -197,6 +202,7 @@ export class BotController implements Bot {
   private readonly thinkTicks: number
   private readonly delayTicks: number
   private queue: { at: number; cmds: InputCommand[] }[] = []
+  private queueVersion = 0
   private lastTick = -1
   private lastPhase: SimState['phase'] | null = null
   private nextThinkTick = -1
@@ -258,6 +264,7 @@ export class BotController implements Bot {
       this.lastPhase = state.phase
     }
     if (state.phase === 'gameOver') {
+      if (this.queue.length > 0) this.queueVersion++
       this.queue.length = 0
       return []
     }
@@ -265,11 +272,11 @@ export class BotController implements Bot {
     if (this.nextThinkTick < 0 || state.tick >= this.nextThinkTick) {
       this.nextThinkTick = state.tick + this.thinkTicks
       const cmds = this.decide(state)
-      if (cmds.length > 0) this.queue.push({ at: state.tick + this.delayTicks, cmds })
+      if (cmds.length > 0) this.enqueue(state.tick + this.delayTicks, cmds)
     } else if (state.tick % UNSTICK_TICKS === 0) {
       // between decisions: a player notices when they are walking into a pillar
       const cmds = this.unstick(state)
-      if (cmds.length > 0) this.queue.push({ at: state.tick + this.delayTicks, cmds })
+      if (cmds.length > 0) this.enqueue(state.tick + this.delayTicks, cmds)
     }
 
     if (this.queue.length === 0 || this.queue[0].at > state.tick) return []
@@ -278,8 +285,14 @@ export class BotController implements Bot {
     return out
   }
 
+  private enqueue(at: number, cmds: InputCommand[]): void {
+    this.queue.push({ at, cmds })
+    this.queueVersion++
+  }
+
   private reset(): void {
     this.queue.length = 0
+    this.queueVersion++
     this.nextThinkTick = -1
     this.target = null
     this.wander = null

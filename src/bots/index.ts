@@ -20,6 +20,9 @@ export interface Bot {
   /** Detached snapshot of already-decided orders awaiting their reaction delay.
    * `at` is the future sim tick when think() releases the commands. */
   scheduled?(): readonly { at: number; cmds: InputCommand[] }[]
+  /** Changes whenever scheduled() changes other than by due orders leaving it: while it holds,
+   * the host can skip re-reading and comparing the plan every tick. */
+  readonly scheduledVersion?: number
 }
 
 export function createBot(player: PlayerId, difficulty: BotDifficulty, seed: number): Bot {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { TICK_HZ } from '../sim/types'
+import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
+import { TICK_HZ, type BotDifficulty, type PlayerInput, type PlayerSlot } from '../sim/types'
+import { isTileAt, TILE_SIZE } from '../sim/arena'
+import { layerRadius, nearestTileCentre } from './arena'
 import { BotController } from './controller'
 import { makePawn, makeState } from './fixtures'
 
@@ -48,5 +51,65 @@ describe('bot scheduled decisions', () => {
     state.tick = 1
     bot.think(state)
     expect(bot.scheduled()).toEqual([])
+  })
+
+  it('changes scheduledVersion whenever the future changes other than by due orders leaving', () => {
+    // The host skips re-reading a bot's plan while the version holds (session hostTick). If any
+    // queue change slipped past the version, clients would predict a stale bot plan.
+    const diffs: BotDifficulty[] = ['hard', 'brutal', 'medium', 'easy', 'uber', 'hard']
+    const slots: PlayerSlot[] = diffs.map((d, id) => ({ id, name: `b${id}`, color: id, team: id, kind: 'bot', difficulty: d }))
+    const state = createMatch({ ...DEFAULT_SETTINGS }, slots, 7)
+    const bots = diffs.map((d, id) => new BotController(id, d, 7))
+    const seen = bots.map((b) => ({ version: b.scheduledVersion, future: JSON.stringify(b.scheduled()) }))
+    let changes = 0
+    for (let i = 0; i < 60 * 90; i++) {
+      const inputs: PlayerInput[] = []
+      for (const [k, b] of bots.entries()) {
+        const cmds = b.think(state)
+        if (cmds.length) inputs.push({ player: b.player, tick: state.tick, cmds })
+        const future = JSON.stringify(b.scheduled())
+        if (b.scheduledVersion === seen[k].version) {
+          const kept = JSON.parse(seen[k].future).filter((f: { at: number }) => f.at > state.tick)
+          expect(future).toBe(JSON.stringify(kept))
+        } else changes++
+        seen[k] = { version: b.scheduledVersion, future }
+      }
+      step(state, inputs)
+    }
+    // and it is not bumped every tick (that would only cost the skipped work again)
+    expect(changes).toBeGreaterThan(50)
+    expect(changes).toBeLessThan(60 * 90 * bots.length * 0.3)
+  })
+})
+
+describe('nearest tile centre', () => {
+  it('matches a full grid scan on every layer, ties included', () => {
+    // brute force: the scan nearestTileCentre used before it kept per-layer tile lists
+    const scan = (layer: number, x: number, y: number, interior: boolean) => {
+      const n = Math.ceil(layerRadius(layer) / TILE_SIZE)
+      let best: { x: number; y: number } | null = null
+      let bestD = Infinity
+      for (let gx = -n; gx <= n; gx++) {
+        for (let gy = -n; gy <= n; gy++) {
+          if (!isTileAt(layer, gx, gy)) continue
+          let d = (gx * TILE_SIZE - x) ** 2 + (gy * TILE_SIZE - y) ** 2
+          const inner = isTileAt(layer, gx + 1, gy) && isTileAt(layer, gx - 1, gy) && isTileAt(layer, gx, gy + 1) && isTileAt(layer, gx, gy - 1)
+          if (interior && !inner) d += (TILE_SIZE * 1.5) ** 2
+          if (d < bestD) {
+            bestD = d
+            best = { x: gx * TILE_SIZE, y: gy * TILE_SIZE }
+          }
+        }
+      }
+      return best
+    }
+    for (let layer = 0; layer <= 22; layer++) {
+      // grid points sit exactly between tile centres too (equal distances)
+      for (let x = -2400; x <= 2400; x += 96) {
+        for (let y = -2400; y <= 2400; y += 240) {
+          for (const interior of [true, false]) expect(nearestTileCentre(layer, x, y, interior)).toEqual(scan(layer, x, y, interior))
+        }
+      }
+    }
   })
 })

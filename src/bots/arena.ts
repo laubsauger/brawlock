@@ -40,30 +40,42 @@ export function isSafeWithMargin(layer: number, x: number, y: number, margin: nu
  * neighbours exist) when `preferInterior`. Null when the layer has no tiles.
  */
 export function nearestTileCentre(layer: number, x: number, y: number, preferInterior: boolean): Vec2 | null {
-  const n = Math.ceil(layerRadius(layer) / TILE_SIZE)
-  let best: Vec2 | null = null
+  let best: LayerTile | null = null
   let bestD = Infinity
+  for (const t of layerTiles(layer)) {
+    let d = (t.x - x) ** 2 + (t.y - y) ** 2
+    // edge tile: usable, but only if nothing interior is close
+    if (preferInterior && t.edge) d += (TILE_SIZE * 1.5) ** 2
+    if (d < bestD) {
+      bestD = d
+      best = t
+    }
+  }
+  return best && { x: best.x, y: best.y }
+}
+
+interface LayerTile {
+  x: number
+  y: number
+  /** some neighbour (4-way) is lava */
+  edge: boolean
+}
+
+const tilesByLayer = new Map<number, LayerTile[]>()
+
+/** The layer's tiles in the order the full grid scan met them (ties resolve the same way). */
+function layerTiles(layer: number): LayerTile[] {
+  let tiles = tilesByLayer.get(layer)
+  if (tiles) return tiles
+  tiles = []
+  const n = Math.ceil(layerRadius(layer) / TILE_SIZE)
   for (let gx = -n; gx <= n; gx++) {
     for (let gy = -n; gy <= n; gy++) {
       if (!tileExists(layer, gx, gy)) continue
-      let d = (gx * TILE_SIZE - x) ** 2 + (gy * TILE_SIZE - y) ** 2
-      if (
-        preferInterior &&
-        !(
-          tileExists(layer, gx + 1, gy) &&
-          tileExists(layer, gx - 1, gy) &&
-          tileExists(layer, gx, gy + 1) &&
-          tileExists(layer, gx, gy - 1)
-        )
-      ) {
-        // edge tile: usable, but only if nothing interior is close
-        d += (TILE_SIZE * 1.5) ** 2
-      }
-      if (d < bestD) {
-        bestD = d
-        best = { x: gx * TILE_SIZE, y: gy * TILE_SIZE }
-      }
+      const edge = !(tileExists(layer, gx + 1, gy) && tileExists(layer, gx - 1, gy) && tileExists(layer, gx, gy + 1) && tileExists(layer, gx, gy - 1))
+      tiles.push({ x: gx * TILE_SIZE, y: gy * TILE_SIZE, edge })
     }
   }
-  return best
+  tilesByLayer.set(layer, tiles)
+  return tiles
 }

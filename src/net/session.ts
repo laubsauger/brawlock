@@ -1413,6 +1413,9 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     if (match === m && m.endAt >= 0 && now >= m.endAt) finishMatch(m)
   }
 
+  /** Per bot: the scheduledVersion its current plan was compared at (hostTick). */
+  const planSeen = new WeakMap<Bot, number>()
+
   function hostTick(m: HostMatch, at: number): void {
     const cur = m.state
     const tick = cur.tick
@@ -1456,15 +1459,21 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         const cmds = quantizeCmds(bot.think(cur))
         if (cmds.length) inputs.push({ player: id, tick, cmds })
         if (bot.scheduled && deps.inputHints !== false) {
-          const frames: [number, InputCommand[]][] = bot.scheduled().map((q) => [q.at, quantizeCmds(q.cmds.map((c) => ({ ...c })))])
           let plan = m.botPlans.get(id)
-          // Executed orders simply expire; only a change to the remaining future
-          // needs a new plan. Each decision rides three packets against loss.
-          const previous = plan?.message.f.filter(([at]) => at > tick) ?? []
-          if (JSON.stringify(frames) !== JSON.stringify(previous)) {
-            if (cmds.length) frames.unshift([tick, cmds])
-            plan = { message: { t: 'plan', m: m.id, p: id, n: tick, f: frames }, repeats: REDUNDANCY }
-            m.botPlans.set(id, plan)
+          // An unchanged version means only due orders left the queue: the remaining future is
+          // the plan already sent, so skip copying and comparing it (every bot, every tick).
+          const version = bot.scheduledVersion
+          if (version === undefined || planSeen.get(bot) !== version) {
+            if (version !== undefined) planSeen.set(bot, version)
+            const frames: [number, InputCommand[]][] = bot.scheduled().map((q) => [q.at, quantizeCmds(q.cmds.map((c) => ({ ...c })))])
+            // Executed orders simply expire; only a change to the remaining future
+            // needs a new plan. Each decision rides three packets against loss.
+            const previous = plan?.message.f.filter(([at]) => at > tick) ?? []
+            if (JSON.stringify(frames) !== JSON.stringify(previous)) {
+              if (cmds.length) frames.unshift([tick, cmds])
+              plan = { message: { t: 'plan', m: m.id, p: id, n: tick, f: frames }, repeats: REDUNDANCY }
+              m.botPlans.set(id, plan)
+            }
           }
           if (plan && plan.repeats > 0) {
             plans.push(plan.message)
@@ -1483,8 +1492,12 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     }
 
     // the previous state was handed to render: step a copy (plain data: cloneState is
-    // the same deep copy as structuredClone, ~4× cheaper)
-    const next = cloneState(cur)
+    // the same deep copy as structuredClone, ~4× cheaper). A dedicated server renders nothing
+    // and keeps nothing of a tick past it (snapshots serialize at once, each step gets a new
+    // events array, its recorder copies numbers and has no `step`): it steps in place, which
+    // was its largest per-tick cost (a whole state copy, and the garbage of it, every tick).
+    const before = { phase: cur.phase, round: cur.round }
+    const next = dedicated && !rec?.step ? cur : cloneState(cur)
     const patched = m.connectedPatch.size > 0
     let patches: [PlayerId, boolean][] | undefined
     if (m.connectedPatch.size) {
@@ -1511,11 +1524,11 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     m.history.push(step)
 
     rec?.observe(next, next.events)
-    if (cur.phase === 'fight' && next.phase !== 'fight') countIdleRound(m)
+    if (before.phase === 'fight' && next.phase !== 'fight') countIdleRound(m)
     // Attribute the completed tick to its old controller before handing over. Reserved seats
     // change hands as soon as the fight ends (combat is already off), so the bot never plays
     // the round-end pause or the warm-up in its new owner's place.
-    if (next.phase !== 'gameOver' && m.waiting.size && ((cur.phase === 'fight' && next.phase !== 'fight') || (next.phase === 'shop' && cur.phase !== 'shop') || next.round > cur.round)) activateWaiting(m)
+    if (next.phase !== 'gameOver' && m.waiting.size && ((before.phase === 'fight' && next.phase !== 'fight') || (next.phase === 'shop' && before.phase !== 'shop') || next.round > before.round)) activateWaiting(m)
     if (next.events.length) m.recent.push({ tick: next.tick, events: next.events })
     if (m.netMode !== 'classic' && next.tick % HOST_DELAY_EVAL_TICKS === 0) updateHostDelay(m)
     if (!f.pred && f.delay > 0) f.pred = new Predictor(localPlayer, deps.step, cloneState, deps.now)
