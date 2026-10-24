@@ -428,6 +428,8 @@ interface HostMatch {
   tickPlans: Extract<Msg, { t: 'plan' }>[]
   /** bot plans waiting for the next stream packet of lossless peers (streamEvery > 1) */
   streamPlans: Extract<Msg, { t: 'plan' }>[]
+  /** input hints waiting for the next stream packet of lossless peers: JSON [player, frames], and who sent them */
+  streamHints: { from: RemotePeer | null; json: string }[]
   recent: TickEvents[]
   /** inputs stepped since the last snapshot went out (snap.in) */
   stepped: PlayerInput[]
@@ -1292,11 +1294,15 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
   function relayHints(mt: HostMatch, player: PlayerId, frames: [number, InputCommand[]][], from: RemotePeer | null): void {
     if (deps.inputHints === false) return
     let data: string | null = null
+    let batched = false
     for (const q of peers) {
       if (q === from || !q.stream || q.matchId !== mt.id || q.playerId === null) continue
-      data ??= encode({ t: 'hint', m: mt.id, p: player, f: frames })
-      q.t.sendUnreliable(data)
+      // a lossless stream peer gets it with its next stream packet (sendStream): one message a
+      // tick instead of one per input of every other player, at most a tick later
+      if (planInStream(q)) batched = true
+      else q.t.sendUnreliable((data ??= encode({ t: 'hint', m: mt.id, p: player, f: frames })))
     }
+    if (batched) mt.streamHints.push({ from, json: JSON.stringify([player, frames]) })
   }
 
   /** Stream mode: a client wants steps from a tick (start, gap) or a keyframe (desync). */
@@ -1608,7 +1614,10 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     else m.stepped.length = 0
     for (const p of plans) m.streamPlans.push(p)
     if (streams) sendStream(m, s)
-    else m.streamPlans.length = 0
+    else {
+      m.streamPlans.length = 0
+      m.streamHints.length = 0
+    }
   }
 
   /** This peer gets the tick's bot plans inside its stream packet (sendStream sends it one). */
@@ -1666,8 +1675,15 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     const recent = Math.max(to - REDUNDANCY, h.start)
     // a step with inputs goes out the tick it is stepped; empty stretches as a heartbeat
     const plans = flush ? m.streamPlans : []
-    const content = h.hasContent(recent, to) || to % HASH_EVERY === 0 || plans.length > 0
+    const hints = flush ? m.streamHints : []
+    const content = h.hasContent(recent, to) || to % HASH_EVERY === 0 || plans.length > 0 || hints.length > 0
     const plansJson = plans.length ? encodePlans(plans) : undefined
+    // every hint but the peer's own
+    const hintsFor = (p: RemotePeer) => {
+      let json = ''
+      for (const x of hints) if (x.from !== p) json += (json ? ',' : '') + x.json
+      return json ? `[${json}]` : undefined
+    }
     for (const p of peers) {
       if (p.playerId === null || p.matchId !== m.id || !p.stream || p.keyframe) continue
       let from: number
@@ -1691,9 +1707,13 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       p.needFrom = -1
       p.sentTo.unshift(to)
       if (p.sentTo.length > 2) p.sentTo.length = 2
-      p.t.sendUnreliable(encodeStreamPacket(m.id, ++p.streamN, ackOf(p), body(from), planInStream(p) ? plansJson : undefined))
+      const inStream = planInStream(p)
+      p.t.sendUnreliable(encodeStreamPacket(m.id, ++p.streamN, ackOf(p), body(from), inStream ? plansJson : undefined, inStream ? hintsFor(p) : undefined))
     }
-    if (flush) m.streamPlans = []
+    if (flush) {
+      m.streamPlans = []
+      m.streamHints = []
+    }
   }
 
   /**
@@ -2185,8 +2205,14 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
    */
   function onStream(cm: ClientMatch, st: ClientStream, m: Extract<Msg, { t: 'is' }>): void {
     const now = deps.now()
-    // bot plans riding this packet, as a `plans` message before it would
+    // bot plans and other players' input hints riding this packet, as their own messages before it would
     if (m.p && cm.pred) for (const p of m.p) cm.pred.plan(p.p, p.n, p.f)
+    if (Array.isArray(m.x) && cm.pred) {
+      for (const x of m.x) {
+        if (!Array.isArray(x) || typeof x[0] !== 'number' || !Array.isArray(x[1])) continue
+        for (const f of x[1]) if (Array.isArray(f) && typeof f[0] === 'number' && Array.isArray(f[1])) cm.pred.hint(x[0], f[0], f[1])
+      }
+    }
     if (typeof m.to !== 'number' || typeof m.r !== 'number') return
     st.arrival.push(m.to, now)
     st.loss.track(m.n)
@@ -2675,6 +2701,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         botPlans: new Map(),
         tickPlans: [],
         streamPlans: [],
+        streamHints: [],
         recent: [],
         stepped: [],
         history: new StreamHistory(),

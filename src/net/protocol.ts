@@ -154,8 +154,11 @@ export type Msg =
       ds: number | null
     }
   | { t: 'snap'; match: number; n: number; iv: number; ack: number; ev: TickEvents[]; in?: PlayerInput[]; state: SimState }
-  /** `p`: this tick's changed bot plans, riding the packet on lossless links (else a `plans` message) */
-  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; s?: WireSlot[]; h?: [number, number]; p?: BotPlan[] }
+  /**
+   * On lossless links `p` carries the tick's changed bot plans (else a `plans` message) and `x`
+   * the other players' input hints since the last packet ([player, frames], else `hint` messages).
+   */
+  | { t: 'is'; m: number; n: number; a: number; to: number; r: number; i?: WireInput[]; c?: WirePatch[]; s?: WireSlot[]; h?: [number, number]; p?: BotPlan[]; x?: [PlayerId, [number, InputCommand[]][]][] }
   | { t: 'need'; m: number; from: number; k?: 1 }
   | { t: 'hint'; m: number; p: PlayerId; f: [number, InputCommand[]][] }
   /** A bot's complete pending schedule as of tick n; newer plans replace older future commands. */
@@ -281,8 +284,8 @@ export function encodeSnap(match: number, n: number, iv: number, ack: number, ev
  * Stream packet encoder: `body` is the JSON after the per-client fields (`"to":…,"r":…`
  * plus optional i / c / h), built once per tick and shared by every client.
  */
-export function encodeStreamPacket(match: number, n: number, ack: number, body: string, plansJson?: string): string {
-  return `{"t":"is","m":${match},"n":${n},"a":${ack},${body}${plansJson ? `,"p":${plansJson}` : ''}}`
+export function encodeStreamPacket(match: number, n: number, ack: number, body: string, plansJson?: string, hintsJson?: string): string {
+  return `{"t":"is","m":${match},"n":${n},"a":${ack},${body}${plansJson ? `,"p":${plansJson}` : ''}${hintsJson ? `,"x":${hintsJson}` : ''}}`
 }
 
 /** A reported link metric: finite, clamped to 0..1e6, else null. */

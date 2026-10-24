@@ -1802,7 +1802,7 @@ describe('stream over a lossless link', () => {
    * server's main cost being per message. Bot plans now ride the tick's stream packet, and with
    * streamEvery 2 one packet carries two 60 Hz steps; prediction must stay exact either way.
    */
-  it('carries bot plans in the stream packet, batches steps with streamEvery and never desyncs', async () => {
+  it('carries bot plans and input hints in the stream packet, batches steps with streamEvery and never desyncs', async () => {
     const counts = new Map<string, number>()
     const Native = globalThis.WebSocket
     vi.stubGlobal('WebSocket', class extends Native {
@@ -1811,6 +1811,7 @@ describe('stream over a lossless link', () => {
         this.addEventListener('message', (e) => {
           const t = typeof e.data === 'string' ? /^\{"t":"(\w+)"/.exec(e.data)?.[1] ?? '?' : 'binary'
           counts.set(t, (counts.get(t) ?? 0) + 1)
+          if (t === 'is' && (e.data as string).includes('"x":')) counts.set('is+hints', (counts.get('is+hints') ?? 0) + 1)
         })
       }
     })
@@ -1838,6 +1839,24 @@ describe('stream over a lossless link', () => {
           expect(owner.session.debug().streamDesyncs).toBe(0)
         } finally { owner.session.leave() }
       }
+      // two players: each one's inputs reach the other as hints inside the stream packets
+      const { base } = await start({}, 'dev-server', { streamEvery: 1 })
+      const a = headlessClient(base, { key: 'lossless-a', play: true })
+      const b = headlessClient(base, { key: 'lossless-b', play: true })
+      try {
+        const code = await a.online.createRoom('test')
+        await a.session.join(code)
+        await b.session.join(code)
+        a.session.updateSettings({ shopSeconds: 1, winScore: 99 })
+        await until(() => a.lobby().slots.length === 2 && a.lobby().settings?.shopSeconds === 1, 3000, 'lobby')
+        a.session.startMatch()
+        await until(() => a.shown()?.phase === 'fight' && b.shown()?.phase === 'fight', 8000, 'fight')
+        const before = { hint: counts.get('hint') ?? 0, batched: counts.get('is+hints') ?? 0 }
+        await new Promise((r) => setTimeout(r, 1500))
+        expect((counts.get('hint') ?? 0) - before.hint).toBe(0)
+        expect((counts.get('is+hints') ?? 0) - before.batched).toBeGreaterThan(10)
+        for (const c of [a, b]) expect(c.session.debug().streamDesyncs).toBe(0)
+      } finally { a.session.leave(); b.session.leave() }
     } finally { vi.unstubAllGlobals() }
   }, 30000)
 })
