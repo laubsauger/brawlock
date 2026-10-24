@@ -13,7 +13,9 @@ describe('bot scheduled decisions', () => {
     expect(bot.think(state)).toEqual([])
     const [planned] = bot.scheduled()
     expect(planned.cmds.length).toBeGreaterThan(0)
-    expect(planned.at).toBe(Math.round(bot.params.reactionDelay * TICK_HZ))
+    // the reaction delay is dithered between the whole ticks around it (controller reactionDelayTicks)
+    const exact = bot.params.reactionDelay * TICK_HZ
+    expect([Math.floor(exact), Math.ceil(exact)]).toContain(planned.at)
     for (let tick = 1; tick < planned.at; tick++) {
       state.tick = tick
       expect(bot.think(state)).toEqual([])

@@ -199,7 +199,10 @@ export class BotController implements Bot {
 
   private readonly rng: Rng
   private readonly thinkTicks: number
-  private readonly delayTicks: number
+  /** this decision's reaction delay in ticks (reactionDelayTicks) */
+  private delayTicks: number
+  /** dithers the reaction delay between whole ticks; its own stream, decisions untouched */
+  private readonly delayRng: Rng
   private queue: { at: number; cmds: InputCommand[] }[] = []
   private queueVersion = 0
   private lastTick = -1
@@ -239,7 +242,8 @@ export class BotController implements Bot {
     this.params = params
     this.rng = new Rng(botSeed(seed, player))
     this.thinkTicks = Math.max(1, ticks(params.thinkInterval))
-    this.delayTicks = Math.max(0, ticks(params.reactionDelay))
+    this.delayRng = new Rng(botSeed(seed ^ 0x0de1a7ed, player))
+    this.delayTicks = this.reactionDelayTicks()
     const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
     this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
     this.build = params.buildPlan === 'random' ? null : drawBuild(traits, params.buildPlan === 'plan' ? undefined : params.buildPlan)
@@ -270,6 +274,7 @@ export class BotController implements Bot {
 
     if (this.nextThinkTick < 0 || state.tick >= this.nextThinkTick) {
       this.nextThinkTick = state.tick + this.thinkTicks
+      this.delayTicks = this.reactionDelayTicks()
       const cmds = this.decide(state)
       if (cmds.length > 0) this.enqueue(state.tick + this.delayTicks, cmds)
     } else if (state.tick % UNSTICK_TICKS === 0) {
@@ -287,6 +292,17 @@ export class BotController implements Bot {
   private enqueue(at: number, cmds: InputCommand[]): void {
     this.queue.push({ at, cmds })
     this.queueVersion++
+  }
+
+  /**
+   * The reaction delay in whole ticks, dithered: 0.15 s is 4.5 ticks at 30 Hz, so 4 or 5 at
+   * random, averaging exactly 0.15 s. Rounding instead merged tiers whose delays round alike
+   * (Hard 0.18 and Brutal 0.15 were both 5 ticks at 30 Hz).
+   */
+  private reactionDelayTicks(): number {
+    const exact = Math.max(0, this.params.reactionDelay * TICK_HZ)
+    const whole = Math.floor(exact + 1e-9)
+    return whole + (this.delayRng.next() < exact - whole ? 1 : 0)
   }
 
   private reset(): void {

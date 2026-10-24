@@ -29,7 +29,7 @@ import {
 } from './collision'
 import { GAME_ARENA_RADIUS, OBSTACLE_ELASTICITY, OBSTACLE_MASS, ORIGINAL_TICK_SCALE, PAWN_ELASTICITY, PAWN_MASS, PAWN_RADIUS } from './config'
 import { MODIFIERS } from './modifiers'
-import { isAlive, kindOf, timeScale } from './projectiles'
+import { isAlive, kindOf, stepScale } from './projectiles'
 import { PROJECTILE_BEHAVIORS } from './spells'
 import { pawnMass } from './stats'
 import { ALLIANCE_ALLY, ALLIANCE_ENEMY, NEUTRAL_OWNER, alliance } from './teams'
@@ -127,7 +127,7 @@ export function collectBodies(state: SimState): Body[] {
   for (const p of state.projectiles) {
     if (!isAlive(p)) continue
     const cc = projectileProfile(p)
-    if (cc) out.push({ ref: { kind: 'projectile', proj: p }, id: p.id, owner: p.owner, k: p, radius: p.radius, cc, isStatic: !!p.data.static, ts: timeScale(p) })
+    if (cc) out.push({ ref: { kind: 'projectile', proj: p }, id: p.id, owner: p.owner, k: p, radius: p.radius, cc, isStatic: !!p.data.static, ts: stepScale(p) })
   }
   for (const o of state.obstacles) {
     if (o.hp > 0) out.push({ ref: { kind: 'obstacle', obstacle: o }, id: o.id, owner: NEUTRAL_OWNER, k: STATIC_KIN(o), radius: o.radius, cc: OBSTACLE_COLLIDER, isStatic: true, ts: 1 })
@@ -330,7 +330,7 @@ export function physicsStep(state: SimState): void {
   }
   for (const p of state.projectiles) {
     if (p.data.static) continue
-    const s = DT * timeScale(p)
+    const s = DT * stepScale(p)
     p.x += p.vx * s
     p.y += p.vy * s
     arenaBounds(p)
