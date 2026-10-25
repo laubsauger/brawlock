@@ -15,6 +15,8 @@ const streamEvery = Math.max(1, Math.min(4, Number(process.env.STREAM_EVERY ?? 1
 const shards = Math.max(1, Math.min(2, Number(process.env.SHARDS ?? 1) || 1))
 // PROFILE=1: CPU-profile the server in any mode (bot-cost-rooms always does)
 const profiling = mode === 'bot-cost-rooms' || process.env.PROFILE === '1'
+// PROFILE_INTERVAL_US: sampling interval (1000 = 1 ms; 10000 keeps the overhead small under load)
+const profileIntervalUs = [1000, 2000, 5000, 10000].includes(Number(process.env.PROFILE_INTERVAL_US)) ? Number(process.env.PROFILE_INTERVAL_US) : 1000
 // SEMI_SPACE_MB=32|64: V8 young-generation size for the server (fewer scavenges; Node default 16)
 const semiSpace = [16, 32, 64, 128].includes(Number(process.env.SEMI_SPACE_MB)) ? Number(process.env.SEMI_SPACE_MB) : null
 const run = `${region}-${Date.now()}`, dir = resolve(`artifacts/capacity/${run}`), remote = `/var/lib/brawlock/capacity/${run}`
@@ -81,7 +83,7 @@ try {
     console.log(JSON.stringify({ event: 'components.end', region, rows: profile.rows.length }))
   } else {
     // with several processes each writes its own profile (Node's default unique name)
-    const profiler = profiling ? `--cpu-prof --cpu-prof-interval=1000 --cpu-prof-dir='${remote}/data'${shards > 1 ? '' : ' --cpu-prof-name=cpu.cpuprofile'}` : ''
+    const profiler = profiling ? `--cpu-prof --cpu-prof-interval=${profileIntervalUs} --cpu-prof-dir='${remote}/data'${shards > 1 ? '' : ' --cpu-prof-name=cpu.cpuprofile'}` : ''
     await ssh(`systemd-run --unit='${unit}' --uid=brawlock --gid=brawlock --property=MemoryMax=${shards > 1 ? '768M' : '512M'} --property=RuntimeMaxSec=13min --property=NoNewPrivileges=yes --working-directory='${remote}' ${target.node} --max-old-space-size=384 ${semiSpace ? `--max-semi-space-size=${semiSpace}` : ''} --disable-warning=ExperimentalWarning ${profiler} '${remote}/server.mjs' '${remote}/server.json'`)
     await ssh(`${target.node} '${remote}/route.cjs' '${remote}/server.json' install`)
     let ready = false

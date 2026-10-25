@@ -36,7 +36,7 @@ const stopWorkers = async () => {
 }
 process.on('SIGINT', () => { interrupted = true }); process.on('SIGTERM', () => { interrupted = true })
 const json = async (path, options = {}) => {
-  const r = await fetch(config.base + path, { ...options, headers: { ...options.headers, ...(path.startsWith('/internal/') ? { authorization: `Bearer ${config.token}` } : {}) }, signal: AbortSignal.timeout(5000), redirect: 'error' })
+  const r = await fetch(config.base + path, { ...options, headers: { ...options.headers, ...(path.startsWith('/internal/') ? { authorization: `Bearer ${config.token}` } : {}) }, signal: AbortSignal.timeout(15_000), redirect: 'error' })
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`)
   return r.json()
 }
@@ -88,7 +88,7 @@ try {
         const begin = performance.now(), server = await json('/internal/monitoring')
         return { server, monitorRttMs: performance.now() - begin }
       })(), direct ? (async () => {
-        const begin = performance.now(), r = await fetch('https://eu.brawlock.osc.link/health', { signal: AbortSignal.timeout(5000), redirect: 'error' })
+        const begin = performance.now(), r = await fetch('https://eu.brawlock.osc.link/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' })
         if (!r.ok) throw new Error(`Control health HTTP ${r.status}`)
         await r.arrayBuffer(); return performance.now() - begin
       })() : Promise.resolve(null)])
