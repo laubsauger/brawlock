@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { frame, pushState, resetFrame } from '../../game/frame'
 import { fight, grant } from '../../sim/testkit'
 import { addModifier } from '../../sim/modifiers'
-import { CharacterBody } from './Overlays'
+import { CharacterBody, Scoreboard } from './Overlays'
 
 afterEach(resetFrame)
 
@@ -24,5 +24,24 @@ describe('character sheet effective ability values', () => {
     expect(html).toContain('Damage 157.5')
     expect(html).toContain('Range 1220')
     expect(html).toContain('Before target damage reduction.')
+  })
+})
+
+describe('scoreboard net worth', () => {
+  /** Why: net worth measures all gold a player gathered, and a purchase must not change it (it
+   * would leak a live shop phase's hidden buys). */
+  it('shows gold on hand plus gold spent, unchanged by a purchase', () => {
+    const s = fight(2)
+    s.scores[0].gold = 20
+    s.scores[0].spent = 35
+    frame.localPlayer = 0
+    pushState(s, 0)
+    const before = renderToStaticMarkup(createElement(Scoreboard))
+    expect(before).toContain('Worth')
+    expect(before).toContain('>55<')
+    s.scores[0].gold = 5
+    s.scores[0].spent = 50
+    pushState(s, 1)
+    expect(renderToStaticMarkup(createElement(Scoreboard))).toContain('>55<')
   })
 })

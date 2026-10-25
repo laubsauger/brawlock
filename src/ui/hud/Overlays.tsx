@@ -227,6 +227,9 @@ interface BoardRow {
   kills: number
   deaths: number
   dmg: number
+  /** gold on hand plus gold spent in the shop: all gold gathered (unchanged by a purchase, so it
+   * reveals nothing of a live shop phase) */
+  worth: number
   alive: boolean
   connected: boolean
 }
@@ -251,6 +254,7 @@ function readBoard(): BoardRow[] {
         kills: sc?.kills ?? 0,
         deaths: sc?.deaths ?? 0,
         dmg: Math.round(sc?.damageThisRound ?? 0),
+        worth: Math.floor((sc?.gold ?? 0) + (sc?.spent ?? 0)),
         alive: !!s.pawns.find((p) => p.owner === slot.id)?.alive,
         connected: sc?.connected ?? true,
       }
@@ -296,6 +300,9 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
               <th className="pb-2 text-right font-semibold" title="Damage dealt this round">
                 Damage
               </th>
+              <th className="pb-2 text-right font-semibold" title="Net worth: gold on hand plus gold spent in the shop">
+                Worth
+              </th>
               <th className="pb-2 pl-5 font-semibold" title="Click a player to inspect their loadout. During live shopping, current purchases stay hidden until combat.">
                 Loadout
               </th>
@@ -337,6 +344,7 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
                   {r.kills} / {r.deaths}
                 </td>
                 <td className="py-2 text-right">{r.dmg}</td>
+                <td className="py-2 text-right text-gold/90">{r.worth}</td>
                 <td className="py-1.5 pl-5">
                   <Loadout player={r.id} size={20} />
                 </td>
