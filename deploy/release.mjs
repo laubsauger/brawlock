@@ -2,7 +2,7 @@
 // Routine releases and verified source tags. No provisioning, branch publication, history reset or rollback.
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join, resolve, relative } from 'node:path'
@@ -61,14 +61,18 @@ export function validateConfig(config) {
   return config
 }
 
+/** An archived file's identity: a symlink by its target path, a regular file by its contents. */
+export function digest(file) {
+  return lstatSync(file).isSymbolicLink() ? sha256(`symlink:${readlinkSync(file)}`) : hash(file)
+}
+
 function manifest(dir) {
   const result = {}
   function walk(base) {
     for (const name of readdirSync(base).sort()) {
       const file = join(base, name), stat = lstatSync(file)
-      if (stat.isSymbolicLink()) result[relative(dir, file)] = sha256(`symlink:${readlinkSync(file)}`)
-      else if (stat.isDirectory()) walk(file)
-      else if (stat.isFile()) result[relative(dir, file)] = hash(file)
+      if (stat.isDirectory()) walk(file)
+      else if (stat.isSymbolicLink() || stat.isFile()) result[relative(dir, file)] = digest(file)
       else fail('Unexpected artifact file type')
     }
   }
@@ -270,8 +274,9 @@ export async function main(args = process.argv.slice(2)) {
   const run = (cmd, args, extra = {}) => command(cmd, args, { cwd: source, env, logDir: join(dir, 'logs'), ...extra })
   const snapshot = () => {
     for (const [file, expected] of Object.entries(state.steps.archive.files)) {
-      const target = join(source, file)
-      if (!existsSync(target) || hash(target) !== expected) fail('Frozen source changed; refusing deployment')
+      let actual = null
+      try { actual = digest(join(source, file)) } catch {}
+      if (actual !== expected) fail('Frozen source changed; refusing deployment')
     }
   }
   const helper = async (script, region, args = []) => {

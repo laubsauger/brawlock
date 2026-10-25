@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { acquireFleetLock, assertStopSafety, command, parseOptions, runStages, validateConfig, workflowMatchesConfig } from './release.mjs'
+import { acquireFleetLock, assertStopSafety, command, digest, parseOptions, runStages, validateConfig, workflowMatchesConfig } from './release.mjs'
 import { releaseMetadata, readReleaseMetadata } from '../scripts/release-version.mjs'
 import { releaseTag, tagReceipt } from './release-tags.mjs'
 import { admit } from '../scripts/release/verify-fleet.mjs'
@@ -13,6 +13,24 @@ import { admit } from '../scripts/release/verify-fleet.mjs'
 const config = JSON.parse(readFileSync(new URL('./release.config.json', import.meta.url), 'utf8'))
 const temp = () => mkdtempSync(join(tmpdir(), 'brawlock-release-test-'))
 const quiet = () => {}
+
+// Why: the archive records a tracked symlink (AGENTS.md → CLAUDE.md) by its target. The frozen-source
+// check reads it the same way, or every release with a tracked symlink refuses to deploy.
+test('reads a tracked symlink by its target path, as the archive recorded it', () => {
+  const dir = temp()
+  try {
+    writeFileSync(join(dir, 'CLAUDE.md'), 'notes')
+    symlinkSync('CLAUDE.md', join(dir, 'AGENTS.md'))
+    const archived = digest(join(dir, 'AGENTS.md'))
+    assert.notEqual(archived, digest(join(dir, 'CLAUDE.md')))
+    writeFileSync(join(dir, 'CLAUDE.md'), 'changed notes')
+    // the link itself is unchanged; the edited target is caught as its own file
+    assert.equal(digest(join(dir, 'AGENTS.md')), archived)
+    rmSync(join(dir, 'AGENTS.md'))
+    symlinkSync('README.md', join(dir, 'AGENTS.md'))
+    assert.notEqual(digest(join(dir, 'AGENTS.md')), archived)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 
 test('release metadata is explicit, valid SemVer and a real calendar date', () => {
   const expected = { version: '0.1.0-alpha.1', releaseDate: '2026-10-19', tag: 'v0.1.0-alpha.1' }
