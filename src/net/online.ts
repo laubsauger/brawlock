@@ -407,20 +407,21 @@ export class Online {
   }
 
   /** Quick play on a region: the code of an open quick-play room there (or a new one). Throws ServerError. */
-  /** `exclude`: a room code never to return (New game from that room's results). */
-  async quickPlay(regionId: string, bots?: BotDifficulty, exclude?: string): Promise<{ code: string; created: boolean }> {
-    return this.queue(regionId, 'quickplay', bots, undefined, exclude)
+  /** `exclude`: a room code never to return (New game from that room's results). `mode`: casual King of the Hill. */
+  async quickPlay(regionId: string, bots?: BotDifficulty, exclude?: string, mode?: 'hill'): Promise<{ code: string; created: boolean }> {
+    return this.queue(regionId, 'quickplay', bots, undefined, exclude, mode)
   }
 
   async rankedPlay(regionId: string, accountToken?: string): Promise<{ code: string; created: boolean }> {
     return this.queue(regionId, 'ranked', undefined, accountToken)
   }
 
-  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty, accountToken?: string, exclude?: string): Promise<{ code: string; created: boolean }> {
+  private async queue(regionId: string, kind: 'quickplay' | 'ranked', bots?: BotDifficulty, accountToken?: string, exclude?: string, mode?: 'hill'): Promise<{ code: string; created: boolean }> {
     const r = await this.usable(regionId)
     const params = new URLSearchParams()
     if (bots) params.set('bots', bots)
     if (exclude) params.set('exclude', exclude)
+    if (mode) params.set('mode', mode)
     const query = params.size ? `?${params}` : ''
     let res
     try {

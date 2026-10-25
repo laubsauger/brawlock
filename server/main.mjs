@@ -35,6 +35,13 @@ const config = {
     fill: Math.max(0, Math.min(quickSeats, Number(arg('quick-fill', 'QUICKPLAY_BOT_FILL', String(DEFAULT_SERVER_CONFIG.quickplay.fill))) || 0)),
     bots: String(arg('quick-bots', 'QUICKPLAY_BOTS', DEFAULT_SERVER_CONFIG.quickplay.bots)),
   },
+  // casual King of the Hill shares the quick-play table size and bots
+  hill: {
+    ...DEFAULT_SERVER_CONFIG.hill,
+    seats: quickSeats,
+    fill: Math.max(0, Math.min(quickSeats, Number(arg('quick-fill', 'QUICKPLAY_BOT_FILL', String(DEFAULT_SERVER_CONFIG.hill.fill))) || 0)),
+    bots: String(arg('quick-bots', 'QUICKPLAY_BOTS', DEFAULT_SERVER_CONFIG.hill.bots)),
+  },
   allowedOrigins: origins ? origins.split(',').map((s) => s.trim()).filter(Boolean) : null,
 }
 const trustProxy = ['1', 'true'].includes(String(arg('trust-proxy', 'TRUST_PROXY', '0')))

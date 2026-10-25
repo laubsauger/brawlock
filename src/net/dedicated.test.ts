@@ -961,6 +961,26 @@ describe('lobby state from room to room (P0: the host lost its Rematch button)',
   }
 
   /**
+   * Why: casual King of the Hill is a separate queue. A player who asked for it must get hill
+   * rules, and a player who asked for a regular casual game must never land in a hill room.
+   */
+  it('King of the Hill quick play: its own rooms with hill rules, never mixed with regular casual', async () => {
+    const { base } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 600_000 }, hill: { ...DEFAULT_SERVER_CONFIG.hill, fillMs: 600_000 } })
+    const ann = headlessClient(base, { key: 'ann', device: 'device-ann-h0', name: 'Ann', play: true })
+    const bob = headlessClient(base, { key: 'bob', device: 'device-bob-h0', name: 'Bob', play: true })
+    const cara = headlessClient(base, { key: 'cara', device: 'device-cara-h0', name: 'Cara', play: true })
+    const hill = await ann.online.quickPlay('test', undefined, undefined, 'hill')
+    expect(hill.created).toBe(true)
+    await ann.session.join(hill.code)
+    await until(() => ann.lobby().settings?.gameMode === 'hill', 3000, 'hill rules')
+    expect(ann.lobby().settings).toMatchObject({ gameMode: 'hill', teamMode: 'ffa', winScore: 100, hillRespawn: false })
+    const casual = await bob.online.quickPlay('test')
+    expect(casual.code).not.toBe(hill.code)
+    expect((await cara.online.quickPlay('test', undefined, undefined, 'hill')).code).toBe(hill.code)
+    ann.session.leave()
+  })
+
+  /**
    * Why: quick-play and listing state belong to one room. Left over in the next lobby,
    * it hid the host's Rematch button ("the next match starts by itself") while the
    * guests could still vote, so nobody could start the rematch (live playtest, 250026d).

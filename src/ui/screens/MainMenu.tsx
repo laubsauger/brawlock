@@ -105,7 +105,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
   const problem = regionProblem(region)
   const maintenance = region?.maintenance?.draining === true
   const regionId = region?.state === 'up' ? region.id : null
-  const [availability, setAvailability] = useState<{ region: string; casual: string } | null>(null)
+  const [availability, setAvailability] = useState<{ region: string; casual: string; hill: string } | null>(null)
   useEffect(() => {
     if (!regionId) return
     let live = true
@@ -118,9 +118,10 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
         if (live) setAvailability({
           region: regionId,
           casual: quickPlayAvailability(rooms, regionId),
+          hill: quickPlayAvailability(rooms, regionId, true),
         })
       } catch {
-        if (live) setAvailability({ region: regionId, casual: 'Open-game count unavailable' })
+        if (live) setAvailability({ region: regionId, casual: 'Open-game count unavailable', hill: 'Open-game count unavailable' })
       } finally { busy = false }
     }
     void refresh()
@@ -143,6 +144,15 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join an open game in ${region?.label}, or create a public game with bots filling empty seats`}
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
       testId="quick-play"
+    />
+    <MenuEntry
+      title="King of the Hill"
+      sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.hill ?? 'Checking open games…'}</span>}
+      note="Casual · hold the centre tiles alone for tickets · first to 100 · rich gold"
+      disabled={!playSupported || !!problem}
+      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join or create a King of the Hill game in ${region?.label}: stand on the glowing centre tiles with no enemy on them to earn tickets`}
+      onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id, 'hill')}
+      testId="hill-play"
     />
     <MenuEntry
       primary

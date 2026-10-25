@@ -255,7 +255,7 @@ export interface HostingApi {
    * fills the seats with bots (`bots`, default Brutal) after ~10 s. Casual: no global Elo.
    */
   /** `exclude`: never this room (New game from its results) */
-  quickPlay(opts?: { region?: RegionChoice; bots?: BotDifficulty; exclude?: string }): Promise<HostResult>
+  quickPlay(opts?: { region?: RegionChoice; bots?: BotDifficulty; exclude?: string; mode?: 'hill' }): Promise<HostResult>
   rankedPlay(opts?: { region?: RegionChoice }): Promise<HostResult>
   /** A region's ranked leaderboard, with this device's line. Throws ServerError. */
   leaderboard(period: Period, region?: RegionChoice): Promise<LeaderboardPage>
@@ -505,7 +505,7 @@ export const session: GameSession = {
       try {
         region = await serverRegion(opts.region)
         if (!current()) return cancelled('server')
-        code = (await online.quickPlay(region.id, opts.bots, opts.exclude)).code
+        code = (await online.quickPlay(region.id, opts.bots, opts.exclude, opts.mode)).code
       } catch (e) {
         if (!current()) return cancelled('server')
         const reason = e instanceof ServerError ? e.reason : 'error'

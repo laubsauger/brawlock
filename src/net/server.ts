@@ -16,6 +16,7 @@ import { summarizeLinks } from './monitoring'
  *   PUT    /listings/:id  heartbeat {token, ...changes} → {ok} or {ok, gone} (list again)
  *   DELETE /listings/:id  {token} → unlisted at once (listings.ts; the server never connects to it)
  *   POST /quickplay?bots=brutal → {code, created, region}: an open quick-play room, or a new one
+ *   POST /quickplay?mode=hill → the same for casual King of the Hill (its own rooms)
  *   GET  /leaderboard?period=all|week&region=&device=  {period, region, entries, you}
  *   GET  /players/:device  {found: true, ...} a device's public profile (rating, rank, totals,
  *                       recent matches), or {found: false} before its first counted match
@@ -64,6 +65,8 @@ export interface ServerConfig {
   boardReadsPerMin: number
   /** quick-play rooms: timers, table size, default bots, and match settings over the defaults */
   quickplay: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
+  /** casual King of the Hill rooms (POST /quickplay?mode=hill): same table, hill rules and richer gold */
+  hill: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
   /** Fixed-rule ranked queue; waits for humans rather than starting solo. */
   ranked: QuickPlayPolicy & { settings?: Partial<MatchSettings> }
   /** a server match shorter than this does not count for the leaderboard */
@@ -95,6 +98,12 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   quickplay: {
     fillMs: 30_000, startMs: 30_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
+  },
+  // King of the Hill (free for all, rounds style): first to 100 tickets, and more gold for a
+  // chaotic all-out game (every ticket also pays a coin to its holder)
+  hill: {
+    fillMs: 30_000, startMs: 30_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
+    settings: { gameMode: 'hill', teamMode: 'ffa', winScore: 100, hillRespawn: false, startGold: 60, roundGold: 20, killGold: 3, winGold: 4 },
   },
   ranked: {
     fillMs: 0, startMs: 60_000, nextMs: 15_000, seats: 8, fill: 8, bots: 'brutal', minHumans: 2,
@@ -148,6 +157,8 @@ export interface RoomSetup {
   rematchMs?: number
   /** a quick-play room with this bot difficulty (public, no owner) */
   quick?: BotDifficulty
+  /** a quick-play room plays casual King of the Hill (cfg.hill) */
+  hill?: boolean
   public?: boolean
 }
 
@@ -250,8 +261,8 @@ export function createServerCore(
 
   async function newRoom(code: string, setup: RoomSetup = {}): Promise<Room> {
     if (maintenance.draining) throw new Error(MAINTENANCE_NOTICE)
-    const policy = setup.ranked ? cfg.ranked : cfg.quickplay
-    const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : DEFAULT_SERVER_CONFIG.quickplay
+    const policy = setup.ranked ? cfg.ranked : setup.hill ? cfg.hill : cfg.quickplay
+    const defaults = setup.ranked ? DEFAULT_SERVER_CONFIG.ranked : setup.hill ? DEFAULT_SERVER_CONFIG.hill : DEFAULT_SERVER_CONFIG.quickplay
     const officialRewards = !!setup.quick && setup.quick === policy.bots && setup.settings === undefined
     let analyticsMatch: string | null = null
     let matchPublic = false
@@ -394,8 +405,11 @@ export function createServerCore(
     if (e.hadHuman && e.room.isQuick() && e.connections === 0 && e.room.peers() === 0 && reservedNow(e) === 0) settleAndClose(code, e)
   }
 
-  /** Public games with an available human seat or bot reservation. Fullest first, then oldest. */
-  function openQuickRoom(ranked = false, exclude: string | null = null): Entry | null {
+  /**
+   * Public games with an available human seat or bot reservation. Fullest first, then oldest.
+   * King of the Hill and the other casual games never mix: each queue joins only its own mode.
+   */
+  function openQuickRoom(ranked = false, exclude: string | null = null, hill = false): Entry | null {
     let best: Entry | null = null
     let bestN = -1
     for (const e of rooms.values()) {
@@ -403,6 +417,7 @@ export function createServerCore(
       if (e.settling) continue
       if (!r.isPublic() || r.code === exclude) continue
       if (r.isRanked() !== ranked) continue
+      if ((r.summary().gameMode === 'hill') !== hill) continue
       const phase = r.screen()
       if (ranked && phase !== 'lobby') continue
       if (phase !== 'lobby' && phase !== 'results' && phase !== 'match') continue
@@ -542,7 +557,8 @@ export function createServerCore(
         }
         if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
         // New game from a results screen: never back into the room the player just left
-        const open = openQuickRoom(ranked, url.searchParams.get('exclude'))
+        const hill = !ranked && url.searchParams.get('mode') === 'hill'
+        const open = openQuickRoom(ranked, url.searchParams.get('exclude'), hill)
         if (open) {
           if (ranked && deps.accounts && req.account) {
             const claimed = await deps.accounts.claim(req.account.id, open.room.code, req.account.connection)
@@ -567,11 +583,12 @@ export function createServerCore(
           return json(503, { error: 'The server is full right now.' }, req.origin)
         }
         const want = url.searchParams.get('bots') as BotDifficulty | null
-        const bots = ranked ? cfg.ranked.bots : want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(cfg.quickplay.bots) ? cfg.quickplay.bots : DEFAULT_SERVER_CONFIG.quickplay.bots
+        const queue = hill ? cfg.hill : cfg.quickplay
+        const bots = ranked ? cfg.ranked.bots : want && BOT_DIFFICULTIES.includes(want) ? want : BOT_DIFFICULTIES.includes(queue.bots) ? queue.bots : DEFAULT_SERVER_CONFIG.quickplay.bots
         const code = freeCode()
         creating.add(code)
         try {
-          await newRoom(code, { quick: bots, ranked })
+          await newRoom(code, { quick: bots, ranked, ...(hill ? { hill: true } : {}) })
         } catch (error) {
           if (maintenance.draining) return json(503, { error: maintenance.message ?? MAINTENANCE_NOTICE, maintenance: true }, req.origin)
           throw error
@@ -603,7 +620,7 @@ export function createServerCore(
           entry.accounts.set(req.account.id, 0)
           entry.accountReservations.set(req.account.id, deps.now() + RESERVE_MS)
         }
-        log('info', 'quickplay.create', { room: code, bots, ip: tag(req.ip) })
+        log('info', 'quickplay.create', { room: code, bots, ...(hill ? { mode: 'hill' } : {}), ip: tag(req.ip) })
         return json(201, { code, created: true, region: cfg.region }, req.origin)
       }
       if (((parts[0] === 'leaderboard' || parts[0] === 'matches') && parts.length === 1) || ((parts[0] === 'players' || parts[0] === 'profiles') && (parts.length === 2 || (parts.length === 3 && parts[2] === 'history')))) {

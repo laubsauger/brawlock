@@ -106,15 +106,15 @@ export function hostGame(listed = true): void {
   })
 }
 
-/** Casual matchmaking: an open game on the server (or a new one, filled with bots). */
-export function quickPlay(region: string): void {
+/** Casual matchmaking: an open game on the server (or a new one, filled with bots). `mode`: King of the Hill. */
+export function quickPlay(region: string, mode?: 'hill'): void {
   if (!allowPlay()) return
   tutorial.request({
-    label: 'Find a casual match',
+    label: mode === 'hill' ? 'Find a King of the Hill match' : 'Find a casual match',
     run: () => {
       lastAction = 'quick'
       setLastHost(null)
-      void session.quickPlay({ region }).then(setLastHost)
+      void session.quickPlay({ region, ...(mode ? { mode } : {}) }).then(setLastHost)
     },
   })
 }
@@ -135,7 +135,9 @@ export function newGame(): void {
   }
   lastAction = 'quick'
   setLastHost(null)
-  void session.quickPlay({ region, exclude: lobby.roomCode ?? undefined }).then(setLastHost)
+  // the same kind of casual game: King of the Hill stays King of the Hill
+  const mode = lobby.settings?.gameMode === 'hill' ? 'hill' as const : undefined
+  void session.quickPlay({ region, exclude: lobby.roomCode ?? undefined, ...(mode ? { mode } : {}) }).then(setLastHost)
 }
 
 /** Ranked keeps its fixed rules and waits for an opponent after the first-play guide. */
