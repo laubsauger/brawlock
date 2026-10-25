@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { step } from '../sim/index'
+import { step, ticks } from '../sim/index'
 import { spawnProjectile } from '../sim/projectiles'
 import { castNow, cmd, fight, grant, newMatch, pawn, place, slots as mkSlots } from '../sim/testkit'
 import type { PlayerScore, SimEvent, SimState } from '../sim/types'
@@ -52,7 +52,7 @@ describe('movement is attributed to walking or to being pushed', () => {
     const t = track(s)
     step(s, [cmd(0, { kind: 'move', x: 1000, y: 0 })])
     t.observe(s, s.events)
-    play(s, t, 119)
+    play(s, t, ticks(2) - 1)
     const st = t.statsOf(0)
     expect(st.walked).toBeGreaterThan(400) // 2 s at 210 u/s
     expect(st.walked).toBeLessThan(425)

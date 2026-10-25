@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { cloneState, hashState, step } from '../sim'
 import { cmd, fight, grant, pawn, place } from '../sim/testkit'
-import { FIREBALL_SLOT } from '../sim/config'
-import type { InputCommand, PlayerInput, SimEvent, SimState } from '../sim/types'
+import { FIREBALL_SLOT, PAWN_MOVE_SPEED } from '../sim/config'
+import { TICK_HZ, type InputCommand, type PlayerInput, type SimEvent, type SimState } from '../sim/types'
 import { EventLedger, FORCE_REBASE_TICKS, LeadClock, MAX_AHEAD_TICKS, Predictor, SNAP_DIST, type LocalFrame } from './predict'
 import { GradeTracker, LossTracker, gradeOf } from './netstats'
 
 const hashNoEvents = (s: SimState) => hashState({ ...s, events: [] })
+/** walk distance per sim tick (3.5 at 60 Hz) */
+const walk = () => PAWN_MOVE_SPEED / TICK_HZ
 
 describe('scheduled authoritative bot plans', () => {
   it('suppresses pre-attachment death history but still delivers a new confirmed death once', () => {
@@ -223,9 +225,9 @@ describe('Predictor', () => {
       const h = hostStates.get(shown[i].tick)
       if (h) maxErr = Math.max(maxErr, Math.hypot(b.x - pawn(h, 0).x, b.y - pawn(h, 0).y))
     }
-    // a reversal at walk speed (3.5 / tick) over the prediction lead
+    // a reversal at walk speed (per tick) over the prediction lead
     expect(maxErr).toBeGreaterThan(20)
-    expect(maxErr).toBeLessThan(2 * 3.5 * (res.lead + 2) + 5)
+    expect(maxErr).toBeLessThan(2 * walk() * (res.lead + 2) + 5)
     // no frame jumps by the full error: it decays over several frames
     expect(maxJump).toBeLessThan(0.4 * maxErr + 3.6)
     // the client's own pawn never needs a correction: its inputs ran at their stamps
@@ -256,8 +258,8 @@ describe('Predictor', () => {
       const h = res.hostStates.get(d.tick)
       if (h) maxErr = Math.max(maxErr, Math.hypot(pawn(d, 1).x - pawn(h, 1).x, pawn(d, 1).y - pawn(h, 1).y))
     }
-    // 2 ticks late (4 ticks of delay minus the 2-tick margin) at 3.5 units / tick, plus smoothing residue
-    expect(maxErr).toBeLessThan(25)
+    // 2 ticks late (4 ticks of delay minus the 2-tick margin) at walk speed, plus smoothing residue
+    expect(maxErr).toBeLessThan(2 * walk() + 18)
   })
 
   /**
@@ -549,10 +551,11 @@ describe('LeadClock', () => {
   it('recovers from a stall spike: lead capped, back near its target within ~2 s', () => {
     const c = new LeadClock()
     const base = 1000
-    const ahead = (now: number) => c.tickAt(now) - (now - base) / (1000 / 60)
+    const frameMs = 1000 / TICK_HZ
+    const ahead = (now: number) => c.tickAt(now) - (now - base) / frameMs
     for (let now = 0; now < 1000; now += 4) c.update(now, base, 100, 5)
     const steady = ahead(1000)
-    expect(steady).toBeCloseTo((100 + 16.7 + 10) / 16.7, 0)
+    expect(steady).toBeCloseTo((100 + frameMs + 10) / frameMs, 0)
     // a 2 s stall: jitter estimate 850 ms, RTT 330 ms
     for (let now = 1000; now < 3000; now += 4) c.update(now, base, 330, 850)
     expect(ahead(3000)).toBeLessThanOrEqual(MAX_AHEAD_TICKS - 2 + 0.01)

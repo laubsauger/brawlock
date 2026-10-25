@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MatchSettings, PlayerSlot, PlayerScore, SimEvent, SimState } from '../sim/types'
+import { ticks } from '../sim/config'
 import { _resetProfileCache, getProfile, setPreferredColor, type KV } from './profile'
 import {
   ELO_START,
@@ -106,7 +107,7 @@ function playMatch(
     { type: 'death', pawn: 100, owner: 0, killer: null },
     { type: 'damage', target: 100, amount: 100, source: 0, x: 0, y: 0, kb: 0 },
   ])
-  return t.finish({ winners, slots, scores, rounds: 3, ticks: 60 * 90 }, date)
+  return t.finish({ winners, slots, scores, rounds: 3, ticks: ticks(90) }, date)
 }
 
 describe('retained rival details', () => {
@@ -193,7 +194,7 @@ describe('local stats', () => {
     const record = tracker.finish({
       winners: [1], slots,
       scores: [score(0, 2, 8, 3), score(1, 2, 2, 4), score(2, 1, 9, 4)],
-      rounds: 6, ticks: 60 * 240,
+      rounds: 6, ticks: ticks(240),
     }, 1000)
     expect(record.outcome).toBe('loss')
     expect(record.winners).toEqual([1])

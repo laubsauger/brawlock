@@ -5,10 +5,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MatchResult } from '../game/store'
 import type { MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState } from '../sim/types'
-import { createMatch, DEFAULT_SETTINGS } from '../sim'
+import { createMatch, DEFAULT_SETTINGS, ticks } from '../sim'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
-import { LB_K, LB_RATING_START, ServerMatchTracker, deviceTag, ineligible, rateMatch, settleMatch, type FinishedMatch, type PlayerRow, type PublicBoardRow } from './leaderboard'
+import { LB_K, LB_RATING_START, RECORD_HZ, ServerMatchTracker, deviceTag, ineligible, rateMatch, settleMatch, type FinishedMatch, type PlayerRow, type PublicBoardRow } from './leaderboard'
 import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
 import { remoteRatingAuthority } from '../../server/rating-client.mjs'
 
@@ -33,7 +33,7 @@ function play(slots: PlayerSlot[], devices: Record<PlayerId, string>, rounds: { 
     t.observe(state(alive), [roundWin(r.winners)])
     if (opts.takeover && opts.takeover.afterRound === i) t.control(opts.takeover.player, 'bot')
   })
-  const result: MatchResult = { winners: rounds.at(-1)?.winners ?? [], slots, scores: [], rounds: rounds.length, ticks: opts.ticks ?? 200 * 60 }
+  const result: MatchResult = { winners: rounds.at(-1)?.winners ?? [], slots, scores: [], rounds: rounds.length, ticks: opts.ticks ?? ticks(200) }
   t.finish(result)
   return out!
 }
@@ -58,7 +58,7 @@ describe('leaderboard: what counts', () => {
     state.rankedFinal = { contenders: [0, 1], winners: [1] }
     for (const pawn of state.pawns) pawn.alive = pawn.owner === 1
     tracker.observe(state, [death(0, 1), roundWin([1])])
-    tracker.finish({ winners: [1], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    tracker.finish({ winners: [1], slots, scores: [], rounds: 6, ticks: ticks(240) })
     const match = finished as unknown as FinishedMatch
     expect(match.ranked).toHaveLength(6)
     expect(match.ranked[4].groups.flat().sort()).toEqual([0, 1, 2, 3])
@@ -91,7 +91,7 @@ describe('leaderboard: what counts', () => {
     const tracker = new ServerMatchTracker((match) => { finished = match })
     tracker.start({ slots, settings, devices: { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb', 2: 'dev-cccccccc', 3: 'dev-dddddddd' } })
     tracker.observe(state, [death(3, null, 'disconnect'), death(1, 2), death(0, 2), roundWin([2])])
-    tracker.finish({ winners: [2], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    tracker.finish({ winners: [2], slots, scores: [], rounds: 6, ticks: ticks(240) })
     const match = finished as unknown as FinishedMatch
     expect(match.ranked).toEqual([{ groups: [[2], [0], [1]], team: { 0: 0, 1: 1, 2: 2 } }])
     expect(match.seats[3]).toMatchObject({ roundsPlayed: 0, roundsWon: 0, kills: 0, deaths: 0 })
@@ -106,7 +106,7 @@ describe('leaderboard: what counts', () => {
     tracker.observe(state(), [death(1, 0), roundWin([0])])
     const renamed = slots.map((s) => s.id === 0 ? { ...s, name: 'Renamed' } : s)
     tracker.observe(state(renamed), [death(1, 0), roundWin([0])])
-    tracker.finish({ winners: [0], slots: renamed, scores: [], rounds: 2, ticks: 12000 })
+    tracker.finish({ winners: [0], slots: renamed, scores: [], rounds: 2, ticks: ticks(200) })
     expect((finished as unknown as FinishedMatch).seats.find((s) => s.player === 0)).toMatchObject({ device: 'dev-aaaaaaaa', name: 'Renamed', kills: 2, roundsPlayed: 2, roundsWon: 2 })
   })
 
@@ -134,7 +134,7 @@ describe('leaderboard: what counts', () => {
     const r = [{ deaths: [[1, 0]] as [PlayerId, PlayerId | null][], winners: [0] }]
     expect(ineligible(play([slot(0, 'human'), slot(1, 'bot')], { 0: 'dev-aaaaaaaa' }, r))).toMatch(/fewer than 2/)
     expect(ineligible(play(two, { 0: 'dev-aaaaaaaa', 1: 'dev-aaaaaaaa' }, r))).toMatch(/fewer than 2/)
-    expect(ineligible(play(two, { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, r, { ticks: 90 * 60 }))).toMatch(/shorter/)
+    expect(ineligible(play(two, { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, r, { ticks: ticks(90) }))).toMatch(/shorter/)
     // the second human left at once and a bot played the seat: no round between humans
     expect(ineligible(play(two, { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, [{ deaths: [[2, 0], [1, 0]], winners: [0] }], { takeover: { player: 1, afterRound: -1 } }))).toMatch(/no round between humans/)
     expect(ineligible(play(two, { 0: 'dev-aaaaaaaa', 1: 'dev-bbbbbbbb' }, r))).toBeNull()
@@ -172,7 +172,7 @@ describe('leaderboard: what counts', () => {
     state.round = 6
     state.rankedFinal = { contenders: [0, 1], winners: [0] }
     tracker.observe(state, [death(1, 0), roundWin([0])])
-    tracker.finish({ winners: [0], slots, scores: [], rounds: 6, ticks: 60 * 240 })
+    tracker.finish({ winners: [0], slots, scores: [], rounds: 6, ticks: ticks(240) })
     const match = finished as unknown as FinishedMatch
     expect(match.seats[0]).toMatchObject({ won: rejoined, roundsPlayed: rejoined ? 2 : 1, roundsWon: rejoined ? 2 : 1 })
     const settled = settleMatch(match, new Map(), 1000, 'eu')
@@ -198,7 +198,7 @@ describe('leaderboard: what counts', () => {
     // Repeated registration must not reset the kill the human just earned.
     tracker.join(slots[1], 'dev-bbbbbbbb')
     tracker.observe(state([1]), [death(2, 1), roundWin([1])])
-    tracker.finish({ winners: [1], slots, scores: [], rounds: 2, ticks: 200 * 60 })
+    tracker.finish({ winners: [1], slots, scores: [], rounds: 2, ticks: ticks(200) })
     const result = finished as unknown as FinishedMatch
     expect(result.seats).toHaveLength(2)
     expect(result.seats.find((s) => s.player === 1)).toMatchObject({ player: 1, device: 'dev-bbbbbbbb', name: 'P1', roundsPlayed: 1, roundsWon: 1, kills: 1, deaths: 0, won: true })
@@ -250,7 +250,7 @@ describe('leaderboard: rating', () => {
         for (const p of state.pawns) p.alive = p.owner === winner
         tracker.observe(state, [...dead.map((id) => death(id, winner)), roundWin([winner])])
       }
-      tracker.finish({ winners: [finalWinner], slots, scores: [], rounds: 5, ticks: 60 * 900 })
+      tracker.finish({ winners: [finalWinner], slots, scores: [], rounds: 5, ticks: ticks(900) })
       return finished as unknown as FinishedMatch
     }
     const d = rateMatch(tracked(0), new Map())
@@ -286,7 +286,7 @@ describe('leaderboard: rating', () => {
     const again = settleMatch(m, new Map(s.players.map((p) => [p.device, p])), 9000, 'us-west')
     if ('skipped' in again) throw new Error(again.skipped)
     expect(again.players.find((p) => p.device === 'dev-aaaaaaaa')).toMatchObject({ matches: 2, wins: 2, firstAt: 5000, lastAt: 9000 })
-    expect(settleMatch({ ...m, ticks: 60 }, new Map(), 0, 'x')).toEqual({ skipped: 'shorter than 120 s' })
+    expect(settleMatch({ ...m, ticks: RECORD_HZ }, new Map(), 0, 'x')).toEqual({ skipped: 'shorter than 120 s' })
   })
 })
 
@@ -313,15 +313,15 @@ describe('leaderboard: departed humans', () => {
   it('counts only human-controlled combat time, including a dead human watching, and makes the departure a loss', () => {
     const f = tracked()
     f.observe(0, 'shop')
-    f.observe(6000, 'shop')
-    f.observe(6000, 'fight')
+    f.observe(ticks(100), 'shop')
+    f.observe(ticks(100), 'fight')
     f.state.pawns[0].alive = false
-    f.observe(9600, 'fight')
+    f.observe(ticks(160), 'fight')
     f.tracker.control(0, 'bot')
-    f.observe(12000, 'fight')
+    f.observe(ticks(200), 'fight')
     const match = f.finish([0])
-    expect(match.seats[0]).toMatchObject({ combatTicks: 3600, forfeited: true, won: false, roundsPlayed: 0 })
-    expect(match.combatPairs).toEqual([{ players: [0, 1], ticks: 3600 }])
+    expect(match.seats[0]).toMatchObject({ combatTicks: 60 * RECORD_HZ, forfeited: true, won: false, roundsPlayed: 0 })
+    expect(match.combatPairs).toEqual([{ players: [0, 1], ticks: 60 * RECORD_HZ }])
     expect(match.ranked).toEqual([])
     expect(ineligible(match)).toBeNull()
     const result = settleMatch(match, new Map(), 1000, 'eu')
@@ -336,12 +336,13 @@ describe('leaderboard: departed humans', () => {
     const pawn = f.state.pawns[0]
     const index = pawn.slots.indexOf('fireball')
     pawn.levels[index] = 2
-    f.observe(3599)
+    f.observe(ticks(60) - 1)
     f.tracker.control(0, 'bot')
     pawn.levels[index] = 5
-    f.observe(10_000)
+    f.observe(ticks(160))
     const match = f.finish([0])
-    expect(match.seats[0].combatTicks).toBe(3599)
+    expect(match.seats[0].combatTicks).toBeLessThan(60 * RECORD_HZ)
+    expect(match.seats[0].combatTicks).toBeGreaterThan(59 * RECORD_HZ)
     expect(match.seats[0].forfeited).toBe(true)
     expect(match.seats[0].build?.levels[index]).toBe(2)
     expect(match.seats[0]).not.toHaveProperty('stats')
@@ -353,13 +354,13 @@ describe('leaderboard: departed humans', () => {
   it('rejoining before completion clears absence, resumes human time and records the human build again', () => {
     const f = tracked()
     f.observe(0, 'fight')
-    f.observe(3600)
+    f.observe(ticks(60))
     f.tracker.control(0, 'bot')
-    f.observe(7200)
+    f.observe(ticks(120))
     f.tracker.control(0, 'human')
-    f.observe(7260, 'fight', [roundWin([0])])
+    f.observe(ticks(121), 'fight', [roundWin([0])])
     const match = f.finish([0])
-    expect(match.seats[0]).toMatchObject({ combatTicks: 3660, won: true, roundsPlayed: 1 })
+    expect(match.seats[0]).toMatchObject({ combatTicks: 61 * RECORD_HZ, won: true, roundsPlayed: 1 })
     expect(match.seats[0]).not.toHaveProperty('forfeited')
     expect(rateMatch(match, new Map()).get('dev-aaaaaaaa')).toBeGreaterThan(0)
   })
@@ -367,7 +368,7 @@ describe('leaderboard: departed humans', () => {
   it('settles an empty first round after two shared minutes as losses for both, with no fabricated round or winner', () => {
     const short = tracked()
     short.observe(0, 'fight')
-    short.observe(3600)
+    short.observe(ticks(60))
     short.tracker.control(0, 'bot')
     short.tracker.control(1, 'bot')
     // Everyone left after one minute: the match does not count, so neither departure does.
@@ -375,11 +376,11 @@ describe('leaderboard: departed humans', () => {
 
     const f = tracked()
     f.observe(0, 'fight')
-    f.observe(7200)
+    f.observe(ticks(120))
     f.tracker.control(0, 'bot')
     f.tracker.control(1, 'bot')
     const match = f.finish([], true)
-    expect(match).toMatchObject({ abandoned: true, ranked: [], ticks: 7200 })
+    expect(match).toMatchObject({ abandoned: true, ranked: [], ticks: 120 * RECORD_HZ })
     expect(match.seats.map((s) => [s.forfeited, s.won, s.roundsPlayed])).toEqual([[true, false, 0], [true, false, 0]])
     expect(ineligible(match)).toBeNull()
     expect([...rateMatch(match, new Map()).values()]).toEqual([-20, -20])
@@ -403,10 +404,10 @@ describe('leaderboard: departed humans', () => {
   it('makes any departure from a counted match a loss, even one during the first shop before any fight', () => {
     const f = tracked()
     f.observe(0, 'shop')
-    f.observe(60, 'shop')
+    f.observe(ticks(1), 'shop')
     f.tracker.control(0, 'bot')
-    f.observe(600, 'fight')
-    f.observe(9000, 'fight', [roundWin([1])])
+    f.observe(ticks(10), 'fight')
+    f.observe(ticks(150), 'fight', [roundWin([1])])
     const match = f.finish([1])
     expect(match.seats[0]).toMatchObject({ forfeited: true, combatTicks: 0, roundsPlayed: 0 })
     // They shared the shop, so the leaver is rated against the human who stayed.
@@ -419,44 +420,44 @@ describe('leaderboard: departed humans', () => {
   it('ends an abandoned match’s played time when its last human left', () => {
     const f = tracked()
     f.observe(0, 'fight')
-    f.observe(6600)
+    f.observe(ticks(110))
     f.tracker.control(0, 'bot')
     f.tracker.control(1, 'bot')
-    f.observe(7800) // nobody returns; bots keep playing past two minutes
+    f.observe(ticks(130)) // nobody returns; bots keep playing past two minutes
     const match = f.finish([], true)
-    expect(match.ticks).toBe(6600)
+    expect(match.ticks).toBe(110 * RECORD_HZ)
     expect(ineligible(match)).toBe('shorter than 120 s')
     // One human still playing keeps the whole match.
     const kept = tracked()
     kept.observe(0, 'fight')
-    kept.observe(600)
+    kept.observe(ticks(10))
     kept.tracker.control(0, 'bot')
-    kept.observe(7800, 'fight', [roundWin([1])])
-    expect(kept.finish([1]).ticks).toBe(7800)
+    kept.observe(ticks(130), 'fight', [roundWin([1])])
+    expect(kept.finish([1]).ticks).toBe(130 * RECORD_HZ)
   })
 
   it('requires two unique human opponents who shared the match, never solo, duplicate or sequential bot games', () => {
     const early = tracked()
-    early.observe(0, 'fight'); early.observe(3599)
+    early.observe(0, 'fight'); early.observe(ticks(60) - 1)
     early.tracker.control(0, 'bot'); early.tracker.control(1, 'bot')
     expect(ineligible(early.finish([], true))).toMatch(/shorter/)
 
     const sequential = tracked()
     sequential.tracker.control(1, 'bot')
-    sequential.observe(0, 'fight'); sequential.observe(3600)
+    sequential.observe(0, 'fight'); sequential.observe(ticks(60))
     sequential.tracker.control(0, 'bot'); sequential.tracker.control(1, 'human')
-    sequential.observe(7200)
+    sequential.observe(ticks(120))
     sequential.tracker.control(1, 'bot')
     expect(ineligible(sequential.finish([], true))).toBe('no round between humans')
 
     const duplicate = tracked({ 0: 'dev-aaaaaaaa', 1: 'dev-aaaaaaaa' })
-    duplicate.observe(0, 'fight'); duplicate.observe(3600)
+    duplicate.observe(0, 'fight'); duplicate.observe(ticks(60))
     duplicate.tracker.control(0, 'bot'); duplicate.tracker.control(1, 'bot')
     expect(ineligible(duplicate.finish([], true))).toBe('fewer than 2 humans')
 
     const teammates = tracked(undefined, 'teams')
     teammates.state.slots[1].team = teammates.state.slots[0].team
-    teammates.observe(0, 'fight'); teammates.observe(3600)
+    teammates.observe(0, 'fight'); teammates.observe(ticks(60))
     teammates.tracker.control(0, 'bot'); teammates.tracker.control(1, 'bot')
     expect(ineligible(teammates.finish([], true))).toMatch(/shorter/)
   })
@@ -653,7 +654,7 @@ describe('one global authority and additive idempotency receipts', () => {
     const store = openLeaderboard(':memory:')
     const authority = localRatingAuthority(store, { minSeconds: 120 })
     const request = submission()
-    request.match.ticks = 60 * 90
+    request.match.ticks = 90 * RECORD_HZ
     expect(await authority.record(request)).toEqual({ status: 'unrated', reason: 'shorter than 120 s' })
     expect(await authority.record(request)).toEqual({ status: 'unrated', reason: 'shorter than 120 s' })
     expect(store.top({ period: 'all', region: null, since: 0 }, 10)).toEqual([])

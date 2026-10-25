@@ -1,7 +1,7 @@
 import { cloneState, createMatch, step as stepSim } from '../sim'
 import { DEFAULT_SETTINGS, OBSTACLE_RADII, ticks } from '../sim/config'
 import { spawnProjectile } from '../sim/projectiles'
-import { DT } from '../sim/types'
+import { DT, onTickRate } from '../sim/types'
 import type { InputCommand, PlayerInput, PlayerSlot, SimEvent, SimState, Vec2 } from '../sim/types'
 import { layerRadius } from './arenaGeom'
 import { BotController } from '../bots'
@@ -12,8 +12,12 @@ import { Rng } from '../bots/prng'
  * Only the choreography and gentle training settings belong to this render-only stage. */
 export const MENU_LAYER = 14
 export const MENU_FOCUS_ANGLE = -0.62
-const ATTACK_EVERY = 240
-const INTRO_TICKS = ticks(2)
+let ATTACK_EVERY = 0
+let INTRO_TICKS = 0
+onTickRate(() => {
+  ATTACK_EVERY = ticks(4)
+  INTRO_TICKS = ticks(2)
+})
 const PHRASE_BEATS = 8
 const FIREBALL = 0
 const SHIELD = 1
@@ -57,8 +61,8 @@ export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000
     for (const pawn of alive) { x += pawn.x; y += pawn.y }
     // Two-second tracking eases through knockbacks and deaths instead of
     // making the lens chase every projectile or switch targets abruptly.
-    focus.x += (x / alive.length - focus.x) * 0.008
-    focus.y += (y / alive.length - focus.y) * 0.008
+    focus.x += (x / alive.length - focus.x) * 0.48 * DT
+    focus.y += (y / alive.length - focus.y) * 0.48 * DT
   }
   return {
     focus,
@@ -133,10 +137,10 @@ export function createMenuStage(theme = Math.floor(Math.random() * 3), seed = 41
       }
       if (beatStart >= 0) {
         const moment = sim.tick - beatStart
-        if (answer === 'shield' && moment === 24) inputs.push(input(defender, cast(SHIELD, sim.pawns[defender])))
-        if (answer === 'sidestep' && moment === 18) inputs.push(input(defender, { kind: 'move', ...inward(defender) }))
-        if (answer === 'teleport' && moment === 32) inputs.push(input(defender, cast(TELEPORT, inward(defender))))
-        if (moment === 130) {
+        if (answer === 'shield' && moment === ticks(0.4)) inputs.push(input(defender, cast(SHIELD, sim.pawns[defender])))
+        if (answer === 'sidestep' && moment === ticks(0.3)) inputs.push(input(defender, { kind: 'move', ...inward(defender) }))
+        if (answer === 'teleport' && moment === ticks(0.53)) inputs.push(input(defender, cast(TELEPORT, inward(defender))))
+        if (moment === ticks(2.17)) {
           // A quiet reset of the exercise, rather than a match that escalates into deaths.
           for (const pawn of sim.pawns) {
             pawn.hp = pawn.maxHp
@@ -144,7 +148,7 @@ export function createMenuStage(theme = Math.floor(Math.random() * 3), seed = 41
             inputs.push(input(pawn.owner, { kind: 'move', ...homes[pawn.owner] }))
           }
         }
-        if (moment === 210) {
+        if (moment === ticks(3.5)) {
           for (const pawn of sim.pawns) {
             const rival = sim.pawns[1 - pawn.owner]
             pawn.facing = Math.atan2(rival.y - pawn.y, rival.x - pawn.x)
@@ -198,19 +202,20 @@ export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 
 
   // A paired opening, then individual replies with breathing room. All ten
   // release once per 31-second phrase; no charge is abandoned or held forever.
+  // Start, duration and cycle in seconds.
   const gestures = [
-    { player: 0, spell: 'fireball', start: 24, duration: 42 },
-    { player: 9, spell: 'homing', start: 66, duration: 48 },
-    { player: 2, spell: 'homing', start: 210, duration: 42 },
-    { player: 7, spell: 'fireball', start: 390, duration: 36 },
-    { player: 4, spell: 'fireball', start: 570, duration: 42 },
-    { player: 5, spell: 'homing', start: 750, duration: 48 },
-    { player: 1, spell: 'fireball', start: 930, duration: 36 },
-    { player: 8, spell: 'homing', start: 1110, duration: 42 },
-    { player: 3, spell: 'homing', start: 1290, duration: 48 },
-    { player: 6, spell: 'fireball', start: 1470, duration: 36 },
+    { player: 0, spell: 'fireball', start: 0.4, duration: 0.7 },
+    { player: 9, spell: 'homing', start: 1.1, duration: 0.8 },
+    { player: 2, spell: 'homing', start: 3.5, duration: 0.7 },
+    { player: 7, spell: 'fireball', start: 6.5, duration: 0.6 },
+    { player: 4, spell: 'fireball', start: 9.5, duration: 0.7 },
+    { player: 5, spell: 'homing', start: 12.5, duration: 0.8 },
+    { player: 1, spell: 'fireball', start: 15.5, duration: 0.6 },
+    { player: 8, spell: 'homing', start: 18.5, duration: 0.7 },
+    { player: 3, spell: 'homing', start: 21.5, duration: 0.8 },
+    { player: 6, spell: 'fireball', start: 24.5, duration: 0.6 },
   ] as const
-  const cycle = 1860
+  const cycle = 31
   return {
     focus: at(0, -30),
     out,
@@ -230,16 +235,17 @@ export function createMenuTableau(theme = Math.floor(Math.random() * 3), seed = 
           sim.projectiles.splice(i, 1)
         }
       }
-      const moment = sim.tick % cycle
+      const moment = sim.tick % ticks(cycle)
       for (const gesture of gestures) {
         const pawn = sim.pawns[gesture.player]
-        const age = moment - gesture.start
+        const age = moment - ticks(gesture.start)
+        const duration = ticks(gesture.duration)
         if (age === 0) {
-          pawn.cast = { slot: 0, spell: gesture.spell, ticksLeft: gesture.duration, ...target, started: true }
-          sim.events.push({ type: 'castStart', pawn: pawn.id, spell: gesture.spell, ticks: gesture.duration })
-        } else if (age > 0 && age < gesture.duration) {
-          pawn.cast!.ticksLeft = gesture.duration - age
-        } else if (age === gesture.duration) {
+          pawn.cast = { slot: 0, spell: gesture.spell, ticksLeft: duration, ...target, started: true }
+          sim.events.push({ type: 'castStart', pawn: pawn.id, spell: gesture.spell, ticks: duration })
+        } else if (age > 0 && age < duration) {
+          pawn.cast!.ticksLeft = duration - age
+        } else if (age === duration) {
           pawn.cast = null
           sim.events.push({ type: 'cast', pawn: pawn.id, spell: gesture.spell, ...target, level: 1 })
           const dx = target.x - pawn.x

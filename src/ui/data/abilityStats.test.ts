@@ -8,7 +8,7 @@ import { fireSpell } from '../../sim/pawn'
 import { addModifier, tickModifiers } from '../../sim/modifiers'
 import { inspectedLoadout, rememberRevealedLoadouts, resetRevealedLoadouts } from '../../game/inspect'
 import { levelStats } from './catalog'
-import { ticks } from '../../sim/config'
+import { secondsOf, ticks } from '../../sim/config'
 import { snowballProjectile } from '../../sim/spells/snowball'
 
 function ownerContext(s: ReturnType<typeof fight>, player = 0): AbilityStatContext {
@@ -137,7 +137,7 @@ describe('effective ability stats follow the actual cast and explicit owner cont
       const slot = grant(s, 0, id, 3)
       fireSpell(s, s.pawns[0], slot, 10000, 0)
       const projectile = s.projectiles.at(-1)!
-      const actualTravel = Math.hypot(projectile.vx, projectile.vy) * projectile.ticksLeft / 60
+      const actualTravel = Math.hypot(projectile.vx, projectile.vy) * secondsOf(projectile.ticksLeft)
       expect(val(abilityStats(id, 3, ownerContext(s)), 'Range'), id).toBe(String(Math.round(actualTravel)))
     }
     expect(val(abilityStats('boomerang', 3, ownerContext(s)), 'Range')).toBe(String(Math.round(attr(spellDef('boomerang')!, 'range', 3) * rangeFactor(s, 0))))
@@ -152,7 +152,7 @@ describe('effective ability stats follow the actual cast and explicit owner cont
       fireSpell(s, s.pawns[0], slot, 10000, 0)
       const created = id === 'warpzone' ? s.projectiles.at(-1)! : s.obstacles.at(-1)!
       expect(created.ticksLeft).toBeDefined()
-      expect(seconds(abilityStats(id, 2, ownerContext(s)), 'Duration')).toBeCloseTo(created.ticksLeft! / 60, 2)
+      expect(seconds(abilityStats(id, 2, ownerContext(s)), 'Duration')).toBeCloseTo(secondsOf(created.ticksLeft!), 2)
     }
     expect(abilityStats('meteor', 2, ownerContext(s)).some((v) => v.label === 'Duration')).toBe(false)
   })
@@ -162,7 +162,7 @@ describe('effective ability stats follow the actual cast and explicit owner cont
     s.scores[0].masteries.duration = 6
     grant(s, 0, 'cursed_ring', 2)
     grant(s, 0, 'pocket_watch', 1)
-    addModifier(s, s.pawns[0], 'fixture', 60, 0, { debuff: 0.1 })
+    addModifier(s, s.pawns[0], 'fixture', ticks(1), 0, { debuff: 0.1 })
     const context = ownerContext(s)
     expect(seconds(abilityStats('pact', 1, context), 'Slow lasts')).toBeCloseTo(6 * debuffFactor(s.pawns[0]), 2)
     expect(seconds(abilityStats('redirector', 1, context), 'Penalty lasts')).toBeCloseTo(8 * debuffFactor(s.pawns[0]), 2)

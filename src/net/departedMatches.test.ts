@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { createBot } from '../bots'
-import { createMatch, DEFAULT_SETTINGS, step } from '../sim'
+import { createMatch, DEFAULT_SETTINGS, secondsOf, step } from '../sim'
 import { killPawn } from '../sim/combat'
 import type { SimState } from '../sim/types'
 import { createServerCore, DEFAULT_SERVER_CONFIG, type ServerCore } from './server'
@@ -129,11 +129,13 @@ describe('dedicated departure settlement', () => {
     const { room, a, b } = await f.battle()
     await f.advance(121_000)
     const fireball = f.state().pawns[0].slots.indexOf('fireball')
+    // At least one sim step at any rate, so the tracker sees each build.
+    const tickMs = Math.ceil(secondsOf(1) * 1000)
     f.state().pawns[0].levels[fireball] = 2
-    await f.advance(20)
+    await f.advance(tickMs)
     a.close()
     f.state().pawns[0].levels[fireball] = 5
-    await f.advance(20)
+    await f.advance(tickMs)
     f.win(1)
     await f.advance(4000)
     await vi.waitFor(() => expect(room.screen()).toBe('results'))

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { hashState, isLocationSafeAtLayer } from '../sim'
+import { secondsOf, ticks } from '../sim/config'
 import type { SimEvent, SimState } from '../sim/types'
 import { createMenuBattle, createMenuStage, createMenuTableau, MENU_LAYER } from './menuStage'
 
@@ -12,9 +13,12 @@ describe('menu battle', () => {
     let deaths = 0
     let rounds = 0
     let previousTick = 0
-    for (let i = 0; i < 180 * 60; i++) {
+    // until the first round is won: how long eight bots take to eliminate seven depends on the
+    // seed and the bots' builds (164-181 s across seeds), so no fixed window
+    let steps = 0
+    for (; steps < ticks(240) && rounds === 0; steps++) {
       const { state, events } = stage.step()
-      if (i === 0) expect(state.phase).toBe('fight')
+      if (steps === 0) expect(state.phase).toBe('fight')
       expect(state.tick).toBeGreaterThan(previousTick)
       previousTick = state.tick
       expect(state.slots.every((slot) => slot.kind === 'bot' && ['brutal', 'uber'].includes(slot.difficulty!))).toBe(true)
@@ -30,7 +34,7 @@ describe('menu battle', () => {
     expect(damage).toBeGreaterThan(100)
     expect(deaths).toBeGreaterThanOrEqual(7)
     expect(rounds).toBeGreaterThanOrEqual(1)
-    expect(moving / (180 * 60)).toBeGreaterThan(0.85)
+    expect(moving / steps).toBeGreaterThan(0.85)
   })
 
   it('keeps independent seeded battles and snapshots detached from callers', () => {
@@ -55,7 +59,7 @@ describe('menu battle', () => {
     let roundWins = 0
     // until a match has ended and a fresh one started: how soon one of eight bots wins three
     // rounds depends on the seed and the bots' builds, so no fixed window
-    for (let i = 0; i < 3600 * 60 && (freshMatches === 0 || roundWins < 6); i++) {
+    for (let i = 0; i < ticks(3600) && (freshMatches === 0 || roundWins < 6); i++) {
       const frame = stage.step()
       if (tick && frame.state.tick - tick > 1) freshMatches++
       if (frame.state.tick <= tick) throw new Error('Menu render timeline reversed')
@@ -73,7 +77,7 @@ function watch(seconds: number, theme = 0, seed = 41) {
   let last: SimState | null = null
   let activeTicks = 0
   let maxProjectiles = 0
-  for (let tick = 0; tick < seconds * 60; tick++) {
+  for (let tick = 0; tick < ticks(seconds); tick++) {
     const frame = stage.step()
     last = frame.state
     for (const event of frame.events) events.push({ tick: last.tick, event })
@@ -103,31 +107,31 @@ describe('menu sparring stage', () => {
     const shots = result.events.filter(({ event }) => event.type === 'cast' && event.spell === 'fireball')
     expect(shots).toHaveLength(8)
     for (let index = 1; index < shots.length; index++) {
-      expect(shots[index].tick - shots[index - 1].tick).toBeGreaterThanOrEqual(238)
-      expect(shots[index].tick - shots[index - 1].tick).toBeLessThanOrEqual(242)
+      expect(shots[index].tick - shots[index - 1].tick).toBeGreaterThanOrEqual(ticks(4) - ticks(1 / 30))
+      expect(shots[index].tick - shots[index - 1].tick).toBeLessThanOrEqual(ticks(4) + ticks(1 / 30))
       expect((shots[index].event as Extract<SimEvent, { type: 'cast' }>).pawn)
         .not.toBe((shots[index - 1].event as Extract<SimEvent, { type: 'cast' }>).pawn)
     }
     const victims = new Set(result.events.flatMap(({ event }) => event.type === 'damage' ? [event.target] : []))
     expect(victims.size).toBe(2)
-    expect(result.activeTicks / (32 * 60)).toBeLessThan(0.5)
+    expect(result.activeTicks / ticks(32)).toBeLessThan(0.5)
   })
 
   it('really reflects a shot back into its caster and evades shots by walking and Teleport', () => {
     const { events } = watch(22)
     const reflect = events.find(({ event }) => event.type === 'shieldReflect')!
     expect(reflect.event).toMatchObject({ reflected: true, stolen: true })
-    expect(events.some(({ tick, event }) => tick > reflect.tick && tick < reflect.tick + 60
+    expect(events.some(({ tick, event }) => tick > reflect.tick && tick < reflect.tick + ticks(1)
       && event.type === 'damage' && event.source === 0 && event.target === 2)).toBe(true)
     // Third shot: the defender walks inward after the shot is launched, clearing its path.
-    expect(events.some(({ tick, event }) => tick >= 600 && tick < 730 && event.type === 'damage')).toBe(false)
+    expect(events.some(({ tick, event }) => tick >= ticks(10) && tick < ticks(12.17) && event.type === 'damage')).toBe(false)
     const walking = createMenuStage(0, 41)
     let beforeWalk = { x: 0, y: 0 }
     let afterWalk = { x: 0, y: 0 }
-    for (let tick = 1; tick <= 720; tick++) {
+    for (let tick = 1; tick <= ticks(12); tick++) {
       const pawn = walking.step().state.pawns[1]
-      if (tick === 600) beforeWalk = { x: pawn.x, y: pawn.y }
-      if (tick === 720) afterWalk = { x: pawn.x, y: pawn.y }
+      if (tick === ticks(10)) beforeWalk = { x: pawn.x, y: pawn.y }
+      if (tick === ticks(12)) afterWalk = { x: pawn.x, y: pawn.y }
     }
     expect(Math.hypot(afterWalk.x - beforeWalk.x, afterWalk.y - beforeWalk.y)).toBeGreaterThan(150)
     const teleport = events.find(({ event }) => event.type === 'teleport')!
@@ -135,7 +139,7 @@ describe('menu sparring stage', () => {
     if (teleport.event.type === 'teleport') {
       expect(Math.hypot(teleport.event.toX - teleport.event.fromX, teleport.event.toY - teleport.event.fromY)).toBeCloseTo(180, 0)
     }
-    expect(events.some(({ tick, event }) => tick >= 1080 && tick < 1210 && event.type === 'damage')).toBe(false)
+    expect(events.some(({ tick, event }) => tick >= ticks(18) && tick < ticks(20.17) && event.type === 'damage')).toBe(false)
     expect(events.some(({ event }) => event.type === 'death')).toBe(false)
   })
 
@@ -147,14 +151,14 @@ describe('menu sparring stage', () => {
     expect(events.filter(({ event }) => event.type === 'cast' && event.spell === 'fireball')).toHaveLength(22)
     expect(events.filter(({ event }) => event.type === 'shieldReflect')).toHaveLength(2)
     expect(events.filter(({ event }) => event.type === 'teleport')).toHaveLength(3)
-    expect(activeTicks / (90 * 60)).toBeLessThan(0.5)
+    expect(activeTicks / ticks(90)).toBeLessThan(0.5)
   })
 
   it('is deterministic and never mutates emitted snapshots or retains caller mutations', () => {
     const stage = createMenuStage(1, 19)
     const first = stage.step()
     const original = JSON.stringify(first)
-    for (let tick = 0; tick < 450; tick++) stage.step()
+    for (let tick = 0; tick < ticks(7.5); tick++) stage.step()
     expect(JSON.stringify(first)).toBe(original)
     first.state.pawns[0].x = 99999
     first.state.pawns[0].slots.fill(null)
@@ -184,7 +188,7 @@ describe('menu coven rehearsal', () => {
       const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / (dx * dx + dy * dy)))
       return Math.hypot(point.x - from.x - t * dx, point.y - from.y - t * dy)
     }
-    for (let tick = 0; tick < 90 * 60; tick++) {
+    for (let tick = 0; tick < ticks(90); tick++) {
       const { state, events } = stage.step()
       expect(state.pawns).toHaveLength(10)
       expect(state.phase).toBe('fight')
@@ -205,8 +209,8 @@ describe('menu coven rehearsal', () => {
         } else if (event.type === 'cast') {
           const start = started.get(event.pawn)!
           expect(state.tick - start.tick).toBe(start.duration)
-          expect(start.duration).toBeGreaterThanOrEqual(36)
-          expect(start.duration).toBeLessThanOrEqual(48)
+          expect(secondsOf(start.duration)).toBeGreaterThanOrEqual(0.6)
+          expect(secondsOf(start.duration)).toBeLessThanOrEqual(0.8)
           started.delete(event.pawn)
           performers.add(event.pawn)
           releases++
@@ -244,7 +248,8 @@ describe('menu coven rehearsal', () => {
     }
     expect(performers.size).toBe(10)
     expect(peakActive).toBe(2)
-    expect(quietTicks / (90 * 60)).toBeGreaterThan(0.45)
+    // sampled once per tick, a flight counts up to a tick past its landing: 0.453 at 60 Hz, 0.450 at 30
+    expect(quietTicks / ticks(90)).toBeGreaterThan(0.44)
     expect(releases).toBeGreaterThanOrEqual(30)
     expect(releases - landings).toBeLessThanOrEqual(2)
     expect(flights.size).toBeLessThanOrEqual(2)
@@ -257,14 +262,14 @@ describe('menu coven rehearsal', () => {
     b.step()
     const original = JSON.stringify(frame)
     const retained = frame
-    for (let tick = 0; tick < 70; tick++) {
+    for (let tick = 0; tick < ticks(1.17); tick++) {
       frame = a.step()
       b.step()
     }
     expect(frame.state.projectiles.length).toBeGreaterThan(0)
     const inFlight = frame
     const flightOriginal = JSON.stringify(inFlight)
-    for (let tick = 0; tick < 120; tick++) {
+    for (let tick = 0; tick < ticks(2); tick++) {
       a.step()
       b.step()
     }
@@ -273,7 +278,7 @@ describe('menu coven rehearsal', () => {
     inFlight.state.pawns[0].x = 99999
     inFlight.state.projectiles[0].x = 99999
     inFlight.events.length = 0
-    for (let tick = 0; tick < 1800; tick++) {
+    for (let tick = 0; tick < ticks(30); tick++) {
       const left = a.step()
       const right = b.step()
       expect(hashState(left.state)).toBe(hashState(right.state))

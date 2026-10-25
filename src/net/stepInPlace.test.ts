@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BotController } from '../bots'
-import { DEFAULT_SETTINGS, createMatch, step } from '../sim'
+import { DEFAULT_SETTINGS, createMatch, step, ticks as toTicks } from '../sim'
 import { cloneState, hashState } from '../sim/snapshot'
 import type { BotDifficulty, PlayerInput, PlayerSlot, SimEvent } from '../sim/types'
 import { EVENT_REDUNDANCY_TICKS } from './protocol'
@@ -22,7 +22,9 @@ describe('stepping the match state in place', () => {
       const bots = diffs.map((d, id) => new BotController(id, d, seed))
       const kept: { events: SimEvent[]; json: string; tick: number }[] = []
       let ticks = 0
-      while (inPlace.phase !== 'gameOver' && ticks < 60 * 60 * 8) {
+      // eight minutes of play
+      const maxTicks = toTicks(8 * 60)
+      while (inPlace.phase !== 'gameOver' && ticks < maxTicks) {
         const inputs: PlayerInput[] = []
         for (const b of bots) {
           const cmds = b.think(inPlace)

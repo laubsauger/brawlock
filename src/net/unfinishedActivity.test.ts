@@ -7,10 +7,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { openLeaderboard } from '../../server/leaderboard-store.mjs'
 import { removeDir, tempDir } from '../../server/test-dir.mjs'
-import { createMatch, DEFAULT_SETTINGS } from '../sim'
+import { createMatch, DEFAULT_SETTINGS, ticks } from '../sim'
 import type { PlayerId, PlayerSlot, SimEvent } from '../sim/types'
 import { mergeRecordedDetail, type RecordedProfileDetail } from '../game/stats'
-import { ServerMatchTracker, unfinishedActivity, type FinishedMatch } from './leaderboard'
+import { RECORD_HZ, ServerMatchTracker, unfinishedActivity, type FinishedMatch } from './leaderboard'
 import { localRatingAuthority, validRatingSubmission, type RatingSubmission } from './ratingAuthority'
 
 const slots: PlayerSlot[] = [
@@ -50,14 +50,14 @@ function tracked(devices: Record<PlayerId, string> = { 0: A, 1: B }, opts: { par
 function interruptedMatch(): FinishedMatch {
   const f = tracked()
   f.at(0)
-  f.at(60, [f.hit(0, 2, 10)])
+  f.at(ticks(1), [f.hit(0, 2, 10)])
   f.tracker.control(0, 'bot')
   f.tracker.control(0, 'bot')
-  f.at(120, [f.hit(0, 2, 100), f.kill(2, 0)])
+  f.at(ticks(2), [f.hit(0, 2, 100), f.kill(2, 0)])
   f.tracker.control(0, 'human')
   f.tracker.control(0, 'human')
-  f.at(180, [f.hit(0, 1, 7)])
-  f.at(240, [f.kill(1, 0), f.win([0])])
+  f.at(ticks(3), [f.hit(0, 1, 7)])
+  f.at(ticks(4), [f.kill(1, 0), f.win([0])])
   return f.finish([0])
 }
 
@@ -73,8 +73,8 @@ describe('server tracker: human-controlled pieces only', () => {
     expect(alpha).not.toHaveProperty('stats')
     // 10 + 7 by the human; the bot's 100 damage, kill and first blood are excluded.
     expect(alpha.partialStats).toMatchObject({ damageDealt: 17, killsByCause: { fireball: 1 }, firstBlood: false })
-    // Repeated control notices did not open a second piece: 60 + 60 + 60 human ticks.
-    expect(alpha.controlTicks).toBe(180)
+    // Repeated control notices did not open a second piece: 1 + 1 + 1 human seconds.
+    expect(alpha.controlTicks).toBe(3 * RECORD_HZ)
     const bravo = m.seats.find((s) => s.player === 1)!
     expect(bravo.stats).toMatchObject({ damageTaken: 7 })
     expect(bravo).not.toHaveProperty('partialStats')
@@ -85,14 +85,14 @@ describe('server tracker: human-controlled pieces only', () => {
     f.at(0)
     f.tracker.control(0, 'bot')
     f.tracker.control(0, 'human')
-    f.at(60, [f.kill(2, 0)])
+    f.at(ticks(1), [f.kill(2, 0)])
     expect(f.finish([0]).seats[0].partialStats).toMatchObject({ firstBlood: true, killsByCause: { fireball: 1 } })
   })
 
   it('hands an aborted match its activity exactly once, with no outcome, then starts the next match clean', async () => {
     const f = tracked()
     f.at(0)
-    f.at(600, [f.hit(1, 0, 5)])
+    f.at(ticks(10), [f.hit(1, 0, 5)])
     f.tracker.abort()
     f.tracker.abort() // room teardown aborts again
     f.finish([1]) // nothing to finish any more
@@ -100,20 +100,20 @@ describe('server tracker: human-controlled pieces only', () => {
     expect(f.done).toHaveLength(0)
     expect(f.aborted).toHaveLength(1)
     const m = f.aborted[0]
-    expect(m).toMatchObject({ aborted: true, ranked: [], ticks: 600 })
+    expect(m).toMatchObject({ aborted: true, ranked: [], ticks: 10 * RECORD_HZ })
     expect(m.seats.every((s) => s.won === false && !('stats' in s) && s.forfeited === undefined)).toBe(true)
     expect(m.seats.find((s) => s.player === 1)?.partialStats).toMatchObject({ damageDealt: 5 })
-    expect(m.seats.find((s) => s.player === 1)?.controlTicks).toBe(600)
+    expect(m.seats.find((s) => s.player === 1)?.controlTicks).toBe(10 * RECORD_HZ)
 
     // A new start while a match is still running flushes that match first, once.
     f.tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: A, 1: B } })
     f.at(0)
-    f.at(300, [f.hit(0, 1, 9)])
+    f.at(ticks(5), [f.hit(0, 1, 9)])
     f.tracker.start({ slots, settings: DEFAULT_SETTINGS, devices: { 0: A, 1: B } })
     await settle()
     expect(f.aborted).toHaveLength(2)
     f.at(0)
-    f.at(300, [f.win([0])])
+    f.at(ticks(5), [f.win([0])])
     const next = f.finish([0])
     // The flushed match's damage does not leak into the next one.
     expect(next.seats[0].stats?.damageDealt).toBe(0)
@@ -127,7 +127,7 @@ describe('server tracker: human-controlled pieces only', () => {
     empty.tracker.abort()
     const off = tracked(undefined, { partial: false })
     off.at(0)
-    off.at(600, [off.hit(0, 1, 5)])
+    off.at(ticks(10), [off.hit(0, 1, 5)])
     off.tracker.control(0, 'bot')
     const m = off.finish([1])
     expect(m.seats[0]).not.toHaveProperty('partialStats')
@@ -170,7 +170,7 @@ describe('authority: activity joins the totals, never the results', () => {
   it('folds an aborted game once, through reopen, with no player row, loss, history or Elo', async () => {
     const f = tracked()
     f.at(0)
-    f.at(3600, [f.hit(1, 0, 5), f.hit(0, 1, 4)])
+    f.at(ticks(60), [f.hit(1, 0, 5), f.hit(0, 1, 4)])
     f.tracker.abort()
     await settle()
     const request = submission(f.aborted[0], 'aborted-match-0001')

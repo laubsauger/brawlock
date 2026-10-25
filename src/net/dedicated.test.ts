@@ -22,6 +22,7 @@ import { createMemoryNet } from './memory'
 import { Lister, p2pListingTarget } from './lister'
 import { validMatchHistory, validGlobalMatches } from './matchHistory'
 import type { ChatLine } from './chat'
+import { ticks as toTicks } from '../sim/config'
 
 /** what people said: the room's join / leave lines left out */
 const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
@@ -1821,7 +1822,7 @@ describe('stream over a lossless link', () => {
   /**
    * Why: over a WebSocket (TCP) the loss repeats of the raw P2P channel were pure overhead, the
    * server's main cost being per message. Bot plans now ride the tick's stream packet, and with
-   * streamEvery 2 one packet carries two 60 Hz steps; prediction must stay exact either way.
+   * streamEvery 2 one packet carries two steps; prediction must stay exact either way.
    */
   it('carries bot plans and input hints in the stream packet, batches steps with streamEvery and never desyncs', async () => {
     const counts = new Map<string, number>()
@@ -1851,7 +1852,8 @@ describe('stream over a lossless link', () => {
           await new Promise((r) => setTimeout(r, 1500))
           const ticks = owner.session.debug().streamTick - before.tick
           const packets = (counts.get('is') ?? 0) - before.is
-          expect(ticks).toBeGreaterThan(200)
+          // at least half the steps of 1.5 s at the test's time scale
+          expect(ticks).toBeGreaterThan(toTicks(1.5) * TIME_SCALE / 2)
           // bots act nearly every tick: one packet a tick, or one every second tick
           expect(packets / ticks).toBeGreaterThan(every === 1 ? 0.8 : 0.4)
           expect(packets / ticks).toBeLessThan(every === 1 ? 1.05 : 0.55)

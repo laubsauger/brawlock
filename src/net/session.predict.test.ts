@@ -9,17 +9,20 @@ import { createBot } from '../bots'
 import { FIREBALL_SLOT, cloneState, createMatch, hashState, step } from '../sim'
 import { killPawn } from '../sim/combat'
 import { startRound } from '../sim/mode'
-import { ticks } from '../sim/config'
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, SimEvent, SimState, SpellId } from '../sim/types'
+import { PAWN_MOVE_SPEED, ticks } from '../sim/config'
+import { TICK_HZ, type InputCommand, type MatchSettings, type PlayerId, type PlayerInput, type SimEvent, type SimState, type SpellId } from '../sim/types'
 import type { Bot } from '../bots'
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import type { NetGradeEvent } from './netstats'
 import { MAX_AHEAD_TICKS, eventKey } from './predict'
-import { createSession, type NetMode, type SessionDeps } from './session'
+import { HOST_DELAY_CAP_TICKS, createSession, type NetMode, type SessionDeps } from './session'
 import type { NetFactory, Transport } from './transport'
 
-const DT = 1000 / 60
+/** one sim tick, ms */
+const DT = 1000 / TICK_HZ
+/** walk distance per sim tick (3.5 at 60 Hz) */
+const WALK = PAWN_MOVE_SPEED / TICK_HZ
 
 const SETTINGS: MatchSettings = {
   teamMode: 'ffa',
@@ -337,8 +340,8 @@ describe('spectator wagers over the confirmed input stream', () => {
       expect(final.scores.slice(0, 3).map((s) => s.gold)).toEqual([30, 30, 29])
       const truth = new Map(r.host.auth.map((s) => [s.tick, noEventsHash(s)]))
       for (const peer of r.clients) {
-        const confirmed = peer.auth.filter((s) => s.tick > 250)
-        expect(confirmed.length).toBeGreaterThan(200)
+        const confirmed = peer.auth.filter((s) => s.tick > ticks(4))
+        expect(confirmed.length).toBeGreaterThan(ticks(3))
         for (const s of confirmed) expect(noEventsHash(s)).toBe(truth.get(s.tick))
         expect(peer.session.debug().streamDesyncs).toBe(0)
       }
@@ -388,7 +391,7 @@ describe('dedicated bot prediction', () => {
       for (let i = 1; i < client.shown.length; i++) {
         const s = client.shown[i].state
         const t = truth.get(s.tick)
-        if (!t || s.tick < 90) continue
+        if (!t || s.tick < ticks(1.5)) continue
         const p = pawnOf(s, 1)
         const q = pawnOf(t, 1)
         error += Math.hypot(p.x - q.x, p.y - q.y)
@@ -397,7 +400,7 @@ describe('dedicated bot prediction', () => {
         if (prev.tick + 1 === s.tick) maxStep = Math.max(maxStep, Math.hypot(p.x - pawnOf(prev, 1).x, p.y - pawnOf(prev, 1).y))
       }
       metrics.push({ error: error / count, ownMs, maxStep })
-      expect(count).toBeGreaterThan(250)
+      expect(count).toBeGreaterThan(ticks(4))
       expect(client.session.debug().streamDesyncs).toBe(0)
       host.session.leave()
       client.session.leave()
@@ -405,7 +408,7 @@ describe('dedicated bot prediction', () => {
     console.log('[bot turns 160ms]', JSON.stringify({ withoutPlans: metrics[0], withPlans: metrics[1] }))
     expect(metrics[1].error).toBeLessThan(metrics[0].error * 0.5)
     expect(metrics[1].maxStep).toBeLessThan(metrics[0].maxStep)
-    expect(metrics[1].ownMs).toBeLessThanOrEqual(1000 / 60)
+    expect(metrics[1].ownMs).toBeLessThanOrEqual(DT)
   })
 })
 
@@ -497,10 +500,10 @@ describe('predict mode: authority and convergence', () => {
 
     const hostHash = new Map(host.auth.map((s) => [s.tick, noEvents(s)]))
     const comparable = client.shown.filter((x) => hostHash.has(x.state.tick))
-    expect(comparable.length).toBeGreaterThan(150)
+    expect(comparable.length).toBeGreaterThan(ticks(2.5))
     const exact = comparable.filter((x) => noEvents(x.state) === hostHash.get(x.state.tick)).length
-    const quiet = comparable.filter((x) => x.state.tick > quietFrom + 30)
-    expect(quiet.length).toBeGreaterThan(40)
+    const quiet = comparable.filter((x) => x.state.tick > quietFrom + ticks(0.5))
+    expect(quiet.length).toBeGreaterThan(ticks(2 / 3))
     for (const x of quiet) expect(noEvents(x.state)).toBe(hostHash.get(x.state.tick))
     const d = client.session.debug()
     console.log(
@@ -555,11 +558,11 @@ describe('predict mode: authority and convergence', () => {
     }
     const lead = client.session.debug().predictAhead
     console.log(`[corrections] remote max error ${maxErr.toFixed(1)} u, max displayed step ${maxJump.toFixed(1)} u/tick, own max error ${ownErr.toFixed(1)} u, lead ${lead} ticks`)
-    // walk speed is 3.5 units / tick: a reversal over the lead (plus the 30 ms snapshot age)
+    // a reversal at walk speed over the lead (plus the 30 ms snapshot age)
     expect(maxErr).toBeGreaterThan(10)
-    expect(maxErr).toBeLessThan(2 * 3.5 * (MAX_AHEAD_TICKS + 2))
-    // never the whole error in one frame
-    expect(maxJump).toBeLessThan(0.4 * maxErr + 3.6)
+    expect(maxErr).toBeLessThan(2 * WALK * (MAX_AHEAD_TICKS + 2))
+    // never the whole error in one frame (on top of one tick of walking)
+    expect(maxJump).toBeLessThan(0.4 * maxErr + WALK + 0.1)
     // own inputs ran at their stamps (rare late frames cost a few units at most)
     expect(ownErr).toBeLessThan(12)
     host.session.leave()
@@ -629,9 +632,9 @@ describe('predict mode: host fairness', () => {
     host.session.startMatch()
     await vi.advanceTimersByTimeAsync(3000)
     const delay = host.session.debug().hostDelayTicks
-    // 150 ms RTT → ~75 ms one-way → 4-5 ticks, under the 6-tick cap
-    expect(delay).toBeGreaterThanOrEqual(4)
-    expect(delay).toBeLessThanOrEqual(6)
+    // 150 ms RTT → ~75 ms one-way (4-5 ticks at 60 Hz, 2 at 30), under the cap
+    expect(delay * DT).toBeGreaterThanOrEqual(60)
+    expect(delay).toBeLessThanOrEqual(HOST_DELAY_CAP_TICKS)
 
     const authBefore = host.auth.length
     const hostTickAtIssue = host.auth[host.auth.length - 1].tick
@@ -824,10 +827,12 @@ function scriptedBot(player: PlayerId): Bot {
       if (!me || !me.alive) return []
       let foe: (typeof s.pawns)[number] | null = null
       for (const p of s.pawns) if (p.owner !== player && p.alive && (!foe || Math.hypot(p.x - me.x, p.y - me.y) < Math.hypot(foe.x - me.x, foe.y - me.y))) foe = p
-      if (s.tick % 60 === 0 && foe) return [{ kind: 'cast', slot: 0, x: foe.x, y: foe.y }]
-      if (s.tick % 60 === 30 && foe) return [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }]
-      if (s.tick % 60 === 15) {
-        const a = (s.tick / 60) * 1.3
+      // each second: a cast, a fireball half a second later, a move in between
+      const sec = ticks(1)
+      if (s.tick % sec === 0 && foe) return [{ kind: 'cast', slot: 0, x: foe.x, y: foe.y }]
+      if (s.tick % sec === ticks(0.5) && foe) return [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }]
+      if (s.tick % sec === ticks(0.25)) {
+        const a = (s.tick / sec) * 1.3
         return [{ kind: 'move', x: Math.cos(a) * 350, y: Math.sin(a) * 350 }]
       }
       return []
@@ -1199,11 +1204,12 @@ async function botRoom(link: LinkOptions, players: number, mode: NetMode, extra:
 
 describe('input stream (M4.2)', () => {
   /**
-   * Why: snapshots cost ~150-300 KB/s per player; the stream sends only the stepped
-   * inputs. At 8-10 players it must be at least 10× less traffic to the client, while
+   * Why: snapshots cost ~150-300 KB/s per player at 60 Hz; the stream sends only the stepped
+   * inputs. At 8-10 players it must be at least 10× less traffic to the client at 60 Hz
+   * (snapshot traffic follows the tick rate, the stream's the inputs: 5× at 30 Hz), while
    * the client really runs on the stream (not snapshots) and stays exact.
    */
-  it.each([8, 10])('%i players: the stream needs ≥10× less downlink than snapshots', async (players) => {
+  it.each([8, 10])('%i players: the stream needs ≥10× less downlink than 60 Hz snapshots', async (players) => {
     const down: Record<string, number> = {}
     for (const mode of ['snapshot', 'predict'] as NetMode[]) {
       const r = await botRoom(RTT80, players, mode)
@@ -1217,7 +1223,7 @@ describe('input stream (M4.2)', () => {
       const dbg = r.clients[0].session.debug()
       console.log(`[stream bytes ${players}p ${mode}] down ${(down[mode] / 1024).toFixed(1)} KB/s, up ${(up / 1024).toFixed(2)} KB/s, streaming ${dbg.streamTick >= 0}, checks ${dbg.streamChecks}, desyncs ${dbg.streamDesyncs}`)
       if (mode === 'predict') {
-        expect(dbg.streamTick).toBeGreaterThan(600)
+        expect(dbg.streamTick).toBeGreaterThan(ticks(10))
         expect(r.host.session.debug().streamPeers).toBe(1)
         expect(dbg.streamChecks).toBeGreaterThan(5)
         expect(dbg.streamDesyncs).toBe(0)
@@ -1225,13 +1231,13 @@ describe('input stream (M4.2)', () => {
       r.host.session.leave()
       r.clients[0].session.leave()
     }
-    expect(down.snapshot / down.predict).toBeGreaterThanOrEqual(10)
+    expect(down.snapshot / down.predict).toBeGreaterThanOrEqual(10 * TICK_HZ / 60)
   }, 60000)
 
   /** Why: no drift. The client's confirmed state must equal the host's at every checkpoint for 10k+ ticks under loss. */
   it('a client reaches the same state hash as the host over 10k ticks with 10 % loss', async () => {
     const r = await botRoom(RTT80, 4, 'predict', { hashOnly: true })
-    await vi.advanceTimersByTimeAsync(10500 / 60 * 1000)
+    await vi.advanceTimersByTimeAsync(10500 * DT)
     const host = r.host.authHash
     const client = r.clients[0].authHash
     let compared = 0
@@ -1276,9 +1282,9 @@ describe('input stream (M4.2)', () => {
     expect(lastShown(again).pawns.some((p) => p.owner === again.store.lobby.localPlayer)).toBe(true)
     expect(again.store.lobby.localPlayer).toBe(seat)
     // started well past tick 0: the stream began from a keyframe
-    expect(again.auth[0].tick).toBeGreaterThan(400)
+    expect(again.auth[0].tick).toBeGreaterThan(ticks(6))
     const hostHash = new Map(host.auth.map((s) => [s.tick, noEventsHash(s)]))
-    const tail = again.auth.slice(-120)
+    const tail = again.auth.slice(-ticks(2))
     for (const s of tail) expect(noEventsHash(s)).toBe(hostHash.get(s.tick))
     expect(dbg.streamDesyncs).toBe(0)
     host.session.leave()
@@ -1289,9 +1295,9 @@ describe('input stream (M4.2)', () => {
   it('a forced divergence is detected and healed via a keyframe snapshot', async () => {
     const perturbed = (s: SimState, inputs: PlayerInput[]) => {
       step(s, inputs)
-      // once: whoever steps tick 400 (prediction and confirmed state alike) drifts; the
+      // once: whoever steps the tick at 7 s (prediction and confirmed state alike) drifts; the
       // RNG state never heals by itself (hp would regenerate back to its cap)
-      if (s.tick === 400) s.rng = (s.rng + 1) >>> 0
+      if (s.tick === ticks(7)) s.rng = (s.rng + 1) >>> 0
     }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -1306,9 +1312,9 @@ describe('input stream (M4.2)', () => {
       expect(warn.mock.calls.filter((x) => /state hash mismatch/.test(String(x[0])))).toHaveLength(1)
       // healed: the latest confirmed states equal the host's again
       const hostHash = new Map(r.host.auth.map((s) => [s.tick, noEventsHash(s)]))
-      const tail = c.auth.slice(-200)
+      const tail = c.auth.slice(-ticks(3))
       for (const s of tail) expect(noEventsHash(s)).toBe(hostHash.get(s.tick))
-      expect(tail[0].tick).toBeGreaterThan(600)
+      expect(tail[0].tick).toBeGreaterThan(ticks(10))
       r.host.session.leave()
       c.session.leave()
     } finally {

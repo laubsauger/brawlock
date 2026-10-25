@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ticks } from '../../sim/config'
 import { deathNextStep, deathRecap, type DeathEvent } from './deathRecap'
 
 const death: DeathEvent = { type: 'death', pawn: 1, owner: 0, killer: 2, cause: 'lightning' }
@@ -17,10 +18,11 @@ describe('local death feedback', () => {
   })
 
   it('shows the actual respawn countdown and switches to round flow when it ends', () => {
-    expect(deathNextStep('deathmatch', 'fight', 121)).toBe('Respawning in 3s')
+    // a tick past two seconds still counts as the third second
+    expect(deathNextStep('deathmatch', 'fight', ticks(2) + 1)).toBe('Respawning in 3s')
     expect(deathNextStep('deathmatch', 'fight', 1)).toBe('Respawning in 1s')
     expect(deathNextStep('deathmatch', 'fight', 0)).toBe('Waiting to respawn')
-    expect(deathNextStep('deathmatch', 'roundEnd', 121)).toBe('Next round shortly')
+    expect(deathNextStep('deathmatch', 'roundEnd', ticks(2) + 1)).toBe('Next round shortly')
     expect(deathNextStep('rounds', 'fight', 0)).toBe('Watching the rest of the round')
     // the hill respawns only in its respawn style, where a timer is running
     expect(deathNextStep('hill', 'fight', 1)).toBe('Respawning in 1s')

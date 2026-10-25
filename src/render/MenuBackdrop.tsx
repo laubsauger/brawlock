@@ -111,7 +111,7 @@ function MenuScene({ quality, fx, reducedMotion, renderIdle }: {
     if (renderIdle.current) return
     const dt = reducedMotion ? 0 : Math.min(dtRaw, 0.1)
     drive.t += dt
-    // stage on a virtual 60 Hz timeline that trails real time by < 1 tick, so
+    // stage on a virtual timeline at the sim rate that trails real time by < 1 tick, so
     // the world interpolates smoothly at any display rate (and pauses with the tab)
     drive.acc += dt
     let n = 0

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ticks } from '../sim/config'
 import type { SimEvent } from '../sim/types'
 import { audio } from './index'
 import { AudioEngine, VOICES, busGains } from './engine'
@@ -24,7 +25,7 @@ afterEach(() => vi.unstubAllGlobals())
 /** One sample of every SimEvent type. The mapped type makes this fail to compile when a type is added. */
 const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   cast: { type: 'cast', pawn: 1, spell: 'fireball', x: 500, y: 0 },
-  castStart: { type: 'castStart', pawn: 1, spell: 'scourge', ticks: 54, level: 3 },
+  castStart: { type: 'castStart', pawn: 1, spell: 'scourge', ticks: ticks(0.9), level: 3 },
   projectileSpawn: { type: 'projectileSpawn', id: 9, spell: 'fireball' },
   projectileHit: { type: 'projectileHit', id: 9, spell: 'fireball', x: 300, y: 0, target: 2 },
   projectileExpire: { type: 'projectileExpire', id: 9, spell: 'fireball', x: 900, y: 0 },
@@ -65,7 +66,7 @@ const LISTENER = {
       { id: 1, owner: 0, x: 0, y: 0 },
       { id: 2, owner: 1, x: 300, y: 0 },
     ] as never,
-    projectiles: [{ id: 9, owner: 1, spell: 'fireball', x: 900, y: 0, vx: -1000, vy: 0, radius: 25, ticksLeft: 60, data: {} }],
+    projectiles: [{ id: 9, owner: 1, spell: 'fireball', x: 900, y: 0, vx: -1000, vy: 0, radius: 25, ticksLeft: ticks(1), data: {} }],
   },
 }
 
@@ -192,7 +193,7 @@ describe('audio: event mapping', () => {
   })
 
   it('a fake cast reads to the opponent: windup inhale, then a snuff that cuts it', () => {
-    const start = planEvents([{ type: 'castStart', pawn: 2, spell: 'fireball', ticks: 12 }], LISTENER)
+    const start = planEvents([{ type: 'castStart', pawn: 2, spell: 'fireball', ticks: ticks(0.2) }], LISTENER)
     expect(start.map((c) => c.id)).toEqual(['castInhale'])
     const cancel = planEvents([SAMPLES.castCancel], LISTENER)
     expect(cancel.map((c) => c.id)).toEqual(['castSnuff'])
@@ -241,7 +242,7 @@ describe('audio: event mapping', () => {
   it('a fireball in flight is heard along its path, swoops as it passes, and stops on impact', () => {
     const [loop] = planEvents([SAMPLES.projectileSpawn], LISTENER)
     expect(loop.id).toBe('fireballTravel')
-    expect(loop.param).toBeCloseTo(1) // 60 ticks of flight
+    expect(loop.param).toBeCloseTo(1) // one second of flight
     const path = loop.path!
     // flies from the right (x=900) across the listener at x=0 to the left
     expect(path[0].pan).toBeGreaterThan(0.3)
@@ -274,7 +275,7 @@ describe('audio: event mapping', () => {
       ...LISTENER,
       state: {
         ...LISTENER.state,
-        projectiles: [{ id: 33, owner: 0, spell: 'drain', kind: 'drainHeal', x: 300, y: 0, vx: -500, vy: 0, radius: 0, ticksLeft: 120, data: {} }],
+        projectiles: [{ id: 33, owner: 0, spell: 'drain', kind: 'drainHeal', x: 300, y: 0, vx: -500, vy: 0, radius: 0, ticksLeft: ticks(2), data: {} }],
       },
     }
     const [loop] = planEvents([{ type: 'projectileSpawn', id: 33, spell: 'drain' }], orbState, memory)
