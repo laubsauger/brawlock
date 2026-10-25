@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.1.0-alpha.12",
+    "releaseDate": "2026-10-25",
+    "title": "A calmer, tighter hill",
+    "changes": [
+      "King of the Hill starts with a smaller hill, so holding it alone for a ticket is possible again.",
+      "A contested hill shows a calm outline instead of flashing."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.11",
     "releaseDate": "2026-10-25",
     "title": "King of the Hill",
