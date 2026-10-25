@@ -83,6 +83,11 @@ export const LINES = [
   // pack 8: "Denied!" variations for a last-moment escape
   ['not_today', 'Not Today!', 8],
   ['cheated_death', 'Cheated Death!', 8],
+  // pack 9: King of the Hill
+  ['hill_captured', 'Hill Captured!', 9],
+  ['king_of_the_ashes', 'King of the Ashes!', 9],
+  ['hill_lost', 'Hill Lost!', 9],
+  ['hill_shrinks', 'The Hill Shrinks!', 9],
 ]
 
 function apiKey() {

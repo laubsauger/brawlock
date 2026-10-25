@@ -3,7 +3,7 @@ import { TICK_HZ, type PawnState, type SimEvent } from '../sim/types'
 import { DEFAULT_SETTINGS, TEAM_DRAW, createMatch, step } from '../sim'
 import { createBot } from '../bots'
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
-import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, DENIED_COOLDOWN, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, matchWinLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
+import { ANNOUNCER_TEXT, Announcer, COUNTDOWN_SECONDS, DEFEAT_LINES, DENIED_COOLDOWN, HILL_CAPTURE_LINES, MATCH_WIN_LINES, ROUND_WIN_LINES, STALE_AFTER, defeatLine, matchWinLine, roundCall, roundWinLine, type Announcement, type AnnouncerView } from './announcer'
 
 const ME = 0
 const FOE = 1
@@ -449,6 +449,20 @@ describe('announcer: occasional lines', () => {
     const save = (at: number): [number, SimEvent[], AnnouncerView][] => [[at, [], inLava], [at + 0.02, [tp(0)], onGround]]
     const three = play(quick(), [...save(1), ...save(1 + DENIED_COOLDOWN / 2), ...save(2 + DENIED_COOLDOWN)])
     expect(lines(three)).toEqual(['denied', 'not_today'])
+  })
+
+  it('King of the Hill: a capture is called, a step off and back on is not, and losing it to another side is', () => {
+    const hill = (team: number | null, prev: number | null, contested = false): SimEvent => ({ type: 'hill', team, contested, prev })
+    const out = lines(play(quick(), [
+      [1, [hill(ME, null)], view()],
+      [2, [hill(null, ME, true)], view()], // contested: not called
+      [3, [hill(ME, null)], view()], // back on, still ours: no new capture
+      [5, [hill(FOE, null)], view()],
+      [30, [hill(ME, FOE)], view()], // retaken after the cooldown: the other capture line
+    ]))
+    expect(out).toEqual([HILL_CAPTURE_LINES[0], 'hill_lost', HILL_CAPTURE_LINES[1]])
+    // a spectator hears none of it
+    expect(lines(play(quick(), [[1, [hill(ME, null)], view()]], -1))).toEqual([])
   })
 
   it('Close Call! once per round, after you are still standing a moment after the hit', () => {

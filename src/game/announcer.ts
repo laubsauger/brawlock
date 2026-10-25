@@ -27,6 +27,10 @@
  * - "The Arena Shrinks!": the first shrink of the match, for everyone. Every round would
  *   repeat it seconds into each fight; later shrinks are heard (rumble) and seen (sinking tiles).
  * - "Hurry Up!": the shrink that leaves HURRY_TILES tiles or fewer, once per round, for everyone.
+ * - King of the Hill: your side takes the hill alone ("Hill Captured!", rotating with
+ *   HILL_CAPTURE_LINES; stepping off and back on is no new capture) or another side takes it
+ *   from you ("Hill Lost!"), at most once per HILL_CALL_COOLDOWN each; "The Hill Shrinks!" for everyone. A contested hill is not called
+ *   (it flickers on the floor and in the HUD): it changes too often to talk about.
  *
  * Occasional (at most OCCASIONAL_CAP per round per credited player)
  * - "Shutdown!": a kill that ends a streak of 3+, for everyone, credited to the killer.
@@ -111,6 +115,10 @@ export type AnnouncerLine =
   | 'denied'
   | 'not_today'
   | 'cheated_death'
+  | 'hill_captured'
+  | 'king_of_the_ashes'
+  | 'hill_lost'
+  | 'hill_shrinks'
   | 'close_call'
   | 'ace'
 
@@ -166,6 +174,10 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   denied: 'Denied!',
   not_today: 'Not Today!',
   cheated_death: 'Cheated Death!',
+  hill_captured: 'Hill Captured!',
+  king_of_the_ashes: 'King of the Ashes!',
+  hill_lost: 'Hill Lost!',
+  hill_shrinks: 'The Hill Shrinks!',
   close_call: 'Close Call!',
   ace: 'Ace!',
 }
@@ -193,6 +205,9 @@ export const COUNTDOWN_SECONDS = 3
 export const DENIED_COOLDOWN = 15
 /** last-moment escapes in rotation order */
 export const DENIED_LINES = ['denied', 'not_today', 'close_call', 'cheated_death'] as const satisfies readonly AnnouncerLine[]
+/** King of the Hill: capture and loss calls each at most once per this long (s) */
+export const HILL_CALL_COOLDOWN = 12
+export const HILL_CAPTURE_LINES = ['hill_captured', 'king_of_the_ashes'] as const satisfies readonly AnnouncerLine[]
 /** occasional lines per round per credited player */
 export const OCCASIONAL_CAP = 2
 /** a hit that leaves at most this share of max HP is a close call ... */
@@ -381,6 +396,12 @@ export class Announcer {
   /** the last "Denied!" (sim time, s) and how many went out this match */
   private deniedAt = -Infinity
   private deniedCount = 0
+  /** the last hill capture / loss call (sim time, s), and captures called this match */
+  private hillTakenAt = -Infinity
+  private hillLostAt = -Infinity
+  private hillCaptures = 0
+  /** your side was the last side to hold the hill alone (a loss is another side taking it after) */
+  private hillOurs = false
   /** the local pawn's last snapshot (Teleport saves) */
   private slide: (SlideSnapshot & { hp: number; moveSpeed: number }) | null = null
   /** seconds a line plays (the voice file's length); the banner uses it too */
@@ -399,6 +420,10 @@ export class Announcer {
     this.roundOver = false
     this.deniedAt = -Infinity
     this.deniedCount = 0
+    this.hillTakenAt = -Infinity
+    this.hillLostAt = -Infinity
+    this.hillCaptures = 0
+    this.hillOurs = false
     this.slide = null
   }
 
@@ -429,6 +454,7 @@ export class Announcer {
           if (e.phase === 'fight') {
             this.round = newRound()
             this.roundOver = false
+            this.hillOurs = false
             for (const s of state?.slots ?? []) this.round.teamAt.set(s.id, s.team)
             this.flow('fight', local ?? -1, now)
           }
@@ -472,6 +498,28 @@ export class Announcer {
           }
           break
         }
+        case 'hill': {
+          if (local === null) break
+          const mine = teamOf(local)
+          if (e.team === mine) {
+            const retake = this.hillOurs
+            this.hillOurs = true
+            if (!retake && now - this.hillTakenAt >= HILL_CALL_COOLDOWN) {
+              this.hillTakenAt = now
+              this.push({ line: HILL_CAPTURE_LINES[this.hillCaptures++ % HILL_CAPTURE_LINES.length], kind: 'arena', player: local, count: 1, at: now })
+            }
+          } else if (e.team !== null && this.hillOurs) {
+            this.hillOurs = false
+            if (now - this.hillLostAt >= HILL_CALL_COOLDOWN) {
+              this.hillLostAt = now
+              this.push({ line: 'hill_lost', kind: 'arena', player: local, count: 1, at: now })
+            }
+          }
+          break
+        }
+        case 'hillShrink':
+          this.push({ line: 'hill_shrinks', kind: 'arena', player: -1, count: 1, at: now })
+          break
         case 'gameOver':
           this.queue = this.queue.filter((a) => a.kind === 'flow')
           if (local !== null) this.flow(e.winners.includes(local) ? matchWinLine(state ?? {}, local) : defeatLine(state ?? {}, local), local, now)
