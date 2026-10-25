@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.1.0-alpha.13",
+    "releaseDate": "2026-10-25",
+    "title": "Gold on the hill",
+    "changes": [
+      "Standing on the hill pays gold every 5 seconds, even while it is contested: 1 gold, then one more each time you stay, up to 5. Stepping off starts over.",
+      "A ring beside each warlock's name shows how close their next hill gold is and how much it pays."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.12",
     "releaseDate": "2026-10-25",
     "title": "A calmer, tighter hill",
