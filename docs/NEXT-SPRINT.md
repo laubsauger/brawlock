@@ -23,9 +23,8 @@ Deployment is established by release receipts, not by implementation status here
      load from a machine other than the developer's home connection to tell the server's network path
      from the generator's uplink.
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
-4. **Playtest 2026-10-25 evening: built, not yet tested or released.** Written during the playtest
-   without running anything; run the touched suites (`src/sim/hill.test.ts`, `src/bots`,
-   `src/ui/hud/HillStatus.test.ts`) and typecheck before a release.
+4. **Playtest 2026-10-25 evening, shipped in alpha.14.** Touched suites and typecheck passed; the
+   full suite was skipped for this release by the user's call.
    - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s),
      then one a second; the HUD says "taking the hill" meanwhile.
    - King of the Hill: the hill stays two rings inside the arena (`hillLayerOn`): 13 arena tiles
@@ -35,8 +34,6 @@ Deployment is established by release receipts, not by implementation status here
    - Bots: an enemy on the hill pulls their targeting (the holder most); an enemy running away
      with the match (score lead or kills) and long grudges (damage taken, decaying over 20 s,
      across rounds) count in every mode. Weights, not rules.
-     Check `src/bots/ffa.test.ts` ("rarely 4+ bots on one player"): the leader pull may mob the
-     top killer in bot-only lobbies; loosen the test or the weight with the user.
    - Bots: a Scourge channel is dropped only for a bolt on course that lands before the blast, never
      for a blast that kills. The dodge threshold alone used to cancel blasts that would have hit.
    - Bots (Hard and up): an enemy Scourge with us inside is answered with a Lightning or Fireball that

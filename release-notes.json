@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.0-alpha.14",
+    "releaseDate": "2026-10-25",
+    "title": "Hill tuning and sharper bots",
+    "changes": [
+      "Taking the hill takes 3 seconds before the first ticket; contesting it starts that over.",
+      "The hill keeps shrinking with a small arena, down to the centre tile.",
+      "Hill gold is tuned down: 1, 1, 2, 2, then 3 every 5 seconds.",
+      "Reaching the ticket target ends the match at once, at exactly the target.",
+      "Bots go after whoever holds the hill, chase a runaway leader and hold grudges.",
+      "Bots no longer throw away Scourge blasts that would hit, knock Scourge casters away when they can, and buy masteries.",
+      "Leaving a casual game keeps it rejoinable from the menu for 2 minutes.",
+      "Casual lobbies wait 60 seconds once a second player joins; Ready still starts sooner."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.13",
     "releaseDate": "2026-10-25",
     "title": "Gold on the hill",
