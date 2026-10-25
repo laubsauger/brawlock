@@ -85,6 +85,8 @@ function Preview() {
         bots: Number(params.get('bots') ?? 1),
         difficulty: (params.get('bot') as 'easy' | 'medium' | 'hard' | null) ?? 'medium',
         teamMode: (params.get('mode') as 'ffa' | 'teams' | 'shuffle' | null) ?? 'ffa',
+        // ?game=hill|deathmatch: another game mode (default rounds)
+        gameMode: (params.get('game') as 'hill' | 'deathmatch' | null) ?? undefined,
         cosmetics: wear(),
       })
     let stop = start()

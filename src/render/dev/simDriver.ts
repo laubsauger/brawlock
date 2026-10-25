@@ -10,13 +10,13 @@ import { createBot, type Bot } from '../../bots'
 import { frame, pushEvents, pushState, resetFrame } from '../../game/frame'
 import { input } from '../../game/input'
 import { DEFAULT_SETTINGS, cloneState, createMatch, step } from '../../sim'
-import { DT, type BotDifficulty, type PlayerInput, type PlayerSlot } from '../../sim/types'
+import { DT, type BotDifficulty, type GameMode, type PlayerInput, type PlayerSlot } from '../../sim/types'
 import { devTime } from '../stats'
 
 const COLORS = [0xff5a36, 0x3fa9ff, 0x5fd35a, 0xc86bff, 0xffd23f, 0x2ee6c9, 0xff5fa8, 0xa3e048, 0xff8f3f, 0x8f9bff]
 const NAMES = ['You', 'Frostbinder', 'Mossgrave', 'Hexweaver', 'Ashmonger', 'Tidecaller', 'Rosethorn', 'Bilecrown', 'Cinderjaw', 'Duskveil']
 
-export function startSimDriver(opts: { bots?: number; difficulty?: BotDifficulty; shopSeconds?: number; seed?: number; teamMode?: 'ffa' | 'teams' | 'shuffle'; cosmetics?: PlayerSlot['cosmetics'][] } = {}): () => void {
+export function startSimDriver(opts: { bots?: number; difficulty?: BotDifficulty; shopSeconds?: number; seed?: number; teamMode?: 'ffa' | 'teams' | 'shuffle'; gameMode?: GameMode; cosmetics?: PlayerSlot['cosmetics'][] } = {}): () => void {
   const nBots = Math.max(1, Math.min(9, opts.bots ?? 1))
   const slots: PlayerSlot[] = []
   for (let i = 0; i <= nBots; i++) {
@@ -24,7 +24,8 @@ export function startSimDriver(opts: { bots?: number; difficulty?: BotDifficulty
     slots.push({ id: i, name: NAMES[i], color: COLORS[i], team, kind: i === 0 ? 'human' : 'bot', difficulty: i === 0 ? undefined : opts.difficulty ?? 'medium', ...(opts.cosmetics?.[i] ? { cosmetics: opts.cosmetics[i] } : {}) })
   }
   const seed = opts.seed ?? ((Math.random() * 1e9) | 0)
-  const settings = { ...DEFAULT_SETTINGS, shopSeconds: opts.shopSeconds ?? 4, winScore: 5, teamMode: opts.teamMode ?? DEFAULT_SETTINGS.teamMode }
+  const settings = { ...DEFAULT_SETTINGS, shopSeconds: opts.shopSeconds ?? 4, winScore: 5, teamMode: opts.teamMode ?? DEFAULT_SETTINGS.teamMode,
+    ...(opts.gameMode ? { gameMode: opts.gameMode, winScore: opts.gameMode === 'hill' ? 100 : 5 } : {}) }
   const state = createMatch(settings, slots, seed)
   const bots: Bot[] = slots.filter((s) => s.kind === 'bot').map((s) => createBot(s.id, s.difficulty ?? 'medium', seed + s.id))
   resetFrame()

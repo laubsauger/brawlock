@@ -14,6 +14,7 @@ import {
   dFdy,
   dot,
   exp,
+  floor,
   fract,
   fwidth,
   int,
@@ -432,11 +433,6 @@ export class Arena {
     // (the round-start wave no longer lifts tiles: it exposed bright wall strips)
     const lift = rise.sub(sink)
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
-    // hill tiles (per instance): inside the hill, and in its doomed outer ring
-    const hl = this.uHill
-    const cLen = length(tileXZ).div(S)
-    const onHillV = varying(step(cLen, hl.x).mul(float(1).sub(isRem)))
-    const hillDoomV = varying(step(hl.w, cLen))
 
     // ---------------- fragment: layered stone
     // 'calm' floor (default): one readable surface with subtle tiles; 'classic'
@@ -605,13 +601,20 @@ export class Arena {
     const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
     const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
     em = em.add(vec3(0.5, 0.48, 0.62).mul(waveF.mul(0.16)).mul(isTop))
-    // King of the Hill: an inlaid band inside every hill tile's rim and slow rings of light
+    // King of the Hill: hill tiles found per fragment from the grid cell under it (no varyings:
+    // this shader is at WebGPU's 16 inter-stage limit; two more broke the tile pipeline)
+    const hl = this.uHill
+    const cLen = length(floor(gp.div(TILE_SIZE).add(0.5)).mul(TILE_SIZE))
+    const onHillV = step(cLen, hl.x).mul(float(1).sub(isRemV))
+    const hillDoomV = step(hl.w, cLen)
+    // an inlaid band inside every hill tile's rim and slow rings of light
     // flowing out from the centre. Empty: dim gold; held: the holder's colour, brighter and
-    // faster; contested: flickering red and white. Kept modest: ACES turns hot hues cream.
+    // faster; contested: a white strobe (no hue, so it never reads as a red holder). Kept
+    // modest: ACES turns hot hues cream.
     const hHeld = step(0.5, hl.y).mul(step(hl.y, 1.5))
     const hContest = step(1.5, hl.y)
     const hFlick = step(0.5, fract(tF.mul(3.2)))
-    const hCol = mix(mix(vec3(1.0, 0.68, 0.24), this.uHillColor, hHeld), mix(vec3(1.0, 0.2, 0.08), vec3(0.9, 0.88, 1.0), hFlick), hContest)
+    const hCol = mix(mix(vec3(1.0, 0.68, 0.24), this.uHillColor, hHeld), mix(vec3(0.18, 0.17, 0.22), vec3(0.95, 0.93, 1.0), hFlick), hContest)
     const hBand = smoothstep(0.72, 0.86, edge).mul(float(1).sub(smoothstep(0.93, 0.99, edge)))
     const hFlow = sin(length(gp).mul(0.03).sub(tF.mul(hHeld.mul(2.5).add(1.2)))).mul(0.5).add(0.5)
     const hBreathe = sin(tF.mul(2.1)).mul(0.15).add(0.85)
