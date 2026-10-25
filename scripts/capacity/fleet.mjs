@@ -13,6 +13,8 @@ if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ce
 const streamEvery = Math.max(1, Math.min(4, Number(process.env.STREAM_EVERY ?? 1) || 1))
 // SHARDS=2: room processes behind one front (needs a sharded build, build.mjs)
 const shards = Math.max(1, Math.min(2, Number(process.env.SHARDS ?? 1) || 1))
+// PROFILE=1: CPU-profile the server in any mode (bot-cost-rooms always does)
+const profiling = mode === 'bot-cost-rooms' || process.env.PROFILE === '1'
 // SEMI_SPACE_MB=32|64: V8 young-generation size for the server (fewer scavenges; Node default 16)
 const semiSpace = [16, 32, 64, 128].includes(Number(process.env.SEMI_SPACE_MB)) ? Number(process.env.SEMI_SPACE_MB) : null
 const run = `${region}-${Date.now()}`, dir = resolve(`artifacts/capacity/${run}`), remote = `/var/lib/brawlock/capacity/${run}`
@@ -20,12 +22,12 @@ const unit = `brawlock-capacity-${run}`, timer = `${unit}-cleanup`
 mkdirSync(dir, { recursive: true })
 writeFileSync(`${dir}/operator.json`, JSON.stringify({ pid: process.pid, run, mode }))
 const buildDir = `${dir}/build`; mkdirSync(buildDir)
-for (const name of ['server.mjs', 'worker.mjs', 'bot-cost.mjs', 'manifest.json', ...(mode === 'bot-cost-rooms' ? ['server.mjs.map'] : [])]) copyFileSync(`artifacts/capacity/build/${name}`, `${buildDir}/${name}`)
+for (const name of ['server.mjs', 'worker.mjs', 'bot-cost.mjs', 'manifest.json', ...(profiling ? ['server.mjs.map'] : [])]) copyFileSync(`artifacts/capacity/build/${name}`, `${buildDir}/${name}`)
 const token = randomBytes(32).toString('hex'), base = `${target.origin}/_capacity/${run}`
 // Coarse ramps: each stage is a clear step in load; the first one already loads the server.
 const ramp = mode === 'ceiling-humans' ? [8, 16, 20, 24, 32].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 60 }))
   : mode === 'ceiling-bots' ? [16, 32, 40, 48].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 60 }))
-  : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 60 }))
+  : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 120 }))
   : [1, 10].flatMap(humans => [1, 2, 4].map(rooms => ({ rooms, humans, players: 10, seconds: 60 })))
 // ROOMS=48,56,64,72: these room counts instead of the mode's ramp (60 s each, the mode's room kind)
 const rooms = (process.env.ROOMS ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0 && n <= 96)
@@ -78,7 +80,8 @@ try {
     writeFileSync(`${dir}/bot-cost.json`, JSON.stringify(profile, null, 2))
     console.log(JSON.stringify({ event: 'components.end', region, rows: profile.rows.length }))
   } else {
-    const profiler = mode === 'bot-cost-rooms' ? `--cpu-prof --cpu-prof-interval=1000 --cpu-prof-dir='${remote}/data' --cpu-prof-name=cpu.cpuprofile` : ''
+    // with several processes each writes its own profile (Node's default unique name)
+    const profiler = profiling ? `--cpu-prof --cpu-prof-interval=1000 --cpu-prof-dir='${remote}/data'${shards > 1 ? '' : ' --cpu-prof-name=cpu.cpuprofile'}` : ''
     await ssh(`systemd-run --unit='${unit}' --uid=brawlock --gid=brawlock --property=MemoryMax=${shards > 1 ? '768M' : '512M'} --property=RuntimeMaxSec=13min --property=NoNewPrivileges=yes --working-directory='${remote}' ${target.node} --max-old-space-size=384 ${semiSpace ? `--max-semi-space-size=${semiSpace}` : ''} --disable-warning=ExperimentalWarning ${profiler} '${remote}/server.mjs' '${remote}/server.json'`)
     await ssh(`${target.node} '${remote}/route.cjs' '${remote}/server.json' install`)
     let ready = false
@@ -103,7 +106,7 @@ try {
       // Leave the independent timer installed if cleanup fails.
       const cleanup = await ssh(`${target.node} '${remote}/cleanup.cjs'`)
       console.log(cleanup.stdout.trim())
-      if (mode === 'bot-cost-rooms') await execute('scp', ['-q', `${target.host}:${remote}/data/cpu.cpuprofile`, `${dir}/cpu.cpuprofile`], { timeout: 30_000 })
+      if (profiling) await execute('bash', ['-c', `scp -q '${target.host}:${remote}/data/*.cpuprofile' '${dir}/'`], { timeout: 60_000 })
       const after = await health()
       writeFileSync(`${dir}/production-after.json`, JSON.stringify(after, null, 2))
       if (after.maintenance.draining) throw new Error('Production did not reopen cleanly; inspect region')

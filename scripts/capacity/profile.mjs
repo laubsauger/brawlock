@@ -4,7 +4,9 @@ import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping'
 
 const dir = resolve(process.argv[2])
 if (!dir.startsWith(resolve('artifacts/capacity') + '/')) throw new Error('Expected an isolated capacity run directory')
-const profile = JSON.parse(readFileSync(`${dir}/cpu.cpuprofile`, 'utf8'))
+// optional second argument: one profile of several (room processes write one each)
+const file = process.argv[3] ?? 'cpu.cpuprofile'
+const profile = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8'))
 const sourceMap = new TraceMap(JSON.parse(readFileSync(`${dir}/build/server.mjs.map`, 'utf8')))
 if (!Array.isArray(profile.nodes) || !Array.isArray(profile.samples) || !Array.isArray(profile.timeDeltas)
   || profile.samples.length !== profile.timeDeltas.length) throw new Error('Invalid CPU profile')
@@ -43,5 +45,5 @@ const rank = map => [...map].sort((a, b) => b[1] - a[1]).map(([name, samples]) =
 const result = { kind: 'sampled-cpu-attribution', intervalUs: 1000, activeSamples, idleSamples, negativeTimeDeltas: profile.timeDeltas.filter(n => n < 0).length,
   caveat: 'Sample counts, not elapsed-time weights. Exclusive attribution to the nearest mapped JavaScript caller; native time and GC stay explicit. Sampling is diagnostic, not a second process CPU meter. Includes setup, all roster sizes and cleanup.',
   groups: rank(groups), topFunctions: rank(functions).slice(0, 25) }
-writeFileSync(`${dir}/cpu-summary.json`, JSON.stringify(result, null, 2))
+writeFileSync(`${dir}/${file === 'cpu.cpuprofile' ? 'cpu-summary.json' : file.replace(/\.cpuprofile$/, '.summary.json')}`, JSON.stringify(result, null, 2))
 console.log(JSON.stringify(result))
