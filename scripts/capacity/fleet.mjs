@@ -13,6 +13,10 @@ if (region !== 'eu' || !target || !['pilot', 'components', 'ceiling-humans', 'ce
 const streamEvery = Math.max(1, Math.min(4, Number(process.env.STREAM_EVERY ?? 1) || 1))
 // SHARDS=2: room processes behind one front (needs a sharded build, build.mjs)
 const shards = Math.max(1, Math.min(2, Number(process.env.SHARDS ?? 1) || 1))
+// TICK_HZ=30|60: the server's simulation rate (builds with a rate setting; default: the build's)
+const built = JSON.parse(readFileSync('artifacts/capacity/build/manifest.json', 'utf8'))
+const tickHz = Number(process.env.TICK_HZ ?? built.tickHz)
+if (!(built.tickRates ?? [built.tickHz]).includes(tickHz)) throw new Error(`This build runs ${(built.tickRates ?? [built.tickHz]).join(' or ')} Hz, not ${tickHz}`)
 // PROFILE=1: CPU-profile the server in any mode (bot-cost-rooms always does)
 const profiling = mode === 'bot-cost-rooms' || process.env.PROFILE === '1'
 // PROFILE_INTERVAL_US: sampling interval (1000 = 1 ms; 10000 keeps the overhead small under load)
@@ -34,7 +38,7 @@ const ramp = mode === 'ceiling-humans' ? [8, 16, 20, 24, 32].map(rooms => ({ roo
 // ROOMS=48,56,64,72: these room counts instead of the mode's ramp (60 s each, the mode's room kind)
 const rooms = (process.env.ROOMS ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0 && n <= 96)
 const stages = rooms.length && mode.startsWith('ceiling-') ? rooms.map((n) => ({ ...ramp[0], rooms: n })) : ramp
-writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, streamEvery, shards, semiSpace, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })
+writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, streamEvery, shards, tickHz, semiSpace, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })
 // Independent cleanup is installed before drain/routing, and works without the operator.
 writeFileSync(`${dir}/cleanup.cjs`, `const {execFileSync}=require('node:child_process'); const fs=require('node:fs');
 const errors=[];
@@ -60,7 +64,7 @@ try {
   const hostname = new URL(target.origin).hostname
   const snippet = `\n    # isolated capacity run ${run}\n    location ^~ /_capacity/${run}/ {\n        allow ${address};\n        deny all;\n        access_log off;\n        proxy_pass http://127.0.0.1:5388/;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Forwarded-For $remote_addr;\n        proxy_buffering off;\n        proxy_read_timeout 3600s;\n        proxy_send_timeout 3600s;\n        tcp_nodelay on;\n    }\n`
   // STREAM_EVERY=2: lossless clients get a stream packet every second tick (session.ts streamEvery)
-  writeFileSync(`${dir}/server.json`, JSON.stringify({ run, port: 5388, data: `${remote}/data`, token, streamEvery, shards,
+  writeFileSync(`${dir}/server.json`, JSON.stringify({ run, port: 5388, data: `${remote}/data`, token, streamEvery, shards, tickHz,
     route: { file: `/etc/nginx/sites-available/${hostname}`, hostname, run, snippet } }), { mode: 0o600 })
   const before = await health()
   if (before.rooms || before.players || before.connections || before.maintenance.draining) throw new Error('Region must be empty and open before this pilot')

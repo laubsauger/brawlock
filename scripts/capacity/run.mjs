@@ -16,8 +16,9 @@ if (!buildDir.startsWith(resolve('artifacts/capacity') + '/')) throw new Error('
 const manifest = JSON.parse(readFileSync(`${buildDir}/manifest.json`, 'utf8'))
 manifest.streamEvery = config.streamEvery ?? 1
 manifest.shards = config.shards ?? 1
+manifest.tickHz = config.tickHz ?? manifest.tickHz
 manifest.semiSpaceMb = config.semiSpace ?? 16
-// throughput guard: 98% of the build's simulation rate (58.8 at 60 Hz)
+// throughput guard: 98% of the run's simulation rate (58.8 at 60 Hz)
 const minHz = (manifest.tickHz ?? 60) * 0.98
 // several room processes: guard the busiest one (each has its own main thread), memory in total
 const busiest = (server) => server.processes ? Math.max(0, ...server.processes.map((p) => p.cpuPct ?? 0)) : server.perf.processCpuPct

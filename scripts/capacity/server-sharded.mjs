@@ -13,7 +13,7 @@ for (const key of ['ACCOUNTS_AUTHORITY_URL', 'RATING_AUTHORITY_URL', 'RATING_AUT
 // shards > 1: a front on config.port and one room process per shard (server/shards.mjs)
 const server = await startSharded({ host: '127.0.0.1', port: config.port, dataDir: config.data,
   ratingAuthorityUrl: '', accountsAuthorityUrl: '', ratingAuthorityToken: config.token,
-  streamEvery: config.streamEvery ?? 1,
+  streamEvery: config.streamEvery ?? 1, tickHz: config.tickHz ?? 30,
   config: { ...DEFAULT_SERVER_CONFIG, region: `capacity-${config.run}`, maxRooms: 48, emptyRoomMs: 10_000,
     // All isolated clients share one SSH-loopback IP. These are not public admission benchmarks.
     maxConnsPerIp: 400, connectsPerMin: 1500, roomCreatesPerMin: 120, lookupsPerMin: 6000 },
