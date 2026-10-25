@@ -75,6 +75,14 @@ describe('authoritative match history presentation', () => {
     expect(html).not.toContain('Elo')
   })
 
+  it('shows whole Elo points: stored ratings carry float noise nobody should read', () => {
+    const m = match()
+    m.delta = 1.2544622174385802; m.rating = 986.3732753237368
+    const html = render(m)
+    expect(html).toContain('+1 Elo · 986')
+    expect(html).not.toContain('986.37')
+  })
+
   it('does not call the public-profile subject the current viewer', () => {
     expect(render(match(), false)).not.toContain('(you)')
     expect(render(match())).toContain('(you)')

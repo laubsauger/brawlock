@@ -20,7 +20,7 @@ export function createAdmin({ accounts, store, collector, regions, token, origin
     if (url.pathname === '/api/admin/session') return json(200, admin)
     if (url.pathname === '/api/admin/monitoring') {
       const hours = Number(url.searchParams.get('hours') ?? 1)
-      if (![1, 24, 168, 720].includes(hours) || [...url.searchParams.keys()].some((key) => key !== 'hours')) return json(400, { error: 'Choose 1, 24, 168 or 720 hours.' })
+      if (![0.25, 1, 24, 168, 720].includes(hours) || [...url.searchParams.keys()].some((key) => key !== 'hours')) return json(400, { error: 'Choose 0.25, 1, 24, 168 or 720 hours.' })
       return json(200, { at: now(), intervalMs: 10_000, retentionDays: MONITOR_RETENTION_DAYS, ...store.read(hours, now()), website: collector.website(), regions: regions.map(({ id, label }) => ({ id, label })) })
     }
     if (url.pathname === '/api/admin/activity') {

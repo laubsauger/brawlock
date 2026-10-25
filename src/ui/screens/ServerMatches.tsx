@@ -17,7 +17,8 @@ export function MatchQueueTabs({ value, onChange }: { value: MatchQueueFilter; o
 }
 
 const queueName: Record<HistoryQueue, string> = { ranked: 'Ranked', casual: 'Casual', custom: 'Custom' }
-const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}`
+// ratings are stored unrounded; whole points read at a glance
+const signed = (n: number) => { const r = Math.round(n); return `${r > 0 ? '+' : r < 0 ? '−' : ''}${Math.abs(r)}` }
 
 /** Stored server results only: missing historical fields stay visibly unavailable. */
 export function ServerMatchList({ matches, personal = true }: { matches: readonly (MatchHistoryEntry | GlobalMatchEntry)[]; personal?: boolean }) {
@@ -32,10 +33,14 @@ export function ServerMatchList({ matches, personal = true }: { matches: readonl
           <span className="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-3 gap-y-1 align-middle">
             <b className={!subject ? 'text-gold' : win ? 'text-heal' : 'text-[#ff9b8a]'}>{!subject ? (winners.length ? `${winners.join(' & ')} won` : 'Completed') : win ? 'Win' : subject.outcome === 'forfeit' ? 'Loss · left game' : 'Loss'}</b>
             <span className="chip text-xs">{queueName[match.queue]}</span>
-            {subject ? <span className={`tabular text-sm ${subject.delta !== null && subject.delta > 0 ? 'text-heal' : subject.delta !== null && subject.delta < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`}>
-              {subject.delta === null ? 'Not rated' : `${signed(subject.delta)} Elo${subject.rating === null ? '' : ` · ${subject.rating}`}`}
-            </span> : <><span className="text-sm text-ash">{match.region}</span><span className="text-sm text-ash">{match.players.filter(p => p.kind !== 'bot').length} players · {match.players.filter(p => p.kind === 'bot').length} bots</span></>}
-            <span className="min-w-0 basis-full break-words text-sm text-bone sm:basis-48 sm:flex-1">{match.players.map((p) => p.name).join(' · ')}</span>
+            {!subject && <><span className="text-sm text-ash">{match.region}</span><span className="text-sm text-ash">{match.players.filter(p => p.kind !== 'bot').length} players · {match.players.filter(p => p.kind === 'bot').length} bots</span></>}
+            <span className="min-w-0 basis-full break-words text-sm text-bone sm:basis-48 sm:flex-1">{match.players.map((p, i) => <span key={p.player}>
+              {i > 0 && <span className="text-ash"> · </span>}
+              <span className={p.player === subject?.self ? 'font-bold' : undefined} style={{ color: p.color !== undefined ? hex(p.color) : undefined }}>{p.name}</span>
+            </span>)}</span>
+            {subject && <span className={`tabular text-xs ${subject.delta !== null && Math.round(subject.delta) > 0 ? 'text-heal' : subject.delta !== null && Math.round(subject.delta) < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`}>
+              {subject.delta === null ? 'Not rated' : `${signed(subject.delta)} Elo${subject.rating === null ? '' : ` · ${Math.round(subject.rating)}`}`}
+            </span>}
             {me && <span className="tabular text-sm text-ash">{me.kills} / {me.deaths} K/D</span>}
             <span className="tabular text-sm text-ash">{duration(match.ticks / TICK_HZ)}</span>
             <span className="text-sm text-ash">{ago(match.at)}</span>

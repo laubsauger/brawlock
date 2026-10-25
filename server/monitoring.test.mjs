@@ -165,7 +165,8 @@ test('all dashboard routes require server-verified admin access and block cross-
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.equal(reads, 1)
   assert.equal((await handle(new Request('https://game.test/api/admin/monitoring?hours=720'))).status, 200)
-  assert.equal(reads, 2)
+  assert.equal((await handle(new Request('https://game.test/api/admin/monitoring?hours=0.25'))).status, 200)
+  assert.equal(reads, 3)
   assert.equal((await handle(new Request('https://game.test/api/admin/monitoring', { method: 'POST' }))).status, 405)
 })
 
