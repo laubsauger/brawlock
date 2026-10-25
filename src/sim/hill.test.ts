@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest'
+import { isLocationSafeAtLayer } from './arena'
 import { killPawn } from './combat'
 import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
-import { hillLayerNow, hillStayOf, onHill } from './hill'
+import { hillLayerNow, hillStartLayer, hillStayOf, onHill } from './hill'
+import { prepareForRound } from './mode'
 import { applyRosterChanges } from './roster'
 import { shopOpen } from './shop'
-import { fight, of, pawn, place, run, runUntil } from './testkit'
+import { fight, newMatch, of, pawn, place, run, runUntil } from './testkit'
 import type { MatchSettings, SimState } from './types'
 
 const hill = (overrides: Partial<MatchSettings> = {}, n = 2, teams?: number[]) => fight(n, teams, { gameMode: 'hill', winScore: 100, ...overrides })
@@ -241,5 +243,50 @@ describe('King of the Hill: respawn style', () => {
     applyRosterChanges(s, [{ id: 5, name: 'late', color: 0, team: 5, kind: 'human' }])
     run(s, 2)
     expect(pawn(s, 5).alive).toBe(true)
+  })
+})
+
+describe('King of the Hill: pillars catch a warlock knocked off the hill', () => {
+  /** the shop before fight `round + 1`, with its pillars */
+  const shopAt = (round: number, seed = 1) => {
+    const s = newMatch({ gameMode: 'hill' }, 2, seed, undefined, true)
+    s.round = round
+    prepareForRound(s)
+    return s
+  }
+  const layer = hillStartLayer({ hillLayer: HILL_DEFAULT_LAYER })
+  // a pillar circle overlaps the hill iff some point of it within the radius stands on a hill tile
+  const touchesHill = (x: number, y: number, r: number) => {
+    for (let a = 0; a < 64; a++) {
+      const t = (a / 64) * Math.PI * 2
+      for (const k of [0.5, 1]) if (isLocationSafeAtLayer(layer, x + Math.cos(t) * r * k, y + Math.sin(t) * r * k)) return true
+    }
+    return isLocationSafeAtLayer(layer, x, y)
+  }
+
+  test('four rim pillars alternate between the corners and the tips, round by round', () => {
+    const corners = shopAt(0).obstacles.slice(0, 4)
+    const tips = shopAt(1).obstacles.slice(0, 4)
+    expect(corners.every((o) => Math.abs(Math.abs(o.x) - Math.abs(o.y)) < 1e-6)).toBe(true)
+    expect(tips.every((o) => Math.abs(o.x) < 1e-6 || Math.abs(o.y) < 1e-6)).toBe(true)
+    expect(shopAt(2).obstacles.slice(0, 4).map((o) => [Math.sign(o.x), Math.sign(o.y)])).toEqual(corners.map((o) => [Math.sign(o.x), Math.sign(o.y)]))
+  })
+
+  test('a warlock pressed against a rim pillar from the hill still stands on it; no pillar blocks the hill itself', () => {
+    for (const round of [0, 1]) {
+      for (const seed of [1, 2, 3]) {
+        const s = shopAt(round, seed)
+        const rim = s.obstacles.slice(0, 4)
+        for (const o of rim) {
+          const d = Math.hypot(o.x, o.y)
+          const back = (o.radius + 30) / d
+          expect(isLocationSafeAtLayer(layer, o.x - o.x * back, o.y - o.y * back)).toBe(true)
+          expect(touchesHill(o.x, o.y, o.radius)).toBe(false)
+        }
+        // the random extras keep off the hill too
+        expect(s.obstacles.length).toBeGreaterThan(4)
+        for (const o of s.obstacles.slice(4)) expect(touchesHill(o.x, o.y, o.radius + 100)).toBe(false)
+      }
+    }
   })
 })

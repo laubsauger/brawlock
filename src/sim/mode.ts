@@ -24,7 +24,7 @@
  * with the hill ticking in every fight; respawn style is one fight after one shop. Either ends
  * the moment a ticket reaches winScore.
  */
-import { clampLayer } from './arena'
+import { TILE_SIZE, arenaTiles, clampLayer, type ArenaTile } from './arena'
 import { BET_TWO_STARTER_SECONDS, settleSpectateBets } from './bets'
 import { hillStartLayer, hillTick, newHill, respawnsInFight } from './hill'
 import {
@@ -35,7 +35,11 @@ import {
   DM_ROUND_SECONDS,
   HILL_ARENA_MARGIN,
   HILL_ARENA_SHRINK_PERIOD,
+  HILL_EXTRA_CLEAR,
+  HILL_EXTRA_PILLARS_MAX,
+  HILL_EXTRA_PILLARS_MIN,
   HILL_RESPAWN_SECONDS,
+  HILL_RIM_GAP,
   HILL_ROUND_WIN_TICKETS,
   HILL_TIME_LIMIT_SECONDS,
   OBSTACLE_COUNT_MAX,
@@ -53,6 +57,7 @@ import {
   TEAM_DRAW,
   ticks,
 } from './config'
+import { hypot } from './math'
 import { MOD_SPAWN_INVULNERABLE, addModifier, removeTemporaryModifiers } from './modifiers'
 import { randomInt, randomRange } from './rng'
 import { respawnPawn } from './spawn'
@@ -96,10 +101,47 @@ function emitPhase(state: SimState): void {
   state.events.push({ type: 'phase', phase: state.phase, round: state.round })
 }
 
+/** Whether a circle at (x, y) clears every tile square by `r`. */
+function clearOf(tiles: readonly ArenaTile[], x: number, y: number, r: number): boolean {
+  const h = TILE_SIZE / 2
+  return tiles.every((t) => {
+    const dx = Math.max(0, Math.abs(x - t.x) - h)
+    const dy = Math.max(0, Math.abs(y - t.y) - h)
+    return dx * dx + dy * dy >= r * r
+  })
+}
+
+/** King of the Hill pillars (config HILL_RIM_GAP): four on the hill's rim, then a few off it. */
+function spawnHillObstacles(state: SimState, radii: readonly number[]): void {
+  const hill = arenaTiles(hillStartLayer(state.settings))
+  // rounds style alternates corners (even rounds) and tips; respawn style has one platform
+  const d = Math.SQRT1_2
+  const dirs = state.round % 2 === 0 ? [[d, d], [-d, d], [-d, -d], [d, -d]] : [[1, 0], [0, 1], [-1, 0], [0, -1]]
+  for (const [ux, uy] of dirs) {
+    const variant = randomInt(state, 0, radii.length - 1)
+    const radius = radii[variant]
+    let r = 0
+    while (!clearOf(hill, ux * r, uy * r, radius + HILL_RIM_GAP)) r += 4
+    state.obstacles.push({ id: state.nextEntityId++, x: ux * r, y: uy * r, radius, hp: OBSTACLE_HP, variant })
+  }
+  const extra = randomInt(state, HILL_EXTRA_PILLARS_MIN, HILL_EXTRA_PILLARS_MAX)
+  for (let i = 0, tries = 0; i < extra && tries < 20; tries++) {
+    const x = randomRange(state, -OBSTACLE_MAX_COORD, OBSTACLE_MAX_COORD)
+    const y = randomRange(state, -OBSTACLE_MAX_COORD, OBSTACLE_MAX_COORD)
+    const variant = randomInt(state, 0, radii.length - 1)
+    const radius = radii[variant]
+    if (!clearOf(hill, x, y, radius + HILL_EXTRA_CLEAR)) continue
+    if (state.obstacles.some((o) => hypot(o.x - x, o.y - y) < o.radius + radius + HILL_EXTRA_CLEAR)) continue
+    state.obstacles.push({ id: state.nextEntityId++, x, y, radius, hp: OBSTACLE_HP, variant })
+    i++
+  }
+}
+
 function spawnObstacles(state: SimState): void {
   state.obstacles = []
   if (!SPAWN_OBSTACLES) return
   const radii = OBSTACLE_RADII[state.arena.theme] ?? OBSTACLE_RADII[0]
+  if (isHill(state)) return spawnHillObstacles(state, radii)
   const count = randomInt(state, OBSTACLE_COUNT_MIN, OBSTACLE_COUNT_MAX)
   for (let i = 0; i < count; i++) {
     const x = randomRange(state, -OBSTACLE_MAX_COORD, OBSTACLE_MAX_COORD)
