@@ -52,8 +52,9 @@ Deployment is established by release receipts, not by implementation status here
      every enemy flees at once. Check it against real play once the cancels above are fixed.
    - In a bot-only free-for-all the hill was contested about 78% of the time; measure again with the
      new targeting and capture time.
-6. **King of the Hill, open questions for the user.**
-   - The "away" step that stops the countdown needs rework: details from the user.
+6. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
+   filterable by region. Needs a shared relay (the account authority or the global game authority),
+   rate limits, mute/block, report, and the same name rules as in-match chat.
 
 ## Completed in this planning pass
 
@@ -169,7 +170,9 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.13**, source `c2caf7e6f445`, on 2026-10-25:
+The latest rollout is **v0.1.0-alpha.14**, source `c68ce367fcb8`, on 2026-10-25:
+[hill tuning and sharper bots after the evening playtest](../deploy/releases/2026-10-25-alpha14.md).
+**v0.1.0-alpha.13**, source `c2caf7e6f445`, shipped
 [gold for standing on the hill](../deploy/releases/2026-10-25-alpha13.md).
 **v0.1.0-alpha.12**, source `b8d9bd4554fb`, shipped
 [a calmer, smaller hill after the first playtest](../deploy/releases/2026-10-25-alpha12.md).
