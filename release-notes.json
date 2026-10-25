@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.0-alpha.11",
+    "releaseDate": "2026-10-25",
+    "title": "King of the Hill",
+    "changes": [
+      "King of the Hill: hold the glowing hill with no enemy on it to earn a ticket every second. First to 100 tickets wins. Play it from the main menu as a casual free-for-all.",
+      "The hill shrinks by one ring every 90 seconds and blinks red before it does. A plate under the clock shows who holds it and the ticket race to the target.",
+      "Custom games can play King of the Hill in rounds or with respawns, and bots fight for the hill.",
+      "Game servers run 30 updates a second instead of 60, so each server can host several times more games. Your own moves still show at once.",
+      "Every bot build buys Boots early and levels them.",
+      "Projectiles fly exactly their listed range, and Homing missiles sound calmer in flight.",
+      "Denied calls only play when you escape close to death.",
+      "Match history shows Elo in whole points and player names in their colours."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.10",
     "releaseDate": "2026-10-24",
     "title": "Clearer combat at a glance",
