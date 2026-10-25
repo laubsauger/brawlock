@@ -71,3 +71,13 @@ describe('final-round results', () => {
     expect((board.match(/text-gold[^>]*><span>2<\/span>/g) ?? [])).toHaveLength(2)
   })
 })
+
+describe('final builds', () => {
+  it('every row opens to its final build once the result carries builds; older results offer nothing to open', () => {
+    const toggles = (html: string) => (html.match(/build and match stats/g) ?? []).length
+    expect(toggles(present([1]))).toBe(0)
+    const result = useGame.getState().result!
+    useGame.setState({ result: { ...result, builds: result.slots.map((s) => ({ player: s.id, slots: Array(12).fill(null), levels: Array(12).fill(0) })) } })
+    expect(toggles(renderToStaticMarkup(createElement(Results)))).toBe(4)
+  })
+})

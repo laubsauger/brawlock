@@ -1784,6 +1784,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
       winners: abandoned ? [] : m.winners ?? winnersOf(s),
       slots: s.slots,
       scores: s.scores,
+      builds: s.pawns.map((p) => ({ player: p.owner, slots: [...p.slots], levels: [...p.levels] })),
       rounds: s.round,
       ticks: s.tick,
     }

@@ -13,6 +13,8 @@ import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useReplayIds, watchReplay } from '../lib/replays'
 import { accountsEnabled } from '../../game/account'
 import { Collection, MatchEmbers } from './Collection'
+import { BuildIcons } from '../BuildIcons'
+import type { InspectedKit } from '../../game/inspect'
 
 interface Row {
   id: number
@@ -28,6 +30,10 @@ interface Row {
   /** whole-match damage when the match record has it */
   damage: number | null
   winner: boolean
+  /** final gold on hand plus gold spent in the shop */
+  worth: number
+  /** final build, when the result carries it */
+  kit: InspectedKit | null
 }
 
 /** The match record the session just stored for this result, if it is the same match. */
@@ -44,6 +50,7 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
     .map((slot) => {
       const sc = result.scores.find((s) => s.id === slot.id)
       const p = rec?.participants.find((x) => x.player === slot.id)
+      const build = result.builds?.find((b) => b.player === slot.id)
       return {
         id: slot.id,
         name: slot.name,
@@ -57,6 +64,8 @@ function rowsOf(result: MatchResult, rec: MatchRecord | null): Row[] {
         deaths: sc?.deaths ?? 0,
         damage: p ? Math.round(p.damage) : null,
         winner: result.winners.includes(slot.id),
+        worth: Math.floor((sc?.gold ?? 0) + (sc?.spent ?? 0)),
+        kit: build && sc ? { slots: build.slots, levels: build.levels, masteries: sc.masteries } : null,
       }
     })
     .sort((a, b) => Number(b.winner) - Number(a.winner) || b.score - a.score || b.kills - a.kills || (b.damage ?? 0) - (a.damage ?? 0) || a.deaths - b.deaths)
@@ -186,8 +195,8 @@ export function Results() {
               >
                 <td className="py-1 pr-2">
                   <span className="flex items-center gap-3">
-                    {stats ? (
-                      <button type="button" className="row-toggle" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${r.name}'s match stats`} onClick={() => setExpanded(open ? null : r.id)}>
+                    {stats || r.kit ? (
+                      <button type="button" className="row-toggle" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${r.name}'s build and match stats`} onClick={() => setExpanded(open ? null : r.id)}>
                         <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden>
                           <path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" strokeWidth="1.6" />
                         </svg>
@@ -235,11 +244,19 @@ export function Results() {
                   </td>
                 )}
               </tr>
-              {open && stats && (
+              {open && (stats || r.kit) && (
                 <tr>
                   <td colSpan={online ? 7 : 5} className="pb-2.5">
-                    <div className="pop-in">
-                      <PlayerStatsDetail stats={stats} />
+                    <div className="pop-in flex flex-col gap-2.5">
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                        {r.kit && <BuildIcons kit={r.kit} size={26} />}
+                        <span className="tabular flex items-center gap-1.5 text-[0.95rem] font-bold text-gold" title="Net worth: gold on hand plus gold spent in the shop">
+                          <span className="coin" aria-hidden />
+                          {r.worth}
+                          <span className="text-xs font-semibold text-ash">net worth</span>
+                        </span>
+                      </div>
+                      {stats && <PlayerStatsDetail stats={stats} />}
                     </div>
                   </td>
                 </tr>

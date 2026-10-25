@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { BotDifficulty, MatchSettings, PlayerId, PlayerScore, PlayerSlot } from '../sim/types'
+import type { BotDifficulty, MatchSettings, PlayerId, PlayerScore, PlayerSlot, SpellId } from '../sim/types'
 
 /**
  * App-level UI state. Components subscribe with narrow selectors
@@ -149,6 +149,8 @@ export interface MatchResult {
   winners: PlayerId[]
   slots: PlayerSlot[]
   scores: PlayerScore[]
+  /** each seat's final spells and items (masteries are in scores); absent on older results */
+  builds?: { player: PlayerId; slots: (SpellId | null)[]; levels: number[] }[]
   rounds: number
   /** match length in sim ticks (TICK_HZ) */
   ticks?: number
