@@ -14,7 +14,7 @@ Deployment is established by release receipts, not by implementation status here
    bot rooms on the 2-vCPU EU host instead of 32. To ship it: merge it into main, and move the services
    that own shared state and databases into the front so room processes never write them directly.
    Until then a production build refuses more than one process.
-3. **Known gaps accepted for the release after alpha.10 (fix later):**
+3. **Known gaps accepted for alpha.11 (fix later):**
    - Peer-to-peer own-input prediction can wait 78–163 ms on a lossy raw channel at 150 ms RTT
      (`src/net/session.predict.test.ts`, loss seeds 1 and 9). Sending the link report once a second
      instead of four times made seed 9 hit it too.
@@ -138,8 +138,11 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.8**, source `7efb8d65a323`, on 2026-10-21:
-[verified fleet, website and admin rollout](../deploy/releases/2026-10-21-alpha8.md).
+The latest rollout is **v0.1.0-alpha.11**, source `3f74bc89f56a`, on 2026-10-25:
+[King of the Hill and a simulation rate per game server](../deploy/releases/2026-10-25-alpha11.md).
+**v0.1.0-alpha.10**, source `a92f7931d9f5`, shipped on 2026-10-24
+([record](../deploy/releases/2026-10-24-alpha10.md)); **v0.1.0-alpha.8** on 2026-10-21
+([record](../deploy/releases/2026-10-21-alpha8.md)).
 The newer source work above is not proof of another deployment.
 **v0.1.0-alpha.7**, source `2ab87bea7700`, on 2026-10-20 was a hotfix for
 match clicks (a layout wrapper covered the canvas). **v0.1.0-alpha.6**, source `37bba9b15def`,
