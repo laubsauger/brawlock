@@ -58,6 +58,18 @@ Provisioning and the one-time root-app migration are manual infrastructure work.
 
 The deploy SSH identity remains root for protected file ownership and nginx operations. The game process and every app PM2 action run under `brawlock`, from its accessible home with a clean environment. A missing runtime/config/service or conflicting port fails before code transfer.
 
+nginx's global `/etc/nginx/nginx.conf` belongs to the host, not to brawlock, but each player is two nginx connections (theirs and the proxied one). Ubuntu's default of 768 per worker limits a 2-worker host to about 768 players, and every game message costs nginx a read, a TLS record and a write. On every game host (set on US and EU 2026-10-25, previous file kept as `nginx.conf.bak-<time>`):
+
+```nginx
+worker_rlimit_nofile 16384;   # main context, after worker_processes
+events {
+	worker_connections 4096;
+	multi_accept on;
+}
+```
+
+Apply with `nginx -t && systemctl reload nginx` (graceful: open connections stay on the old workers).
+
 ## Adding a region
 
 Prepare the account, service, protected config/secrets, and authority URL as above, then use the same script with the matching regional values:
