@@ -10,7 +10,7 @@ const HEIGHT = 900
 /**
  * King of the Hill: a column of light over the hill's centre, so the objective reads from
  * anywhere on screen. Faint gold while the hill is empty, a brighter shaft in the holder's
- * colour while held (bands rising through it), a stuttering flicker while contested. Kept faint:
+ * colour while held (bands rising through it), a steady pale glow while contested. Kept faint:
  * from the top-down camera the column lies over the hill's own tiles.
  * Additive and depth-tested, never writing depth, so warlocks inside it stay visible.
  */
@@ -53,11 +53,11 @@ export class HillBeacon {
 
   /**
    * mode: null = no hill, 0 empty, 1 held, 2 contested. colour: linear rgb (holder identity).
-   * dt in seconds; t is the clock for the contested flicker.
+   * dt in seconds.
    */
-  update(mode: 0 | 1 | 2 | null, color: THREE.Color, floorH: number, t: number, dt: number): void {
-    const target = mode === null ? 0 : mode === 1 ? 0.5 : mode === 2 ? (Math.sin(t * 22) > 0 ? 0.35 : 0.1) : 0.12
-    this.level += (target - this.level) * Math.min(1, dt * (mode === 2 ? 30 : 5))
+  update(mode: 0 | 1 | 2 | null, color: THREE.Color, floorH: number, dt: number): void {
+    const target = mode === null ? 0 : mode === 1 ? 0.5 : mode === 2 ? 0.18 : 0.12
+    this.level += (target - this.level) * Math.min(1, dt * 5)
     this.mesh.visible = this.level > 0.01
     if (!this.mesh.visible) return
     this.mesh.position.set(0, floorH * S, 0)

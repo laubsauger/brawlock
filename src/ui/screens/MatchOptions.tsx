@@ -25,8 +25,8 @@ const GAME_MODES: { value: GameMode; label: string }[] = [
 /** hill sizes as arena layers: 9, 21 and 37 tiles */
 const HILL_SIZES: { value: string; label: string }[] = [
   { value: '4', label: 'Small' },
-  { value: '6', label: 'Medium' },
-  { value: '8', label: 'Large' },
+  { value: '5', label: 'Medium' },
+  { value: '7', label: 'Large' },
 ]
 
 const TEAM_HINT: Record<TeamMode, string> = {

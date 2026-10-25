@@ -15,7 +15,6 @@ import {
   dot,
   exp,
   floor,
-  fract,
   fwidth,
   int,
   normalMap,
@@ -609,17 +608,18 @@ export class Arena {
     const hillDoomV = step(hl.w, cLen)
     // an inlaid band inside every hill tile's rim and slow rings of light
     // flowing out from the centre. Empty: dim gold; held: the holder's colour, brighter and
-    // faster; contested: a white strobe (no hue, so it never reads as a red holder). Kept
-    // modest: ACES turns hot hues cream.
+    // faster; contested: only the rim band, a steady pale outline (no hue, so it never reads
+    // as a red holder; no fill or strobe, which flashed the whole hill). Kept modest: ACES
+    // turns hot hues cream.
     const hHeld = step(0.5, hl.y).mul(step(hl.y, 1.5))
     const hContest = step(1.5, hl.y)
-    const hFlick = step(0.5, fract(tF.mul(3.2)))
-    const hCol = mix(mix(vec3(1.0, 0.68, 0.24), this.uHillColor, hHeld), mix(vec3(0.18, 0.17, 0.22), vec3(0.95, 0.93, 1.0), hFlick), hContest)
+    const hFill = float(1).sub(hContest)
+    const hCol = mix(mix(vec3(1.0, 0.68, 0.24), this.uHillColor, hHeld), vec3(0.78, 0.78, 0.86), hContest)
     const hBand = smoothstep(0.72, 0.86, edge).mul(float(1).sub(smoothstep(0.93, 0.99, edge)))
     const hFlow = sin(length(gp).mul(0.03).sub(tF.mul(hHeld.mul(2.5).add(1.2)))).mul(0.5).add(0.5)
     const hBreathe = sin(tF.mul(2.1)).mul(0.15).add(0.85)
-    const hLevel = hHeld.mul(0.7).add(hContest.mul(0.5)).add(0.55)
-    const hillGlow = onHillV.mul(isTop.add(isBevel.mul(0.6))).mul(hBand.mul(0.8).add(hFlow.pow(3).mul(0.22)).add(0.05)).mul(hBreathe).mul(hLevel)
+    const hLevel = hHeld.mul(0.7).add(0.55)
+    const hillGlow = onHillV.mul(isTop.add(isBevel.mul(0.6))).mul(hBand.mul(0.8).add(hFlow.pow(3).mul(0.22).add(0.05).mul(hFill))).mul(hBreathe).mul(hLevel)
     em = em.add(hCol.mul(hillGlow))
     // the hill's outer ring blinks red before it stops counting
     em = em.add(vec3(1.3, 0.16, 0.04).mul(onHillV.mul(hillDoomV).mul(hl.z).mul(pulse).mul(hBand.add(0.25)).mul(isTop)))

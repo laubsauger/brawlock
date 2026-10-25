@@ -700,7 +700,7 @@ export class MatchWorld {
         for (const m of spellVfxModules()) this.guard(m, 'beginFrame', () => m.beginFrame?.(this.vfx))
       }
       this.updateArena(curr, t, first, alpha)
-      this.updateHill(curr, t, dt, alpha)
+      this.updateHill(curr, dt, alpha)
       // A keyframe can skip shop entirely. Advance life epochs before events,
       // preserving any authoritative death that belongs to this new round.
       for (const v of this.views.values()) v.beginRound(curr.round)
@@ -983,11 +983,11 @@ export class MatchWorld {
   // ---------------------------------------------------------------- hill
 
   /** King of the Hill: tile glow, beacon and the shrink warning, from state each frame. */
-  private updateHill(curr: SimState, t: number, dt: number, alpha: number): void {
+  private updateHill(curr: SimState, dt: number, alpha: number): void {
     const u = this.arena.uHill.value
     if (curr.settings.gameMode !== 'hill') {
       u.set(0, 0, 0, 0)
-      this.beacon.update(null, this.hillColor, TILE_TOP_H, t, dt)
+      this.beacon.update(null, this.hillColor, TILE_TOP_H, dt)
       return
     }
     const h = curr.hill
@@ -1006,7 +1006,7 @@ export class MatchWorld {
     if (mode === 1 && h) this.hillColor.setHex(this.teamHex(curr, h.team!))
     else this.hillColor.setRGB(1, 0.68, 0.24)
     this.arena.uHillColor.value.copy(this.hillColor)
-    this.beacon.update(mode, this.hillColor, TILE_TOP_H, t, dt)
+    this.beacon.update(mode, this.hillColor, TILE_TOP_H, dt)
   }
 
   /** identity colour of a team (its first member's: the team colour in team modes) */

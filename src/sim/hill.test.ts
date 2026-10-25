@@ -45,8 +45,8 @@ describe('King of the Hill: holding', () => {
   })
 
   test('the hill is whole tiles of its layer: the tile edge, not a circle, decides', () => {
-    const s = hill()
-    expect(hillLayerNow(s)).toBe(HILL_DEFAULT_LAYER)
+    expect(hillLayerNow(hill())).toBe(HILL_DEFAULT_LAYER)
+    const s = hill({ hillLayer: 6 })
     // layer 6 keeps tile (2, 1) (centre 429 from the middle), not tile (2, 2) (543)
     expect(onHill(s, 2 * 192 + 90, 192 + 90)).toBe(true)
     expect(onHill(s, 2 * 192, 2 * 192)).toBe(false)
