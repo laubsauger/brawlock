@@ -57,8 +57,9 @@ const ARTY_BOLT: readonly SpellId[] = ['homing', 'boomerang']
 const BARRAGE: readonly SpellId[] = ['cluster', 'bouncer']
 const CLOSE_HOLD: readonly SpellId[] = ['gravity', 'grip']
 const LEECH_E: readonly SpellId[] = ['snowball', 'splitter']
-const FEET: readonly SpellId[] = ['boots', 'armor']
 
+// Every build takes Boots early and levels them (cheap at 5 gold a level): slow bots were
+// easy to catch and too slow to reach a fight or walk out of a push.
 export const BUILDS = {
   // the former single Uber build
   blink: {
@@ -66,11 +67,14 @@ export const BUILDS = {
     steps: [
       spell('teleport', 1),
       spell('lightning', 1),
+      item('boots', 1),
       item('fireball', 3),
       item('scourge', 2),
+      item('boots', 2),
       spell('teleport', 2),
       item('fireball', 5),
       spell(PULL, 1),
+      item('boots', 3),
       spell('teleport', 4),
       item('scourge', 3),
       item('fireball', 7),
@@ -83,13 +87,16 @@ export const BUILDS = {
     steps: [
       spell('teleport', 1),
       spell('homing', 1),
+      item('boots', 1),
       item('fireball', 2),
       spell(HOLD, 1),
+      item('boots', 2),
       item('scourge', 2),
       spell('teleport', 2),
       item('fireball', 4),
+      item('boots', 3),
       spell('homing', 3),
-      item(FEET, 1),
+      item('armor', 1),
       spell('teleport', 4),
       item('scourge', 3),
       item('fireball', 6),
@@ -104,12 +111,14 @@ export const BUILDS = {
     steps: [
       spell('teleport', 1),
       spell(DUEL_BOLT, 1),
+      item('boots', 1),
       item('fireball', 3),
       spell(DUEL_T, 1),
+      item('boots', 2),
       item('scourge', 2),
       spell('teleport', 2),
-      item('boots', 1),
       item('fireball', 5),
+      item('boots', 3),
       spell(DUEL_BOLT, 3),
       spell('shield', 1),
       spell('teleport', 4),
@@ -125,12 +134,14 @@ export const BUILDS = {
     steps: [
       spell('teleport', 1),
       spell(ARTY_BOLT, 1),
+      item('boots', 1),
       item('fireball', 3),
       spell('meteor', 1),
+      item('boots', 2),
       spell(BARRAGE, 1),
       spell('teleport', 2),
-      item('boots', 1),
       item('ring_of_health', 1),
+      item('boots', 3),
       spell('meteor', 3),
       item('scourge', 2),
       item('fireball', 5),
@@ -148,11 +159,14 @@ export const BUILDS = {
     steps: [
       spell('thrust', 1),
       spell('boomerang', 1),
+      item('boots', 1),
       item('scourge', 2),
       item('fireball', 3),
+      item('boots', 2),
       spell(CLOSE_HOLD, 1),
       item('armor', 1),
       spell('thrust', 3),
+      item('boots', 3),
       item('scourge', 3),
       item('armor', 2),
       spell('boomerang', 3),
@@ -169,11 +183,14 @@ export const BUILDS = {
     steps: [
       spell('swap', 1),
       spell('drain', 1),
+      item('boots', 1),
       item('cape', 1),
       item('fireball', 3),
+      item('boots', 2),
       spell(LEECH_E, 1),
       item('scourge', 2),
       item('ring_of_health', 1),
+      item('boots', 3),
       spell('drain', 3),
       item('fireball', 5),
       item('cape', 3),
