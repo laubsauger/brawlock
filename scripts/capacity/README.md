@@ -38,8 +38,8 @@ raised because one generator shares one address. This is not an admission-rate
 benchmark. The production health endpoint is sampled independently alongside
 isolated server monitoring to expose shared network delays.
 
-Human-heavy ramps use 8/16/24/32 rooms of ten clients. Bot-heavy ramps use
-16/32/48 rooms, each with one client and nine server bots (Hard, with one
+Human-heavy ramps use 8/16/20/24/32 rooms of ten clients. Bot-heavy ramps use
+16/32/40/48 rooms, each with one client and nine server bots (Hard, with one
 Medium and one Brutal). Each stage warms for ten seconds, then samples for 60
 seconds. STREAM_EVERY=2 runs the server with two ticks per stream packet. Shop time is eight seconds, time scale stays **1×**, and clients move,
 cast, purchase, receive/verify streams and automatically ready for rematches.

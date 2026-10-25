@@ -16,6 +16,9 @@ if (!buildDir.startsWith(resolve('artifacts/capacity') + '/')) throw new Error('
 const manifest = JSON.parse(readFileSync(`${buildDir}/manifest.json`, 'utf8'))
 manifest.streamEvery = config.streamEvery ?? 1
 manifest.shards = config.shards ?? 1
+manifest.semiSpaceMb = config.semiSpace ?? 16
+// throughput guard: 98% of the build's simulation rate (58.8 at 60 Hz)
+const minHz = (manifest.tickHz ?? 60) * 0.98
 // several room processes: guard the busiest one (each has its own main thread), memory in total
 const busiest = (server) => server.processes ? Math.max(0, ...server.processes.map((p) => p.cpuPct ?? 0)) : server.perf.processCpuPct
 const rssLimitMb = (config.shards ?? 1) > 1 ? 640 : 400
@@ -42,7 +45,7 @@ const until = async (fn, label) => { const deadline = Date.now() + 30_000; while
 const percentile = (values, p) => { const v = values.filter(Number.isFinite).sort((a, b) => a - b); return v.length ? v[Math.min(v.length - 1, Math.ceil(v.length * p) - 1)] : null }
 const loop = monitorEventLoopDelay({ resolution: 20 }); loop.enable()
 writeFileSync(`${out}/manifest.json`, JSON.stringify({ ...manifest, run: config.run, stages: config.stages, region: config.region, target: config.base,
-  warmupSeconds: 10, guardrails: { serverCpuPct: config.findCeiling ? 150 : 95, cpuHoldSeconds: 10, serverRssMb: 400, generatorLoopMaxMs: 150, generatorHoldSeconds: 5, simulationMinHz: 58.8, simulationHoldSeconds: 5, inputAckP95MaxMs: 500, latencyHoldSeconds: 5 } }, null, 2))
+  warmupSeconds: 10, guardrails: { serverCpuPct: config.findCeiling ? 150 : 95, cpuHoldSeconds: 10, serverRssMb: 400, generatorLoopMaxMs: 150, generatorHoldSeconds: 5, simulationMinHz: minHz, simulationHoldSeconds: 5, inputAckP95MaxMs: 500, latencyHoldSeconds: 5 } }, null, 2))
 try {
   const baseline = await json('/internal/monitoring')
   if (baseline.region !== `capacity-${config.run}`) throw new Error('Target is not the isolated capacity process')
@@ -97,7 +100,7 @@ try {
       highInputLag = ackP95 !== null && ackP95 > 500 ? highInputLag + 1 : 0
       const recent = states.slice(-10)
       const delivered = recent.reduce((sum, s) => sum + s.perf.simStepsPerSec, 0) / recent.length / stage.rooms
-      slowSimulation = recent.length >= 10 && delivered < 58.8 ? slowSimulation + 1 : 0
+      slowSimulation = recent.length >= 10 && delivered < minHz ? slowSimulation + 1 : 0
       if (failures.length) reason = `generator-error: ${failures[0]}`
       else if ([...latest.values()].some(v => v.desyncs > 0)) reason = 'stream-correctness-failure'
       else if ([...latest.values()].some(v => v.errors?.length)) reason = 'client-disconnect'
