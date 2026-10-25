@@ -20,7 +20,7 @@
  * we run 60 Hz for lower input latency. Every per-tick constant from the original
  * (friction 0.96 per 0.035 s, ...) must be converted: perTick = orig ** (DT / ORIGINAL_TICK).
  */
-export const TICK_HZ = 60
+export const TICK_HZ = 30
 export const DT = 1 / TICK_HZ
 export const ORIGINAL_TICK = 0.035
 
