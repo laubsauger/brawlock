@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
 import { HILL_MIN_LAYER, ticks } from '../../sim/config'
-import { hillLayerNow, hillStartLayer } from '../../sim/hill'
+import { hillLayerNow, hillLayerOn, hillStartLayer } from '../../sim/hill'
 import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
@@ -992,7 +992,7 @@ export class MatchWorld {
     }
     const h = curr.hill
     // before the first fight the hill shows at its starting size, empty
-    const layer = h ? hillLayerNow(curr) : Math.min(hillStartLayer(curr.settings), curr.arena.layer)
+    const layer = h ? hillLayerNow(curr) : hillLayerOn(hillStartLayer(curr.settings), curr.arena.layer)
     const r = layer > 1 ? layerRadius(layer) : 0
     const fight = curr.phase === 'fight' && !!h
     const mode = r <= 0 ? null : !fight || !h ? 0 : h.contested ? 2 : h.team !== null ? 1 : 0
@@ -1001,7 +1001,7 @@ export class MatchWorld {
       const secs = (h.nextShrinkTick - (curr.tick + alpha)) / TICK_HZ
       if (secs > 0 && secs <= 3) tele = 0.5 + 0.5 * (1 - secs / 3)
     }
-    const next = h && h.layer > HILL_MIN_LAYER ? layerRadius(Math.min(h.layer - 1, curr.arena.layer)) : r
+    const next = h && h.layer > HILL_MIN_LAYER ? layerRadius(Math.max(0, hillLayerOn(h.layer - 1, curr.arena.layer))) : r
     u.set(r, mode ?? 0, tele, next)
     if (mode === 1 && h) this.hillColor.setHex(this.teamHex(curr, h.team!))
     else this.hillColor.setRGB(1, 0.68, 0.24)

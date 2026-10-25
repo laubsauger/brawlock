@@ -2,10 +2,11 @@
  * King of the Hill (not in the original). The hill is every tile of a small arena layer around
  * the centre (settings.hillLayer, shrinking one ring every HILL_SHRINK_PERIOD); it never reaches
  * past the arena itself. A team standing on it alone earns one ticket (score) per
- * HILL_TICKET_SECONDS for each member; any enemy team on it contests it and nobody earns tickets.
+ * HILL_TICKET_SECONDS for each member, the first HILL_CAPTURE_SECONDS after taking it; any enemy
+ * team on it contests it and nobody earns tickets.
  * First to winScore tickets wins, checked on every ticket. Gold is personal and pays while
  * contested too: every HILL_GOLD_SECONDS of an unbroken stay on the hill pays HILL_GOLD_FIRST,
- * one more each grant up to HILL_GOLD_MAX; stepping off or dying starts the stay over.
+ * one more every HILL_GOLD_STEP grants up to HILL_GOLD_MAX; stepping off or dying starts over.
  *
  * Two styles (settings.hillRespawn):
  * - rounds (default): the rounds-mode flow (shop between rounds, no respawns, the arena sinks to
@@ -20,10 +21,12 @@
  */
 import { isLocationSafeAtLayer } from './arena'
 import {
+  HILL_CAPTURE_SECONDS,
   HILL_DEFAULT_LAYER,
   HILL_GOLD_FIRST,
   HILL_GOLD_MAX,
   HILL_GOLD_SECONDS,
+  HILL_GOLD_STEP,
   HILL_INCOME_SECONDS,
   HILL_MAX_LAYER,
   HILL_MIN_LAYER,
@@ -46,9 +49,18 @@ export function respawnsInFight(settings: Pick<MatchSettings, 'gameMode' | 'hill
   return settings.gameMode === 'deathmatch' || (settings.gameMode === 'hill' && settings.hillRespawn === true)
 }
 
-/** The hill's layer right now: its own, or the arena's once the arena has sunk inside it. */
+/**
+ * The hill's layer on an arena of `arenaLayer`: its own, but two rings inside the arena, so a
+ * small late arena still has ground off the hill (playtest 2026-10-25: one ring was too little).
+ * 13 arena tiles left: the hill is the plus of 5; from 9 tiles down only the centre tile.
+ */
+export function hillLayerOn(hillLayer: number, arenaLayer: number): number {
+  return Math.min(hillLayer, Math.max(2, arenaLayer - 2))
+}
+
+/** The hill's layer right now (hillLayerOn the current arena), 0 outside King of the Hill. */
 export function hillLayerNow(state: Pick<SimState, 'hill' | 'arena'>): number {
-  return state.hill ? Math.min(state.hill.layer, state.arena.layer) : 0
+  return state.hill ? hillLayerOn(state.hill.layer, state.arena.layer) : 0
 }
 
 /** True iff (x, y) stands on a hill tile. */
@@ -80,13 +92,14 @@ function hillGold(state: SimState, h: HillState): void {
   const stays: HillStay[] = []
   for (const p of state.pawns) {
     if (!p.alive || !isRoundParticipant(state, p.owner) || !onHill(state, p.x, p.y)) continue
-    const st = prev.find((x) => x.player === p.owner) ?? { player: p.owner, ticks: 0, next: HILL_GOLD_FIRST }
+    const st = prev.find((x) => x.player === p.owner) ?? { player: p.owner, ticks: 0, paid: 0, next: HILL_GOLD_FIRST }
     st.ticks += 1
     if (st.ticks >= ticks(HILL_GOLD_SECONDS)) {
       st.ticks = 0
       scoreOf(state, p.owner)!.gold += st.next
       state.events.push({ type: 'hillGold', player: p.owner, pawn: p.id, gold: st.next })
-      st.next = Math.min(HILL_GOLD_MAX, st.next + 1)
+      st.paid += 1
+      st.next = Math.min(HILL_GOLD_MAX, HILL_GOLD_FIRST + Math.floor(st.paid / HILL_GOLD_STEP))
     }
     stays.push(st)
   }
@@ -122,7 +135,7 @@ export function hillTick(state: SimState): boolean {
     state.events.push({ type: 'hill', team, contested, prev: h.team })
     h.team = team
     h.contested = contested
-    h.heldTicks = 0
+    h.heldTicks = team === null ? 0 : ticks(HILL_TICKET_SECONDS) - ticks(HILL_CAPTURE_SECONDS)
   }
   if (team === null) return false
   h.heldTicks += 1

@@ -283,7 +283,8 @@ export interface HillState {
   /** team standing on it alone, null = nobody (or contested) */
   team: number | null
   contested: boolean
-  /** ticks held by `team` toward its next ticket */
+  /** ticks held by `team` toward its next ticket; a fresh capture starts below zero, so its
+   * first ticket takes HILL_CAPTURE_SECONDS */
   heldTicks: number
   /** tick of the next income payout to everyone */
   nextIncomeTick: number
@@ -296,6 +297,8 @@ export interface HillStay {
   player: PlayerId
   /** ticks on the hill toward the next grant */
   ticks: number
+  /** grants paid so far in this stay */
+  paid: number
   /** gold the next grant pays */
   next: number
 }

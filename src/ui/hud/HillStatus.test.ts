@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import { frame, pushState, resetFrame } from '../../game/frame'
-import { ticks } from '../../sim/config'
+import { HILL_CAPTURE_SECONDS, ticks } from '../../sim/config'
 import { fight, place, pawn, run } from '../../sim/testkit'
 import { HillStatus } from './HillStatus'
 
@@ -19,8 +19,8 @@ describe('King of the Hill status plate', () => {
     const s = fight(2, undefined, { gameMode: 'hill', winScore: 100 })
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 1000, 0)
-    // two tickets: two seconds on the hill, and the tick that pays the second
-    run(s, ticks(2) + 1)
+    // two tickets: the capture time, a second more, and the tick that pays the second
+    run(s, ticks(HILL_CAPTURE_SECONDS + 1) + 1)
     frame.localPlayer = 0
     pushState(s)
     const html = render()

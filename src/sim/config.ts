@@ -104,6 +104,9 @@ export const DM_RESPAWN_SECONDS = 10
  */
 export const HILL_RESPAWN_SECONDS = 5
 export const HILL_TICKET_SECONDS = 1
+/** a fresh capture pays its first ticket after this long, then one per HILL_TICKET_SECONDS
+ * (playtest 2026-10-25: a ticket a second after stepping on felt instant) */
+export const HILL_CAPTURE_SECONDS = 3
 /** layer 6 = 21 tiles (a rounded 5x5); 5 = 13, 4 = the 3x3 block, 3 = a plus of 5. 13 tiles to start:
  * at 21 (playtest 2026-10-25) somebody always contested it and nobody earned tickets */
 export const HILL_DEFAULT_LAYER = 5
@@ -118,11 +121,13 @@ export const HILL_ARENA_SHRINK_PERIOD = 15
 export const HILL_ARENA_MARGIN = 5
 /**
  * Standing on the hill pays gold every HILL_GOLD_SECONDS, contested or not: HILL_GOLD_FIRST,
- * then one more per grant up to HILL_GOLD_MAX. Stepping off (or dying) starts over.
+ * one more every HILL_GOLD_STEP grants, up to HILL_GOLD_MAX (5 s and 10 s: 1, 15 s and 20 s: 2,
+ * from 25 s: 3; tuned down after the 2026-10-25 playtest). Stepping off (or dying) starts over.
  */
 export const HILL_GOLD_SECONDS = 5
 export const HILL_GOLD_FIRST = 1
-export const HILL_GOLD_MAX = 5
+export const HILL_GOLD_STEP = 2
+export const HILL_GOLD_MAX = 3
 /** respawn style: roundGold to everyone this often */
 export const HILL_INCOME_SECONDS = 30
 /** after this long the ticket leader wins; a tie plays on until it breaks */

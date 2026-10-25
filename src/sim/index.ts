@@ -41,6 +41,7 @@ export {
   MASTERY_MAX_LEVEL,
   SPELL_MAX_LEVEL,
   TEAM_DRAW,
+  HILL_CAPTURE_SECONDS,
   HILL_DEFAULT_TICKETS,
   HILL_GOLD_FIRST,
   HILL_GOLD_MAX,
@@ -53,7 +54,7 @@ export {
   ticks,
   secondsOf,
 } from './config'
-export { hillLayerNow, hillStartLayer, hillStayOf, onHill, respawnsInFight } from './hill'
+export { hillLayerNow, hillLayerOn, hillStartLayer, hillStayOf, onHill, respawnsInFight } from './hill'
 export {
   TILE_SIZE,
   CORNER_PX_PY,

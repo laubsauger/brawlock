@@ -21,6 +21,8 @@ interface Standing {
 interface HillView {
   status: 'waiting' | 'open' | 'held' | 'contested'
   holder: Standing | null
+  /** the holder is still inside the capture time: no tickets yet */
+  taking: boolean
   standings: Standing[]
   target: number
   shrinkIn: number | null
@@ -67,11 +69,12 @@ function read(): HillView | null {
   const top = all.slice(0, ROWS)
   const mine = all.find((x) => x.mine)
   if (mine && !top.includes(mine)) top[ROWS - 1] = mine
-  return { status, holder, standings: top, target: Math.max(1, s.settings.winScore), shrinkIn }
+  const taking = status === 'held' && !!h && h.heldTicks < 0
+  return { status, holder, taking, standings: top, target: Math.max(1, s.settings.winScore), shrinkIn }
 }
 
 const key = (v: HillView | null) =>
-  v ? `${v.status}|${v.holder?.team}|${v.shrinkIn}|${v.target}|${v.standings.map((x) => `${x.team}:${x.score}:${x.label}`).join(',')}` : ''
+  v ? `${v.status}|${v.holder?.team}|${v.taking}|${v.shrinkIn}|${v.target}|${v.standings.map((x) => `${x.team}:${x.score}:${x.label}`).join(',')}` : ''
 
 /**
  * King of the Hill status under the clock: who holds the hill (or that it is contested), and
@@ -81,7 +84,7 @@ export function HillStatus() {
   const v = usePolled(read, key, 6)
   if (!v) return null
   const head = v.status === 'held' && v.holder
-    ? <><b style={{ color: v.holder.color }}>{v.holder.mine ? 'You hold' : `${v.holder.label} holds`}</b> the hill</>
+    ? <><b style={{ color: v.holder.color }}>{v.holder.mine ? (v.taking ? 'You are taking' : 'You hold') : `${v.holder.label} ${v.taking ? 'is taking' : 'holds'}`}</b> the hill</>
     : v.status === 'contested' ? <b className="text-[#ff9b7a]">Hill contested</b>
       : v.status === 'open' ? <span className="text-[#ffd890]">The hill is open, take it</span>
         : <span className="text-ash">Hold the glowing centre tiles</span>

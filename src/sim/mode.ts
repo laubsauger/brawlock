@@ -238,11 +238,15 @@ export function roundWon(state: SimState, team: number | null): void {
     settleSpectateBets(state, players)
     for (const id of players) {
       const sc = scoreOf(state, id)!
-      if (!state.rankedFinal) sc.score += isHill(state) ? HILL_ROUND_WIN_TICKETS : 1
+      // hill tickets stop at the target: a match is won at 100, never with 104
+      if (!state.rankedFinal) sc.score = isHill(state) ? Math.min(Math.max(sc.score, state.settings.winScore), sc.score + HILL_ROUND_WIN_TICKETS) : sc.score + 1
       sc.gold += state.settings.winGold
     }
     state.events.push({ type: 'roundWin', team, players })
   }
+  // King of the Hill ends the moment the target is reached, round-win tickets included
+  const hillWinners = isHill(state) ? gameWinners(state) : null
+  if (hillWinners) return finishMatch(state, hillWinners)
   emitPhase(state)
 }
 

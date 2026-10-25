@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { killPawn } from './combat'
-import { HILL_ARENA_MARGIN, HILL_DEFAULT_LAYER, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
+import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
 import { hillLayerNow, hillStayOf, onHill } from './hill'
 import { applyRosterChanges } from './roster'
 import { shopOpen } from './shop'
@@ -15,15 +15,16 @@ const OFF = 1000
 const goldOf = (s: SimState, id: number) => s.scores.find((sc) => sc.id === id)!.gold
 
 describe('King of the Hill: gold for standing on it', () => {
-  test('a stay pays every few seconds, one more each time, up to the cap: staying put is worth more', () => {
+  test('a stay pays every few seconds and ramps 1, 1, 2, 2, then 3 each: staying put is worth more', () => {
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
     const start = goldOf(s, 0)
-    const grants = HILL_GOLD_MAX + 2
-    const events = run(s, ticks(HILL_GOLD_SECONDS * grants))
+    const events = run(s, ticks(HILL_GOLD_SECONDS * 7))
     const paid = of(events, 'hillGold').map((e) => e.gold)
-    expect(paid).toEqual([...Array.from({ length: HILL_GOLD_MAX }, (_, i) => i + 1), HILL_GOLD_MAX, HILL_GOLD_MAX])
+    // tuned with the user after the first playtest: the hill is not a gold mine
+    expect(paid).toEqual([1, 1, 2, 2, 3, 3, 3])
+    expect(HILL_GOLD_MAX).toBe(3)
     expect(goldOf(s, 0) - start).toBe(paid.reduce((a, b) => a + b, 0))
     expect(of(events, 'hillGold').every((e) => e.player === 0)).toBe(true)
   })
@@ -42,7 +43,7 @@ describe('King of the Hill: gold for standing on it', () => {
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
     run(s, ticks(HILL_GOLD_SECONDS) + 1)
-    expect(hillStayOf(s, 0)).toMatchObject({ next: 2 })
+    expect(hillStayOf(s, 0)).toMatchObject({ paid: 1, next: 1 })
     place(pawn(s, 0), OFF, OFF)
     run(s, 1)
     expect(hillStayOf(s, 0)).toBeUndefined()
@@ -64,14 +65,34 @@ describe('King of the Hill: gold for standing on it', () => {
 })
 
 describe('King of the Hill: holding', () => {
-  test('alone on the hill earns a ticket every second; off it earns nothing', () => {
+  test('alone on the hill: the first ticket after the capture time, then one a second; off it earns nothing', () => {
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
-    const events = run(s, ticks(3))
+    // a capture must be held a while before it pays: stepping on is not a ticket
+    const events = run(s, ticks(HILL_CAPTURE_SECONDS) - 1)
+    expect(scoreOf(s, 0)).toBe(0)
+    run(s, 1)
+    expect(scoreOf(s, 0)).toBe(1)
+    run(s, ticks(2))
     expect(scoreOf(s, 0)).toBe(3)
     expect(scoreOf(s, 1)).toBe(0)
     expect(of(events, 'hill')[0]).toMatchObject({ team: 0, contested: false, prev: null })
+  })
+
+  test('contesting resets the capture: the holder waits the capture time again', () => {
+    const s = hill()
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), OFF, 0)
+    run(s, ticks(HILL_CAPTURE_SECONDS))
+    expect(scoreOf(s, 0)).toBe(1)
+    place(pawn(s, 1), 192, 0)
+    run(s, 1)
+    place(pawn(s, 1), OFF, 0)
+    run(s, ticks(HILL_CAPTURE_SECONDS) - 1)
+    expect(scoreOf(s, 0)).toBe(1)
+    run(s, 1)
+    expect(scoreOf(s, 0)).toBe(2)
   })
 
   test('an enemy on the hill contests it: nobody earns while both stand there', () => {
@@ -89,7 +110,7 @@ describe('King of the Hill: holding', () => {
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 192, 0)
     place(pawn(s, 2), -OFF, 0)
-    run(s, ticks(2))
+    run(s, ticks(HILL_CAPTURE_SECONDS) + ticks(1))
     expect([scoreOf(s, 0), scoreOf(s, 1), scoreOf(s, 2)]).toEqual([2, 2, 0])
   })
 
@@ -105,12 +126,12 @@ describe('King of the Hill: holding', () => {
     const s = hill({ winScore: 3 })
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
-    const events = run(s, ticks(3))
+    const events = run(s, ticks(HILL_CAPTURE_SECONDS) + ticks(2))
     expect(s.phase).toBe('gameOver')
     expect(of(events, 'gameOver')[0].winners).toEqual([0])
   })
 
-  test('the hill shrinks a ring at a time to its smallest, and never reaches past the arena', () => {
+  test('the hill shrinks a ring at a time to its smallest, and stays two rings inside the arena', () => {
     const s = hill()
     place(pawn(s, 0), OFF, 0)
     place(pawn(s, 1), -OFF, 0)
@@ -120,9 +141,18 @@ describe('King of the Hill: holding', () => {
     s.hill!.layer = HILL_MIN_LAYER
     s.hill!.nextShrinkTick = s.tick + 1
     expect(of(run(s, 2), 'hillShrink')).toHaveLength(0)
+    // a small late arena keeps ground off the hill: 13 tiles left (layer 5), the hill is the plus
+    // of 5 (layer 3); then only the centre tile (layer 2), which never goes
     s.hill!.layer = 6
+    s.arena.layer = 7
+    expect(hillLayerNow(s)).toBe(5)
+    s.arena.layer = 5
+    expect(hillLayerNow(s)).toBe(3)
     s.arena.layer = 4
-    expect(hillLayerNow(s)).toBe(4)
+    expect(hillLayerNow(s)).toBe(2)
+    s.arena.layer = 2
+    expect(onHill(s, 0, 0)).toBe(true)
+    expect(onHill(s, 192, 0)).toBe(false)
   })
 })
 
@@ -137,6 +167,18 @@ describe('King of the Hill: rounds style (default)', () => {
     runUntil(s, (st) => st.phase === 'fight')
     expect(scoreOf(s, 0)).toBe(HILL_ROUND_WIN_TICKETS)
     expect(s.hill).toMatchObject({ layer: HILL_DEFAULT_LAYER, team: null, heldTicks: 0 })
+  })
+
+  /** Why: the match is won at the ticket target, straight away (playtest 2026-10-25). */
+  test('round-win tickets that reach the target end the match at once, at exactly the target', () => {
+    const s = hill()
+    place(pawn(s, 0), OFF, 0)
+    place(pawn(s, 1), -OFF, 0)
+    s.scores.find((sc) => sc.id === 0)!.score = 98
+    killPawn(s, pawn(s, 1), 0, 'test')
+    expect(s.phase).toBe('gameOver')
+    expect(scoreOf(s, 0)).toBe(100)
+    expect(of(s.events, 'gameOver')[0].winners).toEqual([0])
   })
 
   test('nobody joins mid-fight: entrants wait for the shop', () => {
@@ -182,7 +224,7 @@ describe('King of the Hill: respawn style', () => {
     run(s, 3)
     expect(s.phase).toBe('fight') // 0 - 0, contested
     place(pawn(s, 1), OFF, 0)
-    const events = run(s, ticks(1) + 1)
+    const events = run(s, ticks(HILL_CAPTURE_SECONDS) + 1)
     expect(s.phase).toBe('gameOver')
     expect(of(events, 'gameOver')[0].winners).toEqual([0])
   })
