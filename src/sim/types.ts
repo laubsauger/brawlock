@@ -287,6 +287,17 @@ export interface HillState {
   heldTicks: number
   /** tick of the next income payout to everyone */
   nextIncomeTick: number
+  /** players standing on the hill right now (contested or not), toward their next gold grant */
+  stays: HillStay[]
+}
+
+/** One player's unbroken stay on the hill: gold every HILL_GOLD_SECONDS, one more each time. */
+export interface HillStay {
+  player: PlayerId
+  /** ticks on the hill toward the next grant */
+  ticks: number
+  /** gold the next grant pays */
+  next: number
 }
 
 export interface PlayerScore {
@@ -451,6 +462,8 @@ export type SimEvent =
   | { type: 'hill'; team: number | null; contested: boolean; prev: number | null }
   /** hill: one ticket to every member of `team` (their score is the ticket count) */
   | { type: 'hillTicket'; team: number; players: PlayerId[] }
+  /** hill: a player's stay on the hill paid `gold` */
+  | { type: 'hillGold'; player: PlayerId; pawn: EntityId; gold: number }
   /** hill: the hill lost its outer ring of tiles */
   | { type: 'hillShrink'; layer: number }
 

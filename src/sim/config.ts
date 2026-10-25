@@ -116,8 +116,14 @@ export const HILL_SHRINK_PERIOD = 90
 export const HILL_ARENA_SHRINK_PERIOD = 15
 /** 5 layers keep respawns (SPAWN_EDGE_MARGIN inside the platform) off the starting hill's tiles */
 export const HILL_ARENA_MARGIN = 5
-/** gold to each member of the holding team per ticket, and roundGold to everyone this often */
-export const HILL_TICKET_GOLD = 1
+/**
+ * Standing on the hill pays gold every HILL_GOLD_SECONDS, contested or not: HILL_GOLD_FIRST,
+ * then one more per grant up to HILL_GOLD_MAX. Stepping off (or dying) starts over.
+ */
+export const HILL_GOLD_SECONDS = 5
+export const HILL_GOLD_FIRST = 1
+export const HILL_GOLD_MAX = 5
+/** respawn style: roundGold to everyone this often */
 export const HILL_INCOME_SECONDS = 30
 /** after this long the ticket leader wins; a tie plays on until it breaks */
 export const HILL_TIME_LIMIT_SECONDS = 12 * 60

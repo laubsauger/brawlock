@@ -2,8 +2,10 @@
  * King of the Hill (not in the original). The hill is every tile of a small arena layer around
  * the centre (settings.hillLayer, shrinking one ring every HILL_SHRINK_PERIOD); it never reaches
  * past the arena itself. A team standing on it alone earns one ticket (score) per
- * HILL_TICKET_SECONDS for each member, plus HILL_TICKET_GOLD; any enemy team on it contests it
- * and nobody earns. First to winScore tickets wins, checked on every ticket.
+ * HILL_TICKET_SECONDS for each member; any enemy team on it contests it and nobody earns tickets.
+ * First to winScore tickets wins, checked on every ticket. Gold is personal and pays while
+ * contested too: every HILL_GOLD_SECONDS of an unbroken stay on the hill pays HILL_GOLD_FIRST,
+ * one more each grant up to HILL_GOLD_MAX; stepping off or dying starts the stay over.
  *
  * Two styles (settings.hillRespawn):
  * - rounds (default): the rounds-mode flow (shop between rounds, no respawns, the arena sinks to
@@ -19,16 +21,18 @@
 import { isLocationSafeAtLayer } from './arena'
 import {
   HILL_DEFAULT_LAYER,
+  HILL_GOLD_FIRST,
+  HILL_GOLD_MAX,
+  HILL_GOLD_SECONDS,
   HILL_INCOME_SECONDS,
   HILL_MAX_LAYER,
   HILL_MIN_LAYER,
   HILL_SHRINK_PERIOD,
-  HILL_TICKET_GOLD,
   HILL_TICKET_SECONDS,
   ticks,
 } from './config'
 import { activePlayers, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
-import type { HillState, MatchSettings, SimState } from './types'
+import type { HillState, HillStay, MatchSettings, PlayerId, SimState } from './types'
 
 /** The hill's starting layer for these settings (whole layers, HILL_MIN_LAYER..HILL_MAX_LAYER). */
 export function hillStartLayer(settings: Pick<MatchSettings, 'hillLayer'>): number {
@@ -61,10 +65,35 @@ export function newHill(state: SimState): HillState {
     contested: false,
     heldTicks: 0,
     nextIncomeTick: respawnsInFight(state.settings) ? state.tick + ticks(HILL_INCOME_SECONDS) : -1,
+    stays: [],
   }
 }
 
-/** One fight tick of the hill: shrink, income, who holds it, tickets. True iff a ticket was paid. */
+/** The player's current stay on the hill (toward their next gold grant), if they stand on it. */
+export function hillStayOf(state: Pick<SimState, 'hill'>, player: PlayerId): HillStay | undefined {
+  return state.hill?.stays.find((st) => st.player === player)
+}
+
+/** Personal hill gold: every player on the hill counts toward a grant; off the hill starts over. */
+function hillGold(state: SimState, h: HillState): void {
+  const prev = h.stays
+  const stays: HillStay[] = []
+  for (const p of state.pawns) {
+    if (!p.alive || !isRoundParticipant(state, p.owner) || !onHill(state, p.x, p.y)) continue
+    const st = prev.find((x) => x.player === p.owner) ?? { player: p.owner, ticks: 0, next: HILL_GOLD_FIRST }
+    st.ticks += 1
+    if (st.ticks >= ticks(HILL_GOLD_SECONDS)) {
+      st.ticks = 0
+      scoreOf(state, p.owner)!.gold += st.next
+      state.events.push({ type: 'hillGold', player: p.owner, pawn: p.id, gold: st.next })
+      st.next = Math.min(HILL_GOLD_MAX, st.next + 1)
+    }
+    stays.push(st)
+  }
+  h.stays = stays
+}
+
+/** One fight tick of the hill: shrink, income, gold for standing on it, who holds it, tickets. True iff a ticket was paid. */
 export function hillTick(state: SimState): boolean {
   const h = state.hill
   if (!h) return false
@@ -79,6 +108,7 @@ export function hillTick(state: SimState): boolean {
     for (const sc of state.scores) if (isActive(state, sc.id)) sc.gold += state.settings.roundGold
     h.nextIncomeTick += ticks(HILL_INCOME_SECONDS)
   }
+  hillGold(state, h)
   let team: number | null = null
   let contested = false
   for (const p of state.pawns) {
@@ -102,7 +132,6 @@ export function hillTick(state: SimState): boolean {
   for (const id of players) {
     const sc = scoreOf(state, id)!
     sc.score += 1
-    sc.gold += HILL_TICKET_GOLD
   }
   state.events.push({ type: 'hillTicket', team, players })
   return true

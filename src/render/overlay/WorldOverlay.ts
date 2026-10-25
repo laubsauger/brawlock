@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { S } from '../coords'
-import { ticks } from '../../sim/config'
+import { HILL_GOLD_MAX, HILL_GOLD_SECONDS, ticks } from '../../sim/config'
+import { hillStayOf } from '../../sim/hill'
 import { tweaks } from '../tweaks'
 import { globalSource, type RenderSource } from '../source'
 import { colorForPawn } from '../teamColors'
@@ -24,6 +25,8 @@ import { betIdentityMatchesSlot, bountyOf } from '../../sim/bets'
  *   victim's identity colour (quick kills stack to "×2"), plus small skull
  *   pips for this round's kills. Read from the sim's death events (killer =
  *   last hitter, lava included); deaths nobody caused get no stamp.
+ * - King of the Hill: a ring left of the plate while that warlock stands on the hill, filling
+ *   toward their next gold grant, with the grant's amount inside; it pops when it pays.
  */
 
 const NUM_POOL = 64
@@ -56,13 +59,16 @@ const PLATE_SLACK_X = 8
 const PLATE_MAX_PUSH = 2 * 33
 /** ease time constant for the stacking offset: ~95 % of the way in 120 ms, no jitter when the order flips */
 const PLATE_EASE_TAU = 0.04
+/** hill gold ring: circumference of its r = 10 arc, and the width it adds to a plate (px) */
+const HILL_RING_LEN = 2 * Math.PI * 10
+const HILL_RING_W = 33
 
 function plateWidth(name: string, local: boolean, kills: number, bot: boolean): number {
   const pips = kills === 0 ? 0 : kills <= 3 ? kills * 9 + kills - 1 : 11 + String(kills).length * 6
   return Math.max(local ? 86 : 78, Math.min(120, name.length * 6.5) + (pips ? pips + 4 : 0) + (bot ? 14 : 0)) + PLATE_PAD_X
 }
 
-export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb'
+export type NumberKind = 'dmg' | 'heal' | 'burn' | 'absorb' | 'gold'
 
 interface FloatNum {
   el: HTMLDivElement
@@ -94,6 +100,13 @@ interface Plate {
   bounty: HTMLDivElement
   bountyText: HTMLSpanElement
   lastBounty: number
+  /** hill gold ring: progress arc and the next grant's amount */
+  hill: HTMLDivElement
+  hillArc: SVGCircleElement
+  hillNum: HTMLSpanElement
+  /** last written ring progress 0..1, -1 = hidden */
+  lastHill: number
+  lastHillNext: number
   /** kill stamp above the plate (wrap positions, stamp animates) and this round's kill pips */
   stampWrap: HTMLDivElement
   stamp: HTMLDivElement
@@ -177,6 +190,13 @@ const css = `
 .bl-plate.rival{outline:2px solid #ff6257;outline-offset:1px;background:rgba(40,12,11,.68);box-shadow:0 0 9px 2px rgba(235,64,45,.45),0 0 12px 5px rgba(12,7,7,.38)}
 .bl-bounty{position:absolute;left:calc(100% + 2px);top:3px;display:none;align-items:center;gap:3px;padding:2px 4px;border-radius:4px;background:#1b120ce6;color:#ffd279;font-size:11px;font-weight:900;line-height:12px;white-space:nowrap;text-shadow:0 1px 1px #000}
 .bl-bounty svg{width:11px;height:11px;flex:none}
+.bl-hill{position:absolute;right:calc(100% + 3px);top:2px;width:30px;height:30px;display:none;border-radius:50%;background:rgba(18,11,8,.82);box-shadow:0 0 6px 1px rgba(0,0,0,.55)}
+.bl-hill svg{position:absolute;inset:0;width:30px;height:30px;transform:rotate(-90deg)}
+.bl-hill .trk{fill:none;stroke:rgba(255,210,120,.18);stroke-width:3}
+.bl-hill .arc{fill:none;stroke:#ffc94d;stroke-width:3;stroke-linecap:round;stroke-dasharray:${HILL_RING_LEN.toFixed(2)};filter:drop-shadow(0 0 2px rgba(255,190,60,.8))}
+.bl-hill span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;letter-spacing:-.02em;color:#ffd77a;text-shadow:0 1px 1px #000}
+.bl-hill.max .arc{stroke:#fff0b8;filter:drop-shadow(0 0 3px rgba(255,220,120,1))}
+.bl-hill.max span{color:#fff3c8}
 .bl-stampw{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;pointer-events:none}
 .bl-stamp{display:flex;align-items:center;gap:5px;white-space:nowrap;padding:3px 9px 3px 6px;border-radius:7px;background:rgba(12,7,7,.62);box-shadow:0 0 12px 4px rgba(12,7,7,.35),inset 0 0 0 1px rgba(255,214,150,.22);font-size:15.5px;font-weight:900;letter-spacing:.02em;color:#f4e6d2;text-shadow:0 0 2px #000,0 1px 1px #000;will-change:transform,opacity}
 .bl-stamp svg{width:17px;height:17px;flex:none;color:#f1e3cf;filter:drop-shadow(0 0 3px rgba(255,90,30,.75))}
@@ -195,6 +215,13 @@ let styleInjected = false
 
 const SKULL =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.4c-3.6 0-6.1 2.4-6.1 5.7 0 2 1 3.4 2.5 4.2V13a1 1 0 0 0 1 1h5.2a1 1 0 0 0 1-1v-1.7c1.5-.8 2.5-2.2 2.5-4.2 0-3.3-2.5-5.7-6.1-5.7Z"/><circle cx="5.6" cy="7.6" r="1.55" fill="#140909"/><circle cx="10.4" cy="7.6" r="1.55" fill="#140909"/><path d="M7.2 10.5h1.6L8 9.1Z" fill="#140909"/></svg>'
+
+/** hill gold ring: a grant just paid */
+const HILL_PAY_KEYS: Keyframe[] = [
+  { transform: 'scale(1)', boxShadow: '0 0 6px 1px rgba(0,0,0,.55)' },
+  { transform: 'scale(1.35)', boxShadow: '0 0 12px 4px rgba(255,200,80,.85)', offset: 0.3 },
+  { transform: 'scale(1)', boxShadow: '0 0 6px 1px rgba(0,0,0,.55)' },
+]
 
 /** stamp: pop in, hold, then rise and fade (opacity / transform only, run by the compositor) */
 const STAMP_KEYS: Keyframe[] = [
@@ -235,6 +262,9 @@ export class WorldOverlay {
   /** room above each plate taken by its kill stamp (px), for de-collision */
   private pExtra = new Float32Array(PLATE_POOL)
   private pBounty = new Float32Array(PLATE_POOL)
+  /** hill gold ring per plate slot: progress 0..1 (-1 = off the hill) and the next grant */
+  private pHill = new Float32Array(PLATE_POOL)
+  private pHillNext = new Uint8Array(PLATE_POOL)
   /** kill stamps and pips, fed from the sim's death events */
   private kills = new KillStamps()
   private evTick = -2
@@ -297,9 +327,13 @@ export class WorldOverlay {
       bounty.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#d59a31" stroke="#ffe2a0"/><path d="M6 3v6" stroke="#fff0be"/></svg>'
       const bountyText = document.createElement('span')
       bounty.append(bountyText)
-      el.append(stampWrap, nameRow, bar, kb, bounty)
+      const hill = div('bl-hill')
+      hill.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle class="trk" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/></svg><span></span>`
+      const hillArc = hill.querySelector('.arc') as SVGCircleElement
+      const hillNum = hill.querySelector('span') as HTMLSpanElement
+      el.append(stampWrap, nameRow, bar, kb, bounty, hill)
       this.root.appendChild(el)
-      this.plates.push({ el, name, botMark, lastBot: false, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, stampDim: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
+      this.plates.push({ el, name, botMark, lastBot: false, bar, fill, trail, ticks, kb, kbFill, mult, bounty, bountyText, lastBounty: -1, hill, hillArc, hillNum, lastHill: -1, lastHillNext: 0, stampWrap, stamp, stampName, stampCount, pips, lastStampSeq: -1, stampOn: false, stampDim: false, lastPips: 0, lastName: '', lastColor: -1, lastNameColor: -1, lastHp: -1, lastMax: -1, lastKb: -1, lastMult: '', lastOpacity: '', lastX: -1e9, lastY: -1e9, lastTrail: -1, shown: false, trailFrac: 1, trailHoldUntil: 0, id: -1 })
     }
     for (let i = 0; i < NUM_POOL; i++) {
       const el = div('bl-num')
@@ -375,6 +409,11 @@ export class WorldOverlay {
       color = 'rgb(255,170,60)'
       glow = 'rgba(255,140,30,.55)'
       n.el.textContent = `(${n.amount})`
+    } else if (n.kind === 'gold') {
+      size = 15 + Math.min(5, n.amount)
+      color = 'rgb(255,214,110)'
+      glow = 'rgba(255,180,40,.6)'
+      n.el.textContent = `+${n.amount}g`
     } else if (n.kind === 'burn') {
       size = 13 + Math.min(4, n.amount / 40)
       color = 'rgb(255,140,40)'
@@ -438,7 +477,10 @@ export class WorldOverlay {
       const owner = state?.pawns.find((p) => p.id === inp.id)?.owner
       const bounty = state?.settings.bounties && owner !== undefined ? bountyOf(state, owner) : 0
       this.pBounty[i] = bounty
-      this.pW[i] = plateWidth(inp.name, inp.local, this.kills.pipsOf(inp.id), inp.bot) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0)
+      const stay = state?.phase === 'fight' && owner !== undefined ? hillStayOf(state, owner) : undefined
+      this.pHill[i] = stay ? Math.min(1, stay.ticks / ticks(HILL_GOLD_SECONDS)) : -1
+      this.pHillNext[i] = stay?.next ?? 0
+      this.pW[i] = plateWidth(inp.name, inp.local, this.kills.pipsOf(inp.id), inp.bot) + (bounty > 0 ? 22 + String(bounty).length * 6 : 0) + (stay ? HILL_RING_W : 0)
       this.pExtra[i] = this.kills.stampOf(inp.id, now) ? STAMP_H : 0
     }
     // 2. de-collide: stack overlapping plates upwards
@@ -481,6 +523,7 @@ export class WorldOverlay {
         p.id = inp.id
         p.trailFrac = 1
         p.lastHp = -1
+        p.lastHill = -2
         // UI hit-tests plates by this (click a nameplate to inspect / follow that warlock)
         p.el.dataset.pawn = String(inp.id)
       }
@@ -492,6 +535,24 @@ export class WorldOverlay {
         p.bountyText.textContent = String(amount)
         p.bounty.setAttribute('aria-label', `${amount} gold bounty`)
         p.lastBounty = amount
+      }
+      const hp = this.pHill[i]
+      const hn = this.pHillNext[i]
+      if (hp !== p.lastHill || hn !== p.lastHillNext) {
+        if (hp < 0) p.hill.style.display = 'none'
+        else {
+          if (p.lastHill < 0) p.hill.style.display = 'block'
+          p.hillArc.style.strokeDashoffset = ((1 - hp) * HILL_RING_LEN).toFixed(2)
+          if (hn !== p.lastHillNext) {
+            p.hillNum.textContent = `+${hn}`
+            p.hill.classList.toggle('max', hn >= HILL_GOLD_MAX)
+            p.hill.setAttribute('aria-label', `next hill gold: ${hn}`)
+          }
+          // the ring emptied while still on the hill: that stay just paid
+          if (p.lastHill >= 0 && hp < p.lastHill) p.hill.animate(HILL_PAY_KEYS, { duration: 380, easing: 'ease-out' })
+        }
+        p.lastHill = hp
+        p.lastHillNext = hn
       }
       if (p.lastName !== inp.name) {
         p.name.textContent = inp.name

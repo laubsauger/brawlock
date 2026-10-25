@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { killPawn } from './combat'
-import { HILL_ARENA_MARGIN, HILL_DEFAULT_LAYER, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
-import { hillLayerNow, onHill } from './hill'
+import { HILL_ARENA_MARGIN, HILL_DEFAULT_LAYER, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
+import { hillLayerNow, hillStayOf, onHill } from './hill'
 import { applyRosterChanges } from './roster'
 import { shopOpen } from './shop'
 import { fight, of, pawn, place, run, runUntil } from './testkit'
@@ -12,16 +12,65 @@ const scoreOf = (s: SimState, id: number) => s.scores.find((sc) => sc.id === id)
 // off the hill (layer 6 reaches 500 from the centre), safe on the 2-player arena (layer 15)
 const OFF = 1000
 
-describe('King of the Hill: holding', () => {
-  test('alone on the hill earns a ticket and gold every second; off it earns nothing', () => {
+const goldOf = (s: SimState, id: number) => s.scores.find((sc) => sc.id === id)!.gold
+
+describe('King of the Hill: gold for standing on it', () => {
+  test('a stay pays every few seconds, one more each time, up to the cap: staying put is worth more', () => {
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
-    const gold = s.scores.map((sc) => sc.gold)
+    const start = goldOf(s, 0)
+    const grants = HILL_GOLD_MAX + 2
+    const events = run(s, ticks(HILL_GOLD_SECONDS * grants))
+    const paid = of(events, 'hillGold').map((e) => e.gold)
+    expect(paid).toEqual([...Array.from({ length: HILL_GOLD_MAX }, (_, i) => i + 1), HILL_GOLD_MAX, HILL_GOLD_MAX])
+    expect(goldOf(s, 0) - start).toBe(paid.reduce((a, b) => a + b, 0))
+    expect(of(events, 'hillGold').every((e) => e.player === 0)).toBe(true)
+  })
+
+  test('gold keeps paying while contested, unlike tickets: both players on it earn', () => {
+    const s = hill()
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), 192, 0)
+    const events = run(s, ticks(HILL_GOLD_SECONDS))
+    expect(s.hill?.contested).toBe(true)
+    expect(of(events, 'hillGold').map((e) => [e.player, e.gold])).toEqual([[0, 1], [1, 1]])
+  })
+
+  test('stepping off for a moment starts the stay over: the timer and the ramp reset', () => {
+    const s = hill()
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), OFF, 0)
+    run(s, ticks(HILL_GOLD_SECONDS) + 1)
+    expect(hillStayOf(s, 0)).toMatchObject({ next: 2 })
+    place(pawn(s, 0), OFF, OFF)
+    run(s, 1)
+    expect(hillStayOf(s, 0)).toBeUndefined()
+    place(pawn(s, 0), 0, 0)
+    const events = run(s, ticks(HILL_GOLD_SECONDS) - 1)
+    expect(of(events, 'hillGold')).toHaveLength(0)
+    expect(of(run(s, 1), 'hillGold').map((e) => e.gold)).toEqual([1])
+  })
+
+  test('dying on the hill ends the stay', () => {
+    const s = hill({ hillRespawn: true })
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), OFF, 0)
+    run(s, ticks(HILL_GOLD_SECONDS) - 2)
+    killPawn(s, pawn(s, 0), 1, 'lightning')
+    run(s, 1)
+    expect(hillStayOf(s, 0)).toBeUndefined()
+  })
+})
+
+describe('King of the Hill: holding', () => {
+  test('alone on the hill earns a ticket every second; off it earns nothing', () => {
+    const s = hill()
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), OFF, 0)
     const events = run(s, ticks(3))
     expect(scoreOf(s, 0)).toBe(3)
     expect(scoreOf(s, 1)).toBe(0)
-    expect(s.scores[0].gold).toBe(gold[0] + 3)
     expect(of(events, 'hill')[0]).toMatchObject({ team: 0, contested: false, prev: null })
   })
 

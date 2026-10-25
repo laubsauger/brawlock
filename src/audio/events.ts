@@ -441,7 +441,8 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   freshStart: (e, c) => (e.player === c.listener.localPlayer ? [cue('buyNew', CENTRE, 1.2)] : []),
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
-  // King of the Hill: a rising tick when your side takes the hill, a soft coin per ticket you earn
+  // King of the Hill: a rising tick when your side takes the hill, a soft tick per ticket you earn,
+  // a coin when your stay on the hill pays gold
   hill: (e, c) => {
     const mine = localTeam(c)
     if (mine === null) return []
@@ -449,6 +450,7 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
     return e.prev === mine ? [cue('tink', CENTRE, 0.7)] : []
   },
   hillTicket: (e, c) => (c.listener.localPlayer !== undefined && e.players.includes(c.listener.localPlayer) ? [cue('streakTick', CENTRE, 0.22, { param: 2 })] : []),
+  hillGold: (e, c) => (e.player === c.listener.localPlayer ? [cue('uiBuy', CENTRE, 0.5)] : []),
   hillShrink: () => [cue('shrinkRumble', CENTRE, 0.6)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),
   roundWin: (e) => [cue('roundWin', CENTRE, 0.9, { param: e.team < 0 ? 0 : 1 })],

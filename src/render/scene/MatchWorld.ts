@@ -1266,6 +1266,11 @@ export class MatchWorld {
       case 'hill':
         if (e.team !== null && !claimed) this.hillBurst(curr, e.team)
         break
+      case 'hillGold': {
+        const v = this.viewOfPawn(e.pawn)
+        if (v) this.overlay?.number(e.pawn, v.x, v.y, v.h + 150, e.gold, 'gold', t)
+        break
+      }
       case 'roundWin':
       case 'gameOver': {
         const winners = e.type === 'roundWin' ? e.players : e.winners
