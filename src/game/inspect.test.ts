@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canInspect, cycle, goldVisible, inspectedLoadout, inspectStore, isSpectating, livingPlayers, PICK_RADIUS, pickPawnAt } from './inspect'
+import { canInspect, cycle, goldVisible, inspectedLoadout, inspectStore, isSpectating, livingPlayers, PICK_RADIUS, pickPawnAt, pickPlayer } from './inspect'
 import { frame, pushState, resetFrame } from './frame'
 import { newMatch } from '../sim/testkit'
 import type { SimState } from '../sim/types'
@@ -228,5 +228,24 @@ describe('what the inspect card may show', () => {
     expect(inspectStore.get().inspect).toBe(2)
     inspectStore.toggleInspect(2)
     expect(inspectStore.get().inspect).toBe(-1)
+  })
+})
+
+describe('clicking a name (scoreboard, top bar)', () => {
+  const s = state([pawn(10, 0, 0, 0, false), pawn(11, 1, 300, 0), pawn(12, 2, 330, 0, false)])
+
+  it('while you are down, follows a living player and opens their card', () => {
+    inspectStore.reset()
+    pickPlayer(s, 0, 1)
+    expect(inspectStore.get()).toEqual({ inspect: 1, follow: 1 })
+  })
+
+  it('never follows the dead (nothing to watch) or anyone while you still play', () => {
+    inspectStore.reset()
+    pickPlayer(s, 0, 2)
+    expect(inspectStore.get()).toEqual({ inspect: 2, follow: -1 })
+    inspectStore.reset()
+    pickPlayer(s, 1, 0)
+    expect(inspectStore.get()).toEqual({ inspect: 0, follow: -1 })
   })
 })

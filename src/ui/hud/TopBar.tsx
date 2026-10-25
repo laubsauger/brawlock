@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { frame } from '../../game/frame'
+import { isSpectating, pickPlayer } from '../../game/inspect'
 import type { Phase, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { usePolled, useTick } from '../lib/ticker'
@@ -163,11 +164,15 @@ function readPlayers(): StripPlayer[] {
       bot: p.kind === 'bot' || s.scores.find((x) => x.id === p.id)?.connected === false }))
 }
 
-/** Live score + alive state for one player, written from the shared rAF. */
+/**
+ * Live score + alive state for one player, written from the shared rAF. While you watch, a
+ * living player's pill takes clicks (TopCenter follows them); otherwise clicks pass through to
+ * the arena, so a cast aimed at the top of the screen never lands on a name.
+ */
 function useScoreRefs(id: number) {
   const score = useRef<HTMLSpanElement>(null)
   const root = useRef<HTMLDivElement>(null)
-  const last = useRef({ score: -1, alive: true })
+  const last = useRef({ score: -1, alive: true, watch: false })
   useTick(() => {
     const s = frame.curr
     if (!s) return
@@ -175,6 +180,12 @@ function useScoreRefs(id: number) {
     const pawn = s.pawns.find((x) => x.owner === id)
     const alive = s.phase !== 'fight' || !!pawn?.alive
     const l = last.current
+    const watch = !!pawn?.alive && id !== frame.localPlayer && isSpectating(s, frame.localPlayer)
+    if (watch !== l.watch && root.current) {
+      root.current.style.pointerEvents = watch ? 'auto' : ''
+      root.current.style.cursor = watch ? 'pointer' : ''
+      l.watch = watch
+    }
     if (sc !== l.score && score.current) {
       score.current.textContent = String(sc)
       if (l.score >= 0) score.current.animate([{ transform: 'scale(1.5)', color: '#fff6dc' }, { transform: 'scale(1)' }], { duration: 520, easing: 'cubic-bezier(.2,1.4,.4,1)' })
@@ -203,6 +214,7 @@ function ScorePill({ p, local, density = 'normal', inGroup = false }: { p: Strip
   return (
     <div
       ref={root}
+      data-player={p.id}
       // inside a team frame (2 px padding each side) a pill is 4 px shorter, so the group matches the clock height
       className={`hud-plate flex shrink-0 items-center rounded-[5px] transition-opacity ${inGroup ? d.box.replace('h-9', 'h-8') : d.box}`}
       style={local ? { boxShadow: `inset 0 0 0 1px ${p.color}aa, 0 6px 24px rgba(0,0,0,.45)` } : undefined}
@@ -228,6 +240,7 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
   return (
     <div
       ref={root}
+      data-player={p.id}
       className={`flex h-9 items-stretch overflow-hidden transition-opacity ${side === 'right' ? 'flex-row-reverse' : ''}`}
       style={{ background: `linear-gradient(${toCenter}, ${p.color}55, rgba(14,8,5,.88) 70%)`, boxShadow: `inset 0 0 0 1px ${p.color}66, 0 6px 24px rgba(0,0,0,.45)` }}
     >
@@ -334,6 +347,12 @@ function Side({ players, side, local, teams, density }: { players: StripPlayer[]
  * 1v1 keeps the broadcast look. Many players make the pills compact; a side
  * wraps to a second row only when it really does not fit.
  */
+/** Click on a name pill (only takes clicks while watching, useScoreRefs): follow that player. */
+function pillClick(e: ReactMouseEvent): void {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-player]')
+  if (el) pickPlayer(frame.curr, frame.localPlayer, Number(el.dataset.player))
+}
+
 export function TopCenter() {
   const players = usePolled(readPlayers, playersKey, 2)
   const local = frame.localPlayer
@@ -342,7 +361,7 @@ export function TopCenter() {
   if (players.length === 2 && !teams) {
     const [a, b] = players[1].id === local ? [players[1], players[0]] : players
     return (
-      <div className="flex items-start gap-1" aria-label="Scores">
+      <div className="flex items-start gap-1" aria-label="Scores" onClick={pillClick}>
         <BroadcastSide p={a} side="left" local={a.id === local} />
         <PhasePlate />
         <BroadcastSide p={b} side="right" local={b.id === local} />
@@ -353,7 +372,7 @@ export function TopCenter() {
   const perSide = Math.max(left.length, right.length)
   const density: Density = perSide >= 4 ? 'tight' : perSide >= 3 ? 'compact' : 'normal'
   return (
-    <div className="flex w-[var(--top-row-w)] max-w-[var(--top-row-w)] items-start justify-center gap-1">
+    <div className="flex w-[var(--top-row-w)] max-w-[var(--top-row-w)] items-start justify-center gap-1" onClick={pillClick}>
       <Side players={left} side="left" local={local} teams={teams} density={density} />
       <PhasePlate />
       <Side players={right} side="right" local={local} teams={teams} density={density} />

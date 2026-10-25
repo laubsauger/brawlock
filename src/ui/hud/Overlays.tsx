@@ -15,7 +15,7 @@ import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { useLinks } from '../lib/netmonitor'
 import { Loadout } from './Inspect'
-import { canInspect, inspectStore, isSpectating } from '../../game/inspect'
+import { canInspect, isSpectating, pickPlayer } from '../../game/inspect'
 import { sfx } from '../lib/sound'
 import type { AbilityStatContext } from '../data/abilityStats'
 import { ReleaseStamp } from '../ReleaseStamp'
@@ -316,14 +316,7 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
                 className={`scoreboard-row border-t border-[rgba(255,170,100,0.08)] ${r.id === local ? 'bg-[rgba(255,180,80,0.07)]' : ''} ${r.alive ? '' : 'text-bone/55'}`}
                 style={{ boxShadow: `inset 3px 0 0 ${r.color}` }}
                 title={!canInspect(state, local, r.id) ? 'Loadout unavailable' : spectating && r.alive && r.id !== local ? `Watch ${r.name}` : `Inspect ${r.name}`}
-                onClick={() => {
-                  if (!canInspect(frame.curr, frame.localPlayer, r.id)) return
-                  inspectStore.set({ inspect: r.id })
-                  if (spectating && r.alive && r.id !== local) {
-                    if (onWatch) onWatch(r.id)
-                    else inspectStore.set({ follow: r.id })
-                  }
-                }}
+                onClick={() => pickPlayer(frame.curr, frame.localPlayer, r.id, onWatch)}
               >
                 <td className="py-2 pl-3">
                   <span className="flex items-center gap-2.5">

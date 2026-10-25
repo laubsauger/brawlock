@@ -177,3 +177,15 @@ export const inspectStore = {
     inspectStore.set({ inspect: -1, follow: -1 })
   },
 }
+
+/**
+ * Click on a player's name (scoreboard, top bar): open their card and, while watching, follow
+ * them if they are alive (`onWatch` instead of the follow store, for the replay viewer).
+ */
+export function pickPlayer(state: SimState | null, local: number, player: number, onWatch?: (player: number) => void): void {
+  if (!canInspect(state, local, player)) return
+  inspectStore.set({ inspect: player })
+  if (!isSpectating(state, local) || player === local || !state?.pawns.some((p) => p.owner === player && p.alive)) return
+  if (onWatch) onWatch(player)
+  else inspectStore.set({ follow: player })
+}
