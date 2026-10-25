@@ -20,6 +20,7 @@ import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
+import { TICK_HZ } from '../src/sim/types.ts'
 import { sharedClock } from '../src/net/clock.ts'
 import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
 import { createBot } from '../src/bots/index.ts'
@@ -264,6 +265,8 @@ export async function startServer(opts = {}) {
           } else reply(200, { version: 1, region: config.region ?? '', at: clock(), uptimeSec: process.uptime(),
             release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate,
               commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__, net: build },
+            // what this process runs, so a measurement or the dashboard can say what it saw
+            runtime: { tickHz: TICK_HZ, streamEvery: opts.streamEvery ?? 1 },
             ...machine.snapshot(), ...core.stats(), ...core.monitoring(), maintenance: core.maintenance() })
         }
         return

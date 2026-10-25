@@ -68,6 +68,11 @@ export interface NetGradeEvent {
 }
 
 export const STATS_MS = 250
+/**
+ * A client's link report to the host (nstat): once a second. It feeds the connection monitor
+ * only, and at the stats cadence it was a quarter of a client's messages to the server.
+ */
+export const REPORT_MS = 1000
 
 export const GRADE_LIMITS = {
   ping: [80, 150, 250],

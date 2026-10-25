@@ -46,6 +46,7 @@ import { SnapshotBuffer } from './jitter'
 import {
   GradeTracker,
   LossTracker,
+  REPORT_MS,
   STATS_MS,
   WindowMax,
   DESYNC_HOLD_MS,
@@ -603,6 +604,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
 
   // link monitor (both roles)
   let statsTimer: ReturnType<typeof setInterval> | null = null
+  /** client: when the last link report (nstat) went to the host */
+  let reportSentAt = -Infinity
   let statsView: NetStatsView | null = null
   const grades = new Map<PlayerId, GradeTracker>()
   const gradeCbs = new Set<(e: NetGradeEvent) => void>()
@@ -2406,7 +2409,7 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
               jitterMs: p.t.rtt > 0 ? p.t.rttJitter : null,
               lossPct: inMatch ? worst(p.upLoss.pct, r?.dl ?? null) : null,
               // the client's report, or how overdue it is when the client went quiet
-              snapshotAgeMs: since === null ? null : since > 4 * STATS_MS ? since : r!.sa,
+              snapshotAgeMs: since === null ? null : since > 1.5 * REPORT_MS ? since : r!.sa,
               channel: channelOf(p.t.unreliableMode),
               inputAckLagMs: r?.al ?? null,
               correctionPx: r?.cp ?? null,
@@ -2443,7 +2446,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
         cm !== null && now - desyncAt < DESYNC_HOLD_MS,
       )
       statsView = serverRoom ? { role: 'client', peers: [row], server: true } : { role: 'client', peers: [row] }
-      if (cm) {
+      if (cm && now - reportSentAt >= REPORT_MS) {
+        reportSentAt = now
         t.sendUnreliable(
           encode({
             t: 'nstat',
