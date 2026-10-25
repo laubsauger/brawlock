@@ -1331,6 +1331,23 @@
   .shrink-warn[data-on="true"]::after { animation: shrink-pulse 0.8s ease-in-out infinite; will-change: opacity; }
   @keyframes shrink-pulse { 50% { opacity: 1; } }
 
+  /* King of the Hill status plate: the crown and rim follow who holds the hill. Contested pulses
+     a red rim (opacity on a pseudo-element only, compositor-animated like the shrink warning). */
+  .hill-status { position: relative; isolation: isolate; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85); }
+  .hill-status .hill-crown { color: #e9b45a; text-shadow: 0 0 8px rgba(255, 190, 80, 0.7); }
+  .hill-status[data-status="held"] .hill-crown { color: #ffe2a0; text-shadow: 0 0 12px rgba(255, 210, 120, 0.95); }
+  .hill-status[data-status="waiting"] .hill-crown { opacity: 0.55; }
+  .hill-status::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 90, 50, 0.85), 0 0 14px rgba(255, 60, 30, 0.55);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .hill-status[data-status="contested"]::after { animation: shrink-pulse 0.5s ease-in-out infinite; will-change: opacity; }
+
   /* Shop */
   .shop-card {
     position: relative;

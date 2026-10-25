@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { attr, cooldownSeconds, isEnemy, spellDef, ticks } from '../sim'
+import { attr, canBuy, cooldownSeconds, hillLayerNow, isEnemy, onHill, spellDef, ticks } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -331,9 +331,9 @@ export class BotController implements Bot {
     const me = state.pawns.find((pw) => pw.owner === this.player) ?? null
     const gold = state.scores.find((s) => s.id === this.player)?.gold ?? 0
 
-    // 1. Buy: follow the build between rounds or while dead.
+    // 1. Buy: follow the build whenever the sim's shop rule lets this seat buy.
     this.checkPendingBuy(tick, me, gold)
-    const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && (state.phase !== 'fight' || !me?.alive)
+    const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && canBuy(state, this.player)
     if (canShop && this.build) {
       // The next step of its seeded build, several per shop phase.
       const step = planStep(this.build, me, gold, this.failedBuys)
@@ -1136,6 +1136,12 @@ export class BotController implements Bot {
   }
 
   private pickWander(state: SimState, me: PawnState, target: PawnState | null, safety: number): void {
+    const hill = this.pickHillWander(state, me, target, safety)
+    if (hill) {
+      this.wander = hill
+      this.nextWanderTick = state.tick + ticks(this.rng.range(0.3, 0.7))
+      return
+    }
     const p = this.params
     const tries = p.safeWander ? 12 : 1
     let point: Vec2 | null = null
@@ -1187,6 +1193,50 @@ export class BotController implements Bot {
     }
     this.wander = point
     this.nextWanderTick = state.tick + ticks(delay)
+  }
+
+  /**
+   * King of the Hill: head for the hill and fight on it (hillDrive of the picks; the rest wander
+   * as usual, so bots still chase and flank). Candidates are the hill's tile centres, jittered,
+   * plus where we stand: the centre is the last to sink and the hardest to be pushed off, while
+   * travel, incoming danger and crowding count against a spot.
+   */
+  private pickHillWander(state: SimState, me: PawnState, target: PawnState | null, safety: number): Vec2 | null {
+    if (state.settings.gameMode !== 'hill' || !state.hill || state.phase !== 'fight') return null
+    if (!this.rng.chance(this.params.hillDrive)) return null
+    const layer = hillLayerNow(state)
+    if (layer <= 1) return null
+    const r = layerRadius(layer)
+    const threats = state.projectiles.filter((shot) => areEnemies(state, this.player, shot.owner))
+    const enemies = state.pawns.filter((other) => seenEnemy(state, this.player, other))
+    // a crowded hill earns nobody anything: often hang back and shoot the crowd from outside
+    // (the usual wander), so somebody gets knocked off and somebody gets to hold it
+    const crowded = enemies.filter((e) => e.alive && onHill(state, e.x, e.y)).length
+    if (crowded >= 2 && !onHill(state, me.x, me.y) && this.rng.chance(1 - 1 / crowded)) return null
+    let best: Vec2 | null = null
+    let bestScore = -Infinity
+    const consider = (point: Vec2) => {
+      if (!onHill(state, point.x, point.y) || inPillar(state, point.x, point.y) || !isSafe(safety, point.x, point.y)) return
+      let crowd = 0
+      for (const enemy of enemies) crowd += 1 / (1 + (dist(point, enemy) / CROWD_FALLOFF) ** 2)
+      const centre = 1 - hypot(point.x, point.y) / Math.max(1, r)
+      const firing = target ? 1 / (1 + ((dist(point, target) - 480) / 400) ** 2) : 0
+      const travel = dist(me, point) / 1500
+      const danger = Math.min(1, this.dangerHere(state, threats, point.x, point.y) / 1000)
+      const score = centre * 0.4 + firing * 0.3 - travel * 0.3 - danger * 0.8 - (crowd / (1 + crowd)) * 0.15
+      if (score > bestScore) {
+        bestScore = score
+        best = point
+      }
+    }
+    consider({ x: me.x, y: me.y })
+    const n = Math.ceil(r / TILE_SIZE)
+    for (let gx = -n; gx <= n; gx++) {
+      for (let gy = -n; gy <= n; gy++) {
+        consider({ x: gx * TILE_SIZE + this.rng.range(-50, 50), y: gy * TILE_SIZE + this.rng.range(-50, 50) })
+      }
+    }
+    return best
   }
 
   /** Trade firing position, travel and local danger; crowding and low health change the

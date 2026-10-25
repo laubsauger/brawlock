@@ -10,6 +10,7 @@ import { slotColor, slotGlyph, slotName, teamName, winnersText } from '../lib/vi
 import { announce, Banner, KillCallout, Killfeed, StreakCallout } from './Announce'
 import { InnateRow, ItemRow, SpellRow } from './SpellBar'
 import { ShrinkWarning, TopCenter, FinalBrawlStatus, displayRound, roundLabel } from './TopBar'
+import { HillStatus } from './HillStatus'
 import { ConnIndicator } from './ConnIndicator'
 import { InspectCard, SpectateChip } from './Inspect'
 import { Gold, ProtectChip, Vitals } from './Vitals'
@@ -335,6 +336,7 @@ export function Hud() {
         <div className="hud-scale flex origin-top flex-col items-center">
           <TopCenter />
           <FinalBrawlStatus />
+          <HillStatus />
           {/* at most one row under the clock: the shrink warning and your KO callout share it */}
           <div className="mt-0.5 flex items-center justify-center gap-2">
             <SpectateChip />

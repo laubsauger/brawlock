@@ -145,6 +145,8 @@ export interface BotParams {
   escapeChance: number
   /** reject wander points that are lava (the original did not check) */
   safeWander: boolean
+  /** King of the Hill: chance per wander pick to head for (or hold) a spot on the hill */
+  hillDrive: number
   /** wander points keep this distance from lava, units */
   edgeMargin: number
   /** seconds before a shrink during which the next (smaller) layer counts as the arena */
@@ -217,6 +219,7 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   scourgeRange: 300,
   escapeChance: 1 / 3,
   safeWander: true,
+  hillDrive: 0.6,
   edgeMargin: 0,
   shrinkLookahead: 0,
   walkOffLava: false,
@@ -267,6 +270,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     reactionDelay: 0.22,
     aimErrorRad: 0.08,
     leadChance: 0.5,
+    hillDrive: 0.8,
     edgeMargin: 60,
     walkOffLava: true,
     threatChance: 0.8,
@@ -289,6 +293,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     scourgeChance: 0.3,
     scourgeRange: 240,
     escapeChance: 1,
+    hillDrive: 0.9,
     edgeMargin: 150,
     shrinkLookahead: 3,
     walkOffLava: true,
@@ -321,6 +326,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     scourgeChance: 0.3,
     scourgeRange: 240,
     escapeChance: 1,
+    hillDrive: 0.95,
     edgeMargin: 150,
     shrinkLookahead: 3,
     walkOffLava: true,
@@ -356,6 +362,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     scourgeChance: 0.5,
     scourgeRange: 240,
     escapeChance: 1,
+    hillDrive: 0.95,
     edgeMargin: 170,
     shrinkLookahead: 3,
     walkOffLava: true,

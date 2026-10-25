@@ -19,6 +19,7 @@
  * back to the starting kit for every gold paid on it (PlayerScore.spent), until the next fight
  * starts. Spectator bets are not shop spending and are never refunded.
  */
+import { respawnsInFight } from './hill'
 import { ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
 import { cancelCast } from './orders'
@@ -33,6 +34,8 @@ import type { PawnState, PlayerId, PlayerScore, SimState, SpellId } from './type
  */
 export function shopOpen(state: SimState): boolean {
   if (state.phase === 'gameOver') return false
+  // a respawn-style hill has no shop phase after the first: its shop stays open all fight
+  if (state.settings.gameMode === 'hill' && respawnsInFight(state.settings)) return true
   return (SHOP_RULE as string) === 'anyPhase' || state.phase === 'shop'
 }
 

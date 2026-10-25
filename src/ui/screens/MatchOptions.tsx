@@ -47,7 +47,7 @@ function HillRules({ settings }: { settings: MatchSettings }) {
     <p className="mb-1 font-semibold text-gold">King of the Hill</p>
     <p>The glowing tiles in the middle are the hill. Stand on them with no enemy on them and you earn a ticket and a coin every second. Anyone else on the hill contests it and nobody earns. Knock them off.</p>
     <p className="mt-1 text-ash">First to {settings.winScore} tickets wins. The hill loses its outer ring every {HILL_SHRINK_PERIOD} s. {settings.hillRespawn
-      ? `One long fight: you respawn ${HILL_RESPAWN_SECONDS} s after dying and can shop while dead; everyone gets round gold every ${HILL_INCOME_SECONDS} s.`
+      ? `One long fight: the shop stays open, you respawn ${HILL_RESPAWN_SECONDS} s after dying, and everyone gets round gold every ${HILL_INCOME_SECONDS} s.`
       : `Rounds with a shop between them: the last one standing ends the round and earns ${HILL_ROUND_WIN_TICKETS} tickets. Tickets carry over.`}</p>
   </div>
 }

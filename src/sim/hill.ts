@@ -9,9 +9,10 @@
  * - rounds (default): the rounds-mode flow (shop between rounds, no respawns, the arena sinks to
  *   nothing). The last team standing ends the round and earns HILL_ROUND_WIN_TICKETS; tickets
  *   carry over between rounds.
- * - respawn: one shop, then one fight. The dead respawn after HILL_RESPAWN_SECONDS (buying while
- *   dead), the arena stops sinking HILL_ARENA_MARGIN layers outside the starting hill, everyone
- *   gets roundGold every HILL_INCOME_SECONDS, and after HILL_TIME_LIMIT_SECONDS the leader wins.
+ * - respawn: one shop, then one fight with the shop open throughout (sim/shop.ts). The dead
+ *   respawn after HILL_RESPAWN_SECONDS, the arena stops sinking HILL_ARENA_MARGIN layers outside
+ *   the starting hill, everyone gets roundGold every HILL_INCOME_SECONDS, and after
+ *   HILL_TIME_LIMIT_SECONDS the leader wins.
  *
  * Pure helpers here are shared with render, bots and the HUD.
  */

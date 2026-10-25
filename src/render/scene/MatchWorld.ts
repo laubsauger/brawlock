@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
-import { ticks } from '../../sim/config'
+import { HILL_MIN_LAYER, ticks } from '../../sim/config'
+import { hillLayerNow, hillStartLayer } from '../../sim/hill'
 import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
@@ -24,6 +25,7 @@ import { Billboards } from './Billboards'
 import { CastMarks, hasHandMark } from './CastMarks'
 import { FacingChevrons } from './FacingChevrons'
 import { MoveDestination } from './MoveDestination'
+import { HillBeacon } from './HillBeacon'
 import { resolveDestination, type DestClick } from './moveDestinationLogic'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava, SPLASH_GULP } from './Lava'
@@ -182,6 +184,8 @@ export class MatchWorld {
   private chevrons = new FacingChevrons(16)
   /** local player's persistent move destination (after the click burst) */
   private dest!: MoveDestination
+  private beacon!: HillBeacon
+  private hillColor = new THREE.Color()
   private practiceDest: MoveDestination | null = null
   private practiceGold = new THREE.Color(0xffc45c)
   private projectiles: Projectiles
@@ -288,6 +292,8 @@ export class MatchWorld {
     this.root.add(this.lava.mesh, this.env.group, this.arena.group, this.obstacles.group, this.debris.sprite, this.scorches.mesh, this.groundShadow.mesh, this.markerShadow.mesh, this.ground.mesh, this.marker.mesh, this.smoke.sprite, this.particles.sprite, this.billboards.sprite, this.billboardsTop.sprite, this.castMarks.batch.sprite, this.projectiles.mesh, this.chevrons.mesh)
     this.dest = new MoveDestination(this.ctx.uTime)
     this.root.add(this.dest.mesh)
+    this.beacon = new HillBeacon(this.ctx.uTime)
+    this.root.add(this.beacon.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     this.locator = opts.mode === 'match' && opts.overlayParent ? new PawnLocator(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
@@ -694,6 +700,7 @@ export class MatchWorld {
         for (const m of spellVfxModules()) this.guard(m, 'beginFrame', () => m.beginFrame?.(this.vfx))
       }
       this.updateArena(curr, t, first, alpha)
+      this.updateHill(curr, t, dt, alpha)
       // A keyframe can skip shop entirely. Advance life epochs before events,
       // preserving any authoritative death that belongs to this new round.
       for (const v of this.views.values()) v.beginRound(curr.round)
@@ -973,6 +980,64 @@ export class MatchWorld {
     }
   }
 
+  // ---------------------------------------------------------------- hill
+
+  /** King of the Hill: tile glow, beacon and the shrink warning, from state each frame. */
+  private updateHill(curr: SimState, t: number, dt: number, alpha: number): void {
+    const u = this.arena.uHill.value
+    if (curr.settings.gameMode !== 'hill') {
+      u.set(0, 0, 0, 0)
+      this.beacon.update(null, this.hillColor, TILE_TOP_H, t, dt)
+      return
+    }
+    const h = curr.hill
+    // before the first fight the hill shows at its starting size, empty
+    const layer = h ? hillLayerNow(curr) : Math.min(hillStartLayer(curr.settings), curr.arena.layer)
+    const r = layer > 1 ? layerRadius(layer) : 0
+    const fight = curr.phase === 'fight' && !!h
+    const mode = r <= 0 ? null : !fight || !h ? 0 : h.contested ? 2 : h.team !== null ? 1 : 0
+    let tele = 0
+    if (fight && h && h.nextShrinkTick > 0 && h.layer > HILL_MIN_LAYER) {
+      const secs = (h.nextShrinkTick - (curr.tick + alpha)) / TICK_HZ
+      if (secs > 0 && secs <= 3) tele = 0.5 + 0.5 * (1 - secs / 3)
+    }
+    const next = h && h.layer > HILL_MIN_LAYER ? layerRadius(Math.min(h.layer - 1, curr.arena.layer)) : r
+    u.set(r, mode ?? 0, tele, next)
+    if (mode === 1 && h) this.hillColor.setHex(this.teamHex(curr, h.team!))
+    else this.hillColor.setRGB(1, 0.68, 0.24)
+    this.arena.uHillColor.value.copy(this.hillColor)
+    this.beacon.update(mode, this.hillColor, TILE_TOP_H, t, dt)
+  }
+
+  /** identity colour of a team (its first member's: the team colour in team modes) */
+  private teamHex(curr: SimState, team: number): number {
+    const member = curr.slots.find((s) => s.team === team)
+    return colorForPawn(curr, member ? member.id : team)
+  }
+
+  /** the hill changes hands: motes rise off every hill tile in the new holder's colour */
+  private hillBurst(curr: SimState, team: number): void {
+    const r = layerRadius(hillLayerNow(curr))
+    if (r <= 0) return
+    const c = new THREE.Color(this.teamHex(curr, team))
+    const ps = this.particles
+    for (let gx = -4; gx <= 4; gx++) {
+      for (let gy = -4; gy <= 4; gy++) {
+        const x = gx * TILE_SIZE
+        const y = gy * TILE_SIZE
+        if (x * x + y * y >= r * r) continue
+        const n = ps.budget(4)
+        for (let i = 0; i < n; i++) {
+          ps.spawn(
+            x + (Math.random() - 0.5) * 180, y + (Math.random() - 0.5) * 180, TILE_TOP_H,
+            (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, 160 + Math.random() * 220,
+            0.7 + Math.random() * 0.6, 10, 2, c.r * 2.2, c.g * 2.2, c.b * 2.2, -60, 0.6, 14,
+          )
+        }
+      }
+    }
+  }
+
   private shrinkBurst(): void {
     const ps = this.particles
     for (const p of this.removedRing) {
@@ -1197,6 +1262,9 @@ export class MatchWorld {
         break
       case 'phase':
         if (e.phase === 'fight' && !claimed) this.roundStart(curr, t)
+        break
+      case 'hill':
+        if (e.team !== null && !claimed) this.hillBurst(curr, e.team)
         break
       case 'roundWin':
       case 'gameOver': {
@@ -2509,6 +2577,7 @@ export class MatchWorld {
     this.castMarks.batch.dispose()
     this.chevrons.dispose()
     this.dest.dispose()
+    this.beacon.dispose()
     this.practiceDest?.dispose()
     this.locator?.dispose()
     this.contact.dispose()

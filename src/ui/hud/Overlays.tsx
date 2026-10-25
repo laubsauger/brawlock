@@ -282,7 +282,7 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
           {state && (
             <span className="text-[0.98rem] text-ash">
               Round {Math.max(1, state.round)}
-              {winScore ? `, first to ${winScore}` : ''}
+              {winScore ? `, first to ${winScore}${state.settings.gameMode === 'hill' ? ' tickets' : ''}` : ''}
             </span>
           )}
         </div>

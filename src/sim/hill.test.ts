@@ -3,6 +3,7 @@ import { killPawn } from './combat'
 import { HILL_ARENA_MARGIN, HILL_DEFAULT_LAYER, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
 import { hillLayerNow, onHill } from './hill'
 import { applyRosterChanges } from './roster'
+import { shopOpen } from './shop'
 import { fight, of, pawn, place, run, runUntil } from './testkit'
 import type { MatchSettings, SimState } from './types'
 
@@ -118,6 +119,10 @@ describe('King of the Hill: respawn style', () => {
       run(s, 2)
     }
     expect(s.arena.layer).toBe(HILL_DEFAULT_LAYER + HILL_ARENA_MARGIN)
+    // done sinking: no shrink stays scheduled, so no "Arena shrinks in" warning lingers
+    s.arena.nextShrinkTick = s.tick + 1
+    run(s, 2)
+    expect(s.arena.nextShrinkTick).toBe(-1)
   })
 
   test('at the time limit the ticket leader wins; a tie plays on', () => {
@@ -131,6 +136,13 @@ describe('King of the Hill: respawn style', () => {
     const events = run(s, ticks(1) + 1)
     expect(s.phase).toBe('gameOver')
     expect(of(events, 'gameOver')[0].winners).toEqual([0])
+  })
+
+  test('the shop stays open all fight: there is no later shop phase to spend the gold in', () => {
+    const s = respawn()
+    expect(s.phase).toBe('fight')
+    expect(shopOpen(s)).toBe(true)
+    expect(shopOpen(hill())).toBe(false)
   })
 
   test('players may join mid-fight and spawn in at once', () => {

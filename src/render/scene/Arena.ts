@@ -14,6 +14,7 @@ import {
   dFdy,
   dot,
   exp,
+  fract,
   fwidth,
   int,
   normalMap,
@@ -149,6 +150,13 @@ export class Arena {
   readonly uTelegraph = uniform(0)
   /** shockwave: game x, y, start time, strength */
   readonly uShock = uniform(new THREE.Vector4(0, 0, -100, 0))
+  /**
+   * King of the Hill: x = hill radius (game units, 0 = no hill; whole tiles whose centre is
+   * inside), y = 0 empty / 1 held / 2 contested, z = shrink warning 0..1, w = radius after it
+   */
+  readonly uHill = uniform(new THREE.Vector4(0, 0, 0, 0))
+  /** the holder's identity colour (linear) */
+  readonly uHillColor = uniform(new THREE.Color(1, 0.72, 0.28))
   private uStoneA = uniform(new THREE.Color())
   private uStoneB = uniform(new THREE.Color())
   private uRune = uniform(new THREE.Color())
@@ -424,6 +432,11 @@ export class Arena {
     // (the round-start wave no longer lifts tiles: it exposed bright wall strips)
     const lift = rise.sub(sink)
     const positionNode = centre.add(tilted).add(vec3(0, lift.mul(S), 0))
+    // hill tiles (per instance): inside the hill, and in its doomed outer ring
+    const hl = this.uHill
+    const cLen = length(tileXZ).div(S)
+    const onHillV = varying(step(cLen, hl.x).mul(float(1).sub(isRem)))
+    const hillDoomV = varying(step(hl.w, cLen))
 
     // ---------------- fragment: layered stone
     // 'calm' floor (default): one readable surface with subtle tiles; 'classic'
@@ -592,6 +605,21 @@ export class Arena {
     const shXf = shDf.sub(shAgeF.mul(2600)).div(90)
     const waveF = exp(shXf.mul(shXf).negate()).mul(sh.w).mul(saturate(float(1.2).sub(shAgeF))).mul(step(0, shAgeF))
     em = em.add(vec3(0.5, 0.48, 0.62).mul(waveF.mul(0.16)).mul(isTop))
+    // King of the Hill: an inlaid band inside every hill tile's rim and slow rings of light
+    // flowing out from the centre. Empty: dim gold; held: the holder's colour, brighter and
+    // faster; contested: flickering red and white. Kept modest: ACES turns hot hues cream.
+    const hHeld = step(0.5, hl.y).mul(step(hl.y, 1.5))
+    const hContest = step(1.5, hl.y)
+    const hFlick = step(0.5, fract(tF.mul(3.2)))
+    const hCol = mix(mix(vec3(1.0, 0.68, 0.24), this.uHillColor, hHeld), mix(vec3(1.0, 0.2, 0.08), vec3(0.9, 0.88, 1.0), hFlick), hContest)
+    const hBand = smoothstep(0.72, 0.86, edge).mul(float(1).sub(smoothstep(0.93, 0.99, edge)))
+    const hFlow = sin(length(gp).mul(0.03).sub(tF.mul(hHeld.mul(2.5).add(1.2)))).mul(0.5).add(0.5)
+    const hBreathe = sin(tF.mul(2.1)).mul(0.15).add(0.85)
+    const hLevel = hHeld.mul(0.7).add(hContest.mul(0.5)).add(0.55)
+    const hillGlow = onHillV.mul(isTop.add(isBevel.mul(0.6))).mul(hBand.mul(0.8).add(hFlow.pow(3).mul(0.22)).add(0.05)).mul(hBreathe).mul(hLevel)
+    em = em.add(hCol.mul(hillGlow))
+    // the hill's outer ring blinks red before it stops counting
+    em = em.add(vec3(1.3, 0.16, 0.04).mul(onHillV.mul(hillDoomV).mul(hl.z).mul(pulse).mul(hBand.add(0.25)).mul(isTop)))
     // hard ceiling (hue kept) on the doomed ring and on tiles in transit. ACES
     // desaturates bright orange toward cream: the telegraph cracks at full
     // pulse (3.2 R + 0.5 halo) and the sinking slabs read near-white up close

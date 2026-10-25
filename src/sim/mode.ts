@@ -322,6 +322,8 @@ export function phaseTick(state: SimState): void {
       state.events.push({ type: 'arenaShrink', layer: a.layer })
     }
     a.nextShrinkTick += ticks(shrinkPeriod(state))
+    // a respawn-style hill arena at its floor is done sinking (no warning, no bot lookahead)
+    if (hillFight(state) && a.layer <= arenaFloor(state)) a.nextShrinkTick = -1
   }
   if (isHill(state) && state.phase === 'fight') {
     const fight = hillFight(state)
