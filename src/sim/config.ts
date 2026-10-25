@@ -106,7 +106,7 @@ export const HILL_RESPAWN_SECONDS = 5
 export const HILL_TICKET_SECONDS = 1
 /** a fresh capture pays its first ticket after this long, then one per HILL_TICKET_SECONDS
  * (playtest 2026-10-25: a ticket a second after stepping on felt instant) */
-export const HILL_CAPTURE_SECONDS = 3
+export const HILL_CAPTURE_SECONDS = 1.75
 /** layer 6 = 21 tiles (a rounded 5x5); 5 = 13, 4 = the 3x3 block, 3 = a plus of 5. 13 tiles to start:
  * at 21 (playtest 2026-10-25) somebody always contested it and nobody earned tickets */
 export const HILL_DEFAULT_LAYER = 5

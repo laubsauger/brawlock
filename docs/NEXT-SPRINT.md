@@ -25,7 +25,7 @@ Deployment is established by release receipts, not by implementation status here
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
 4. **Playtest 2026-10-25 evening, shipped in alpha.14.** Touched suites and typecheck passed; the
    full suite was skipped for this release by the user's call.
-   - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s),
+   - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s in alpha.14, 1.75 s after),
      then one a second; the HUD says "taking the hill" meanwhile.
    - King of the Hill: the hill stays two rings inside the arena (`hillLayerOn`): 13 arena tiles
      left, the hill is the plus of 5; from 9 tiles down only the centre tile.
