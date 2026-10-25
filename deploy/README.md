@@ -125,6 +125,7 @@ Do not run bare `pm2` as root for this app. Avoid printing the live ecosystem or
 | Limit | Value |
 |---|---|
 | Rooms per process | `MAX_ROOMS` (pm2 env: 100). `POST /rooms` answers 503 when full |
+| Simulation rate | `TICK_HZ` (30): `30` or `60` for every room of this process. Clients switch to the room's rate when they join, so one client build plays on both; 30 Hz halves the server's per-tick work. Set it in the protected `/etc/brawlock/ecosystem.config.cjs` `env` |
 | Empty room | closes after 60 s with no connected link |
 | Per IP | 6 room creations/min, 60 room lookups/min, 60 WebSocket connects/min, 16 concurrent connections |
 | Per connection | 240 messages/s and 128 KB/s sustained (bursts 2×), 64 KB per message; above that the connection is closed |

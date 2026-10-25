@@ -18,13 +18,14 @@ import { addModifier, hasModifier, type ModifierBehavior } from '../modifiers'
 import { ownerPawn, spawnProjectile } from '../projectiles'
 import { buffDuration } from '../stats'
 import { isEnemy } from '../teams'
-import type { PawnState, PlayerId, SimState } from '../types'
+import { onTickRate, type PawnState, type PlayerId, type SimState } from '../types'
 import { attr } from './data'
 import type { ProjectileBehavior, SpellBehavior } from './types'
 import { aim, castAttr } from './util'
 
 /** 0.97 per original tick, as a per-sim-tick factor */
-const KEEP = pow(0.97, ORIGINAL_TICK_SCALE)
+let KEEP = 0
+onTickRate(() => { KEEP = pow(0.97, ORIGINAL_TICK_SCALE) })
 
 export const MOD_HOMING_HASTE = 'homingHaste'
 

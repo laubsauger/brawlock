@@ -20,7 +20,7 @@ import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { localRatingAuthority, validRatingSubmission } from '../src/net/ratingAuthority.ts'
 import { FrameDecoder, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, WS_GUID, decodeText, encodeFrame } from '../src/net/wsframe.ts'
 import { DEFAULT_SERVER_CONFIG, createServerCore } from '../src/net/server.ts'
-import { TICK_HZ } from '../src/sim/types.ts'
+import { TICK_HZ, setTickRate } from '../src/sim/types.ts'
 import { sharedClock } from '../src/net/clock.ts'
 import { DEFAULT_SETTINGS, createMatch, step } from '../src/sim/index.ts'
 import { createBot } from '../src/bots/index.ts'
@@ -161,6 +161,9 @@ function wrapSocket(socket, log) {
  */
 export async function startServer(opts = {}) {
   const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock = Date.now } = opts
+  // one simulation rate per server process (30 or 60 Hz; unset: the process's, by default 30);
+  // clients take it from the room's welcome
+  if (opts.tickHz !== undefined) setTickRate(opts.tickHz)
   // every match on this server shares one pulse timer (clock.ts)
   const pulseClock = sharedClock()
   const turnFile = process.env.TURN_SECRET_FILE ?? ''

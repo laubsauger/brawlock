@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MatchResult, Screen } from '../game/store'
-import type { InputCommand, MatchSettings, PlayerInput, PlayerSlot, SimEvent, SimState } from '../sim/types'
+import { TICK_HZ, setTickRate, type InputCommand, type MatchSettings, type PlayerInput, type PlayerSlot, type SimEvent, type SimState } from '../sim/types'
 import { codeFromSearch, roomLink } from './code'
 import { createMemoryNet, mulberry32, type LinkOptions } from './memory'
 import { PROTOCOL_VERSION, decode, encode, type TickEvents } from './protocol'
@@ -9,6 +9,7 @@ import { createBot } from '../bots'
 import type { NetFactory } from './transport'
 import type { ChatLine } from './chat'
 import { killPawn } from '../sim/combat'
+import { ticks } from '../sim/config'
 
 /** what people said: the room's join / leave lines left out */
 const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
@@ -206,6 +207,29 @@ afterEach(() => {
 })
 
 describe('session lobby over the network', () => {
+  /** Why: a game server runs 30 or 60 Hz. A client must switch to its room's rate before it builds
+   * a match there, or it would predict and time the server's ticks at the wrong speed. */
+  it('switches a client to the simulation rate of the room it joins', async () => {
+    const net = createMemoryNet({ latencyMs: 1 })
+    const room = await net.host()
+    const before = TICK_HZ
+    const other = before === 30 ? 60 : 30
+    room.onConnection((t) => t.onMessage((data) => {
+      if (decode(data)?.t === 'hello') t.sendReliable(encode({ t: 'welcome', playerId: 1, hz: other }))
+    }))
+    const client = makePeer(net, 'Clienta', 'client-key')
+    try {
+      // the join completes with the room's lobby, which this bare room never sends
+      void client.session.join(room.id).catch(() => {})
+      await vi.advanceTimersByTimeAsync(200)
+      expect(client.store.lobby.localPlayer).toBe(1)
+      expect(TICK_HZ).toBe(other)
+    } finally {
+      client.session.leave()
+      setTickRate(before)
+    }
+  })
+
   it('shares a three-second custom start, prevents edits/restarts during it and then starts once', async () => {
     if (!sim) throw new Error(simMissing)
     const { host, client } = await hostAndClient(sim, { latencyMs: 1 })
@@ -285,7 +309,7 @@ describe('session lobby over the network', () => {
     if (!sim) throw new Error(simMissing)
     // End the first fight at a fixed tick so the real round/shop flow is reproducible.
     const api: SimApi = { ...sim, step(state, inputs) {
-      if (state.phase === 'fight' && state.round === 1 && state.tick >= 360) {
+      if (state.phase === 'fight' && state.round === 1 && state.tick >= ticks(6)) {
         for (const pawn of state.pawns) if (pawn.owner !== 0 && pawn.alive) killPawn(state, pawn, null, 'lava')
       }
       sim.step(state, inputs)
@@ -1070,7 +1094,8 @@ describe.skipIf(!sim)(`session match over the network${sim ? '' : ` (SKIPPED: re
 
     const hostStates = new Map(host.out.states.map((s) => [s.tick, s]))
     const cs = client.out.states
-    expect(cs.length).toBeGreaterThan(120)
+    // most of the 3 s of ticks
+    expect(cs.length).toBeGreaterThan(ticks(2))
     for (let i = 1; i < cs.length; i++) expect(cs[i].tick).toBeGreaterThan(cs[i - 1].tick)
     const last = cs[cs.length - 1]
     // compare as JSON: what the wire can carry is what the client must see
@@ -1159,7 +1184,7 @@ describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () 
         return sim!.createMatch(st, sl, seed)
       },
       step: (state, inputs) => {
-        if (state.phase === 'fight' && state.round === 1 && state.tick >= 180) {
+        if (state.phase === 'fight' && state.round === 1 && state.tick >= ticks(3)) {
           for (const pawn of state.pawns) if (pawn.owner !== 0 && pawn.alive) killPawn(state, pawn, null, 'lava')
         }
         sim!.step(state, inputs)

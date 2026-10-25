@@ -103,7 +103,7 @@ describe('protocol', () => {
     const msgs: Msg[] = [
       { t: 'hello', name: 'Ann', version: PROTOCOL_VERSION, key: 'k', profileId: 'p-1234567', color: 0xff00ff },
       { t: 'rename', name: 'Ann again' },
-      { t: 'welcome', playerId: 3 },
+      { t: 'welcome', playerId: 3, hz: 30 },
       { t: 'lobby', slots, settings, ready: { 1: true }, pings: { 0: 0, 1: 42 } },
       { t: 'ready', ready: true },
       { t: 'pings', pings: { 0: 0, 1: 42 } },

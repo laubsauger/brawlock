@@ -15,14 +15,39 @@
  * consumer.
  */
 
+/** Simulation rates a process can run. */
+export const TICK_RATES = [30, 60] as const
+export type TickRate = (typeof TICK_RATES)[number]
 /**
- * Fixed simulation rate. The original ticked every 0.035 s on a 30 Hz Dota server;
- * we run 60 Hz for lower input latency. Every per-tick constant from the original
- * (friction 0.96 per 0.035 s, ...) must be converted: perTick = orig ** (DT / ORIGINAL_TICK).
+ * The rate unless a game server's config or the room a client joins says otherwise. The
+ * original ticked every 0.035 s on a 30 Hz Dota server. We ran 60 Hz until alpha.10; 30 Hz
+ * halves the server's per-tick and per-message work and played as well.
  */
-export const TICK_HZ = 30
-export const DT = 1 / TICK_HZ
+export const DEFAULT_TICK_HZ: TickRate = 30
+/**
+ * Fixed simulation rate of this process: a game server's from its config, a client's from the
+ * room it joined. Change it only between matches, with setTickRate. Every per-tick constant
+ * from the original (friction 0.96 per 0.035 s, ...) must be converted:
+ * perTick = orig ** (DT / ORIGINAL_TICK).
+ */
+export let TICK_HZ: TickRate = DEFAULT_TICK_HZ
+export let DT = 1 / TICK_HZ
 export const ORIGINAL_TICK = 0.035
+
+const rateListeners: (() => void)[] = []
+/** A module's constants derived from the tick rate: computed now and again on every rate change. */
+export function onTickRate(recompute: () => void): void {
+  rateListeners.push(recompute)
+  recompute()
+}
+/** Switches the process to another simulation rate. Matches already created keep their tick counts. */
+export function setTickRate(hz: number): void {
+  if (!(TICK_RATES as readonly number[]).includes(hz)) throw new Error(`Unsupported tick rate: ${hz}`)
+  if (hz === TICK_HZ) return
+  TICK_HZ = hz as TickRate
+  DT = 1 / TICK_HZ
+  for (const recompute of rateListeners) recompute()
+}
 
 /** Render: game units to three.js world units (1 unit = 1 cm). */
 export const WORLD_SCALE = 0.01

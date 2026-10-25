@@ -160,7 +160,7 @@ src/
 
 ### 4.3 Simulation
 
-- **60 Hz fixed step**, independent of render rate. The original ticked at 0.035 s on a 30 Hz Dota server. Per-tick constants convert exactly (`friction ** (DT / 0.035)`).
+- **Fixed step at 30 or 60 Hz** (`TICK_HZ`, set per game server, default 30; fixed at 60 until alpha.10), independent of render rate. The original ticked at 0.035 s on a 30 Hz Dota server. Per-tick constants convert exactly (`friction ** (DT / 0.035)`).
 - **Deterministic**: seeded mulberry32 in state, no `Math.random`, no wall clock, no engine trig in state paths (own sin/cos/atan2 in `sim/math.ts`). `+ - * / Math.sqrt` are IEEE-exact across engines.
 - **Plain-data state** (`SimState`): structured-cloneable, diffable, serializable. One `step(state, inputs)` function.
 - Physics re-implements the original: swept circles, sort-and-sweep broadphase on X, collisions resolved in time-of-impact order, elastic response with per-body elasticity, collision matrix by alliance and channel (player, projectile, obstacle).

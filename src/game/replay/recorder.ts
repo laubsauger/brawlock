@@ -9,7 +9,7 @@
  * (and again only if the stream jumps, e.g. a keyframe heal).
  */
 import { cloneState, hashState } from '../../sim'
-import type { MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimEvent, SimState } from '../../sim/types'
+import { TICK_HZ, type MatchSettings, type PlayerId, type PlayerInput, type PlayerSlot, type SimEvent, type SimState } from '../../sim/types'
 import { HASH_EVERY, REPLAY_FORMAT, REPLAY_VERSION, encodeInputs, type ReplayData, type ReplayStep } from './format'
 
 export interface ReplayStartInfo {
@@ -89,6 +89,7 @@ export class ReplayRecorder {
       v: REPLAY_VERSION,
       id,
       netId,
+      hz: TICK_HZ,
       date,
       localPlayer: info.localPlayer,
       seed: info.seed ?? null,

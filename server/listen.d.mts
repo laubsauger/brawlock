@@ -14,6 +14,8 @@ export interface ServerOptions {
   timeScale?: number
   /** lossless stream peers get a packet every this many ticks (default 1; session.ts) */
   streamEvery?: number
+  /** simulation rate of this process's rooms (unset: the process's current rate) */
+  tickHz?: 30 | 60
   log?: LogFn
   /** directory of leaderboard.sqlite; '' / missing = no leaderboard */
   dataDir?: string

@@ -4,6 +4,7 @@
 //   --port / PORT (5350)            --host / HOST (127.0.0.1: behind nginx)
 //   --max-rooms / MAX_ROOMS (200)   --origins / ALLOWED_ORIGINS (comma list; empty = any)
 //   --region / REGION ('')          this server's region id (VITE_GAME_SERVERS), shown by /health
+//   --tick-hz / TICK_HZ (30)        simulation rate of every room on this server: 30 or 60
 //   --data / DATA_DIR ('')          leaderboard.sqlite goes here ('' = no leaderboard)
 //   --quick-seats / QUICKPLAY_SEATS (10)   humans per quick-play room, at most
 //   --quick-fill / QUICKPLAY_BOT_FILL (10) bots top a quick-play table up to this many players
@@ -51,7 +52,8 @@ if (process.env.NODE_ENV === 'production' && !process.env.MAINTENANCE_SECRET_FIL
 // Production regions probe the internet path for the operations dashboard; dev and tests stay offline.
 const anchors = process.env.NODE_ENV === 'production' ? INTERNET_ANCHORS : []
 // pm2 only logs an unhandled rejection; exit so it restarts us instead of leaving a dead process.
-const server = await startServer({ port, host, config, trustProxy, dataDir, anchors }).catch((error) => {
+const tickHz = Number(arg('tick-hz', 'TICK_HZ', '30'))
+const server = await startServer({ port, host, config, trustProxy, dataDir, anchors, tickHz }).catch((error) => {
   jsonLog('error', 'server.start.failed', { error: String(error) })
   process.exit(1)
 })

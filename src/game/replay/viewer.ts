@@ -10,7 +10,7 @@
  * No input is attached and nothing is sent anywhere: a replay is read-only.
  */
 import { cloneState } from '../../sim'
-import { DT, type PlayerId, type SimEvent, type SimState } from '../../sim/types'
+import { DT, setTickRate, type PlayerId, type SimEvent, type SimState } from '../../sim/types'
 import { frame, pushEvents, pushState, resetFrame } from '../frame'
 import type { ReplayData, ReplayMeta } from './format'
 import { ReplayPlayer, type Desync } from './player'
@@ -132,6 +132,8 @@ export class ReplayViewer {
       this.set({ ...IDLE, ...base, status: 'mismatch' })
       return 'mismatch'
     }
+    // the recorded rate: playback steps and its tick timeline mean the recorded seconds
+    setTickRate(d.hz)
     this.player = p
     const follow = d.slots.some((s) => s.id === d.localPlayer) ? d.localPlayer : (d.slots[0]?.id ?? -1)
     this.set({ ...IDLE, ...base, status: 'ready', follow, playing: false, speed: 1 })

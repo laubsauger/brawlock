@@ -2,7 +2,7 @@
  * Original constants (docs/research/systems.md §13, spells.md §1) and lobby defaults.
  * Seconds stay seconds here; convert with `ticks()` at the use site.
  */
-import { DT, ORIGINAL_TICK, TICK_HZ } from './types'
+import { DT, ORIGINAL_TICK, TICK_HZ, onTickRate } from './types'
 import type { MatchSettings } from './types'
 import { PI, exp, log } from './math'
 
@@ -22,7 +22,7 @@ export const PAWN_WALK_SPEED_CAP = 1000
 export const PAWN_TURN_RATE = 1.2
 export const DOTA_TURN_INTERVAL = 0.03
 /** radians the pawn turns per sim tick (1.2 rad / 0.03 s = 40 rad/s) */
-export const TURN_PER_TICK = (PAWN_TURN_RATE * DT) / DOTA_TURN_INTERVAL
+export let TURN_PER_TICK = 0
 /**
  * The pawn only walks (and a cast point only starts) once facing is within this angle of the
  * desired direction. Dota's own tolerance is about 0.2 rad (~11.5 deg); the original inherited
@@ -35,7 +35,11 @@ export const FACING_TOLERANCE = 0.2
  * target point; the pawn then snaps to face it and the cast point starts, so a cast can never
  * stall in its windup.
  */
-export const CAST_TURN_LIMIT_TICKS = Math.ceil(PI / TURN_PER_TICK) + 1
+export let CAST_TURN_LIMIT_TICKS = 0
+onTickRate(() => {
+  TURN_PER_TICK = (PAWN_TURN_RATE * DT) / DOTA_TURN_INTERVAL
+  CAST_TURN_LIMIT_TICKS = Math.ceil(PI / TURN_PER_TICK) + 1
+})
 /** distance under which a move order counts as arrived */
 export const ARRIVE_EPSILON = 1
 
@@ -176,13 +180,14 @@ export function ticks(seconds: number): number {
   return Math.round(seconds * TICK_HZ)
 }
 
-/** Sim ticks to seconds: every tick count shown, played or stored as time goes through here. */
+/** Sim ticks to seconds: every tick count shown or played as time goes through here (stored
+ * match records use net/leaderboard's recordSeconds). */
 export function secondsOf(tickCount: number): number {
   return tickCount / TICK_HZ
 }
 
 /**
- * Original friction is applied once per 0.035 s tick. Per 60 Hz tick:
+ * Original friction is applied once per 0.035 s tick. Per sim tick:
  * friction ** (DT / ORIGINAL_TICK), via the deterministic exp/log from math.ts (not Math.pow,
  * whose last bit is engine dependent). Exact per-second decay = friction ** (1 / 0.035).
  */
@@ -193,4 +198,5 @@ export function frictionPerTick(friction: number): number {
 }
 
 /** Per-original-tick quantities (push-out) scaled to one sim tick. */
-export const ORIGINAL_TICK_SCALE = DT / ORIGINAL_TICK
+export let ORIGINAL_TICK_SCALE = 0
+onTickRate(() => { ORIGINAL_TICK_SCALE = DT / ORIGINAL_TICK })

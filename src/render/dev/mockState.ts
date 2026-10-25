@@ -4,15 +4,20 @@
  * die, and the arena shrinks on a short timer. NOT the real rules: numbers
  * are close enough to look right (speeds, radii, cast points, kb scale).
  */
-import { DT, type PawnState, type PlayerSlot, type ProjectileState, type SimEvent, type SimState } from '../../sim/types'
+import { DT, onTickRate, type PawnState, type PlayerSlot, type ProjectileState, type SimEvent, type SimState } from '../../sim/types'
 import { ticks } from '../../sim/config'
 import { isLocationSafe, layerRadius } from '../arenaGeom'
 
-const SHOP_TICKS = ticks(2.5)
-const SHRINK_TICKS = ticks(5)
+let SHOP_TICKS = 0
+let SHRINK_TICKS = 0
 const MIN_LAYER = 7
 const FIGHT_LAYER = 15
-const FRICTION = Math.pow(0.96, DT / 0.035)
+let FRICTION = 0
+onTickRate(() => {
+  SHOP_TICKS = ticks(2.5)
+  SHRINK_TICKS = ticks(5)
+  FRICTION = Math.pow(0.96, DT / 0.035)
+})
 
 interface MockOpts {
   /** menu backdrop: slower pace, no deaths */

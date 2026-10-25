@@ -8,7 +8,8 @@
  *                          device: persistent anonymous device id (reconnect after a browser
  *                          restart, future ranked); build: client build id (dedicated servers
  *                          refuse other release builds)
- *   host → client  welcome {playerId, server?}        slot assigned; server = {build}: a dedicated
+ *   host → client  welcome {playerId, hz, server?}    slot assigned; hz: the room's simulation rate
+ *                          (the client switches to it); server = {build}: a dedicated
  *                          server hosts this room (it has no seat; the first human owns the room)
  *   client → host  ctl     {op, player?, difficulty?, team?, settings?, public?}   room owner's
  *                          lobby controls on a dedicated server (add bots, settings, start,
@@ -56,8 +57,9 @@
  * Ping / pong live one layer down, in transport.ts ('#p<t>' / '#q<t>' frames on
  * the unreliable path), so every link measures RTT without app involvement.
  */
-import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
+import type { BotDifficulty, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState, TickRate } from '../sim/types'
 import { ticks } from '../sim/config'
+import { onTickRate } from '../sim/types'
 import type { TickEvents } from '../game/frame'
 import { decodeCmd, encodeCmd, type WireCmd, type WireInput, type WirePatch, type WireSlot } from './stream'
 import type { MatchResult } from '../game/store'
@@ -68,7 +70,8 @@ import type { ChatLine } from './chat'
 export const PROTOCOL_VERSION = 9
 
 /** Snapshots carry the events of this many most recent ticks. */
-export const EVENT_REDUNDANCY_TICKS = ticks(1 / 6)
+export let EVENT_REDUNDANCY_TICKS = 0
+onTickRate(() => { EVENT_REDUNDANCY_TICKS = ticks(1 / 6) })
 
 export interface InputFrame {
   /** per-client sequence, starts at 1 for every match */
@@ -114,7 +117,7 @@ export type Msg =
   | { t: 'rename'; name: string }
   | { t: 'color'; color: number }
   | { t: 'vote'; id: number; choice: LobbyVoteChoice }
-  | { t: 'welcome'; playerId: PlayerId; server?: { build: string } }
+  | { t: 'welcome'; playerId: PlayerId; hz: TickRate; server?: { build: string } }
   | {
       t: 'lobby'
       slots: PlayerSlot[]

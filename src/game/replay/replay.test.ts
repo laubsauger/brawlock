@@ -9,9 +9,10 @@ import type { LobbyView, MatchResult, Screen } from '../store'
 import { createBot } from '../../bots'
 import { cloneState, createMatch, step } from '../../sim'
 import { killPawn } from '../../sim/combat'
+import { ticks } from '../../sim/config'
 import { startRound } from '../../sim/mode'
 import { applyRosterChanges } from '../../sim/roster'
-import type { InputCommand, MatchSettings, PlayerInput, PlayerSlot, SimState } from '../../sim/types'
+import { TICK_HZ, setTickRate, type InputCommand, type MatchSettings, type PlayerInput, type PlayerSlot, type SimState } from '../../sim/types'
 import { codeFromSearch, roomLink } from '../../net/code'
 import { createMemoryNet, mulberry32, type LinkOptions } from '../../net/memory'
 import { createSession, type NetMode, type SessionDeps } from '../../net/session'
@@ -408,9 +409,13 @@ describe('seeking and verification', () => {
 
   it('a tampered input stream is flagged as a desync at the next checkpoint', () => {
     const bad: ReplayData = JSON.parse(JSON.stringify(d))
-    const i = bad.steps.findIndex((s) => s[0] > HASH_EVERY && s[1].length > 0)
+    // in the second before a checkpoint, the player who acted walks elsewhere instead (move
+    // orders are absolute targets: an earlier detour can rejoin the recorded path before it)
+    const checkpoint = 2 * HASH_EVERY
+    const i = bad.steps.findIndex((s) => s[0] >= checkpoint - ticks(1) && s[1].length > 0)
     const t = bad.steps[i][0]
-    bad.steps[i][1] = [[0, [['m', 1500, 1500]]]]
+    const who = bad.steps[i][1][0][0]
+    for (const s of bad.steps) if (s[0] >= t && s[0] < checkpoint) s[1] = [[who, [['m', 1500, 1500]]], ...s[1].filter(([p]) => p !== who)]
     const p = playToEnd(bad)
     expect(p.desync).not.toBeNull()
     expect(p.desync!.tick).toBeGreaterThan(t)
@@ -429,6 +434,22 @@ describe('seeking and verification', () => {
 })
 
 describe('library and files', () => {
+  /** Why: a client keeps the rate of the last room it joined; a replay must still play at the rate
+   * it was recorded at, and a file without a rate this build runs is no replay. */
+  it('records its simulation rate, plays at it and rejects a file without a supported rate', async () => {
+    const d = recordDirect(3, 120)
+    const recorded = TICK_HZ
+    expect(d.hz).toBe(recorded)
+    try {
+      setTickRate(recorded === 30 ? 60 : 30)
+      expect(new ReplayViewer(new ReplayLibrary(memoryBackend()), NET_ID).openData(d)).toBe('ready')
+      expect(TICK_HZ).toBe(recorded)
+    } finally {
+      setTickRate(recorded)
+    }
+    expect(await decodeReplay(new TextEncoder().encode(JSON.stringify({ ...d, hz: 45 })))).toBeNull()
+  })
+
   it('a .brawlock file round-trips (gzip) and junk is rejected', async () => {
     const d = recordDirect(3, 600)
     const bytes = await encodeReplay(d)

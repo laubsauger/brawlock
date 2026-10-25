@@ -25,7 +25,7 @@
  *   phase, instead of burning the 40 s buy timer.
  */
 import { cos, exp, hypot, sin } from '../sim/math'
-import { TICK_HZ } from '../sim/types'
+import { TICK_HZ, onTickRate } from '../sim/types'
 import type {
   BotDifficulty,
   InputCommand,
@@ -80,7 +80,8 @@ const THRUST_ATTACK_RANGE = 380
 const LIGHTNING_RANGE = 600
 const PAWN_BODY = 30
 /** How often (ticks) a bot checks between decisions whether it is pushing into a pillar. */
-const UNSTICK_TICKS = ticks(0.1)
+let UNSTICK_TICKS = 0
+onTickRate(() => { UNSTICK_TICKS = ticks(0.1) })
 /** Extra clearance beyond an area threat's radius, units. */
 const THREAT_MARGIN = 30
 /** Directions tried when leaving an area threat (radians off straight away). */

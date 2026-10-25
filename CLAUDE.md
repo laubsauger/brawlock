@@ -11,7 +11,7 @@ Browser remake of Warlock / Warlock Brawl. Plan: `docs/PLAN.md`. Original mechan
 
 ## Architecture
 
-- `src/sim/`: pure deterministic TypeScript. No three, React, DOM, net, `Math.random`, `Date`, `performance`. Engine trig only via `sim/math.ts`. State is plain data (`SimState` in `sim/types.ts`). API: `createMatch`, `step` in `sim/index.ts`. 60 Hz fixed step; original per-tick constants (0.035 s) are converted.
+- `src/sim/`: pure deterministic TypeScript. No three, React, DOM, net, `Math.random`, `Date`, `performance`. Engine trig only via `sim/math.ts`. State is plain data (`SimState` in `sim/types.ts`). API: `createMatch`, `step` in `sim/index.ts`. Fixed step at the process's rate, 30 or 60 Hz (`TICK_HZ`, `setTickRate`; default 30, a game server's from its config, a client's from the room it joins); original per-tick constants (0.035 s) are converted. Write durations as `ticks(seconds)` / `secondsOf(ticks)`, never as tick literals; module-level values derived from the rate go in `onTickRate`.
 - `src/net/` + `src/game/session.ts`: PeerJS for signaling; reliable channel for lobby/control, raw unreliable channel (`ordered: false, maxRetransmits: 0`) for gameplay. Host-authoritative.
 - `src/bots/`: bots return `InputCommand`s from `SimState`, same pipeline as humans.
 - `src/render/`: r3f + `three/webgpu` + TSL. Reads `game/frame.ts` imperatively in `useFrame`. Never put per-frame data in React state.
@@ -28,6 +28,7 @@ Browser remake of Warlock / Warlock Brawl. Plan: `docs/PLAN.md`. Original mechan
 
 The full suite and a cold typecheck take minutes. Run what covers the change:
 
+- Tests run at 30 Hz; `TICK_HZ=60 npx vitest run <files>` runs them at 60. A change that touches tick timing runs its suites at both rates.
 - After an edit: `npx vitest run <touched files/dirs>` (or `npx vitest run --changed`), plus the suites that use the changed module. `npm run typecheck` in the main tree is incremental; never run a cold `tsc -b` in a fresh worktree or export just to re-check code that already passed.
 - Full `npm test` only when asked, for a release, or when a change reaches far into shared core (sim rules, net protocol, session flow used everywhere). Not as a routine end step: a specific, smaller change gets its own suites only. Never again for the same diff on another base, after a commit-only step, or to re-check unchanged code.
 - A test that takes more than ~2 s is a cost to fix (shorter simulated time, fewer seeds, earlier exit once its condition holds), not to accept.

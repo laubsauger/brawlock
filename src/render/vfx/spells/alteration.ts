@@ -10,7 +10,7 @@ import * as THREE from 'three/webgpu'
 import { ticks } from '../../../sim/config'
 import { atan, float, floor, fract, hash, mix, positionGeometry, pow, saturate, sin, smoothstep, vec3 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
-import type { ModifierState, PawnState, SimEvent } from '../../../sim/types'
+import { onTickRate, type ModifierState, type PawnState, type SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
 import { RING_EXPAND, RING_IMPLODE } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
@@ -22,7 +22,8 @@ const GOLD_WHITE = pal('alteration', 'core', 1.9)
 
 const SPELL = 'alteration'
 const WALL_H = 95
-const FADE_TICKS = ticks(0.25)
+let FADE_TICKS = 0
+onTickRate(() => { FADE_TICKS = ticks(0.25) })
 const PRISM_A: RGB = [1.4, 2.4, 3.0]
 const PRISM_B: RGB = [3.0, 1.4, 2.6]
 

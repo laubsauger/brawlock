@@ -10,16 +10,18 @@
  * exactly those bytes, so sharing a replay is copying a file.
  *
  * Replays only play with the build that recorded them: the sim / netcode id (__NET_ID__)
- * must match, because an older sim re-simulates the same inputs differently.
+ * must match, because an older sim re-simulates the same inputs differently. They play at the
+ * simulation rate they were recorded at (`hz`).
  */
 import { decodeCmd, encodeCmd, type WireCmd } from '../../net/stream'
 import { ticks, secondsOf } from '../../sim/config'
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../../sim/types'
+import { TICK_RATES, onTickRate, type TickRate, type InputCommand, type MatchSettings, type PlayerId, type PlayerInput, type PlayerSlot, type SimState } from '../../sim/types'
 
 export const REPLAY_FORMAT = 'brawlock-replay'
 export const REPLAY_VERSION = 1
 /** state hash checkpoint interval, ticks (5 s) */
-export const HASH_EVERY = ticks(5)
+export let HASH_EVERY = 0
+onTickRate(() => { HASH_EVERY = ticks(5) })
 export const REPLAY_EXT = '.brawlock'
 
 /** One recorded step: applied going from `tick` to `tick + 1`. Empty steps are not stored. */
@@ -32,6 +34,8 @@ export interface ReplayData {
   id: string
   /** sim / netcode id of the build that recorded it (__NET_ID__) */
   netId: string
+  /** simulation rate of the recorded match */
+  hz: TickRate
   /** ms since epoch */
   date: number
   /** who recorded it (-1 = spectator) */
@@ -118,6 +122,7 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 export function asReplay(v: unknown): ReplayData | null {
   if (!isObj(v) || v.format !== REPLAY_FORMAT || v.v !== REPLAY_VERSION) return null
   if (typeof v.id !== 'string' || typeof v.netId !== 'string' || !isNum(v.date) || !isNum(v.endTick)) return null
+  if (!(TICK_RATES as readonly unknown[]).includes(v.hz)) return null
   const start = v.start
   if (!isObj(start) || !isNum(start.tick) || !Array.isArray(start.pawns) || !Array.isArray(start.scores)) return null
   if (!Array.isArray(v.steps) || !Array.isArray(v.slots) || !isObj(v.settings)) return null

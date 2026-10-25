@@ -29,10 +29,10 @@
  */
 import type { InputCommand, PlayerId, PlayerInput, SimEvent, SimState } from '../sim/types'
 import { ticks } from '../sim/config'
-import { TICK_HZ } from '../sim/types'
+import { TICK_HZ, onTickRate } from '../sim/types'
 import { EVENT_REDUNDANCY_TICKS, type TickEvents } from './protocol'
 
-const DT_MS = 1000 / TICK_HZ
+let DT_MS = 0
 
 /**
  * Prediction never runs more than this many ticks past the newest confirmed state
@@ -40,13 +40,18 @@ const DT_MS = 1000 / TICK_HZ
  * RTT + margin + the confirmed state's age, or the display pins to the cap: 30 ticks
  * covers RTT up to ~380 ms.
  */
-export const MAX_AHEAD_TICKS = ticks(0.5)
+export let MAX_AHEAD_TICKS = 0
 /**
  * A snapshot that confirms the prediction (only own frames, at their stamps) skips
  * the rollback; one happens at least this often anyway, so a wrong "confirmed" can
  * never drift for longer.
  */
-export const FORCE_REBASE_TICKS = ticks(0.5)
+export let FORCE_REBASE_TICKS = 0
+onTickRate(() => {
+  DT_MS = 1000 / TICK_HZ
+  MAX_AHEAD_TICKS = ticks(0.5)
+  FORCE_REBASE_TICKS = ticks(0.5)
+})
 /** visual error offsets beyond this (game units) snap instead of sliding */
 export const SNAP_DIST = 250
 /** offset multiplier per displayed tick: ~10 % left after 100 ms */
@@ -544,10 +549,11 @@ export class LeadClock {
   private calmSince = 0
   private lastLate = 0
 
-  static readonly SNAP_MS = 4 * DT_MS
+  /** lead error that speeds the clock up or snaps it back: 4 frames at 60 Hz, the same time at any rate */
+  static readonly SNAP_MS = 4000 / 60
   static readonly MAX_MARGIN_TICKS = 8
   static readonly MAX_JITTER_MS = 25
-  static readonly MAX_LEAD_MS = (MAX_AHEAD_TICKS - 2) * DT_MS
+  static get MAX_LEAD_MS(): number { return (MAX_AHEAD_TICKS - 2) * DT_MS }
 
   /** Steer toward the target for `now`. `jitterMs` = arrival jitter estimate. */
   update(now: number, baseMs: number, rttMs: number, jitterMs: number): void {

@@ -13,12 +13,16 @@
  * alpha = (now - currAt) / (currAt - prevAt) interpolates smoothly even though
  * the pull itself runs on a jittery timer.
  */
-import { TICK_HZ, type SimState } from '../sim/types'
+import { TICK_HZ, onTickRate, type SimState } from '../sim/types'
 import type { TickEvents } from './protocol'
 
-const DT_MS = 1000 / TICK_HZ
+let DT_MS = 0
 /** delay bounds, ms */
-const MIN_DELAY_MS = 2 * DT_MS
+let MIN_DELAY_MS = 0
+onTickRate(() => {
+  DT_MS = 1000 / TICK_HZ
+  MIN_DELAY_MS = 2 * DT_MS
+})
 const MAX_DELAY_MS = 250
 /** max playback-speed correction: 5 % */
 const STEER = 0.05
