@@ -138,7 +138,9 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.11**, source `3f74bc89f56a`, on 2026-10-25:
+The latest rollout is **v0.1.0-alpha.12**, source `b8d9bd4554fb`, on 2026-10-25:
+[a calmer, smaller hill after the first playtest](../deploy/releases/2026-10-25-alpha12.md).
+**v0.1.0-alpha.11**, source `3f74bc89f56a`, shipped earlier that day:
 [King of the Hill and a simulation rate per game server](../deploy/releases/2026-10-25-alpha11.md).
 **v0.1.0-alpha.10**, source `a92f7931d9f5`, shipped on 2026-10-24
 ([record](../deploy/releases/2026-10-24-alpha10.md)); **v0.1.0-alpha.8** on 2026-10-21
