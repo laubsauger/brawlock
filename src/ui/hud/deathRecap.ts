@@ -14,6 +14,6 @@ export function deathRecap(death: DeathEvent, killerName: string | null): string
 
 export function deathNextStep(mode: GameMode, phase: Phase, respawnTicks: number): string {
   if (phase === 'roundEnd') return 'Next round shortly'
-  if (mode === 'deathmatch') return respawnTicks > 0 ? `Respawning in ${Math.ceil(respawnTicks / TICK_HZ)}s` : 'Waiting to respawn'
+  if (mode === 'deathmatch' || respawnTicks > 0) return respawnTicks > 0 ? `Respawning in ${Math.ceil(respawnTicks / TICK_HZ)}s` : 'Waiting to respawn'
   return 'Watching the rest of the round'
 }

@@ -252,6 +252,13 @@ const cue = (id: SfxId, sp: { pan: number; gain: number }, gain = 1, extra: Part
 
 const CENTRE = { pan: 0, gain: 1 }
 
+/** The local player's team, or null for a spectator. */
+function localTeam(c: CueContext): number | null {
+  const id = c.listener.localPlayer
+  if (id === undefined || id < 0) return null
+  return c.listener.state?.slots?.find((s) => s.id === id)?.team ?? id
+}
+
 /** Scourge is in everyone's starting kit and heard every round: L1 stays modest, the full blast is the L3 escalation. */
 const SCOURGE_GAIN = [0.6, 0.8, 1]
 const scourgeLevel = (level?: number) => Math.max(1, Math.min(3, level ?? 1))
@@ -434,6 +441,15 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   freshStart: (e, c) => (e.player === c.listener.localPlayer ? [cue('buyNew', CENTRE, 1.2)] : []),
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
+  // King of the Hill: a rising tick when your side takes the hill, a soft coin per ticket you earn
+  hill: (e, c) => {
+    const mine = localTeam(c)
+    if (mine === null) return []
+    if (e.team === mine) return [cue('streakTick', CENTRE, 0.8, { param: 6 })]
+    return e.prev === mine ? [cue('tink', CENTRE, 0.7)] : []
+  },
+  hillTicket: (e, c) => (c.listener.localPlayer !== undefined && e.players.includes(c.listener.localPlayer) ? [cue('streakTick', CENTRE, 0.22, { param: 2 })] : []),
+  hillShrink: () => [cue('shrinkRumble', CENTRE, 0.6)],
   phase: (e) => (e.phase === 'fight' ? [cue('roundStart', CENTRE)] : []),
   roundWin: (e) => [cue('roundWin', CENTRE, 0.9, { param: e.team < 0 ? 0 : 1 })],
   gameOver: (_e, c) => {

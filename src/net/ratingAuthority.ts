@@ -85,7 +85,7 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
   if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked', 'roster', 'abandoned', 'aborted', 'combatPairs'])
     || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000) || !integer(m.bots, 10)
     || typeof m.teamMode !== 'string' || !['ffa', 'teams', 'shuffle'].includes(m.teamMode)
-    || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch'].includes(m.gameMode)
+    || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch', 'hill'].includes(m.gameMode)
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false
   if (m.abandoned !== undefined && typeof m.abandoned !== 'boolean') return false
   // An aborted ranked or casual game carries activity only: no result, round, winner or forfeit.

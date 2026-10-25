@@ -40,13 +40,17 @@ export interface Vec2 {
 // ---------------------------------------------------------------------------
 
 export type TeamMode = 'ffa' | 'teams' | 'shuffle'
-export type GameMode = 'rounds' | 'deathmatch'
+export type GameMode = 'rounds' | 'deathmatch' | 'hill'
 
 export interface MatchSettings {
   teamMode: TeamMode
   gameMode: GameMode
-  /** rounds mode: game ends when a player/team reaches this many round wins */
+  /** rounds mode: game ends when a player/team reaches this many round wins (hill: tickets) */
   winScore: number
+  /** hill: the hill's starting arena layer (tiles of that layer around the centre), 3..8 */
+  hillLayer?: number
+  /** hill: one fight with respawns instead of rounds with a shop between them */
+  hillRespawn?: boolean
   /** Dedicated ranked format: five scheduled scoring rounds, then at most one leaders-only final. */
   rankedRounds?: 0 | 5
   startGold: number
@@ -246,6 +250,20 @@ export interface ArenaState {
   theme: number
 }
 
+export interface HillState {
+  /** the hill is every tile of this arena layer (centred like the arena) */
+  layer: number
+  /** tick of the hill's next shrink, -1 = at its smallest */
+  nextShrinkTick: number
+  /** team standing on it alone, null = nobody (or contested) */
+  team: number | null
+  contested: boolean
+  /** ticks held by `team` toward its next ticket */
+  heldTicks: number
+  /** tick of the next income payout to everyone */
+  nextIncomeTick: number
+}
+
 export interface PlayerScore {
   id: PlayerId
   gold: number
@@ -402,8 +420,14 @@ export type SimEvent =
   | { type: 'purchase'; player: PlayerId; pawn: EntityId; kind: 'spell' | 'item' | 'mastery'; id: string; level: number }
   /** Fresh start: the seat's build was sold back to the starting kit for `refund` gold */
   | { type: 'freshStart'; player: PlayerId; pawn: EntityId; refund: number }
-  /** deathmatch respawn */
+  /** deathmatch / hill respawn */
   | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
+  /** hill: who stands on it changed. team null = nobody alone on it; contested = 2+ teams on it */
+  | { type: 'hill'; team: number | null; contested: boolean; prev: number | null }
+  /** hill: one ticket to every member of `team` (their score is the ticket count) */
+  | { type: 'hillTicket'; team: number; players: PlayerId[] }
+  /** hill: the hill lost its outer ring of tiles */
+  | { type: 'hillShrink'; layer: number }
 
 export interface SimState {
   betting: BettingState
@@ -420,6 +444,8 @@ export interface SimState {
   /** Present from final preparation onward. Winners persist after the final resolves, including shared draws. */
   rankedFinal?: { contenders: PlayerId[]; winners?: PlayerId[] }
   arena: ArenaState
+  /** King of the Hill only, present from the first fight */
+  hill?: HillState
   scores: PlayerScore[]
   pawns: PawnState[]
   projectiles: ProjectileState[]

@@ -272,7 +272,8 @@ export function multiLine(count: number): AnnouncerLine | null {
 export function roundCall(state: AnnouncerView): AnnouncerLine | null {
   const settings = state.settings
   if (!settings || !state.scores) return null
-  if (settings.gameMode !== 'deathmatch') {
+  // round wins only: kills and hill tickets have no "one win away"
+  if (settings.gameMode === 'rounds') {
     // competitors: active players, or teams (best member score) in team mode
     const best = new Map<number, number>()
     for (const sc of state.scores) {

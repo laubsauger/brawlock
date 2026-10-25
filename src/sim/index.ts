@@ -41,10 +41,16 @@ export {
   MASTERY_MAX_LEVEL,
   SPELL_MAX_LEVEL,
   TEAM_DRAW,
+  HILL_DEFAULT_TICKETS,
+  HILL_INCOME_SECONDS,
+  HILL_RESPAWN_SECONDS,
+  HILL_ROUND_WIN_TICKETS,
+  HILL_SHRINK_PERIOD,
   frictionPerTick,
   ticks,
   secondsOf,
 } from './config'
+export { hillLayerNow, hillStartLayer, onHill, respawnsInFight } from './hill'
 export {
   TILE_SIZE,
   CORNER_PX_PY,

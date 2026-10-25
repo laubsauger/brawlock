@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { DEFAULT_SETTINGS, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
+import { DEFAULT_SETTINGS, HILL_DEFAULT_TICKETS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
 import { session } from '../../game/session'
 import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
@@ -19,6 +19,14 @@ const TEAM_MODES: { value: TeamMode; label: string }[] = [
 const GAME_MODES: { value: GameMode; label: string }[] = [
   { value: 'rounds', label: 'Rounds' },
   { value: 'deathmatch', label: 'Deathmatch' },
+  { value: 'hill', label: 'King of the Hill' },
+]
+
+/** hill sizes as arena layers: 9, 21 and 37 tiles */
+const HILL_SIZES: { value: string; label: string }[] = [
+  { value: '4', label: 'Small' },
+  { value: '6', label: 'Medium' },
+  { value: '8', label: 'Large' },
 ]
 
 const TEAM_HINT: Record<TeamMode, string> = {
@@ -30,6 +38,18 @@ const TEAM_HINT: Record<TeamMode, string> = {
 const MODE_HINT: Record<GameMode, string> = {
   rounds: 'Last team standing scores the round',
   deathmatch: '60 second rounds, respawn after 10 s, a point per kill',
+  hill: 'Stand on the glowing centre tiles with no enemy on them to earn tickets',
+}
+
+/** The hill's rules in a few lines, shown under the options while it is picked. */
+function HillRules({ settings }: { settings: MatchSettings }) {
+  return <div className="mb-2 rounded-md border border-[rgba(255,190,90,0.18)] bg-[rgba(255,170,60,0.06)] px-3 py-2 text-sm leading-relaxed text-bone">
+    <p className="mb-1 font-semibold text-gold">King of the Hill</p>
+    <p>The glowing tiles in the middle are the hill. Stand on them with no enemy on them and you earn a ticket and a coin every second. Anyone else on the hill contests it and nobody earns. Knock them off.</p>
+    <p className="mt-1 text-ash">First to {settings.winScore} tickets wins. The hill loses its outer ring every {HILL_SHRINK_PERIOD} s. {settings.hillRespawn
+      ? `One long fight: you respawn ${HILL_RESPAWN_SECONDS} s after dying and can shop while dead; everyone gets round gold every ${HILL_INCOME_SECONDS} s.`
+      : `Rounds with a shop between them: the last one standing ends the round and earns ${HILL_ROUND_WIN_TICKETS} tickets. Tickets carry over.`}</p>
+  </div>
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -63,10 +83,26 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
           <Segmented label="Team mode" value={settings.teamMode} options={TEAM_MODES} disabled={ro} onChange={(teamMode) => set({ teamMode })} />
         </Row>
         <Row label="Game mode" hint={MODE_HINT[settings.gameMode]}>
-          <Segmented label="Game mode" value={settings.gameMode} options={GAME_MODES} disabled={ro} onChange={(gameMode) => set({ gameMode })} />
+          <Segmented label="Game mode" value={settings.gameMode} options={GAME_MODES} disabled={ro} onChange={(gameMode) => set({
+            gameMode,
+            // tickets and round wins live on different scales
+            ...(gameMode === 'hill' && settings.gameMode !== 'hill' ? { winScore: HILL_DEFAULT_TICKETS } : {}),
+            ...(gameMode !== 'hill' && settings.gameMode === 'hill' ? { winScore: DEFAULT_SETTINGS.winScore } : {}),
+          })} />
         </Row>
+        {settings.gameMode === 'hill' && <>
+          <HillRules settings={settings} />
+          <Row label="Respawns" hint={settings.hillRespawn ? `One fight, respawn after ${HILL_RESPAWN_SECONDS} s` : 'Rounds with a shop between them, no respawns'}>
+            <Switch label="Respawns" checked={settings.hillRespawn === true} disabled={ro} onChange={(hillRespawn) => set({ hillRespawn })} />
+          </Row>
+          <Row label="Hill size" hint="How many centre tiles the hill starts with">
+            <Segmented label="Hill size" value={String(hillStartLayer(settings))} options={HILL_SIZES} disabled={ro} onChange={(v) => set({ hillLayer: Number(v) })} />
+          </Row>
+        </>}
         {settings.rankedRounds ? <Row label="Match length" hint="Most round wins after the scheduled rounds; tied leaders fight one final brawl">
           <span className="text-right font-semibold text-bone">{settings.rankedRounds} rounds · final if tied</span>
+        </Row> : settings.gameMode === 'hill' ? <Row label="Tickets to win" hint="Tickets needed to take the match (one per second held)">
+          <NumberField label="Tickets to win" value={settings.winScore} min={1} max={999} disabled={ro} onCommit={(winScore) => set({ winScore })} />
         </Row> : <Row label="Score to win" hint={settings.gameMode === 'rounds' ? 'Round wins needed to take the match' : 'Kills needed to take the match'}>
           <NumberField label="Score to win" value={settings.winScore} min={1} max={99} disabled={ro} onCommit={(winScore) => set({ winScore })} />
         </Row>}

@@ -22,5 +22,8 @@ describe('local death feedback', () => {
     expect(deathNextStep('deathmatch', 'fight', 0)).toBe('Waiting to respawn')
     expect(deathNextStep('deathmatch', 'roundEnd', 121)).toBe('Next round shortly')
     expect(deathNextStep('rounds', 'fight', 0)).toBe('Watching the rest of the round')
+    // the hill respawns only in its respawn style, where a timer is running
+    expect(deathNextStep('hill', 'fight', 1)).toBe('Respawning in 1s')
+    expect(deathNextStep('hill', 'fight', 0)).toBe('Watching the rest of the round')
   })
 })

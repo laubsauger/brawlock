@@ -94,6 +94,31 @@ export const ROUND_END_SECONDS = 3
 export const DM_ROUND_SECONDS = 60
 export const DM_RESPAWN_SECONDS = 10
 /**
+ * King of the Hill (not in the original; rules in sim/hill.ts). The hill is the tiles of a small
+ * arena layer around the centre; standing on it with no enemy team on it earns one ticket
+ * (score) per HILL_TICKET_SECONDS. First to winScore tickets wins.
+ */
+export const HILL_RESPAWN_SECONDS = 5
+export const HILL_TICKET_SECONDS = 1
+/** layer 6 = 21 tiles (a rounded 5x5); 5 = 13, 4 = the 3x3 block, 3 = a plus of 5 */
+export const HILL_DEFAULT_LAYER = 6
+export const HILL_MIN_LAYER = 3
+export const HILL_MAX_LAYER = 8
+export const HILL_DEFAULT_TICKETS = 100
+/** the hill loses its outer ring this often, down to HILL_MIN_LAYER */
+export const HILL_SHRINK_PERIOD = 90
+/** the arena sinks this often, but keeps HILL_ARENA_MARGIN layers of ground around the hill */
+export const HILL_ARENA_SHRINK_PERIOD = 15
+/** 5 layers keep respawns (SPAWN_EDGE_MARGIN inside the platform) off the starting hill's tiles */
+export const HILL_ARENA_MARGIN = 5
+/** gold to each member of the holding team per ticket, and roundGold to everyone this often */
+export const HILL_TICKET_GOLD = 1
+export const HILL_INCOME_SECONDS = 30
+/** after this long the ticket leader wins; a tie plays on until it breaks */
+export const HILL_TIME_LIMIT_SECONDS = 12 * 60
+/** rounds style: tickets for every member of the round's last team standing */
+export const HILL_ROUND_WIN_TICKETS = 5
+/**
  * When purchases are accepted (PLAN §11 decision, by the user):
  * - 'shopPhaseOrDead' (default): during the shop phase, or while the buyer's pawn is dead
  *   (spectating) in any phase except gameOver.
@@ -141,6 +166,9 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   botsReplaceLeavers: true,
   spectatorBets: true,
   bounties: true,
+  // King of the Hill only (listed so the lobby and its stored options accept them)
+  hillLayer: HILL_DEFAULT_LAYER,
+  hillRespawn: false,
 }
 
 /** Seconds to whole sim ticks (rounded to nearest). */

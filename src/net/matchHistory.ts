@@ -26,7 +26,7 @@ function validMatches(value: unknown, personal: boolean): boolean {
       || typeof m.id !== 'string' || !uuid.test(m.id) || matches.has(m.id)
       || !['ranked', 'casual', 'custom'].includes(m.queue as string) || !integer(m.at, 9_000_000_000_000)
       || typeof m.region !== 'string' || m.region.length > 32 || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000)
-      || !['ffa', 'teams', 'shuffle'].includes(m.teamMode as string) || !['rounds', 'deathmatch'].includes(m.gameMode as string)
+      || !['ffa', 'teams', 'shuffle'].includes(m.teamMode as string) || !['rounds', 'deathmatch', 'hill'].includes(m.gameMode as string)
       || (personal && (!integer(m.self, 9) || !['win', 'loss', 'forfeit'].includes(m.outcome as string)
         || ![m.delta, m.rating].every((n) => n === null || typeof n === 'number' && Number.isFinite(n))))
       || !Array.isArray(m.players) || m.players.length < 1 || m.players.length > 10) return false

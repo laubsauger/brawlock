@@ -1,4 +1,5 @@
 import type { PlayerSlot, SimState } from './types'
+import { respawnsInFight } from './hill'
 import { createPawn } from './spawn'
 
 /** Authoritative roster changes, shared by the host, input stream and replay playback. */
@@ -9,7 +10,7 @@ export function applyRosterChanges(state: SimState, changes: readonly PlayerSlot
       state.slots[index] = { ...slot }
       continue
     }
-    if (state.settings.rankedRounds || state.phase === 'gameOver' || (state.phase === 'fight' && state.settings.gameMode !== 'deathmatch')) {
+    if (state.settings.rankedRounds || state.phase === 'gameOver' || (state.phase === 'fight' && !respawnsInFight(state.settings))) {
       throw new Error('New players must enter between casual rounds')
     }
     state.slots.push({ ...slot })
@@ -19,8 +20,8 @@ export function applyRosterChanges(state: SimState, changes: readonly PlayerSlot
       score: 0, kills: 0, deaths: 0, damageThisRound: 0, spent: 0,
       masteries: { duration: 0, range: 0, lifesteal: 0 }, connected: true })
     const pawn = createPawn(state, slot.id)
-    // Shop/round setup respawns an entrant. Deathmatch has no subsequent shop phase.
-    if (state.settings.gameMode === 'deathmatch') pawn.respawnTicks = 1
+    // Shop/round setup respawns an entrant. Respawn modes have no subsequent shop phase.
+    if (respawnsInFight(state.settings)) pawn.respawnTicks = 1
     state.pawns.push(pawn)
     if (state.settings.teamMode === 'ffa') state.slots[state.slots.length - 1].team = slot.id
   }

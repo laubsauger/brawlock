@@ -490,8 +490,8 @@ export class ServerMatchTracker implements MatchRecorder {
     // Once every human has left, bots playing on (a reconnect window) add no played time.
     const nobody = this.seats.size > 0 && [...this.seats.keys()].every((p) => this.botted.has(p))
     const ticks = nobody ? Math.min(result.ticks ?? 0, this.lastHumanTick) : (result.ticks ?? 0)
-    // deathmatch (no rounds): the whole match is one ranking by score
-    if (!abandoned && this.settings.gameMode === 'deathmatch' && this.ranked.length === 0 && result.scores.length > 0) {
+    // deathmatch and respawn-style hill (no rounds): the whole match is one ranking by score
+    if (!abandoned && (this.settings.gameMode === 'deathmatch' || this.settings.gameMode === 'hill') && this.ranked.length === 0 && result.scores.length > 0) {
       const score = new Map(result.scores.map((x) => [x.id, x.score]))
       const players = [...this.seats.keys()].filter((p) => !this.botted.has(p) && score.has(p))
       const levels = [...new Set(players.map((p) => score.get(p)!))].sort((a, b) => b - a)

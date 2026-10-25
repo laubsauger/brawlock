@@ -32,7 +32,8 @@ export function roundLabel(state: SimState): string {
 
 export function roundGoal(state: SimState): string {
   if (state.rankedFinal) return 'Match decider'
-  return state.settings.rankedRounds ? `${state.settings.rankedRounds} scheduled rounds` : `first to ${state.settings.winScore}`
+  if (state.settings.rankedRounds) return `${state.settings.rankedRounds} scheduled rounds`
+  return state.settings.gameMode === 'hill' ? `first to ${state.settings.winScore} tickets` : `first to ${state.settings.winScore}`
 }
 
 /** The final field is authoritative, including during its preceding shop. */

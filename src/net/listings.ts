@@ -62,7 +62,7 @@ export type ListingResult<T = object> = ({ ok: true } & T) | { ok: false; status
 
 const PHASES: readonly ListingPhase[] = ['lobby', 'match', 'results']
 const TEAM_MODES: readonly TeamMode[] = ['ffa', 'teams', 'shuffle']
-const GAME_MODES: readonly GameMode[] = ['rounds', 'deathmatch']
+const GAME_MODES: readonly GameMode[] = ['rounds', 'deathmatch', 'hill']
 
 const int = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi ? v : null)
 
@@ -84,7 +84,8 @@ export function parseListing(v: unknown, maxSeats: number, partial = false): Par
     ['humans', 0, maxSeats],
     ['bots', 0, maxSeats],
     ['max', 2, maxSeats],
-    ['winScore', 1, 99],
+    // hill tickets run to 999; round wins and kills stay far below
+    ['winScore', 1, 999],
   ] as const) {
     if (!need(k)) continue
     const n = int(o[k], lo, hi)

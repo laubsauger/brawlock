@@ -19,15 +19,25 @@
  * victim respawns 10 s later (pawn.respawnTicks) with 2 s invulnerability. v1 fix: a death
  * nobody caused (lava without a last hitter) scores for nobody. Round gold every round end; the
  * win check (first to winScore) runs at round ends only, like the original.
+ *
+ * King of the Hill (not in the original): sim/hill.ts. Rounds style runs the rounds flow above
+ * with the hill ticking in every fight; respawn style is one fight after one shop. Either ends
+ * the moment a ticket reaches winScore.
  */
 import { clampLayer } from './arena'
 import { BET_TWO_STARTER_SECONDS, settleSpectateBets } from './bets'
+import { hillStartLayer, hillTick, newHill, respawnsInFight } from './hill'
 import {
   ARENA_BASE_LAYER,
   ARENA_LAYER_PER_PLAYER,
   ARENA_SHOP_LAYER,
   DM_RESPAWN_SECONDS,
   DM_ROUND_SECONDS,
+  HILL_ARENA_MARGIN,
+  HILL_ARENA_SHRINK_PERIOD,
+  HILL_RESPAWN_SECONDS,
+  HILL_ROUND_WIN_TICKETS,
+  HILL_TIME_LIMIT_SECONDS,
   OBSTACLE_COUNT_MAX,
   OBSTACLE_COUNT_MIN,
   OBSTACLE_HP,
@@ -58,9 +68,24 @@ function isDeathmatch(state: SimState): boolean {
   return state.settings.gameMode === 'deathmatch'
 }
 
+function isHill(state: SimState): boolean {
+  return state.settings.gameMode === 'hill'
+}
+
+/** King of the Hill, respawn style: one long fight. */
+function hillFight(state: SimState): boolean {
+  return isHill(state) && respawnsInFight(state.settings)
+}
+
 function shrinkPeriod(state: SimState): number {
+  if (hillFight(state)) return HILL_ARENA_SHRINK_PERIOD
   return state.rankedFinal ? RANKED_FINAL_SHRINK_PERIOD :
     state.settings.rankedRounds ? RANKED_SHRINK_PERIOD : SHRINK_PERIOD
+}
+
+/** The arena sinks no further than this (respawn-style hill keeps ground around the hill). */
+function arenaFloor(state: SimState): number {
+  return hillFight(state) ? hillStartLayer(state.settings) + HILL_ARENA_MARGIN : 1
 }
 
 function finalLayer(state: SimState): number {
@@ -142,7 +167,8 @@ export function startRound(state: SimState): void {
     emitPhase(state)
     return
   }
-  state.phaseTicksLeft = -1
+  // respawn-style hill: one fight against the clock (rounds style keeps phaseTicksLeft -1)
+  state.phaseTicksLeft = hillFight(state) ? ticks(HILL_TIME_LIMIT_SECONDS) : -1
   state.projectiles = []
   state.obstacles = state.obstacles.filter((o) => o.ticksLeft === undefined) // temp actors (Rockpillar)
   for (const sc of state.scores) sc.damageThisRound = 0
@@ -159,6 +185,7 @@ export function startRound(state: SimState): void {
     removeTemporaryModifiers(state, pawn)
     spawnInvulnerable(state, pawn)
   }
+  if (isHill(state)) state.hill = newHill(state)
   emitPhase(state)
   // Nobody needs to die to trigger resolution when finalists left during the preparation shop.
   if (state.settings.rankedRounds) {
@@ -177,6 +204,10 @@ export function aliveTeams(state: SimState): number[] {
 /** ModeLTS:onKill / ModeDeathmatch:onKill. Called by killPawn after the death is recorded. */
 export function onKill(state: SimState, victim: PawnState, killer: PlayerId | null): void {
   if (!isCombat(state)) return
+  if (hillFight(state)) {
+    victim.respawnTicks = ticks(HILL_RESPAWN_SECONDS)
+    return
+  }
   if (isDeathmatch(state)) {
     if (killer !== null) {
       const team = teamOf(state, killer)
@@ -207,7 +238,7 @@ export function roundWon(state: SimState, team: number | null): void {
     settleSpectateBets(state, players)
     for (const id of players) {
       const sc = scoreOf(state, id)!
-      if (!state.rankedFinal) sc.score += 1
+      if (!state.rankedFinal) sc.score += isHill(state) ? HILL_ROUND_WIN_TICKETS : 1
       sc.gold += state.settings.winGold
     }
     state.events.push({ type: 'roundWin', team, players })
@@ -236,16 +267,29 @@ export function gameWinners(state: SimState): PlayerId[] | null {
   return winners
 }
 
+function finishMatch(state: SimState, winners: PlayerId[]): void {
+  state.phase = 'gameOver'
+  state.phaseTicksLeft = -1
+  state.arena.nextShrinkTick = -1
+  if (state.hill) state.hill.nextShrinkTick = -1
+  emitPhase(state)
+  state.events.push({ type: 'gameOver', winners })
+}
+
+/** Respawn-style hill at its time limit: the ticket leaders, if they are one team with a ticket. */
+function hillLeaders(state: SimState): PlayerId[] | null {
+  const top = Math.max(0, ...state.scores.filter((sc) => isActive(state, sc.id)).map((sc) => sc.score))
+  if (top <= 0) return null
+  const leaders = state.scores.filter((sc) => sc.score === top && isActive(state, sc.id)).map((sc) => sc.id)
+  return new Set(leaders.map((id) => teamOf(state, id))).size === 1 ? leaders : null
+}
+
 /** Mode:onRoundEnd. */
 export function endRound(state: SimState): void {
   for (const sc of state.scores) sc.gold += state.settings.roundGold
   const winners = gameWinners(state)
   if (winners) {
-    state.phase = 'gameOver'
-    state.phaseTicksLeft = -1
-    state.arena.nextShrinkTick = -1
-    emitPhase(state)
-    state.events.push({ type: 'gameOver', winners })
+    finishMatch(state, winners)
     return
   }
   if (state.settings.rankedRounds && !state.rankedFinal && state.round >= state.settings.rankedRounds) {
@@ -256,7 +300,7 @@ export function endRound(state: SimState): void {
   else prepareForRound(state)
 }
 
-/** Deathmatch respawn timers (10 s after death, 2 s invulnerability). */
+/** Deathmatch / respawn-style hill timers (10 s / 5 s after death, 2 s invulnerability). */
 function respawnTick(state: SimState): void {
   for (const pawn of state.pawns) {
     if (pawn.alive || !pawn.respawnTicks) continue
@@ -273,11 +317,25 @@ function respawnTick(state: SimState): void {
 export function phaseTick(state: SimState): void {
   const a = state.arena
   if (a.nextShrinkTick >= 0 && state.tick >= a.nextShrinkTick) {
-    if (a.layer > 1) {
+    if (a.layer > arenaFloor(state)) {
       a.layer -= 1
       state.events.push({ type: 'arenaShrink', layer: a.layer })
     }
     a.nextShrinkTick += ticks(shrinkPeriod(state))
+  }
+  if (isHill(state) && state.phase === 'fight') {
+    const fight = hillFight(state)
+    if (fight) respawnTick(state)
+    if (hillTick(state)) {
+      const winners = gameWinners(state)
+      if (winners) return finishMatch(state, winners)
+    }
+    if (fight) {
+      if (state.phaseTicksLeft > 0) state.phaseTicksLeft -= 1
+      const leaders = state.phaseTicksLeft <= 0 ? hillLeaders(state) : null
+      if (leaders) finishMatch(state, leaders)
+    }
+    return
   }
   if (isDeathmatch(state) && state.phase === 'fight') {
     respawnTick(state)

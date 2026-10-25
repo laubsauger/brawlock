@@ -48,6 +48,9 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   streak: { type: 'streak', pawn: 1, spell: 'recharge', value: 3 },
   castCancel: { type: 'castCancel', pawn: 2, spell: 'fireball', slot: 6, started: true },
   respawn: { type: 'respawn', pawn: 2, owner: 1, x: 900, y: 0 },
+  hill: { type: 'hill', team: 0, contested: false, prev: null },
+  hillTicket: { type: 'hillTicket', team: 0, players: [0] },
+  hillShrink: { type: 'hillShrink', layer: 5 },
   purchase: { type: 'purchase', player: 0, pawn: 1, kind: 'spell', id: 'teleport', level: 1 },
   freshStart: { type: 'freshStart', player: 0, pawn: 1, refund: 40 },
 }
