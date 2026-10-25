@@ -79,6 +79,7 @@ vi.mock('../net/online', async (original) => {
 
 import { useGame } from './store'
 import { online, rejoin, session } from './session'
+import { LEFT_REJOIN_MS } from '../net/rejoin'
 import { DEFAULT_SETTINGS } from '../sim/config'
 import { createMatch } from '../sim'
 import { TICK_HZ } from '../sim/types'
@@ -476,7 +477,10 @@ describe('browser session listing and reconnect wiring', () => {
     expect(f.peerJoin).toHaveBeenCalledTimes(2)
     expect(f.serverJoin).not.toHaveBeenCalled()
     expect(rejoin.get()).toBeNull()
+    // Leave offers the game back for a while (a misclick), then forgets it
     session.leave()
+    expect(rejoin.get()).toMatchObject({ code: 'ABCDE', kind: 'p2p' })
+    await vi.advanceTimersByTimeAsync(LEFT_REJOIN_MS)
     useGame.getState().setLobby({ status: 'error', error: 'Later error' })
     expect(rejoin.get()).toBeNull()
   })
@@ -500,6 +504,8 @@ describe('browser session listing and reconnect wiring', () => {
     expect(f.peerJoin).not.toHaveBeenCalled()
     session.leave()
     expect([...f.storage.values()].every((raw) => raw === '')).toBe(true)
+    expect(rejoin.get()).toMatchObject({ code: 'ABCDE', kind: 'server' })
+    await vi.advanceTimersByTimeAsync(LEFT_REJOIN_MS)
     expect(rejoin.get()).toBeNull()
   })
 

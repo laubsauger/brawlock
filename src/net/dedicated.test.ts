@@ -826,7 +826,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 30_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 60_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 

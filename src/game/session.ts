@@ -630,7 +630,9 @@ export const session: GameSession = {
     stopPractice()
     opening = null
     nextJoinRoute = null
-    rejoin.dismiss()
+    // a casual game stays rejoinable from the menu for a while; leaving ranked is final
+    if (useGame.getState().lobby.ranked) rejoin.dismiss()
+    else rejoin.left()
     impl.leave()
     void playControl.release().catch(() => {})
   },

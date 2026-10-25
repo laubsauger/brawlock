@@ -23,19 +23,40 @@ Deployment is established by release receipts, not by implementation status here
      load from a machine other than the developer's home connection to tell the server's network path
      from the generator's uplink.
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
-4. **Bot sharpness (playtest feedback 2026-10-25).**
-   - Bots cancel many Scourge casts against players the blast would have hit. Step 6 of the bot
-     decision in `src/bots/controller.ts` drops the channel whenever the dodge threshold trips
-     (`mustDodge`), even when the blast lands before the threat arrives; value presets also drop it
-     when predicted victims "walk out" (`gone`, velocity extrapolated over the remaining wind-up).
-     Keep the channel when the remaining wind-up is shorter than the threat's arrival or the blast kills.
+4. **Playtest 2026-10-25 evening: built, not yet tested or released.** Written during the playtest
+   without running anything; run the touched suites (`src/sim/hill.test.ts`, `src/bots`,
+   `src/ui/hud/HillStatus.test.ts`) and typecheck before a release.
+   - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s),
+     then one a second; the HUD says "taking the hill" meanwhile.
+   - King of the Hill: the hill stays two rings inside the arena (`hillLayerOn`): 13 arena tiles
+     left, the hill is the plus of 5; from 9 tiles down only the centre tile.
+   - King of the Hill: round-win tickets stop at the target and end the match at once.
+   - King of the Hill: hill gold tuned down: 1 at 5 s and 10 s, 2 at 15 s and 20 s, then 3 every 5 s.
+   - Bots: an enemy on the hill pulls their targeting (the holder most); an enemy running away
+     with the match (score lead or kills) and long grudges (damage taken, decaying over 20 s,
+     across rounds) count in every mode. Weights, not rules.
+     Check `src/bots/ffa.test.ts` ("rarely 4+ bots on one player"): the leader pull may mob the
+     top killer in bot-only lobbies; loosen the test or the weight with the user.
+   - Bots: a Scourge channel is dropped only for a bolt on course that lands before the blast, never
+     for a blast that kills. The dodge threshold alone used to cancel blasts that would have hit.
+   - Bots (Hard and up): an enemy Scourge with us inside is answered with a Lightning or Fireball that
+     lands first and pushes the caster clear, else they walk out as before.
+   - Bots: every build buys masteries by plan (range for distance builds, duration for roots and
+     pulls, lifesteal for close trades). King of the Hill redraws the build with `HILL_WEIGHTS`
+     (artillery and brawler more often).
+   - Leaving a casual or King of the Hill game keeps it rejoinable from the menu for 2 minutes, in
+     that tab only (`RejoinController.left`); leaving ranked stays final.
+5. **Bot follow-ups still open.**
    - Brutal bots in ranked react slowly at times, worst on a small late arena. This was seen at 60 Hz,
      before the 30 Hz default, so the tick rate is not the cause. Profile their decision cadence,
      reaction delay and threat lookahead on a small arena.
    - Hard bots kill rarely in every mode (about 3 deaths in 3 minutes of a bot-only rounds game).
-5. **King of the Hill bot builds.** Bots should lean toward area control and multi-target spells on the
-   hill (for example Scourge, Meteor, Rockpillar), as a weighted preference, not a fixed build.
-   In a bot-only free-for-all the hill is contested about 78% of the time, so tickets come slowly.
+   - Value presets still drop a Scourge when predicted victims "walk out" (`gone`); its model assumes
+     every enemy flees at once. Check it against real play once the cancels above are fixed.
+   - In a bot-only free-for-all the hill was contested about 78% of the time; measure again with the
+     new targeting and capture time.
+6. **King of the Hill, open questions for the user.**
+   - The "away" step that stops the countdown needs rework: details from the user.
 
 ## Completed in this planning pass
 

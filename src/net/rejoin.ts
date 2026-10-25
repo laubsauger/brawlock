@@ -19,6 +19,8 @@ interface RejoinDeps {
 }
 
 const STORAGE_KEY = 'brawlock.lastRoom.v1'
+/** After the player chose Leave, the room stays rejoinable this long (a misclick, a change of mind). */
+export const LEFT_REJOIN_MS = 120_000
 const ENDED = 'This game has ended or is no longer available.'
 
 /** Stored labels and routes are data, never reconnect credentials or server URLs. */
@@ -81,6 +83,19 @@ export class RejoinController {
       this.epoch++
       this.set(null)
     }
+  }
+
+  /**
+   * The player chose Leave: offer the room in the menu for LEFT_REJOIN_MS, then forget it. Kept
+   * in this tab only; a reload after leaving does not bring it back.
+   */
+  left(): void {
+    const t = this.target
+    if (!t || !this.sameIdentity(t)) { this.dismiss(); return }
+    this.restored = true
+    this.persist(null)
+    void this.refresh()
+    setTimeout(() => { if (this.target === t) this.dismiss() }, LEFT_REJOIN_MS)
   }
 
   disconnected(): void {
@@ -148,9 +163,9 @@ export class RejoinController {
     for (const cb of this.subs) cb()
   }
 
-  private persist(): void {
+  private persist(target = this.target): void {
     try {
-      this.deps.storage?.setItem(STORAGE_KEY, this.target ? JSON.stringify({ version: 1, target: this.target }) : '')
+      this.deps.storage?.setItem(STORAGE_KEY, target ? JSON.stringify({ version: 1, target }) : '')
     } catch {
       // Browser storage may be blocked; the accepted room remains in memory.
     }

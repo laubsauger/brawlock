@@ -93,16 +93,18 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   quickplaysPerMin: 20,
   boardReadsPerMin: 60,
   // Queue economy: a broader opening kit, then enough shared income for a purchase each round.
+  // Lobby: 30 s alone, 60 s once two humans are in (playtest 2026-10-25: 30 s felt rushed);
+  // everyone Ready cuts it short.
   // Casual games are short: first to 3 round wins (ranked plays its fixed rounds). The table
   // is Hard bots with one Brutal and one Medium for variety (ranked keeps all Brutal).
   quickplay: {
-    fillMs: 30_000, startMs: 30_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
+    fillMs: 30_000, startMs: 60_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   // King of the Hill (free for all, rounds style): first to 100 tickets, and more gold for a
-  // chaotic all-out game (every ticket also pays a coin to its holder)
+  // chaotic all-out game (standing on the hill pays gold too, sim/hill.ts)
   hill: {
-    fillMs: 30_000, startMs: 30_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
+    fillMs: 30_000, startMs: 60_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
     settings: { gameMode: 'hill', teamMode: 'ffa', winScore: 100, hillRespawn: false, startGold: 60, roundGold: 20, killGold: 3, winGold: 4 },
   },
   ranked: {

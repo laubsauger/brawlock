@@ -8,7 +8,7 @@
  * - results: a rematch follows after rematchMs while humans are connected
  * Quick-play rooms (`quick`, M4.3) are public and have no owner; the server runs them.
  * Up to `seats` humans (10); bots top the table up to `fill` players (10) when fewer:
- * - two or more humans: the match starts after startMs
+ * - two or more humans: the match starts after startMs, counted from the second human's arrival
  * - one human: the match starts after fillMs
  * - casual lobbies can wait for more humans; any human Ready releases the hold
  * - arrivals reserve bot seats during a match and start playing next round;
@@ -360,8 +360,11 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         return
       }
       if (n >= 2) {
+        // a second human replaces the solo countdown with the full startMs (more time for others to
+        // join; Ready cuts it short); later arrivals never lengthen it
         const at = now + quick.startMs
-        if (quickAt === null || quickFill || at < quickAt) setQuickTimer(quickAt !== null ? Math.min(quickAt, at) : at, false)
+        if (quickAt === null || quickFill) setQuickTimer(at, false)
+        else if (at < quickAt) setQuickTimer(at, false)
       } else if (quickAt === null) setQuickTimer(now + quick.fillMs, true)
       // everyone ready: no need to sit out the rest of the countdown
       const soon = now + READY_START_MS

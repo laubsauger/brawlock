@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { RejoinController, type RejoinIdentity, type RejoinTarget, type RoomRoute } from './rejoin'
+import { LEFT_REJOIN_MS, RejoinController, type RejoinIdentity, type RejoinTarget, type RoomRoute } from './rejoin'
 
 function storage() {
   const values = new Map<string, string>()
@@ -93,6 +93,24 @@ describe('explicit same-game rejoin', () => {
     expect(restored.get()).toBeNull()
     expect(t.exists).not.toHaveBeenCalled()
     expect(t.kv.getItem(key)).toBe('')
+  })
+
+  /** Why: Leave can be a misclick or a change of mind (playtest 2026-10-25); the menu offers the
+   * game back for a while, and only in this tab. */
+  it('keeps a left room rejoinable for a while, then forgets it, and not across a reload', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = setup()
+      t.rejoin.left()
+      await vi.waitFor(() => expect(t.rejoin.get()?.status).toBe('available'))
+      const reloaded = new RejoinController(t.deps)
+      reloaded.restore()
+      expect(reloaded.get()).toBeNull()
+      vi.advanceTimersByTime(LEFT_REJOIN_MS)
+      expect(t.rejoin.get()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('only discovers after disconnect and waits for an explicit click, preserving backend and identity', async () => {
