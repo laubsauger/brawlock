@@ -24,10 +24,14 @@ Deployment is established by release receipts, not by implementation status here
      from the generator's uplink.
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
 4. **Bot sharpness (playtest feedback 2026-10-25).**
-   - Bots cancel many Scourge casts against players the blast would have hit. Check the cancel test in
-     `src/bots/controller.ts` against the real blast radius and wind-up at 30 Hz.
-   - Brutal bots in ranked react slowly at times, worst on a small late arena. Profile their decision
-     cadence and threat lookahead at 30 Hz; the tick-rate change may have halved a per-tick budget.
+   - Bots cancel many Scourge casts against players the blast would have hit. Step 6 of the bot
+     decision in `src/bots/controller.ts` drops the channel whenever the dodge threshold trips
+     (`mustDodge`), even when the blast lands before the threat arrives; value presets also drop it
+     when predicted victims "walk out" (`gone`, velocity extrapolated over the remaining wind-up).
+     Keep the channel when the remaining wind-up is shorter than the threat's arrival or the blast kills.
+   - Brutal bots in ranked react slowly at times, worst on a small late arena. This was seen at 60 Hz,
+     before the 30 Hz default, so the tick rate is not the cause. Profile their decision cadence,
+     reaction delay and threat lookahead on a small arena.
    - Hard bots kill rarely in every mode (about 3 deaths in 3 minutes of a bot-only rounds game).
 5. **King of the Hill bot builds.** Bots should lean toward area control and multi-target spells on the
    hill (for example Scourge, Meteor, Rockpillar), as a weighted preference, not a fixed build.
@@ -147,7 +151,9 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.12**, source `b8d9bd4554fb`, on 2026-10-25:
+The latest rollout is **v0.1.0-alpha.13**, source `c2caf7e6f445`, on 2026-10-25:
+[gold for standing on the hill](../deploy/releases/2026-10-25-alpha13.md).
+**v0.1.0-alpha.12**, source `b8d9bd4554fb`, shipped
 [a calmer, smaller hill after the first playtest](../deploy/releases/2026-10-25-alpha12.md).
 **v0.1.0-alpha.11**, source `3f74bc89f56a`, shipped earlier that day:
 [King of the Hill and a simulation rate per game server](../deploy/releases/2026-10-25-alpha11.md).
