@@ -9,6 +9,20 @@ Deployment is established by release receipts, not by implementation status here
 1. **Battle and shop soundtrack.** Choose proper recorded combat and shop music. Synth music is
    disabled in both deliberately; the menu recording and combat SFX remain. Selection still needs a listening
    decision; it is not a reason to restore the synth or generate arbitrary tracks.
+2. **Several room processes per game host (shards).** The local branch `feat/shards` runs rooms in up to
+   two processes behind one front process, one per vCPU. Together with the 30 Hz build it held 64 clean
+   bot rooms on the 2-vCPU EU host instead of 32. To ship it: merge it into main, and move the services
+   that own shared state and databases into the front so room processes never write them directly.
+   Until then a production build refuses more than one process.
+3. **Known gaps accepted for the release after alpha.10 (fix later):**
+   - Peer-to-peer own-input prediction can wait 78–163 ms on a lossy raw channel at 150 ms RTT
+     (`src/net/session.predict.test.ts`, loss seeds 1 and 9). Sending the link report once a second
+     instead of four times made seed 9 hit it too.
+   - Full player rooms stall near 24 rooms per 2-vCPU EU host (input acknowledgement p95 over 300 ms)
+     while the host is still about half idle, and plain health checks slow down with them. Generate the
+     load from a machine other than the developer's home connection to tell the server's network path
+     from the generator's uplink.
+   - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
 
 ## Completed in this planning pass
 
