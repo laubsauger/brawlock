@@ -23,10 +23,13 @@ const buildDir = `${dir}/build`; mkdirSync(buildDir)
 for (const name of ['server.mjs', 'worker.mjs', 'bot-cost.mjs', 'manifest.json', ...(mode === 'bot-cost-rooms' ? ['server.mjs.map'] : [])]) copyFileSync(`artifacts/capacity/build/${name}`, `${buildDir}/${name}`)
 const token = randomBytes(32).toString('hex'), base = `${target.origin}/_capacity/${run}`
 // Coarse ramps: each stage is a clear step in load; the first one already loads the server.
-const stages = mode === 'ceiling-humans' ? [8, 16, 20, 24, 32].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 60 }))
+const ramp = mode === 'ceiling-humans' ? [8, 16, 20, 24, 32].map(rooms => ({ rooms, humans: 10, players: 10, seconds: 60 }))
   : mode === 'ceiling-bots' ? [16, 32, 40, 48].map(rooms => ({ rooms, humans: 1, players: 10, seconds: 60 }))
   : mode === 'bot-cost-rooms' ? [2, 5, 10].map(players => ({ rooms: 4, humans: 1, players, seconds: 60 }))
   : [1, 10].flatMap(humans => [1, 2, 4].map(rooms => ({ rooms, humans, players: 10, seconds: 60 })))
+// ROOMS=48,56,64,72: these room counts instead of the mode's ramp (60 s each, the mode's room kind)
+const rooms = (process.env.ROOMS ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0 && n <= 96)
+const stages = rooms.length && mode.startsWith('ceiling-') ? rooms.map((n) => ({ ...ramp[0], rooms: n })) : ramp
 writeFileSync(`${dir}/run.json`, JSON.stringify({ run, region, base, token, stages, streamEvery, shards, semiSpace, buildDir, findCeiling: mode.startsWith('ceiling-'), out: `${dir}/results` }), { mode: 0o600 })
 // Independent cleanup is installed before drain/routing, and works without the operator.
 writeFileSync(`${dir}/cleanup.cjs`, `const {execFileSync}=require('node:child_process'); const fs=require('node:fs');
