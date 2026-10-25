@@ -604,7 +604,9 @@ export class Arena {
     // this shader is at WebGPU's 16 inter-stage limit; two more broke the tile pipeline)
     const hl = this.uHill
     const cLen = length(floor(gp.div(TILE_SIZE).add(0.5)).mul(TILE_SIZE))
-    const onHillV = step(cLen, hl.x).mul(float(1).sub(isRemV))
+    // strictly inside, as in the sim (arena.ts isTileAt): with no hill (radius 0) the centre
+    // tile sits at distance 0 and must not count, or every non-hill game had a glowing middle
+    const onHillV = step(cLen, hl.x.sub(0.5)).mul(float(1).sub(isRemV))
     const hillDoomV = step(hl.w, cLen)
     // an inlaid band inside every hill tile's rim and slow rings of light
     // flowing out from the centre. Empty: dim gold; held: the holder's colour, brighter and
