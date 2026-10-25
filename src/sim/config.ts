@@ -91,6 +91,16 @@ export const OBSTACLE_RADII: readonly (readonly number[])[] = [
 ]
 /** Original: 2-8 random pillars in [-1000, 1000]^2, re-rolled every shop phase. */
 export const SPAWN_OBSTACLES = true
+/**
+ * King of the Hill (mode.ts): four pillars ring the starting hill instead, on its corners or on
+ * its tips, alternating round by round. Their surface stands HILL_RIM_GAP off the hill, less than
+ * a pawn radius, so a warlock knocked into one stops with its centre still on the hill. Plus
+ * HILL_EXTRA_PILLARS_MIN..MAX random pillars kept HILL_EXTRA_CLEAR off the hill.
+ */
+export const HILL_RIM_GAP = 20
+export const HILL_EXTRA_PILLARS_MIN = 1
+export const HILL_EXTRA_PILLARS_MAX = 3
+export const HILL_EXTRA_CLEAR = 150
 
 // --- rounds / shop -------------------------------------------------------------
 export const ROUND_END_SECONDS = 3
@@ -146,6 +156,11 @@ export const SPELL_MAX_LEVEL = 7
 export const MASTERY_MAX_LEVEL = 6
 export const MASTERY_COST = 5
 export const MASTERY_ALL_COST = 13
+/**
+ * Fresh start outside ranked (shop.ts): selling the whole build keeps this share of the gold paid
+ * on it. A seat just taken over from a bot gets all of it back.
+ */
+export const FRESH_START_PENALTY = 0.25
 /** cumulative gain per level: duration, range, lifesteal (Shop.MASTERY_GAIN) */
 export const MASTERY_GAIN = {
   duration: [0.1, 0.08, 0.07, 0.06, 0.05, 0.04],

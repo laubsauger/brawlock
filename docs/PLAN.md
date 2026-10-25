@@ -53,7 +53,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Hero choice effectively random, 7 Dota heroes | Lobby cosmetic picker: warlock archetypes with team-color trim |
 | Bot difficulty = think interval only, console command only | Full difficulty system, lobby UI (§7) |
 | Chat-line announcements | Proper UI announcements, killfeed, round banners |
-| No selling: a player who joins a running game takes over a bot's seat and is stuck with its build | Added 2026-10-21: outside ranked, **Fresh start** in the shop refunds every gold paid on that seat and resets it to the starting kit, only in the shop right after the takeover |
+| No selling: a player who joins a running game takes over a bot's seat and is stuck with its build | Added 2026-10-21: outside ranked, **Fresh start** in the shop resets the build to the starting kit. Since 2026-10-25 any seat may use it before the next fight (or while waiting to respawn in respawn modes) for 75% of the gold paid on the build; a seat just taken over from a bot gets all of it back in that shop |
 
 Original assets cannot ship: the source repo has no license and almost every asset is Valve-owned (see `assets.md`). We re-implement mechanics and constants only and make all art, audio and text new.
 
@@ -70,7 +70,7 @@ Original assets cannot ship: the source repo has no license and almost every ass
 | 5 | Defense | Shield, Rush, Alteration |
 | 6 | Knockbackless | Gravity, Grip, Warpzone, Magnetize, Rockpillar, Link |
 
-Buy cost 11–15, six upgrades to level 7 (5–13 each). No refunds, no swapping once bought (one exception: Fresh start after taking over a bot's seat, §2). No mana: the mana bar was the knockback-points meter.
+Buy cost 11–15, six upgrades to level 7 (5–13 each). No refunds, no swapping once bought (one exception: Fresh start sells the whole build outside ranked, §2). No mana: the mana bar was the knockback-points meter.
 
 Starting kit (free, item slots):
 
@@ -225,7 +225,7 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 - Warlock characters: rigged glTF, idle, run, cast (3 variants), knocked-back tumble, burn, death, victory. Robe and cape get faked cloth motion in a TSL vertex shader (sway and trail from velocity and acceleration, stronger toward the hem), driven by a small damped spring per pawn that also takes hit impulses, and constrained outside body and leg capsules so it never clips. M0's procedural placeholder already uses the same technique. Decision (2026-10-15): CC0 rigged base (KayKit / Quaternius), heavily customized: TSL materials, hood, robe and cape geometry with the cloth shader, team-color runes and hand casting. Staffs are a cosmetic slot (§11 risk 10). Cosmetic variants chosen in the lobby.
 - Tiles: generated in code (rounded-corner logic from the original), PBR materials from CC0 libraries (Poly Haven, ambientCG), three themes matching the original's three obstacle sets: ruined temple stone, volcanic rock, mossy overgrown.
 - Lighting: warm lava bounce from below, cool moonlit key light, soft shadows on High and up, height fog and haze over the lava.
-- Obstacles: destructible pillars (sim done: 400 HP, explosion r300, 2–8 random per round, re-rolled each shop phase) with per-theme art, crack stages and an explosion. Spawning switches on once the art exists.
+- Obstacles: destructible pillars (sim done: 400 HP, explosion r300, 2–8 random per round, re-rolled each shop phase; King of the Hill instead rings the hill with four, on its corners or its tips by round, plus 1–3 random ones off the hill) with per-theme art, crack stages and an explosion. Spawning switches on once the art exists.
 - Lava: TSL shader with flow noise, emissive bloom, heat distortion, ember particles.
 
 ### 5.4 VFX, camera, post

@@ -165,7 +165,7 @@ describe('shop timing (SHOP_RULE = shopPhaseOrDead)', () => {
   })
 })
 
-describe('Fresh start: a human who took over a bot seat may sell its build (PLAN §2 deviation)', () => {
+describe('Fresh start: selling the whole build outside ranked (PLAN §2 deviation)', () => {
   const fresh: InputCommand = { kind: 'freshStart' }
   /** A seat the host just handed from a bot to a human, with the bot's build already bought on it. */
   const takenOver = () => {
@@ -234,19 +234,34 @@ describe('Fresh start: a human who took over a bot seat may sell its build (PLAN
     expect(pawn(s, 0).slots[1]).toBe('teleport')
   })
 
-  test('refused for a seat that was never taken over, or taken over in an earlier round', () => {
+  test('any seat outside ranked may sell before the fight, keeping 75%: a respec costs something', () => {
     const own = takenOver()
     own.slots[0] = { ...own.slots[0], takeover: undefined }
+    const paid = own.scores[0].spent
     const gold = own.scores[0].gold
     buy(own, fresh)
-    expect(own.scores[0].gold).toBe(gold)
+    expect(own.scores[0].gold).toBe(gold + Math.floor(paid * 0.75))
+    expect(pawn(own, 0).slots).toEqual(kit().slots)
 
+    // a takeover from an earlier round is an ordinary seat by now
     const old = takenOver()
     old.round = 3
     old.slots[0] = { ...old.slots[0], takeover: 2 }
     buy(old, fresh)
-    expect(old.scores[0].gold).toBe(gold)
-    expect(pawn(old, 0).slots[1]).toBe('teleport')
+    expect(old.scores[0].gold).toBe(gold + Math.floor(paid * 0.75))
+  })
+
+  test('respawn modes: sellable while waiting to respawn, never while alive in the fight', () => {
+    const s = newMatch({ gameMode: 'hill', hillRespawn: true, startGold: 100 })
+    toCombat(s)
+    buy(s, { kind: 'buySpell', spell: 'teleport' })
+    expect(s.scores[0].spent).toBe(12)
+    const gold = s.scores[0].gold
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(gold)
+    pawn(s, 0).alive = false
+    buy(s, fresh)
+    expect(s.scores[0].gold).toBe(gold + 9)
   })
 
   test('nothing bought, nothing to refund: no event', () => {

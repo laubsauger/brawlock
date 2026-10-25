@@ -101,7 +101,7 @@ function useDirector() {
           onGameOver(e.winners, state)
           break
         case 'freshStart':
-          if (e.player === local) toast(`Build refunded: +${e.refund} gold`)
+          if (e.player === local) toast(`Build sold: +${e.refund} gold`)
           break
         default:
           break

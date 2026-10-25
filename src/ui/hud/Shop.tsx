@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
@@ -23,7 +24,7 @@ import { usePolled, useTick } from '../lib/ticker'
 import { canBuyNow } from '../lib/view'
 import { useMedia } from '../lib/media'
 import { abilityCardProps, hideAbilityCard } from './AbilityCard'
-import { Button, Kbd, KeyCaps } from '../widgets'
+import { Button, Kbd, KeyCaps, Modal } from '../widgets'
 import { CharacterBody } from './Overlays'
 import { roundLabel } from './TopBar'
 import { slotDragProps, slotDropProps } from '../lib/slotDnd'
@@ -245,6 +246,9 @@ function IconTile({
 export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
   const waitingForRound = useGame((s) => s.lobby.waitingForRound)
   const v = usePolled(readShop, (x) => JSON.stringify(x), 10)
+  const [confirmFresh, setConfirmFresh] = useState(false)
+  // the offer closes when the fight starts (or the warlock respawns)
+  useEffect(() => { if (v.refund <= 0) setConfirmFresh(false) }, [v.refund])
   const binds = useBinds()
   const characterOpen = useGame((s) => s.characterOpen)
   const toggle = useGame((s) => s.toggle)
@@ -386,11 +390,10 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
             {v.refund > 0 && !guidedSpell && (
               <Button
                 size="sm"
-                sound="buy"
-                title="You took over a bot's seat: sell its whole build and spend the gold your way. Available until the next round starts."
-                onClick={() => input.issue({ kind: 'freshStart' })}
+                title="Sell your whole build and spend the gold your way. Gold on hand plus gold spent."
+                onClick={() => setConfirmFresh(true)}
               >
-                {`Fresh start · refund ${v.refund} gold`}
+                {`Fresh start · worth ${v.gold + v.spent} gold`}
               </Button>
             )}
             {guidedSpell ? <span className="text-sm text-gold">Practice · no timer</span> : <ShopClock />}
@@ -460,6 +463,23 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
           <p className="shop-hint px-5 pt-1 pb-2.5 text-[0.82rem] text-ash"><span className="font-semibold text-[#e6d3b8]">Choose 1 spell from each column.</span> Click your choice again to upgrade.</p>
         </div>
       </section>
+      {confirmFresh && createPortal(
+        <Modal title="Fresh start?" onClose={() => setConfirmFresh(false)} width="max-w-md" help={false} footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" sound="back" onClick={() => setConfirmFresh(false)}>Keep build</Button>
+            <Button variant="primary" sound="buy" onClick={() => { input.issue({ kind: 'freshStart' }); setConfirmFresh(false) }}>{`Sell · +${v.refund} gold`}</Button>
+          </div>
+        }>
+          <p className="text-bone">Sells every spell, item and mastery. You keep Fireball and Scourge at level 1.</p>
+          <p className="mt-2 text-ash">
+            {v.refund >= v.spent
+              ? `All ${v.spent} gold spent comes back (you took this seat over from a bot).`
+              : `${v.refund} of ${v.spent} gold spent comes back (${v.spent - v.refund} lost).`}
+            {` Gold after: ${v.gold + v.refund}.`}
+          </p>
+        </Modal>,
+        document.body,
+      )}
     </>
   )
 }

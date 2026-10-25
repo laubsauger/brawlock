@@ -43,7 +43,17 @@ Deployment is established by release receipts, not by implementation status here
      (artillery and brawler more often).
    - Leaving a casual or King of the Hill game keeps it rejoinable from the menu for 2 minutes, in
      that tab only (`RejoinController.left`); leaving ranked stays final.
-5. **Bot follow-ups still open.**
+5. **Unreleased after alpha.14.**
+   - King of the Hill capture time 1.75 s (`HILL_CAPTURE_SECONDS`).
+   - Scoreboard: a Worth column (gold on hand plus gold spent in the shop).
+   - King of the Hill pillars: four ring the starting hill, on its corners in even rounds and on
+     its tips in odd ones (respawn style: corners), plus 1 to 3 random ones off the hill. A pawn
+     knocked into a rim pillar stops with its centre still on the hill. They stay put while the hill
+     shrinks; in a long respawn fight they end up a ring or two outside it.
+   - Fresh start for every seat outside ranked: sell the whole build for 75% of the gold paid on it,
+     before the next fight or while waiting to respawn in respawn modes; a confirm dialog shows the
+     refund. A seat just taken over from a bot still gets all of it back.
+6. **Bot follow-ups still open.**
    - Brutal bots in ranked react slowly at times, worst on a small late arena. This was seen at 60 Hz,
      before the 30 Hz default, so the tick rate is not the cause. Profile their decision cadence,
      reaction delay and threat lookahead on a small arena.
@@ -52,7 +62,7 @@ Deployment is established by release receipts, not by implementation status here
      every enemy flees at once. Check it against real play once the cancels above are fixed.
    - In a bot-only free-for-all the hill was contested about 78% of the time; measure again with the
      new targeting and capture time.
-6. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
+7. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
    filterable by region. Needs a shared relay (the account authority or the global game authority),
    rate limits, mute/block, report, and the same name rules as in-match chat.
 

@@ -17,7 +17,9 @@ export interface ShopView {
   masteries: Record<MasteryId, number>
   phase: string
   open: boolean
-  /** gold a Fresh start would refund now (seat taken over from a bot this round), 0 = not offered */
+  /** gold paid on the build so far (Fresh start sells it back) */
+  spent: number
+  /** gold a Fresh start would refund now, 0 = not offered */
   refund: number
 }
 
@@ -44,6 +46,7 @@ export function readShop(): ShopView {
     masteries: { duration: 0, range: 0, lifesteal: 0, ...v?.score?.masteries },
     phase: v?.state.phase ?? '',
     open: v ? canBuyNow(v.state) : false,
+    spent: Math.floor(v?.score?.spent ?? 0),
     refund: v ? freshStartRefund(v.state, frame.localPlayer) : 0,
   }
 }
