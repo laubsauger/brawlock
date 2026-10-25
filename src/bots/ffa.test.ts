@@ -57,6 +57,47 @@ describe('bots: FFA targeting', () => {
     return bot.targetPlayer
   }
 
+  /** Run a hard+ bot at (0, 0)... for half a second and return whom it targets. */
+  function targetIn(state: SimState, d: BotDifficulty, seed: number) {
+    const bot = new BotController(0, d, seed)
+    for (let t = 0; t < ticks(0.5); t++) {
+      state.tick = t
+      bot.think(state)
+    }
+    return bot.targetPlayer
+  }
+
+  /**
+   * Why: in King of the Hill the player holding the hill is the objective. Playtest 2026-10-25:
+   * bots fought each other off the hill while one player held it and earned tickets unchallenged.
+   */
+  it('King of the Hill: goes after the holder on the hill over a closer enemy off it', () => {
+    for (const d of ['hard', 'brutal', 'uber'] as const) {
+      for (let seed = 1; seed <= 6; seed++) {
+        const state = makeState([makePawn(0, 0, 900), makePawn(1, 0, 0), makePawn(2, -300, 1000)], {
+          hill: { layer: 5, nextShrinkTick: -1, team: 1, contested: false, heldTicks: 0, nextIncomeTick: -1, stays: [] },
+        })
+        state.settings = { ...state.settings, gameMode: 'hill', winScore: 100 }
+        expect(targetIn(state, d, seed), `${d} seed ${seed}`).toBe(1)
+      }
+    }
+  })
+
+  /**
+   * Why: a player running away with the match is everyone's problem. Playtest 2026-10-25: bots
+   * brawled each other while one player won round after round.
+   */
+  it('goes after the runaway leader over a somewhat closer enemy', () => {
+    for (const d of ['hard', 'brutal', 'uber'] as const) {
+      for (let seed = 1; seed <= 6; seed++) {
+        const state = makeState([makePawn(0, 0, 0), makePawn(1, 700, 0), makePawn(2, -380, 100), makePawn(3, 0, -1300)])
+        state.scores[1].score = 2
+        state.scores[1].kills = 4
+        expect(targetIn(state, d, seed), `${d} seed ${seed}`).toBe(1)
+      }
+    }
+  })
+
   it('goes after whoever just hit it rather than a weak player across the map', () => {
     for (const d of ['hard', 'brutal', 'uber'] as const) {
       for (let seed = 1; seed <= 6; seed++) {

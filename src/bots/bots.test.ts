@@ -10,7 +10,7 @@ import { BOT_SPELLS, ESCAPE_SPELLS, escapeRange } from './spells'
 import { BUILD_IDS, drawBuild } from './plan'
 import { Rng } from './prng'
 import { firstBlocking, routeAround } from './pillars'
-import { DEFAULT_SETTINGS, RELEASED_SPELLS, SPELLS, createMatch, step, ticks } from '../sim'
+import { DEFAULT_SETTINGS, MASTERY_MAX_LEVEL, RELEASED_SPELLS, SPELLS, createMatch, step, ticks } from '../sim'
 import type { PlayerSlot } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
@@ -354,14 +354,56 @@ describe('bots: scourge and shop', () => {
     expect(scourged).toBe(true)
   })
 
-  it('cancels a Scourge windup to dodge a fireball', () => {
+  it('cancels a Scourge windup to dodge a fireball that lands before the blast', () => {
     const me = makePawn(BOT, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(2 / 3), x: 0, y: 0 } })
     const state = makeState([me, makePawn(ENEMY, 150, 0)])
-    state.projectiles.push(makeFireball(ENEMY, 0, 800, 0, -1000))
+    state.projectiles.push(makeFireball(ENEMY, 0, 400, 0, -1000))
     const bot = createBot(BOT, 'hard', 2) as BotController
     state.tick = 0
     bot.think(state)
     expect(bot.lastAction).toBe('cancelScourge')
+  })
+
+  /**
+   * Why: the dodge threshold trips for any bolt passing within a few hundred units, and bots
+   * threw away blasts that would have hit (playtest 2026-10-25). A blast that goes off first,
+   * or a bolt that passes wide, is no reason to let go.
+   */
+  it('keeps the Scourge windup when the blast goes off before the fireball arrives, or it passes wide', () => {
+    for (const [x, y, vx, vy] of [[0, 1200, 0, -1000], [300, 900, 0, -1000]]) {
+      const me = makePawn(BOT, 0, 0, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(1 / 3), x: 0, y: 0 } })
+      const state = makeState([me, makePawn(ENEMY, 150, 0)])
+      state.projectiles.push(makeFireball(ENEMY, x, y, vx, vy))
+      const bot = createBot(BOT, 'hard', 2) as BotController
+      state.tick = 0
+      bot.think(state)
+      expect(bot.lastAction).toBe('channel')
+    }
+  })
+
+  /**
+   * Why: hits do not interrupt a Scourge wind-up, but they move the caster and the blast with it.
+   * Walking out is not the only answer (playtest 2026-10-25): a shot that lands first and pushes
+   * the caster clear is a better one, and it costs the caster the blast.
+   */
+  it('knocks a Scourge caster away with a Fireball that lands first, instead of walking out', () => {
+    const scourge = { slot: 7, spell: 'scourge' as const, ticksLeft: ticks(0.85), started: true, x: 150, y: 0 }
+    const state = makeState([makePawn(BOT, 0, 0), makePawn(ENEMY, 150, 0, { cast: scourge, kbPoints: 1500 })])
+    const bot = createBot(BOT, 'hard', 2) as BotController
+    state.tick = 0
+    bot.think(state)
+    expect(bot.lastAction).toBe('counter')
+  })
+
+  it('walks out of the Scourge when its Fireball is on cooldown', () => {
+    const scourge = { slot: 7, spell: 'scourge' as const, ticksLeft: ticks(0.85), started: true, x: 150, y: 0 }
+    const me = makePawn(BOT, 0, 0)
+    me.cooldowns[6] = ticks(5)
+    const state = makeState([me, makePawn(ENEMY, 150, 0, { cast: scourge, kbPoints: 1500 })])
+    const bot = createBot(BOT, 'hard', 2) as BotController
+    state.tick = 0
+    bot.think(state)
+    expect(bot.lastAction).toBe('flee')
   })
 
   it('buys a spell in the shop phase when it can afford one, and not during a fight', () => {
@@ -892,6 +934,11 @@ describe('bots: seeded shop builds', () => {
         const columns = new Map<number, string>()
         const items = new Set<string>()
         for (const step of build.steps) {
+          if (step.kind === 'mastery') {
+            expect(['duration', 'range', 'lifesteal'], `${id}: ${step.id}`).toContain(step.id)
+            expect(step.level, `${id}: ${step.id}`).toBeLessThanOrEqual(MASTERY_MAX_LEVEL)
+            continue
+          }
           expect(RELEASED_SPELLS.has(step.id), `${id}: ${step.id}`).toBe(true)
           const def = SPELLS[step.id]
           if (step.kind === 'spell') {
@@ -906,6 +953,12 @@ describe('bots: seeded shop builds', () => {
         expect(items.size, id).toBeLessThanOrEqual(6)
       }
     }
+  })
+
+  /** Why: masteries are part of a plan (range for poke, lifesteal for trades), and bots used to
+   * never buy one (playtest 2026-10-25). Every build buys at least one. */
+  it('every build buys masteries', () => {
+    for (const id of BUILD_IDS) expect(drawBuild(new Rng(1), id).steps.some((st) => st.kind === 'mastery'), id).toBe(true)
   })
 
   // every build has a save from the first round: an escape spell and a column spell to fight with

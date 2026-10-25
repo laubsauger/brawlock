@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { attr, canBuy, cooldownSeconds, hillLayerNow, isEnemy, onHill, spellDef, ticks } from '../sim'
+import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, isEnemy, onHill, spellDef, ticks } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -45,7 +45,7 @@ import { insideAny, threatZones, type ThreatZone } from './threats'
 import { firstBlocking, inPillar, routeAround, shieldedFrom } from './pillars'
 import { BOT_PRESETS, type BotParams } from './presets'
 import { afterHit, lavaOutcome, leadWithFriction, physVelocity, positionAfter, projectileHit } from './predict'
-import { drawBuild, planStep, type Build } from './plan'
+import { HILL_WEIGHTS, drawBuild, planStep, type Build } from './plan'
 import { botSeed, Rng } from './prng'
 import {
   BOT_SPELLS,
@@ -123,6 +123,26 @@ const CROWD_FALLOFF = 350
 const SURE_SCOURGE = 1
 /** punish: estimated hit chance of a shot the target can hardly avoid */
 const PUNISH_HIT = 0.75
+/**
+ * King of the Hill target pull (times hillDrive): an enemy on the hill is the objective, the lone
+ * holder (earning tickets) most of all. Playtest 2026-10-25: bots fought each other away from the
+ * hill while a player held it unchallenged.
+ */
+const HILL_HOLDER_PULL = 1.6
+const HILL_STANDER_PULL = 0.6
+/**
+ * The biggest threat and old scores (playtest 2026-10-25: bots brawled each other while one player
+ * ran away with the match). MENACE_WEIGHT: an enemy far ahead on score or kills is worth chasing
+ * (most in King of the Hill, where a lead is tickets). Grudges: damage an enemy did to us (a kill
+ * counts GRUDGE_KILL hits of 100) decays over GRUDGE_SECONDS, across rounds; past the first hit
+ * it keeps a bot going after whoever keeps hurting it (one stray hit only gets the short
+ * retaliation). Weights, not rules: distance and the chance of a kill still count.
+ */
+const MENACE_WEIGHT = 1
+const HILL_MENACE_WEIGHT = 1.4
+const GRUDGE_WEIGHT = 0.6
+const GRUDGE_SECONDS = 30
+const GRUDGE_KILL = 3
 
 export type BotAction =
   | 'idle'
@@ -130,6 +150,7 @@ export type BotAction =
   | 'escape'
   | 'channel'
   | 'cancelScourge'
+  | 'counter'
   | 'dodge'
   | 'scourge'
   | 'shoot'
@@ -232,10 +253,16 @@ export class BotController implements Bot {
    * HP), and attachment to the current fight.
    */
   private readonly persona: { grudge: number; opportunism: number; risk: number; focus: number }
-  /** shop build of a planning bot (drawn after the persona, from the same stream) */
-  readonly build: Build | null
+  /** shop build of a planning bot (drawn after the persona, from the same stream; redrawn with
+   * HILL_WEIGHTS once in King of the Hill, before the first purchase) */
+  build: Build | null
+  /** seed for the King of the Hill redraw, and whether it has been considered */
+  private readonly buildSeed: number
+  private buildChecked = false
   /** Recent observed damage, independent of the sim's permanent kill-credit lastHitter. */
   private recentHit: { owner: PlayerId; tick: number } | null = null
+  /** long grudges: decayed damage taken per enemy (in hits of 100), as of `tick` */
+  private readonly grudges = new Map<PlayerId, { weight: number; tick: number }>()
 
   constructor(player: PlayerId, difficulty: BotDifficulty, seed: number, params: BotParams = BOT_PRESETS[difficulty]) {
     this.player = player
@@ -248,6 +275,7 @@ export class BotController implements Bot {
     const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
     this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
     this.build = params.buildPlan === 'random' ? null : drawBuild(traits, params.buildPlan === 'plan' ? undefined : params.buildPlan)
+    this.buildSeed = botSeed(seed ^ 0x41d1, player)
   }
 
   think(state: SimState): InputCommand[] {
@@ -258,6 +286,9 @@ export class BotController implements Bot {
       for (const event of state.events) {
         if (event.type === 'damage' && event.target === me?.id && event.source !== null && areEnemies(state, this.player, event.source)) {
           this.recentHit = { owner: event.source, tick: state.tick }
+          this.addGrudge(event.source, event.amount / 100, state.tick)
+        } else if (event.type === 'death' && event.owner === this.player && event.killer !== null && areEnemies(state, this.player, event.killer)) {
+          this.addGrudge(event.killer, GRUDGE_KILL, state.tick)
         }
       }
     }
@@ -324,6 +355,33 @@ export class BotController implements Bot {
     this.shieldCast.clear()
     this.lastMoved.clear()
     this.recentHit = null
+    this.grudges.clear()
+  }
+
+  private addGrudge(owner: PlayerId, weight: number, tick: number): void {
+    this.grudges.set(owner, { weight: this.grudgeOn(owner, tick) + weight, tick })
+  }
+
+  /** Long grudge against `owner` now (hits of 100, decayed). */
+  private grudgeOn(owner: PlayerId, tick: number): number {
+    const g = this.grudges.get(owner)
+    return g ? g.weight * exp(-(tick - g.tick) / (GRUDGE_SECONDS * TICK_HZ)) : 0
+  }
+
+  /** How far `e` is running away with the match, 0..1: score lead toward the target, or kills. */
+  private menace(state: SimState, e: PawnState): number {
+    const scores = state.scores.filter((sc) => state.slots.some((sl) => sl.id === sc.id))
+    const theirs = scores.find((sc) => sc.id === e.owner)
+    if (!theirs || scores.length < 3) return 0
+    let score = 0
+    let kills = 0
+    for (const sc of scores) {
+      score += sc.score
+      kills += sc.kills
+    }
+    const lead = (theirs.score - score / scores.length) / Math.max(1, state.settings.winScore * 0.2)
+    const killing = (theirs.kills - kills / scores.length) / 3
+    return Math.max(0, Math.min(1, Math.max(lead, killing)))
   }
 
   private decide(state: SimState): InputCommand[] {
@@ -333,11 +391,17 @@ export class BotController implements Bot {
     const gold = state.scores.find((s) => s.id === this.player)?.gold ?? 0
 
     // 1. Buy: follow the build whenever the sim's shop rule lets this seat buy.
+    if (!this.buildChecked) {
+      this.buildChecked = true
+      if (this.params.buildPlan === 'plan' && state.settings.gameMode === 'hill' && !me?.slots.some((sl, i) => sl !== null && i < ITEM_SLOT_START)) {
+        this.build = drawBuild(new Rng(this.buildSeed), undefined, HILL_WEIGHTS)
+      }
+    }
     this.checkPendingBuy(tick, me, gold)
     const canShop = p.buys && !this.pendingBuy && tick >= this.nextBuyTick && canBuy(state, this.player)
     if (canShop && this.build) {
       // The next step of its seeded build, several per shop phase.
-      const step = planStep(this.build, me, gold, this.failedBuys)
+      const step = planStep(this.build, me, gold, this.failedBuys, state.scores.find((s) => s.id === this.player))
       if (step) {
         this.nextBuyTick = tick + ticks(0.3)
         this.pendingBuy = { spell: step.id, tick: tick + this.delayTicks, gold }
@@ -413,6 +477,8 @@ export class BotController implements Bot {
     // spot or a Gravity zone. Before the cast lock: leaving beats finishing our own windup.
     const zones = threatZones(state, this.player)
     if (zones.length > 0 && this.rng.chance(p.threatChance)) {
+      const counter = p.threatEscape ? this.counterScourge(state, me, zones) : null
+      if (counter) return this.act('counter', [counter])
       const flee = this.fleeThreats(state, me, zones, safety)
       if (flee) return this.act('flee', flee)
     }
@@ -455,14 +521,22 @@ export class BotController implements Bot {
     const danger = this.dangerHere(state, threats, self.x, self.y)
     const mustDodge = p.dodge && danger >= p.dodgeThreshold
 
-    // 6. Scourge channel: keep it unless in danger or the enemy walked away.
+    // 6. Scourge channel: keep it unless a bolt lands first or the enemy walked away.
     if (me.cast?.spell === 'scourge' || tick < this.scourgeEndTick) {
       // value-based presets let go of a blast whose victims walked out (no cooldown is spent)
-      const gone = p.scourgeMinValue > 0 && this.scourgeValue(state, me, enemies, true).value < p.scourgeMinValue * 0.5
-      if (mustDodge || gone || (closestDist > SCOURGE_RADIUS && this.rng.chance(SCOURGE_GIVE_UP_CHANCE))) {
+      const value = p.scourgeMinValue > 0 ? this.scourgeValue(state, me, enemies, true) : null
+      const gone = value !== null && value.value < p.scourgeMinValue * 0.5
+      // The dodge threshold trips for any bolt whose line passes within a few hundred units, up to
+      // 2000 away: that cancelled blasts that would have hit (playtest 2026-10-25). Let go only
+      // for a bolt on course that arrives before the blast, and never of a blast that kills.
+      const left = me.cast?.spell === 'scourge' ? me.cast.ticksLeft / TICK_HZ : SCOURGE_CHANNEL_SECONDS
+      const dodge = mustDodge && !(value && value.kills > 0) && this.soonestHit(threats, self) <= left
+      // the rest keep the original chance to give up on an enemy outside the radius
+      const giveUp = !value && closestDist > SCOURGE_RADIUS && this.rng.chance(SCOURGE_GIVE_UP_CHANCE)
+      if (dodge || gone || giveUp) {
         this.scourgeEndTick = 0
         const cmds: InputCommand[] = [{ kind: 'stop' }]
-        if (mustDodge) cmds.push(this.dodgeMove(state, self, threats, danger))
+        if (dodge) cmds.push(this.dodgeMove(state, self, threats, danger))
         return this.act('cancelScourge', cmds)
       }
       return this.act('channel', [])
@@ -714,6 +788,37 @@ export class BotController implements Bot {
   }
 
   /**
+   * An enemy charging Scourge with us inside: knock the caster away instead of walking out, when
+   * a ready Lightning or Fireball lands before the blast and the push carries the caster far
+   * enough. Hits do not interrupt the wind-up; the blast goes off where the caster stands when it
+   * ends. Playtest 2026-10-25: bots always walked out, even when one shot would have done it.
+   */
+  private counterScourge(state: SimState, me: PawnState, zones: ThreatZone[]): InputCommand | null {
+    for (const z of zones) {
+      if (z.kind !== 'scourge' || hypot(me.x - z.x, me.y - z.y) >= z.r) continue
+      const caster = state.pawns.find((pw) => pw.id === z.caster && pw.alive)
+      if (!caster) continue
+      const d = dist(me, caster)
+      for (const spell of ['lightning', 'fireball'] as const) {
+        const slot = me.slots.indexOf(spell)
+        if (slot < 0 || !castable(me, slot) || this.bubbleBlocks(me, caster, spell)) continue
+        const info = BOT_SPELLS[spell]
+        if (info.range !== undefined && d > info.range) continue
+        const lands = this.params.reactionDelay + info.castPoint + (info.speed ? d / info.speed : 0)
+        if (lands >= z.fireIn) continue
+        const hit = projectileHit(spell, me.levels[slot] || 1)
+        const dir = d > 1 ? { x: (caster.x - me.x) / d, y: (caster.y - me.y) / d } : { x: 1, y: 0 }
+        const push = afterHit(state, caster, hit.damage, hit.kbFactor, dir.x, dir.y)
+        const at = positionAfter(state, { ...caster, vx: push.x, vy: push.y, walkVx: 0, walkVy: 0 }, z.fireIn - lands)
+        if (hypot(me.x - at.x, me.y - at.y) <= z.r + THREAT_MARGIN) continue
+        const aim = this.aimAt(me, caster, spell, state)
+        if (aim) return { kind: 'cast', slot, x: aim.x, y: aim.y }
+      }
+    }
+    return null
+  }
+
+  /**
    * Lava risk now (Teleport save): standing in lava, or (saveLookahead) being carried toward
    * it, where walking back would burn us to death or cost most of our HP.
    */
@@ -817,7 +922,8 @@ export class BotController implements Bot {
       engaged += 1 / (1 + (dist(other, e) / CROWD_FALLOFF) ** 2)
     }
     const contested = (engaged / (1 + engaged)) * (0.65 - 0.25 * this.persona.risk)
-    if (sense <= 0) return near
+    const hill = this.hillPull(state, e) * (0.4 + 0.6 * near)
+    if (sense <= 0) return near + hill
     const r = layerRadius(state.arena.layer)
     const edge = Math.max(0, Math.min(1, 1 - (r - hypot(e.x, e.y)) / 600))
     // a kill chance across the map is worth less: by the time we get there it has moved on
@@ -835,6 +941,10 @@ export class BotController implements Bot {
       if ((rx * pr.vx + ry * pr.vy) / v > 0 && Math.abs(rx * pr.vy - ry * pr.vx) / v < 120) threat = 1
     }
     const grudge = this.recentHit?.owner === e.owner ? this.persona.grudge * exp(-(state.tick - this.recentHit.tick) / (4 * TICK_HZ)) : 0
+    // the biggest threat and old scores count from across the map, if less than up close
+    const reach = 0.4 + 0.6 * near
+    const menace = this.menace(state, e) * (state.settings.gameMode === 'hill' ? HILL_MENACE_WEIGHT : MENACE_WEIGHT)
+    const held = GRUDGE_WEIGHT * this.persona.grudge * Math.min(1, Math.max(0, this.grudgeOn(e.owner, state.tick) - 1) / 2)
     // third-party push: already flying from someone's hit, toward the edge
     const kb = hypot(e.vx - e.walkVx, e.vy - e.walkVy)
     const outward = hypot(e.x, e.y) > 1 ? ((e.vx - e.walkVx) * e.x + (e.vy - e.walkVy) * e.y) / hypot(e.x, e.y) : 0
@@ -844,8 +954,16 @@ export class BotController implements Bot {
     // is an easy kill worth crossing the map for: before this, distance alone decided and an
     // idle player at its spawn was nearly never targeted
     const still = Math.min(1, (state.tick - (this.lastMoved.get(e.owner) ?? state.tick)) / (SITTING_DUCK_SECONDS * TICK_HZ))
-    const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near + still * SITTING_DUCK_WEIGHT
-    return near + sense * (extra - contested)
+    const extra = (kill * killWeight + easyHit * 0.15 + push * 1.5) * near + threat * 0.7 + grudge * 0.8 * near + still * SITTING_DUCK_WEIGHT + (menace + held) * reach
+    return near + hill + sense * (extra - contested)
+  }
+
+  /** King of the Hill: how much standing on the hill makes `e` the target (0 off it, or in other modes). */
+  private hillPull(state: SimState, e: PawnState): number {
+    const h = state.hill
+    if (!h || state.phase !== 'fight' || this.params.hillDrive <= 0 || !onHill(state, e.x, e.y)) return 0
+    const holder = h.team !== null && state.slots.find((sl) => sl.id === e.owner)?.team === h.team
+    return this.params.hillDrive * (holder ? HILL_HOLDER_PULL : HILL_STANDER_PULL)
   }
 
   /** Remember when each enemy raised its Shield (from the bubble and its time left). */
@@ -1312,6 +1430,21 @@ export class BotController implements Bot {
       if (isSafe(state.arena.layer, land.x, land.y)) return land
     }
     return clampToRange(me, { x: 0, y: 0 }, range)
+  }
+
+  /** Seconds until the first bolt on a collision course with `at` reaches it; Infinity if none. */
+  private soonestHit(threats: ProjectileState[], at: Vec2): number {
+    let soonest = Infinity
+    for (const pr of threats) {
+      const v = hypot(pr.vx, pr.vy)
+      if (v < 1) continue
+      const rx = at.x - pr.x
+      const ry = at.y - pr.y
+      const along = (rx * pr.vx + ry * pr.vy) / v
+      if (along <= 0 || Math.abs(rx * pr.vy - ry * pr.vx) / v > SHOT_RADIUS + PAWN_BODY + THREAT_MARGIN) continue
+      soonest = Math.min(soonest, Math.max(0, along - SHOT_RADIUS - PAWN_BODY) / v)
+    }
+    return soonest
   }
 
   /**

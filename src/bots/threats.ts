@@ -18,6 +18,8 @@ export interface ThreatZone {
   r: number
   /** seconds until it strikes; 0 = hurting now */
   fireIn: number
+  /** Scourge: the caster's pawn (knocking it away moves the blast) */
+  caster?: number
 }
 
 export const PAWN_RADIUS = 30
@@ -30,7 +32,7 @@ export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
     if (!p.alive || p.cast?.spell !== 'scourge' || !isEnemy(state, player, p.owner)) continue
     const def = spellDef('scourge')
     const radius = def ? attr(def, 'radius', p.levels[p.cast.slot] || 1) : 250
-    zones.push({ kind: 'scourge', x: p.x, y: p.y, r: radius + PAWN_RADIUS, fireIn: Math.max(0, p.cast.ticksLeft) / TICK_HZ })
+    zones.push({ kind: 'scourge', x: p.x, y: p.y, r: radius + PAWN_RADIUS, fireIn: Math.max(0, p.cast.ticksLeft) / TICK_HZ, caster: p.id })
   }
   for (const pr of state.projectiles) {
     if (!isEnemy(state, player, pr.owner)) continue
