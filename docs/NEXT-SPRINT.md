@@ -23,6 +23,15 @@ Deployment is established by release receipts, not by implementation status here
      load from a machine other than the developer's home connection to tell the server's network path
      from the generator's uplink.
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
+4. **Bot sharpness (playtest feedback 2026-10-25).**
+   - Bots cancel many Scourge casts against players the blast would have hit. Check the cancel test in
+     `src/bots/controller.ts` against the real blast radius and wind-up at 30 Hz.
+   - Brutal bots in ranked react slowly at times, worst on a small late arena. Profile their decision
+     cadence and threat lookahead at 30 Hz; the tick-rate change may have halved a per-tick budget.
+   - Hard bots kill rarely in every mode (about 3 deaths in 3 minutes of a bot-only rounds game).
+5. **King of the Hill bot builds.** Bots should lean toward area control and multi-target spells on the
+   hill (for example Scourge, Meteor, Rockpillar), as a weighted preference, not a fixed build.
+   In a bot-only free-for-all the hill is contested about 78% of the time, so tickets come slowly.
 
 ## Completed in this planning pass
 
