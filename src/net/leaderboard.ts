@@ -39,6 +39,23 @@ export const LB_K = 40
 export const LB_MIN_HUMANS = 2
 export const LB_MIN_SECONDS = 120
 export const LB_TOP = 100
+/** Finished-match records (ratings, history, analytics) count time in 1/60 s ticks whatever the
+ * simulation rate, so records stored by 60 Hz builds stay comparable after a TICK_HZ change. */
+export const RECORD_HZ = 60
+const recordTicks = (simTicks: number) => Math.round((simTicks * RECORD_HZ) / TICK_HZ)
+export const recordSeconds = (ticks: number) => ticks / RECORD_HZ
+
+/** A tracker's match in record time (every tick count it carries). */
+function inRecordTime(m: FinishedMatch): FinishedMatch {
+  return {
+    ...m,
+    ticks: recordTicks(m.ticks),
+    seats: m.seats.map((s) => ({ ...s,
+      ...(s.controlTicks !== undefined ? { controlTicks: recordTicks(s.controlTicks) } : {}),
+      ...(s.combatTicks !== undefined ? { combatTicks: recordTicks(s.combatTicks) } : {}) })),
+    ...(m.combatPairs ? { combatPairs: m.combatPairs.map((p) => ({ ...p, ticks: recordTicks(p.ticks) })) } : {}),
+  }
+}
 
 /** One human seat of a finished match. */
 export interface SeatStats {
@@ -96,7 +113,7 @@ export interface FinishedMatch {
 export function ineligible(m: FinishedMatch, minSeconds = LB_MIN_SECONDS): string | null {
   const devices = countedDevices(m)
   if (devices.size < LB_MIN_HUMANS) return 'fewer than 2 humans'
-  if (m.ticks < minSeconds * TICK_HZ) return `shorter than ${minSeconds} s`
+  if (m.ticks < minSeconds * RECORD_HZ) return `shorter than ${minSeconds} s`
   // A human who left another human decides that pair, even before a round between them ended.
   if (departurePairs(m).length > 0) return null
   const byPlayer = seatsByPlayer(m)
@@ -144,7 +161,7 @@ export function unfinishedActivity(m: FinishedMatch, covered: ReadonlySet<string
     if (covered.has(s.device) || !((s.combatTicks ?? 0) > 0)) return []
     const stats = s.stats ?? s.partialStats
     if (!stats) return []
-    return [{ device: s.device, stats, seconds: Math.round((s.stats ? m.ticks : (s.controlTicks ?? 0)) / TICK_HZ) }]
+    return [{ device: s.device, stats, seconds: Math.round(recordSeconds(s.stats ? m.ticks : (s.controlTicks ?? 0))) }]
   })
 }
 
@@ -484,7 +501,7 @@ export class ServerMatchTracker implements MatchRecorder {
       if (players.length > 0) this.ranked.push({ groups, team })
       for (const p of players) this.seats.get(p)!.roundsPlayed++
     }
-    return this.onDone({
+    return this.onDone(inRecordTime({
       ticks,
       rounds: result.rounds,
       teamMode: this.settings.teamMode,
@@ -507,7 +524,7 @@ export class ServerMatchTracker implements MatchRecorder {
           ...(seat ? { roundsPlayed: seat.roundsPlayed, roundsWon: seat.roundsWon } : {}),
           ...(seat?.forfeited ? { forfeited: true } : {}) }
       }),
-    }, result)
+    }), result)
   }
 
   abort(): void {
@@ -533,8 +550,8 @@ export class ServerMatchTracker implements MatchRecorder {
         : []
     })
     if (seats.length === 0) return null
-    return { ticks: this.lastTick, rounds: this.round, teamMode: settings.teamMode, gameMode: settings.gameMode,
-      bots: this.bots, seats, ranked: [], aborted: true }
+    return inRecordTime({ ticks: this.lastTick, rounds: this.round, teamMode: settings.teamMode, gameMode: settings.gameMode,
+      bots: this.bots, seats, ranked: [], aborted: true })
   }
 }
 

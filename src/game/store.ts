@@ -150,7 +150,7 @@ export interface MatchResult {
   slots: PlayerSlot[]
   scores: PlayerScore[]
   rounds: number
-  /** match length in sim ticks (60 Hz) */
+  /** match length in sim ticks (TICK_HZ) */
   ticks?: number
 }
 

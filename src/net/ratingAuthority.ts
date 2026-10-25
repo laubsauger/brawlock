@@ -1,6 +1,5 @@
 /** One server-side rating authority. Regions submit finished simulations, never client scores. */
-import { LB_MIN_SECONDS, LB_TOP, publicRow, settleMatch, unfinishedActivity, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue, type UnfinishedActivity } from './leaderboard'
-import { secondsOf } from '../sim/config'
+import { LB_MIN_SECONDS, LB_TOP, publicRow, recordSeconds, settleMatch, unfinishedActivity, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue, type UnfinishedActivity } from './leaderboard'
 import type { MatchRating } from './rating'
 import { PASSIVE_ITEMS, SPELL_IDS } from '../sim/spells/data'
 import type { PlayerMatchStats } from '../game/stats'
@@ -57,7 +56,7 @@ function validStats(value: unknown, ticks: number): value is PlayerMatchStats {
     || STAT_NUMBERS.some((key) => !integer(value[key], 1_000_000_000_000)) || typeof value.firstBlood !== 'boolean') return false
   for (const key of ['aliveSec', 'lavaSec']) {
     const n = value[key]
-    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > secondsOf(ticks) + 1) return false
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > recordSeconds(ticks) + 1) return false
   }
   if ((value.lavaSec as number) > (value.aliveSec as number)) return false
   for (const key of ['killsByCause', 'deathsByCause']) {

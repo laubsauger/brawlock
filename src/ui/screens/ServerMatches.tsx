@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { session, type HistoryQueue, type MatchHistoryEntry, type GlobalMatchEntry } from '../../game/session'
-import { TICK_HZ } from '../../sim'
+import { recordSeconds } from '../../net/leaderboard'
 import { BuildIcons } from '../BuildIcons'
 import { ago, duration } from '../lib/stats'
 import { hex } from '../lib/view'
@@ -42,7 +42,7 @@ export function ServerMatchList({ matches, personal = true }: { matches: readonl
               {subject.delta === null ? 'Not rated' : `${signed(subject.delta)} Elo${subject.rating === null ? '' : ` · ${Math.round(subject.rating)}`}`}
             </span>}
             {me && <span className="tabular text-sm text-ash">{me.kills} / {me.deaths} K/D</span>}
-            <span className="tabular text-sm text-ash">{duration(match.ticks / TICK_HZ)}</span>
+            <span className="tabular text-sm text-ash">{duration(recordSeconds(match.ticks))}</span>
             <span className="text-sm text-ash">{ago(match.at)}</span>
           </span>
         </summary>
