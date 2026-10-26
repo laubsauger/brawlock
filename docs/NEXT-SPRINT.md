@@ -25,7 +25,7 @@ Deployment is established by release receipts, not by implementation status here
    - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
 4. **Playtest 2026-10-25 evening, shipped in alpha.14.** Touched suites and typecheck passed; the
    full suite was skipped for this release by the user's call.
-   - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s in alpha.14, 1.75 s after),
+   - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s in alpha.14, 1.75 s in alpha.15),
      then one a second; the HUD says "taking the hill" meanwhile.
    - King of the Hill: the hill stays two rings inside the arena (`hillLayerOn`): 13 arena tiles
      left, the hill is the plus of 5; from 9 tiles down only the centre tile.
@@ -61,9 +61,15 @@ Deployment is established by release receipts, not by implementation status here
      were close Fireballs no bot could dodge after spawn (the "reacts slowly" report). Ladder
      remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels Hard 1825,
      Brutal 2025, Uber 2225 (PLAN §7).
-   - itch.io build ([ITCH.md](ITCH.md)): same servers and player pool, guests only; the itch push waits for the
-     `BUTLER_API_KEY` secret.
-6. **Bot follow-ups still open.**
+   - itch.io build ([ITCH.md](ITCH.md)): same servers and player pool, guests only; published
+     with butler to https://prompin.itch.io/brawlock.
+6. **Shipped in alpha.16.**
+   - King of the Hill capture time 1 s (`HILL_CAPTURE_SECONDS`).
+   - Casual quick play: five Medium bots seat first, the rest Hard (was Hard with one Brutal and
+     one Medium). King of the Hill and ranked keep their tables.
+   - Guests are sent to sign in: on itch.io the player card, Ranked, Wardrobe and official results
+     open brawlock.osc.link and say what a guest misses; the Wardrobe entry needs an account.
+7. **Bot follow-ups still open.**
    - Value presets still drop a Scourge when predicted victims "walk out" (`gone`); its model assumes
      every enemy flees at once. Check it against real play once the cancels above are fixed.
    - Hill queue length (measured 2026-10-26, bot-only, the queue's setup: 10 seats, FFA, rounds
@@ -72,14 +78,15 @@ Deployment is established by release receipts, not by implementation status here
      barely score between round wins: with a 1.75 s capture they ran past 90 minutes (28 rounds,
      leaders at 59–74 tickets). A contest used to restart the holder's capture; it now pauses it
      (leaders 87–89 at 90 minutes). With that: capture 1 s gives about 61 minutes, 0.5 s about 46,
-     no capture about 28. Needs a call: capture time, the ticket target, or ticket rate per
-     player count. Humans may hold longer than bots; check a real match's length.
+     no capture about 28. A real match took far too long too. Capture set to 1 s after alpha.15
+     (user call, 2026-10-26); about 61 minutes bot-only is still long, so the ticket target (or a
+     ticket rate per player count) is still open.
    - Hard bots kill rarely (measured 2026-10-26, 4-bot FFA rounds): first death after about 107 s
      (Medium 72 s, Brutal 115 s), 83% of deaths are pushes into lava once the arena has sunk about
      11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few
      hundred) and dodges most bolts, so early hits never reach lava. More kills means riskier
      positioning (closer, nearer the edge), which also makes Hard easier for players: a design call.
-7. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
+8. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
    filterable by region. Needs a shared relay (the account authority or the global game authority),
    rate limits, mute/block, report, and the same name rules as in-match chat.
 

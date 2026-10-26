@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.1.0-alpha.16",
+    "releaseDate": "2026-10-26",
+    "title": "Friendlier casual games and a quicker hill",
+    "changes": [
+      "Casual games now fill with a mix of Medium and Hard bots instead of mostly Hard.",
+      "King of the Hill: taking the hill takes 1 second instead of 1.75.",
+      "The wardrobe now needs an account: sign in to earn Embers, unlock pieces and wear them in games.",
+      "Brawlock is also on itch.io. Players there play as guests and can sign in here for ranked, Embers and the wardrobe."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.15",
     "releaseDate": "2026-10-26",
     "title": "Fresh start, hill pillars and sharper dodging",
