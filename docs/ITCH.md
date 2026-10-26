@@ -1,6 +1,6 @@
 # itch.io build
 
-Brawlock is also published as an HTML5 game at https://laub69.itch.io/brawlock. It is the same client, built for itch's host, and it plays on the same game servers and in the same player pool as https://brawlock.osc.link.
+Brawlock is also published as an HTML5 game at https://prompin.itch.io/brawlock. It is the same client, built for itch's host, and it plays on the same game servers and in the same player pool as https://brawlock.osc.link.
 
 ## How it differs from the first-party build
 
@@ -23,7 +23,7 @@ The embed origin is allowed in exactly two places:
 
 ## Publishing
 
-`.github/workflows/itch.yml` runs when `deploy/release.mjs` publishes a `v*` tag after fleet proof. It builds with the release settings, checks itch's limits (`scripts/package-itch.mjs`: 1000 files, 200 MB per file, 500 MB in total), keeps the result as the `itch-html5` artifact and pushes it with butler to `laub69/brawlock:html5`. A manual run must pick a `v*` tag, so itch never runs netcode the servers do not have yet.
+`.github/workflows/itch.yml` runs when `deploy/release.mjs` publishes a `v*` tag after fleet proof. It builds with the release settings, checks itch's limits (`scripts/package-itch.mjs`: 1000 files, 200 MB per file, 500 MB in total), keeps the result as the `itch-html5` artifact and pushes it with butler to `prompin/brawlock:html5`. A manual run (Actions → Publish to itch.io → Run workflow, or `gh workflow run itch.yml -f tag=v…`) takes an existing `v*` tag, so itch never runs netcode the servers do not have yet. It builds that tag's source with the workflow from the branch it runs on, which republishes a release whose own workflow was out of date.
 
 One-time setup:
 

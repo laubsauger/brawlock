@@ -1,11 +1,16 @@
 name: Publish to itch.io
 
 # deploy/release.mjs publishes the v* tag only after fleet proof, so the itch build always matches
-# the live servers' netcode. A manual run must also pick a v* tag. One-time setup: docs/ITCH.md.
+# the live servers' netcode. A manual run builds an existing v* tag with this workflow (to republish
+# a release whose own workflow file is out of date). One-time setup: docs/ITCH.md.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (v*)
+        required: true
 
 permissions:
   contents: read
@@ -16,10 +21,20 @@ concurrency:
 
 jobs:
   itch:
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
     steps:
+      - name: Require a release tag
+        run: |
+          if [[ "$TAG" != v* ]]; then
+            echo "::error::Not a v* release tag: $TAG"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -55,4 +70,4 @@ jobs:
           unzip -q butler.zip -d butler-bin
           chmod +x butler-bin/butler
           ./butler-bin/butler -V
-          ./butler-bin/butler push itch laub69/brawlock:html5 --userversion "$(node -p "require('./itch/version.json').version")"
+          ./butler-bin/butler push itch prompin/brawlock:html5 --userversion "$(node -p "require('./itch/version.json').version")"
