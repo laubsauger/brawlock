@@ -43,8 +43,8 @@ Deployment is established by release receipts, not by implementation status here
      (artillery and brawler more often).
    - Leaving a casual or King of the Hill game keeps it rejoinable from the menu for 2 minutes, in
      that tab only (`RejoinController.left`); leaving ranked stays final.
-5. **Unreleased after alpha.14.**
-   - King of the Hill capture time 1.75 s (`HILL_CAPTURE_SECONDS`).
+5. **Shipped in alpha.15.**
+   - King of the Hill capture time 1.75 s (`HILL_CAPTURE_SECONDS`); a contest pauses the holder's capture instead of restarting it.
    - Scoreboard: a Worth column (gold on hand plus gold spent in the shop).
    - King of the Hill pillars: four ring the starting hill, on its corners in even rounds and on
      its tips in odd ones (respawn style: corners), plus 1 to 3 random ones off the hill. A pawn
@@ -61,6 +61,8 @@ Deployment is established by release receipts, not by implementation status here
      were close Fireballs no bot could dodge after spawn (the "reacts slowly" report). Ladder
      remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels Hard 1825,
      Brutal 2025, Uber 2225 (PLAN §7).
+   - itch.io build ([ITCH.md](ITCH.md)): same servers and player pool, guests only; the itch push waits for the
+     `BUTLER_API_KEY` secret.
 6. **Bot follow-ups still open.**
    - Value presets still drop a Scourge when predicted victims "walk out" (`gone`); its model assumes
      every enemy flees at once. Check it against real play once the cancels above are fixed.

@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.0-alpha.15",
+    "releaseDate": "2026-10-26",
+    "title": "Fresh start, hill pillars and sharper dodging",
+    "changes": [
+      "King of the Hill: taking the hill takes 1.75 seconds, and an enemy brushing it pauses your capture instead of restarting it.",
+      "King of the Hill: pillars ring the hill, on its corners or its tips depending on the round, plus a few random ones.",
+      "Outside ranked, Fresh start sells your whole build for 75% of what you paid on it, before the next fight.",
+      "The scoreboard shows each player's net worth, and results rows open to show their final build.",
+      "While you are down, click a name in the top bar to watch that player.",
+      "Hard, Brutal and Uber bots read wind-ups and dodge close Fireballs; their lobby ratings were remeasured.",
+      "The centre tile no longer glows outside King of the Hill."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.14",
     "releaseDate": "2026-10-25",
     "title": "Hill tuning and sharper bots",
