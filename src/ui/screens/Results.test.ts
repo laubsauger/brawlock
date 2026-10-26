@@ -8,6 +8,8 @@ vi.mock('../flow', () => ({ backToLobby() {}, leaveToMenu() {}, rematch() {}, se
 vi.mock('./Lobby', () => ({ AutoStart: () => null }))
 vi.mock('../lib/replays', () => ({ useReplayIds: () => new Set(), watchReplay() {} }))
 vi.mock('../lib/motion', () => ({ countTo() {}, reducedMotion: () => true }))
+// as the itch.io build: accounts live on the site (accountsEnabled stays false in tests)
+vi.mock('../../lib/site', async (original) => ({ ...await original<typeof import('../../lib/site')>(), SITE_HOST: 'brawlock.osc.link', openSite() {} }))
 vi.mock('../../game/store', async (original) => {
   const store = await original<typeof import('../../game/store')>()
   const current = (selector: (value: ReturnType<typeof store.useGame.getState>) => unknown) => selector(store.useGame.getState())
@@ -79,5 +81,14 @@ describe('final builds', () => {
     const result = useGame.getState().result!
     useGame.setState({ result: { ...result, builds: result.slots.map((s) => ({ player: s.id, slots: Array(12).fill(null), levels: Array(12).fill(0) })) } })
     expect(toggles(renderToStaticMarkup(createElement(Results)))).toBe(4)
+  })
+
+  it('tells a guest of a build hosted elsewhere that an official game earns Embers once signed in on the site', () => {
+    // itch players can't sign in there, so the result is where they learn what they missed
+    expect(present([1])).not.toContain('data-testid="site-embers"')
+    useGame.setState({ result: { ...useGame.getState().result!, progression: { matchId: 'm-1', status: 'awarded' } } })
+    const html = renderToStaticMarkup(createElement(Results))
+    expect(html).toContain('data-testid="site-embers"')
+    expect(html).toContain('Signed in on brawlock.osc.link')
   })
 })

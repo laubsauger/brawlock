@@ -8,7 +8,7 @@ itch serves the uploaded files from `https://html-classic.itch.zone/html/<upload
 
 - uses relative paths (`--base=./`) and bundles all media in the upload instead of loading it from GitHub Pages;
 - sets `VITE_SITE_URL=https://brawlock.osc.link/`, which sends the guest play permission (`/api/play`), bug reports (`/api/feedback`) and invite links to the first-party site;
-- has no sign-in. OAuth providers refuse to load inside an iframe, and browsers block the site's cookies there. The Ranked button opens the site in a new tab; casual, King of the Hill, custom and peer-to-peer games work as guests.
+- has no sign-in. OAuth providers refuse to load inside an iframe, and browsers block the site's cookies there. Casual, King of the Hill, custom and peer-to-peer games work as guests. Everything that needs an account sends the player to the site in a new tab and says what they miss: the player card's Account action (with a note: no ranked Elo, Embers or wardrobe as a guest), Ranked, Wardrobe, and the Embers line on the results of an official game.
 
 itch keeps the iframe's storage separate from the site, so a browser is a different guest on itch than on brawlock.osc.link (separate name, stats and device id).
 

@@ -12,7 +12,8 @@ import { isTypingTarget } from '../lib/keys'
 import { AwardsStrip, PlayerStatsDetail } from './statViews'
 import { useReplayIds, watchReplay } from '../lib/replays'
 import { accountsEnabled } from '../../game/account'
-import { Collection, MatchEmbers } from './Collection'
+import { Collection, MatchEmbers, SiteEmbers } from './Collection'
+import { SITE_HOST, openSite } from '../../lib/site'
 import { BuildIcons } from '../BuildIcons'
 import type { InspectedKit } from '../../game/inspect'
 
@@ -269,7 +270,7 @@ export function Results() {
         </div>
       </div>
 
-      {(mvp || (rec?.awards && rec.awards.length > 0) || (accountsEnabled && inMatch && result.progression)) && (
+      {(mvp || (rec?.awards && rec.awards.length > 0) || (inMatch && result.progression && (accountsEnabled || SITE_HOST))) && (
         <aside className="results-side flex max-h-full min-h-0 w-full max-w-3xl flex-col gap-3 overflow-y-auto lg:w-[17rem] lg:shrink-0" aria-label="Match highlights">
           {mvp && (
             <div
@@ -298,6 +299,7 @@ export function Results() {
             }} />
           )}
           {accountsEnabled && inMatch && result.progression && <MatchEmbers progression={result.progression} onCollection={() => setCollectionOpen(true)} />}
+          {!accountsEnabled && SITE_HOST && inMatch && result.progression && <SiteEmbers host={SITE_HOST} onSite={openSite} />}
         </aside>
       )}
       </div>

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { MenuPlayerCard } from './MenuPlayerCard'
 
 const props: ComponentProps<typeof MenuPlayerCard> = {
-  name: 'Laub', account: null, accountsEnabled: true, accountLoaded: true, accountError: null, accountBusy: false,
+  name: 'Laub', account: null, accountsEnabled: true, siteHost: null, accountLoaded: true, accountError: null, accountBusy: false,
   rating: null, ratingState: 'ready', emberBalance: null, emberProblem: null,
   onProfile() {}, onSignIn() {}, onLeaderboard() {}, onCollection() {}, onRetryAccount() {},
 }
@@ -58,5 +58,18 @@ describe('menu player card states', () => {
     expect(offline).not.toContain('data-testid="profile-elo"')
     expect(offline).not.toContain('data-testid="player-sign-in"')
     expect(offline).toContain('data-testid="player-profile"')
+    expect(offline).not.toContain('data-testid="player-guest-note"')
+  })
+
+  it('sends a guest of a build hosted elsewhere to the site and says what they miss', () => {
+    // itch.io cannot sign in inside its iframe; without this the guest never learns accounts exist
+    const html = render({ accountsEnabled: false, siteHost: 'brawlock.osc.link', ratingState: 'ready' })
+    expect(html).toContain('data-testid="player-sign-in"')
+    expect(html).toContain('on brawlock.osc.link')
+    expect(html).toContain('data-columns="2"')
+    expect(html).toContain('no ranked Elo, Embers or wardrobe')
+    expect(html).not.toContain('Sign-in options')
+    // the first-party build keeps its own sign-in dialog and no guest note
+    expect(render({ siteHost: 'brawlock.osc.link' })).not.toContain('data-testid="player-guest-note"')
   })
 })

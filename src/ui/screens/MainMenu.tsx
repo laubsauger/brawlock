@@ -1,6 +1,6 @@
 import { FeedbackButton } from '../FeedbackButton'
 import { useFeedback } from '../lib/feedbackState'
-import { SITE_URL } from '../../lib/site'
+import { SITE_HOST, SITE_URL, openSite } from '../../lib/site'
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
@@ -163,9 +163,9 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       badge={maintenance ? 'Maintenance' : !accountsEnabled ? (SITE_URL ? 'Opens our site' : 'Sign-in unavailable') : !accountLoaded ? 'Checking account' : accountError ? 'Account unavailable' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : rankedReady ? 'Ready' : undefined}
       ready={rankedReady}
       disabled={!playSupported || (!accountsEnabled ? !SITE_URL : !!problem)}
-      hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? (SITE_URL ? `Ranked needs a Brawlock account. Sign in on ${new URL(SITE_URL).host} (opens in a new tab).` : 'Ranked sign-in is unavailable in this build.') : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
+      hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? (SITE_URL ? `Ranked needs a Brawlock account. Sign in on ${SITE_HOST} (opens in a new tab).` : 'Ranked sign-in is unavailable in this build.') : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
       // a build hosted elsewhere (itch.io) cannot sign in inside its iframe: ranked lives on the site
-      onClick={() => !accountsEnabled && SITE_URL ? window.open(SITE_URL, '_blank', 'noopener') : isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
+      onClick={() => !accountsEnabled && SITE_URL ? openSite() : isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
   </div>
@@ -428,11 +428,11 @@ export function MainMenu() {
   return (
     <div className="menu-screen screen-in relative flex h-full flex-col overflow-y-auto">
       <div className="menu-identity z-10">
-        <MenuPlayerCard name={name} account={account} accountsEnabled={accountsEnabled} accountLoaded={accountLoaded}
+        <MenuPlayerCard name={name} account={account} accountsEnabled={accountsEnabled} siteHost={SITE_HOST} accountLoaded={accountLoaded}
           accountError={accountError} accountBusy={accountBusy} rating={rating} ratingState={ratingState}
           emberBalance={emberBalance} emberProblem={emberProblem}
           onProfile={() => { if (account) openAccount(); else { setDraftColor(getProfile().color); setNameOpen(true) } }}
-          onSignIn={openAccount} onLeaderboard={() => setProfileTab('board')} onCollection={() => setCollectionOpen(true)}
+          onSignIn={accountsEnabled ? openAccount : openSite} onLeaderboard={() => setProfileTab('board')} onCollection={() => setCollectionOpen(true)}
           onRetryAccount={() => { setAccountBusy(true); void refreshAccount().catch(() => {}).finally(() => setAccountBusy(false)) }} />
         {online.configured && <LiveGames rooms={openGames} onSeeAll={() => setBrowseOpen(true)} />}
       </div>
@@ -474,7 +474,12 @@ export function MainMenu() {
             <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
             {online.configured && <BrowseEntry rooms={openGames} onClick={() => setBrowseOpen(true)} />}
           </div>
-          <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" onClick={() => setCollectionOpen(true)} testId="open-wardrobe" />
+          {/* cosmetics are earned and kept by an account; a build without accounts anywhere keeps the try-on */}
+          <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" testId="open-wardrobe"
+            badge={accountsEnabled ? !accountLoaded ? 'Checking account' : !account ? 'Sign in required' : undefined : SITE_URL ? 'Opens our site' : undefined}
+            disabled={accountsEnabled && !accountLoaded}
+            hint={accountsEnabled ? !account ? 'Sign in to earn Embers, unlock pieces and wear them in games.' : undefined : SITE_URL ? `The wardrobe needs a Brawlock account. Sign in on ${SITE_HOST} (opens in a new tab).` : undefined}
+            onClick={() => accountsEnabled && !account ? openAccount() : !accountsEnabled && SITE_URL ? openSite() : setCollectionOpen(true)} />
           <div className="menu-access flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
             <Button className="gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" size="sm" variant="ghost" onClick={tutorial.open} data-testid="how-to-play"><MenuGlyph kind="guide" size={16} /> How to play</Button>

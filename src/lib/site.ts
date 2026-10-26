@@ -10,3 +10,9 @@ export const siteApi = (path: string): string => (SITE_URL ? new URL(path, SITE_
 
 /** A request to the site from elsewhere is cross-site: no cookies go along. */
 export const siteCredentials: RequestCredentials = SITE_URL ? 'omit' : 'same-origin'
+
+/** The site's host for labels, e.g. "brawlock.osc.link". */
+export const SITE_HOST: string | null = SITE_URL ? new URL(SITE_URL).host : null
+
+/** Opens the site in a new tab: a build hosted elsewhere signs in, plays ranked and earns Embers there. */
+export const openSite = (): void => { if (SITE_URL) window.open(SITE_URL, '_blank', 'noopener') }

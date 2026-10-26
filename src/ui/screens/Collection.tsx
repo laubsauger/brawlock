@@ -245,6 +245,14 @@ export function EmberReward({ reward, balance, onCollection }: { reward: Progres
   </div>
 }
 
+/** A build hosted elsewhere (itch.io) plays as a guest: Embers are earned signed in on the site. */
+export function SiteEmbers({ host, onSite }: { host: string; onSite: () => void }) {
+  return <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 rounded border border-[#efaa59]/15 bg-[#21180f]/60 px-4 py-3 text-sm" data-testid="site-embers">
+    <div className="flex min-w-0 flex-1 items-center gap-2"><EmberMark /><p className="text-ash">No Embers as a guest. Signed in on {host}, games like this earn Embers for cosmetics.</p></div>
+    <Button size="sm" onClick={onSite}>Sign in <span aria-hidden>↗</span></Button>
+  </div>
+}
+
 /** One result read plus explicit retry. Regional delivery can finish after the match UI. */
 export function MatchEmbers({ progression, onCollection }: { progression: MatchProgression; onCollection: () => void }) {
   const accountId = useAccount((s) => s.player?.id ?? null)

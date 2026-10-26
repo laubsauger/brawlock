@@ -12,6 +12,8 @@ interface Props {
   name: string
   account: Pick<AccountPlayer, 'email' | 'profile'> | null
   accountsEnabled: boolean
+  /** Accounts live on this site instead (a build hosted elsewhere, e.g. itch.io): sign-in opens it. */
+  siteHost: string | null
   accountLoaded: boolean
   accountError: string | null
   accountBusy: boolean
@@ -30,8 +32,9 @@ const balanceLabel = (value: number) => new Intl.NumberFormat('en', value >= 1_0
 
 /** One player identity with a shared action row; dialogs and requests stay in MainMenu. */
 export function MenuPlayerCard(props: Props) {
-  const { name, account, accountsEnabled, accountLoaded, accountError, accountBusy, rating, ratingState, emberBalance, emberProblem } = props
+  const { name, account, accountsEnabled, siteHost, accountLoaded, accountError, accountBusy, rating, ratingState, emberBalance, emberProblem } = props
   const ranked = ratingState !== 'disabled'
+  const elsewhere = !accountsEnabled && siteHost !== null
   const checking = accountsEnabled && !accountLoaded
   const status = checking ? 'Checking sign-in…' : account ? account.profile ? 'Your account' : 'Finish account setup' : 'Guest warlock'
   const profileLabel = account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}, ${account.email}` : `Edit player name and color: ${name}`
@@ -40,7 +43,7 @@ export function MenuPlayerCard(props: Props) {
   const emblem = account ? localEquipment()?.emblem ?? null : null
   const preferred = account?.profile?.color ?? getProfile().color
   const avatarColor = preferred === null ? '#efc58e' : `#${preferred.toString(16).padStart(6, '0')}`
-  const actions = Number(ranked) + Number(accountsEnabled)
+  const actions = Number(ranked) + Number(accountsEnabled || elsewhere)
   return <section className="menu-player-card" aria-label="Player and account" data-testid="menu-player-card">
     <button type="button" className="menu-player-profile" data-testid="player-profile" onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? `Signed in as ${account.email}` : 'Edit your name and color'}>
       <span className="menu-player-avatar">{emblem ? <EmblemBadge emblem={emblem} color={avatarColor} size={34} /> : <MenuGlyph kind="profile" size={23} />}</span>
@@ -66,7 +69,13 @@ export function MenuPlayerCard(props: Props) {
         <span className="menu-player-action-value">{checking || accountBusy ? 'Checking…' : 'Sign in'}</span>
         <span className="menu-player-action-detail">Sign-in options <span aria-hidden>›</span></span>
       </button>)}
+      {elsewhere && <button type="button" className="menu-player-action menu-player-sign-in" data-testid="player-sign-in" onClick={invoke(props.onSignIn)} onMouseEnter={hoverSfx} title={`Opens ${siteHost} in a new tab`}>
+        <span className="menu-player-action-heading"><MenuGlyph kind="profile" size={15} /> Account</span>
+        <span className="menu-player-action-value">Sign in <span aria-hidden>↗</span></span>
+        <span className="menu-player-action-detail">on {siteHost}</span>
+      </button>}
     </div>}
+    {elsewhere && <p className="menu-player-note" data-testid="player-guest-note">Guest here: no ranked Elo, Embers or wardrobe. Sign in on {siteHost} to get them.</p>}
     {accountsEnabled && accountError && <div className="menu-player-error" role="alert"><span>{accountError}</span><button type="button" onMouseEnter={hoverSfx} disabled={accountBusy} onClick={invoke(props.onRetryAccount)}>{accountBusy ? 'Retrying…' : 'Retry account'}</button></div>}
   </section>
 }
