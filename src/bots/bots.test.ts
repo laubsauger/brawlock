@@ -785,6 +785,29 @@ describe('bots: pillars', () => {
     expect(routeAround(state, me, { x: 0, y: 400 }, 15)).toEqual({ x: 0, y: 400 })
   })
 
+  it('reading windups: a close Fireball winding up at us is dodged before it leaves the hand', () => {
+    /**
+     * Why: a Fireball cast from 250 away arrives 0.25 s after it spawns, less than a reaction plus a
+     * sidestep, so bots that only see bolts in flight cannot dodge it (playtest: Brutal "reacts
+     * slowly" on small arenas). A player reads the enemy's turn and windup instead.
+     */
+    const firstDodge = (readWindups: number) => {
+      const me = makePawn(BOT, 0, 0)
+      me.slots[FIREBALL_SLOT] = null
+      const enemy = makePawn(ENEMY, 250, 0, { cast: { slot: FIREBALL_SLOT, spell: 'fireball', ticksLeft: ticks(0.2), x: 0, y: 0, started: true } })
+      const state = makeState([me, enemy])
+      const bot = new BotController(BOT, 'brutal', 3, { ...BOT_PRESETS.brutal, readWindups })
+      for (let t = 0; t < ticks(0.2); t++) {
+        state.tick = t
+        bot.think(state)
+        if (bot.lastAction === 'dodge') return t
+      }
+      return -1
+    }
+    expect(firstDodge(1)).toBeGreaterThanOrEqual(0)
+    expect(firstDodge(0)).toBe(-1)
+  })
+
   it('never dodges into a pillar', () => {
     for (const d of ['easy', 'hard', 'brutal'] as const) {
       // a fireball along x toward the bot; the natural dodge (+y) is walled by a pillar

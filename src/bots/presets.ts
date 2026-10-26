@@ -50,6 +50,7 @@
  * | frictionLead     |   -   | no    | no     | no    | no     | yes   | -        |
  * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
  * | punish           |   -   | 0     | 0      | 0     | 0.1    | 0.1   | -        |
+ * | readWindups      |   -   | 0     | 0      | 0.3   | 0.7    | 0.7   | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
@@ -92,6 +93,14 @@
  * Uber takes openings at Brutal's rate too: the Brutal–Uber step had narrowed to 64% of rounds,
  * and paired seeds put Uber at 67% with punish 0.05, 69% with 0.1, 71% with 0.15 (400 matches).
  * 0.1 is the slight widening asked for; Uber's lead still comes from its other settings.
+ *
+ * readWindups (Hard and up): chance, rolled once per cast, to notice an enemy turning or winding up
+ * a straight bolt and treat it as that bolt already flying. Bots used to see only bolts in flight:
+ * a Fireball cast from about 250 away lands 0.2 s after it spawns, under a reaction plus a
+ * sidestep, and was half of the hits Brutal took on small arenas (playtest 2026-10-25: Brutal
+ * "reacts slowly" late in a round). Players read the cast animation instead. It is a big edge
+ * (always on: Brutal 71% of rounds over the old Brutal, 86% over Hard), so the chances are set for
+ * the ladder steps: docs/research/bot-calibration-2026-10-26-windups.json.
  *
  * targetSense (FFA, 2+ enemies): local opportunities beyond distance: finishing chances,
  * threats, fading retaliation, and third-party pushes, weighed against nearby competition.
@@ -199,6 +208,11 @@ export interface BotParams {
    */
   punish: number
   /**
+   * chance to notice an enemy's visible windup (a straight bolt it is turning or winding up), rolled
+   * once per cast, and read it as that bolt already on its way, as a player reads the cast animation
+   */
+  readWindups: number
+  /**
    * shop: 'random' = original one random spell per 40 s, 'plan' = a build drawn per bot
    * (plan.ts), a build id = always that build (tuning)
    */
@@ -244,6 +258,7 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   frictionLead: false,
   shotGate: 0,
   punish: 0,
+  readWindups: 0,
   buildPlan: 'random',
 }
 
@@ -312,6 +327,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     targetSense: 0.8,
     scourgeMinValue: 0.5,
     scourgeMinHp: 220,
+    readWindups: 0.3,
   },
   brutal: {
     ...ORIGINAL,
@@ -347,6 +363,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     scourgeMinHp: 220,
     edgePressure: true,
     punish: 0.1,
+    readWindups: 0.7,
     buildPlan: 'plan',
   },
   uber: {
@@ -386,6 +403,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
     shotGate: 0.3,
     // Brutal's rate: widens the Brutal–Uber step a little (64% -> 69% of rounds); see punish above
     punish: 0.1,
+    readWindups: 0.7,
     buildPlan: 'plan',
   },
 }
@@ -394,17 +412,16 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * Round-based Elo per difficulty (Medium = 1000), measured by `npm run bots:elo`: Bradley–Terry
  * fit over seeded 1v1 rounds, rounded to 25 (table and intervals: docs/PLAN.md §7). Rounds, not
  * matches, are the unit: a first-to-5 match turns a 75% round edge into about 90% of matches.
- * Measured 2026-10-20 (400 matches per pair) after Brutal learned to punish openings, Hard went
- * back to the original cast rate and Uber took up punish too; see
- * docs/research/bot-calibration-2026-10-20-brutal.json ("uberStep"). Hard did not change in the
- * last step; its label moved by rounding (1635 -> 1642): the tiers above Medium connect to it
- * only through 98-100% pairs, so labels carry about ±40.
+ * Measured 2026-10-26 (400 matches per pair) after Hard, Brutal and Uber learned to read windups;
+ * see docs/research/bot-calibration-2026-10-26-windups.json. Hard moved most (1650 -> 1825): it
+ * reached 99% of rounds over Medium (was 98%), and the tiers above Medium connect to it only
+ * through such pairs, so labels carry about ±50.
  * Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
-  easy: 325,
+  easy: 350,
   medium: 1000,
-  hard: 1650,
-  brutal: 1850,
-  uber: 2000,
+  hard: 1825,
+  brutal: 2025,
+  uber: 2225,
 }

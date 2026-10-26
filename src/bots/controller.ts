@@ -235,6 +235,8 @@ export class BotController implements Bot {
   private wander: Vec2 | null = null
   private nextWanderTick = 0
   private spellEndTick = 0
+  /** readWindups: per enemy pawn, the cast last rolled for and whether we noticed it */
+  private readonly noticed = new Map<number, { key: string; seen: boolean }>()
   private scourgeEndTick = 0
   private dodgeDir: Vec2 | null = null
   private lastWalk: { tick: number; dist: number } | null = null
@@ -344,6 +346,7 @@ export class BotController implements Bot {
     this.target = null
     this.wander = null
     this.spellEndTick = 0
+    this.noticed.clear()
     this.scourgeEndTick = 0
     this.dodgeDir = null
     this.lastWalk = null
@@ -435,7 +438,11 @@ export class BotController implements Bot {
     const onLava = !isSafe(layer, me.x, me.y)
     // enemy bolts, our own shots a Shield has stolen (their owner flips), and our shots about to
     // hit a raised Shield: those come back, so we read them as already coming
-    const threats = [...state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner)), ...this.comingBack(state, enemies)]
+    const threats = [
+      ...state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner)),
+      ...this.comingBack(state, enemies),
+      ...(p.readWindups > 0 ? this.windups(enemies) : []),
+    ]
     const tp = me.slots.indexOf('teleport')
     const tpReady = tp >= 0 && castable(me, tp) && !(me.cast && me.cast.spell === 'teleport')
 
@@ -888,6 +895,36 @@ export class BotController implements Bot {
         out.push({ ...pr, owner: e.owner, vx: -pr.vx, vy: -pr.vy, data: { ...pr.data, origOwner: this.player } })
         break
       }
+    }
+    return out
+  }
+
+  /**
+   * readWindups: an enemy turning or winding up a straight bolt, as that bolt already flying.
+   * Placed back along its line by the time left before it fires, so it reaches the caster as the
+   * real one leaves the hand (a player reads the turn and the cast animation, 0.2 s and more on
+   * a close Fireball that leaves too little time to step aside once it is out).
+   */
+  private windups(enemies: PawnState[]): ProjectileState[] {
+    const out: ProjectileState[] = []
+    for (const e of enemies) {
+      const c = e.cast
+      const speed = c ? BOT_SPELLS[c.spell]?.speed : undefined
+      if (!c || !speed || BOT_SPELLS[c.spell]?.role !== 'projectile') {
+        this.noticed.delete(e.id)
+        continue
+      }
+      // one roll per cast (the same order keeps its key), not one per think
+      const key = `${c.slot}:${c.x}:${c.y}`
+      let seen = this.noticed.get(e.id)
+      if (seen?.key !== key) this.noticed.set(e.id, (seen = { key, seen: this.rng.chance(this.params.readWindups) }))
+      if (!seen.seen) continue
+      const d = hypot(c.x - e.x, c.y - e.y)
+      if (d < 1) continue
+      const vx = ((c.x - e.x) / d) * speed
+      const vy = ((c.y - e.y) / d) * speed
+      const t = Math.max(0, c.ticksLeft) / TICK_HZ
+      out.push({ id: -1, owner: e.owner, spell: c.spell, x: e.x - vx * t, y: e.y - vy * t, vx, vy, radius: SHOT_RADIUS, ticksLeft: 1, data: {} })
     }
     return out
   }

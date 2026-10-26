@@ -342,17 +342,30 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 - Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
 - Calibration: `npm run bots:elo` (scripts/bots/elo.ts) plays a seeded 1v1 round-robin of full first-to-5 matches on the real sim (about 40 s for 200 matches per pair, plus optional 4-player FFA pods). The unit is the **round**, the unit a player feels; a match turns a 75% round edge into about 90% of matches. Elo is the Bradley–Terry maximum-likelihood fit over all rounds (Medium = 1000); 95% intervals come from a bootstrap over whole matches, because rounds of one match share gold and items.
 - FFA (2+ enemies): bots pick the best opportunity, not the weakest player on the map (distance, kill chance discounted by travel, an easy hit, who threatens them, a grudge, third-party pushes, minus targets others are already on and their crossfire), hold a target for a while, stand where it is least crowded and back off at low HP; a seeded personality varies this per bot (`targetSense` and the notes in `src/bots/presets.ts`). `npx vite-node scripts/bots/ffa.ts` measures 8-bot FFA spread; 8 Brutal bots went from 2.6 bots per target and a 4+ mob in 52% of samples to 1.5 and 3%.
-- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber target about 75% round win rate per step (150–250 Elo), with Uber as the top reference; current measured gaps are shown below. Hard is Brutal's decision set with slower hands and the original 1/5 cast rate; Brutal adds **punish** (takes clear openings at once: a ready bolt the target can hardly step aside from, a sure or killing Scourge) at the same aim error and reaction delay; Uber punishes at the same rate on top of its own settings. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60–88% of rounds. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 325, Medium 1000, Hard 1650, Brutal 1850, Uber 2000) for the lobby’s approximate strength labels. Human ratings keep their existing Medium = 1000 anchor.
+- Ladder targets: Easy keeps its beginner reaction and aim settings; Medium sits between Easy and Hard (wide gaps there are intended); Hard, Brutal and Uber target about 75% round win rate per step (150–250 Elo), with Uber as the top reference; current measured gaps are shown below. Hard is Brutal's decision set with slower hands and the original 1/5 cast rate; Brutal adds **punish** (takes clear openings at once: a ready bolt the target can hardly step aside from, a sure or killing Scourge) at the same aim error and reaction delay; Uber punishes at the same rate on top of its own settings. `src/bots/ladder.test.ts` replays 16 seeds per top step and fails outside 60–88% of rounds. `BOT_ELO` (`src/bots/presets.ts`) exports the last full calibration rounded to 25 (Easy 350, Medium 1000, Hard 1825, Brutal 2025, Uber 2225) for the lobby’s approximate strength labels. Human ratings keep their existing Medium = 1000 anchor.
 
   | Tier | Round Elo | 95% CI | Step: rounds won | Step: matches won | Lobby estimate |
   |---|---|---|---|---|---|
-  | Easy | 331 | 270–379 | — | — | 325 |
+  | Easy | 339 | 286–386 | — | — | 350 |
   | Medium | 1000 | anchor | 98% over Easy | 100% | 1000 |
-  | Hard | 1642 | 1609–1687 | 98% over Medium | 100% | 1650 |
-  | Brutal | 1860 | 1820–1907 | 77% over Hard (75–79%) | 93% | 1850 |
-  | Uber | 2011 | 1972–2056 | 69% over Brutal (67–71%) | 86% | 2000 |
+  | Hard | 1824 | 1771–1910 | 99% over Medium | 100% | 1825 |
+  | Brutal | 2029 | 1974–2114 | 76% over Hard | 95% | 2025 |
+  | Uber | 2228 | 2172–2312 | 75% over Brutal | 91% | 2225 |
 
-  Measured 2026-10-20 on `d39c8df` plus Uber's punish: 400 completed first-to-5 matches per
+  Measured 2026-10-26 after **reading windups** (Hard 0.3, Brutal 0.7, Uber 0.7: the chance to
+  notice an enemy turning or winding up a straight bolt and dodge it as if already flying), 400
+  matches per pair, seeds 1–400. Why: in seeded Brutal duels, half the bolt hits on small arenas
+  were Fireballs cast from about 250 away that landed 0.2 s after spawning, too soon to dodge for
+  a bot that only saw bolts in flight (playtest 2026-10-25: Brutal "reacts slowly" late in a
+  round). Always on it is a big edge (Brutal 71% of rounds over the old Brutal, 86% over Hard,
+  Uber 80% over Brutal), so the chances were set on paired seeds for the steps: Brutal 76% over
+  Hard, Uber 75% over Brutal (was 69%; Uber at 0.5 would give 71%). Hard's rating moved most
+  (99% over Medium, was 98%: such pairs carry about ±50). Easy and Medium are unchanged; Easy's
+  label moved by noise across a rounding boundary.
+  [Measurement](research/bot-calibration-2026-10-26-windups.json) keeps the counts and the probes.
+
+  Before it, measured 2026-10-20 (Easy 331, Hard 1642, Brutal 1860, Uber 2011; Brutal 77% over
+  Hard, Uber 69% over Brutal), as follows. Measured 2026-10-20 on `d39c8df` plus Uber's punish: 400 completed first-to-5 matches per
   pair, seeds 1–400, sides alternated; 4,000 duels and 21,545 completed rounds, no capped duels.
   Ratings are Bradley–Terry fits with Medium fixed at 1000; intervals resample whole matches
   500 times (step intervals: 2,000 match resamples). Only Uber changed in this step: Uber over

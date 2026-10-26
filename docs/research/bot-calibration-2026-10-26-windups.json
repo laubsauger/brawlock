@@ -1,0 +1,129 @@
+{
+  "measured": "2026-10-26",
+  "source": "76231fc + readWindups (Hard 0.3, Brutal 0.7, Uber 0.7)",
+  "command": "npm run bots:elo -- --games 400 --workers 4",
+  "method": "Round-based Bradley–Terry; Medium = 1000; 500 whole-match bootstrap resamples; display rounded to nearest 25",
+  "why": "Playtest 2026-10-25: Brutal reacted slowly on small arenas. Classifying every bolt hit on Brutal in 10 seeded Brutal duels: on arenas of layer 10 or less, 49% were Fireballs that hit 0.2 s after spawning (cast from about 250 away), less than a reaction plus a sidestep. Bots only saw bolts in flight; a player reads the enemy turning and winding up (0.2 s cast point).",
+  "duels": {
+    "matchesPerPair": 400,
+    "seeds": [
+      1,
+      400
+    ],
+    "pairs": [
+      {
+        "a": "easy",
+        "b": "medium",
+        "winsA": 42,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "hard",
+        "winsA": 0,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "brutal",
+        "winsA": 0,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "easy",
+        "b": "uber",
+        "winsA": 1,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "hard",
+        "winsA": 16,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "brutal",
+        "winsA": 3,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "medium",
+        "b": "uber",
+        "winsA": 2,
+        "winsB": 2000,
+        "draws": 0
+      },
+      {
+        "a": "hard",
+        "b": "brutal",
+        "winsA": 623,
+        "winsB": 1944,
+        "draws": 0
+      },
+      {
+        "a": "hard",
+        "b": "uber",
+        "winsA": 174,
+        "winsB": 1999,
+        "draws": 0
+      },
+      {
+        "a": "brutal",
+        "b": "uber",
+        "winsA": 638,
+        "winsB": 1935,
+        "draws": 0
+      }
+    ],
+    "elo": {
+      "easy": {
+        "elo": 339,
+        "lo": 286,
+        "hi": 386
+      },
+      "medium": {
+        "elo": 1000,
+        "lo": 1000,
+        "hi": 1000
+      },
+      "hard": {
+        "elo": 1824,
+        "lo": 1771,
+        "hi": 1910
+      },
+      "brutal": {
+        "elo": 2029,
+        "lo": 1974,
+        "hi": 2114
+      },
+      "uber": {
+        "elo": 2228,
+        "lo": 2172,
+        "hi": 2312
+      }
+    }
+  },
+  "probes": {
+    "note": "Paired seeds, rounds won by the first tier. *_old = readWindups 0; hardN/brutalN/uberN = readWindups 0.N.",
+    "brutal(1) vs brutal_old": "71% (400 matches)",
+    "brutal(1) vs hard": "86%",
+    "uber(1) vs brutal(1)": "80%",
+    "hard(1) vs hard": "71%",
+    "brutal(1) vs hard(1)": "60%",
+    "hard3 vs hard": "54% (300 matches)",
+    "brutal5 vs hard": "78%",
+    "brutal7 vs hard": "82%",
+    "brutal7 vs hard3": "76%",
+    "uber5 vs brutal7": "71%",
+    "uber7 vs brutal7": "75%",
+    "uber8 vs brutal7": "77%",
+    "hard3 vs medium": "99%"
+  }
+}

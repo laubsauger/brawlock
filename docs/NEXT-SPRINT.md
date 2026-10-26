@@ -53,10 +53,15 @@ Deployment is established by release receipts, not by implementation status here
    - Fresh start for every seat outside ranked: sell the whole build for 75% of the gold paid on it,
      before the next fight or while waiting to respawn in respawn modes; a confirm dialog shows the
      refund. A seat just taken over from a bot still gets all of it back.
+   - Top-bar names: click one while watching to follow that player.
+   - Results: each row opens to the player's final build and net worth.
+   - Fix: the centre tile no longer glows outside King of the Hill.
+   - Bots read windups (Hard 30%, Brutal and Uber 70% of casts): an enemy turning or winding up a
+     straight bolt is dodged as if the bolt were flying. Half the hits Brutal took on small arenas
+     were close Fireballs no bot could dodge after spawn (the "reacts slowly" report). Ladder
+     remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels Hard 1825,
+     Brutal 2025, Uber 2225 (PLAN §7).
 6. **Bot follow-ups still open.**
-   - Brutal bots in ranked react slowly at times, worst on a small late arena. This was seen at 60 Hz,
-     before the 30 Hz default, so the tick rate is not the cause. Profile their decision cadence,
-     reaction delay and threat lookahead on a small arena.
    - Hard bots kill rarely in every mode (about 3 deaths in 3 minutes of a bot-only rounds game).
    - Value presets still drop a Scourge when predicted victims "walk out" (`gone`); its model assumes
      every enemy flees at once. Check it against real play once the cancels above are fixed.
