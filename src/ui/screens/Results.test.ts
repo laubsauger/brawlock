@@ -8,7 +8,8 @@ vi.mock('../flow', () => ({ backToLobby() {}, leaveToMenu() {}, rematch() {}, se
 vi.mock('./Lobby', () => ({ AutoStart: () => null }))
 vi.mock('../lib/replays', () => ({ useReplayIds: () => new Set(), watchReplay() {} }))
 vi.mock('../lib/motion', () => ({ countTo() {}, reducedMotion: () => true }))
-// as the itch.io build: accounts live on the site (accountsEnabled stays false in tests)
+// as the itch.io build: no accounts here, they live on the site (release tests run with accounts enabled)
+vi.mock('../../game/account', async (original) => ({ ...await original<typeof import('../../game/account')>(), accountsEnabled: false }))
 vi.mock('../../lib/site', async (original) => ({ ...await original<typeof import('../../lib/site')>(), SITE_HOST: 'brawlock.osc.link', openSite() {} }))
 vi.mock('../../game/store', async (original) => {
   const store = await original<typeof import('../../game/store')>()
