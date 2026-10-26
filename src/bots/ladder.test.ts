@@ -60,14 +60,13 @@ describe('bots: calibrated difficulty ladder', () => {
     const tiers = ['easy', 'medium', 'hard', 'brutal', 'uber'] as const
     for (let i = 1; i < tiers.length; i++) expect(BOT_ELO[tiers[i]]).toBeGreaterThan(BOT_ELO[tiers[i - 1]])
     // Independent 400-match measurements, seeds 1–400, recorded in
-    // docs/research/bot-calibration-2026-10-20-brutal.json (after Brutal's punish, Hard's
-    // original cast rate and Uber's punish: "uberStep"). A preset change that moves a step
-    // needs a new measurement here.
+    // docs/research/bot-calibration-2026-10-26-windups.json (after Hard and up learned to read
+    // windups). A preset change that moves a step needs a new measurement here.
     for (const [hi, lo, wins, losses] of [
       ['medium', 'easy', 2000, 42],
-      ['hard', 'medium', 2000, 43],
-      ['brutal', 'hard', 1938, 589],
-      ['uber', 'brutal', 1874, 838],
+      ['hard', 'medium', 2000, 16],
+      ['brutal', 'hard', 1944, 623],
+      ['uber', 'brutal', 1935, 638],
     ] as const) {
       const predicted = expectedScore(BOT_ELO[hi], BOT_ELO[lo])
       const measured = wins / (wins + losses)
