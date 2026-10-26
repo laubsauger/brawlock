@@ -204,7 +204,11 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.14**, source `c68ce367fcb8`, on 2026-10-25:
+The latest rollout is **v0.1.0-alpha.16**, source `c04177efe27f`, on 2026-10-26:
+[easier casual bots, a 1 s hill capture and guest sign-in prompts](../deploy/releases/2026-10-26-alpha16.md).
+**v0.1.0-alpha.15**, source `9fbd5447eee0`, shipped earlier that day:
+[the itch.io build, hill pillars and Fresh start](../deploy/releases/2026-10-26-alpha15.md).
+**v0.1.0-alpha.14**, source `c68ce367fcb8`, on 2026-10-25:
 [hill tuning and sharper bots after the evening playtest](../deploy/releases/2026-10-25-alpha14.md).
 **v0.1.0-alpha.13**, source `c2caf7e6f445`, shipped
 [gold for standing on the hill](../deploy/releases/2026-10-25-alpha13.md).
