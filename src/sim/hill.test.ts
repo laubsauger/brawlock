@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { isLocationSafeAtLayer } from './arena'
 import { killPawn } from './combat'
-import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, ticks } from './config'
+import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_GOLD_STEP, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_TICKET_SECONDS, ticks } from './config'
 import { hillLayerNow, hillStartLayer, hillStayOf, onHill } from './hill'
 import { prepareForRound } from './mode'
 import { applyRosterChanges } from './roster'
@@ -17,16 +17,20 @@ const OFF = 1000
 const goldOf = (s: SimState, id: number) => s.scores.find((sc) => sc.id === id)!.gold
 
 describe('King of the Hill: gold for standing on it', () => {
-  test('a stay pays every few seconds and ramps 1, 1, 2, 2, then 3 each: staying put is worth more', () => {
+  test('a stay pays every few seconds and ramps up to a cap: staying put is worth more, but the hill is no gold mine', () => {
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
     const start = goldOf(s, 0)
-    const events = run(s, ticks(HILL_GOLD_SECONDS * 7))
+    // long enough to reach the cap and stay on it for a while
+    const grants = (HILL_GOLD_MAX - HILL_GOLD_FIRST) * HILL_GOLD_STEP + 3
+    const events = run(s, ticks(HILL_GOLD_SECONDS * grants))
     const paid = of(events, 'hillGold').map((e) => e.gold)
-    // tuned with the user after the first playtest: the hill is not a gold mine
-    expect(paid).toEqual([1, 1, 2, 2, 3, 3, 3])
-    expect(HILL_GOLD_MAX).toBe(3)
+    expect(paid).toHaveLength(grants)
+    expect(paid[0]).toBe(HILL_GOLD_FIRST)
+    paid.slice(1).forEach((gold, i) => expect(gold).toBeGreaterThanOrEqual(paid[i]))
+    expect(paid.at(-1)).toBeGreaterThan(paid[0])
+    expect(paid.slice(-2)).toEqual([HILL_GOLD_MAX, HILL_GOLD_MAX])
     expect(goldOf(s, 0) - start).toBe(paid.reduce((a, b) => a + b, 0))
     expect(of(events, 'hillGold').every((e) => e.player === 0)).toBe(true)
   })
@@ -37,7 +41,7 @@ describe('King of the Hill: gold for standing on it', () => {
     place(pawn(s, 1), 192, 0)
     const events = run(s, ticks(HILL_GOLD_SECONDS))
     expect(s.hill?.contested).toBe(true)
-    expect(of(events, 'hillGold').map((e) => [e.player, e.gold])).toEqual([[0, 1], [1, 1]])
+    expect(of(events, 'hillGold').map((e) => [e.player, e.gold])).toEqual([[0, HILL_GOLD_FIRST], [1, HILL_GOLD_FIRST]])
   })
 
   test('stepping off for a moment starts the stay over: the timer and the ramp reset', () => {
@@ -45,14 +49,14 @@ describe('King of the Hill: gold for standing on it', () => {
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
     run(s, ticks(HILL_GOLD_SECONDS) + 1)
-    expect(hillStayOf(s, 0)).toMatchObject({ paid: 1, next: 1 })
+    expect(hillStayOf(s, 0)).toMatchObject({ paid: 1 })
     place(pawn(s, 0), OFF, OFF)
     run(s, 1)
     expect(hillStayOf(s, 0)).toBeUndefined()
     place(pawn(s, 0), 0, 0)
     const events = run(s, ticks(HILL_GOLD_SECONDS) - 1)
     expect(of(events, 'hillGold')).toHaveLength(0)
-    expect(of(run(s, 1), 'hillGold').map((e) => e.gold)).toEqual([1])
+    expect(of(run(s, 1), 'hillGold').map((e) => e.gold)).toEqual([HILL_GOLD_FIRST])
   })
 
   test('dying on the hill ends the stay', () => {
@@ -67,7 +71,7 @@ describe('King of the Hill: gold for standing on it', () => {
 })
 
 describe('King of the Hill: holding', () => {
-  test('alone on the hill: the first ticket after the capture time, then one a second; off it earns nothing', () => {
+  test('alone on the hill: the first ticket after the capture time, then one per ticket period; off it earns nothing', () => {
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
@@ -76,7 +80,7 @@ describe('King of the Hill: holding', () => {
     expect(scoreOf(s, 0)).toBe(0)
     run(s, 1)
     expect(scoreOf(s, 0)).toBe(1)
-    run(s, ticks(2))
+    run(s, 2 * ticks(HILL_TICKET_SECONDS))
     expect(scoreOf(s, 0)).toBe(3)
     expect(scoreOf(s, 1)).toBe(0)
     expect(of(events, 'hill')[0]).toMatchObject({ team: 0, contested: false, prev: null })
@@ -90,13 +94,14 @@ describe('King of the Hill: holding', () => {
     place(pawn(s, 1), OFF, 0)
     run(s, ticks(HILL_CAPTURE_SECONDS))
     expect(scoreOf(s, 0)).toBe(1)
-    run(s, ticks(0.5))
+    const held = Math.floor(ticks(HILL_TICKET_SECONDS) / 2)
+    run(s, held)
     place(pawn(s, 1), 192, 0)
     run(s, ticks(3))
     expect(scoreOf(s, 0)).toBe(1)
     place(pawn(s, 1), OFF, 0)
-    // the half second held before the contest still counts: the next ticket comes half a second later
-    run(s, ticks(0.5) - 1)
+    // the time held before the contest still counts: the next ticket comes only the rest later
+    run(s, ticks(HILL_TICKET_SECONDS) - held - 1)
     expect(scoreOf(s, 0)).toBe(1)
     run(s, 1)
     expect(scoreOf(s, 0)).toBe(2)
@@ -125,7 +130,7 @@ describe('King of the Hill: holding', () => {
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 192, 0)
     place(pawn(s, 2), -OFF, 0)
-    run(s, ticks(HILL_CAPTURE_SECONDS) + ticks(1))
+    run(s, ticks(HILL_CAPTURE_SECONDS) + ticks(HILL_TICKET_SECONDS))
     expect([scoreOf(s, 0), scoreOf(s, 1), scoreOf(s, 2)]).toEqual([2, 2, 0])
   })
 
@@ -141,7 +146,7 @@ describe('King of the Hill: holding', () => {
     const s = hill({ winScore: 3 })
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
-    const events = run(s, ticks(HILL_CAPTURE_SECONDS) + ticks(2))
+    const events = run(s, ticks(HILL_CAPTURE_SECONDS) + 2 * ticks(HILL_TICKET_SECONDS))
     expect(s.phase).toBe('gameOver')
     expect(of(events, 'gameOver')[0].winners).toEqual([0])
   })

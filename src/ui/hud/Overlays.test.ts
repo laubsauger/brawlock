@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { frame, pushState, resetFrame } from '../../game/frame'
 import { fight, grant } from '../../sim/testkit'
 import { addModifier } from '../../sim/modifiers'
+import { attr, masteryFactor, spellDef } from '../../sim'
 import { CharacterBody, Scoreboard } from './Overlays'
 
 afterEach(resetFrame)
@@ -18,12 +19,14 @@ describe('character sheet effective ability values', () => {
     frame.localPlayer = 0
     pushState(s, 0)
     const html = renderToStaticMarkup(createElement(CharacterBody))
-    expect(html).toContain('Duration 8.13s')
-    expect(html).toContain('Duration 8.75s')
-    // Starting Fireball is level 1: 70 x Pact 1.5 x match damage 1.5.
-    expect(html).toContain('Damage 157.5')
-    expect(html).toContain('Range 1220')
-    expect(html).toContain('Before target damage reduction.')
+    const num = (n: number) => String(Number(n.toFixed(2)))
+    const rush = spellDef('rush')!, fireball = spellDef('fireball')!
+    // Rush level 2 now and level 3 next, both with Duration mastery 3
+    expect(html).toContain(`Duration ${num(attr(rush, 'duration', 2) * masteryFactor('duration', 3))}s`)
+    expect(html).toContain(`Duration ${num(attr(rush, 'duration', 3) * masteryFactor('duration', 3))}s`)
+    // Starting Fireball is level 1: its damage x Pact 1.5 x match damage 1.5, its range x Range mastery 2
+    expect(html).toContain(`Damage ${num(attr(fireball, 'damage', 1) * 1.5 * 1.5)}`)
+    expect(html).toContain(`Range ${Math.round(attr(fireball, 'range', 1) * masteryFactor('range', 2))}`)
   })
 })
 

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "lint:invariants": "LINT_INVARIANTS=1 vitest run",
     "server": "vite-node server/main.mjs",
     "bots:elo": "vite-node scripts/bots/elo.ts --",
     "server:build": "node scripts/build-server.mjs",

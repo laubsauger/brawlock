@@ -21,7 +21,7 @@ Browser remake of Warlock / Warlock Brawl. Plan: `docs/PLAN.md`. Original mechan
 
 ## Commands
 
-- `npm run dev`, `npm run build`, `npm test`, `npm run typecheck`
+- `npm run dev`, `npm run build`, `npm test`, `npm run typecheck`, `npm run lint:invariants`
 - Deploy: push to `main`, GitHub Actions publishes to Pages. A `v*` release tag also publishes the itch.io build (`docs/ITCH.md`).
 
 ## Testing: selective by default
@@ -31,6 +31,10 @@ The full suite and a cold typecheck take minutes. Run what covers the change:
 - Tests run at 30 Hz; `TICK_HZ=60 npx vitest run <files>` runs them at 60. A change that touches tick timing runs its suites at both rates.
 - After an edit: `npx vitest run <touched files/dirs>` (or `npx vitest run --changed`), plus the suites that use the changed module. `npm run typecheck` in the main tree is incremental; never run a cold `tsc -b` in a fresh worktree or export just to re-check code that already passed.
 - Full `npm test` only when asked, for a release, or when a change reaches far into shared core (sim rules, net protocol, session flow used everywhere). Not as a routine end step: a specific, smaller change gets its own suites only. Never again for the same diff on another base, after a commit-only step, or to re-check unchanged code.
+- `*.lint.test.ts` scan the whole source for invariants (effect cleanups, bot math, tick-rate constants). `npm test` skips them; run `npm run lint:invariants` after touching effects, bot math or rate-derived constants. Releases always run it.
+- `src/bots/ladder.test.ts` replays seeded full matches (about 5 s) and is skipped unless `LADDER=1`. A change that can move bot strength (presets, decisions, aim, dodging, shopping) runs `LADDER=1 npx vitest run src/bots/ladder.test.ts`.
+- UI tests assert state, not copy or styling: `data-testid` names an element, `data-state` (or `data-<what>`) carries its state, numbers as they are. `src/ui/testing/markup.ts` parses static markup for that (`renderMarkup`, `find`, `testId`). No sentence or class assertions unless the class is the behavior.
+- In long simulated loops, check per-tick invariants with plain conditions and assert once at the end: an `expect` per tick costs more than the tick.
 - A test that takes more than ~2 s is a cost to fix (shorter simulated time, fewer seeds, earlier exit once its condition holds), not to accept.
 
 ## Gotchas

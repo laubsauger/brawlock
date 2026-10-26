@@ -71,6 +71,7 @@ For rollback, retain current account/game databases and outboxes, restore the ve
 ```sh
 npm ci
 npm test
+npm run lint:invariants
 npm run build
 npm run server:build
 cat dist-server/version.json

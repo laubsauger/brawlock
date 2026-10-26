@@ -136,7 +136,7 @@ function ShopClock() {
       ref.current.dataset.hot = String(s.phase === 'shop' && s.phaseTicksLeft <= 5 * TICK_HZ)
     }
   })
-  return <span ref={ref} className="tabular ink-sm text-[1.15rem] font-semibold text-[#f0d9b8] data-[hot=true]:text-[#ffb08f]" />
+  return <span ref={ref} className="tabular ink-sm text-[1.15rem] font-semibold text-[#f0d9b8] data-[hot=true]:text-[#ffb08f]" data-testid="shop-clock" />
 }
 
 /** Arrow keys move focus between cards in a grid of [data-nav="col,row"] buttons. */
@@ -208,6 +208,7 @@ function IconTile({
       data-state={offer.state}
       data-owned={offer.owned}
       data-passive={passive}
+      data-guided={guided || undefined}
       data-nav={nav}
       aria-disabled={disabled}
       aria-label={label}

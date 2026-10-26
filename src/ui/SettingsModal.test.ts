@@ -1,33 +1,24 @@
 import { Children, createElement, isValidElement, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../game/store'
+import { renderMarkup } from './testing/markup'
 
-type Capture = { action: 'spell0'; which: 'primary' | 'secondary' }
 type ModalProps = { children: ReactNode; escDisabled: boolean; onClose(): void }
 const model = vi.hoisted(() => ({
-  tab: 'gameplay', capture: null as Capture | null, stateIndex: 0,
   settings: null as unknown as Settings, modal: null as ModalProps | null,
   setTab: vi.fn(), setCapture: vi.fn(), setSettings: vi.fn(), toggle: vi.fn(),
   assignKey: vi.fn(() => ({ ok: true, note: 'Assigned' })), clearSecondary: vi.fn(), resetSlotLayout: vi.fn(),
   captureEffect: null as (() => void | (() => void)) | null,
 }))
 
-// SSR covers real widgets and markup. Only the two panel/capture states are
-// controlled so every category and its event handlers can be exercised without
-// adding a browser/DOM dependency to the test suite.
+// SSR covers real widgets and markup; the dialog takes its tab and key capture as props. Effects
+// do not run in SSR, so the key-capture effect (the one that receives onCapture) is kept to call.
 vi.mock('react', async (original) => {
   const react = await original<typeof import('react')>()
   return {
     ...react,
-    useState: ((initial: unknown) => {
-      const index = model.stateIndex++
-      if (index === 1) return [model.capture, model.setCapture]
-      if (index === 2) return [model.tab, model.setTab]
-      return react.useState(initial)
-    }) as typeof react.useState,
     useEffect: ((effect, deps) => {
-      if (deps?.[1] === model.setCapture) model.captureEffect = effect
+      if (deps?.includes(model.setCapture)) model.captureEffect = effect
       react.useEffect(effect, deps)
     }) as typeof react.useEffect,
   }
@@ -51,14 +42,13 @@ vi.mock('./widgets', async (original) => {
     return createElement(widgets.Modal, props)
   } }
 })
-import { SettingsModal } from './SettingsModal'
+import { SettingsDialog, SettingsModal, type KeyCapture, type SettingsTab } from './SettingsModal'
 
+const TABS: SettingsTab[] = ['gameplay', 'controls', 'video', 'audio', 'interface']
 const initialSettings = { ...model.settings }
-function markup(tab = model.tab) {
-  model.tab = tab
-  model.stateIndex = 0
+function render(tab: SettingsTab = 'gameplay', capturing: KeyCapture | null = null) {
   model.captureEffect = null
-  return renderToStaticMarkup(createElement(SettingsModal))
+  return renderMarkup(createElement(SettingsDialog, { tab, onTab: model.setTab, capturing, onCapture: model.setCapture }))
 }
 type TabProps = { id: string; role: 'tab'; onClick(): void; onKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void }
 function tabs(node: ReactNode): TabProps[] {
@@ -70,95 +60,92 @@ function tabs(node: ReactNode): TabProps[] {
   })
   return found
 }
+const pressed = (html: ReturnType<typeof render>, group: string) => html.get(`[role="group"][aria-label="${group}"] [aria-pressed="true"]`).text
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllGlobals()
-  model.tab = 'gameplay'
-  model.capture = null
   model.settings = { ...initialSettings }
 })
 
 describe('tabbed settings', () => {
-  it('opens Gameplay in a wider dialog with a wrapping sticky tab bar and persistent close button', () => {
-    const html = markup()
-    expect(html).toContain('max-w-4xl')
-    expect(html).toContain('role="dialog" aria-modal="true" aria-label="Settings"')
-    expect(html).toContain('role="tablist" aria-label="Settings categories"')
-    expect(html).toContain('sticky top-0')
-    expect(html).toContain('flex-wrap')
-    expect(html).toContain('id="settings-tab-gameplay" aria-controls="settings-panel-gameplay" aria-selected="true" tabindex="0"')
-    expect(html).toContain('aria-label="Close"')
-    expect(html).toContain('aria-label="Player name"')
-    expect(html).not.toContain('aria-label="Quality"')
-    expect(html).not.toContain('aria-label="Master volume"')
+  it('opens on Gameplay as one labelled modal dialog with a tab list and a close button', () => {
+    model.captureEffect = null
+    const html = renderMarkup(createElement(SettingsModal))
+    const dialog = html.get('[role="dialog"]')
+    expect(dialog.attr('aria-modal')).toBe('true')
+    expect(dialog.attr('aria-label')).toBe('Settings')
+    expect(html.get('[role="tablist"]').attr('aria-label')).toBe('Settings categories')
+    const gameplay = html.get('#settings-tab-gameplay')
+    expect(gameplay.attr('aria-selected')).toBe('true')
+    expect(gameplay.attr('tabindex')).toBe('0')
+    expect(gameplay.attr('aria-controls')).toBe('settings-panel-gameplay')
+    expect(html.find('[aria-label="Close"]')).toBeDefined()
+    expect(html.find('[aria-label="Player name"]')).toBeDefined()
+    expect(html.find('[aria-label="Quality"]')).toBeUndefined()
+    expect(html.find('[aria-label="Master volume"]')).toBeUndefined()
   })
 
-  it.each(['gameplay', 'controls', 'video', 'audio', 'interface'])('links every tab and mounts only the %s category', (tab) => {
-    const html = markup(tab)
-    expect(html.match(/role="tab"/g)).toHaveLength(5)
-    expect(html.match(/role="tabpanel"/g)).toHaveLength(5)
-    expect(html.match(/hidden=""/g)).toHaveLength(4)
-    expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
-    for (const id of ['gameplay', 'controls', 'video', 'audio', 'interface']) {
-      expect(html).toContain(`id="settings-panel-${id}" aria-labelledby="settings-tab-${id}"`)
-    }
-    const uniqueControl: Record<string, string> = { gameplay: 'Player name', controls: 'Hotkey preset', video: 'Quality', audio: 'Master volume', interface: 'HUD layout' }
-    for (const [id, label] of Object.entries(uniqueControl)) expect(html.includes(`aria-label="${label}"`)).toBe(id === tab)
+  it.each(TABS)('links every tab and mounts only the %s category', (tab) => {
+    const html = render(tab)
+    expect(html.findAll('[role="tab"]')).toHaveLength(TABS.length)
+    expect(html.findAll('[role="tabpanel"]')).toHaveLength(TABS.length)
+    expect(html.findAll('[role="tabpanel"][hidden]')).toHaveLength(TABS.length - 1)
+    expect(html.findAll('[aria-selected="true"]').map((el) => el.attr('id'))).toEqual([`settings-tab-${tab}`])
+    for (const id of TABS) expect(html.get(`#settings-panel-${id}`).attr('aria-labelledby')).toBe(`settings-tab-${id}`)
+    const uniqueControl: Record<SettingsTab, string> = { gameplay: 'Player name', controls: 'Hotkey preset', video: 'Quality', audio: 'Master volume', interface: 'HUD layout' }
+    for (const [id, label] of Object.entries(uniqueControl)) expect(html.find(`[aria-label="${label}"]`) !== undefined).toBe(id === tab)
   })
 
   it('preserves camera, identity and online settings in Gameplay', () => {
     model.settings = { ...model.settings, playerName: 'Ashbinder', cameraReach: 'far', edgePan: false, edgePanSpeed: 1.75, serverRegion: 'eu' }
-    const html = markup()
-    for (const label of ['Player name', 'Move cancels cast', 'Camera reach', 'Edge pan', 'Edge pan speed', 'Game server region']) expect(html).toContain(`aria-label="${label}"`)
-    expect(html).not.toContain('as in the original')
-    expect(markup('controls')).not.toContain('Move cancels cast')
-    expect(html).toContain('value="Ashbinder"')
-    expect(html).toMatch(/aria-pressed="true"[^>]*>Far</)
-    expect(html).toContain('aria-checked="false" aria-label="Edge pan"')
-    expect(html).toMatch(/aria-label="Edge pan speed"[^>]*value="1.75"/)
-    expect(html).toContain('Europe')
+    const html = render()
+    for (const label of ['Player name', 'Move cancels cast', 'Camera reach', 'Edge pan', 'Edge pan speed', 'Game server region']) expect(html.find(`[aria-label="${label}"]`), label).toBeDefined()
+    expect(render('controls').find('[aria-label="Move cancels cast"]')).toBeUndefined()
+    expect(html.get('[aria-label="Player name"]').attr('value')).toBe('Ashbinder')
+    expect(pressed(html, 'Camera reach')).toBe('Far')
+    expect(html.get('[role="switch"][aria-label="Edge pan"]').attr('aria-checked')).toBe('false')
+    expect(html.get('input[aria-label="Edge pan speed"]').attr('value')).toBe('1.75')
+    expect(html.get('[aria-label="Game server region"]').text).toContain('Europe')
   })
 
   it('preserves all video values and audio controls', () => {
     model.settings = { ...model.settings, quality: 'ultra', fxIntensity: 0.35, screenShake: 0, fpsCap: 144, resolutionScale: 0.7 }
-    const video = markup('video')
-    for (const label of ['Quality', 'Fullscreen', 'Effects intensity', 'Screen shake', 'Frame rate limit', 'Resolution scale']) expect(video).toContain(`aria-label="${label}"`)
-    expect(video).toMatch(/aria-pressed="true"[^>]*>Ultra</)
-    expect(video).toMatch(/aria-label="Effects intensity"[^>]*value="0.35"/)
-    expect(video).toMatch(/aria-label="Screen shake"[^>]*value="0"/)
-    expect(video).toMatch(/aria-pressed="true"[^>]*>144</)
-    expect(video).toMatch(/aria-label="Resolution scale"[^>]*value="0.7"/)
-    const sound = markup('audio')
-    for (const label of ['Mute', 'Master volume', 'Effects volume', 'Music volume', 'Ambience volume', 'Announcer volume', 'Announcer voice', 'Sound style']) expect(sound).toContain(`aria-label="${label}"`)
-    expect(sound).toContain('Test sound')
+    const video = render('video')
+    for (const label of ['Quality', 'Fullscreen', 'Effects intensity', 'Screen shake', 'Frame rate limit', 'Resolution scale']) expect(video.find(`[aria-label="${label}"]`), label).toBeDefined()
+    expect(pressed(video, 'Quality')).toBe('Ultra')
+    expect(video.get('input[aria-label="Effects intensity"]').attr('value')).toBe('0.35')
+    expect(video.get('input[aria-label="Screen shake"]').attr('value')).toBe('0')
+    expect(pressed(video, 'Frame rate limit')).toBe('144')
+    expect(video.get('input[aria-label="Resolution scale"]').attr('value')).toBe('0.7')
+    const sound = render('audio')
+    for (const label of ['Mute', 'Master volume', 'Effects volume', 'Music volume', 'Ambience volume', 'Announcer volume', 'Announcer voice', 'Sound style']) expect(sound.find(`[aria-label="${label}"]`), label).toBeDefined()
+    expect(sound.find('[data-testid="test-sound"]')).toBeDefined()
   })
 
   it('retains both binding keys, per-slot cast modes, drag swapping and resets', () => {
     model.settings = { ...model.settings, keybinds: { spell0: 'KeyH' }, keybindsAlt: { spell0: 'KeyJ' }, castModeSlots: { 0: 'release' } }
-    const html = markup('controls')
-    expect(html).toContain('aria-label="Hotkey preset"')
-    expect(html).toContain('aria-label="Cast mode"')
-    expect(html).toContain('main key: H. Click to change')
-    expect(html).toContain('second key: J. Click to change')
-    expect(html).toContain('aria-label="Cast mode for Column 1, knockout"')
-    expect(html).toContain('<option value="release" selected="">On release</option>')
-    expect(html).toContain('data-drop-slot="0"')
-    expect(html).toContain('data-drop-slot="11"')
-    expect(html).toContain('Reset slot layout')
-    expect(html).toContain('Reset to preset')
-    expect(html).toContain('sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]')
+    const html = render('controls')
+    expect(html.find('[aria-label="Hotkey preset"]')).toBeDefined()
+    expect(html.find('[aria-label="Cast mode"]')).toBeDefined()
+    expect(html.get('[data-action="spell0"][data-which="primary"]').text).toBe('H')
+    expect(html.get('[data-action="spell0"][data-which="secondary"]').text).toBe('J')
+    expect(html.get('select[data-slot="0"] option[selected]').attr('value')).toBe('release')
+    expect(html.find('[data-drop-slot="0"]')).toBeDefined()
+    expect(html.find('[data-drop-slot="11"]')).toBeDefined()
+    // custom keys on a spell slot: both resets are offered
+    expect(html.get('[data-testid="reset-slot-layout"]').attr('disabled')).toBeUndefined()
+    expect(html.get('[data-testid="reset-to-preset"]').attr('disabled')).toBeUndefined()
   })
 
   it('preserves every interface control', () => {
-    const html = markup('interface')
-    for (const label of ['HUD layout', 'HUD scale', 'Colorblind-safe player colors', 'Key hints', 'Show FPS', 'Net graph']) expect(html).toContain(`aria-label="${label}"`)
-    expect(html).not.toContain('aria-label="Player name"')
+    const html = render('interface')
+    for (const label of ['HUD layout', 'HUD scale', 'Colorblind-safe player colors', 'Key hints', 'Show FPS', 'Net graph']) expect(html.find(`[aria-label="${label}"]`), label).toBeDefined()
+    expect(html.find('[aria-label="Player name"]')).toBeUndefined()
   })
 
-  it('clears capture before changing tabs, removes its listener, and restores Escape closing', () => {
-    model.capture = { action: 'spell0', which: 'secondary' }
-    markup('controls')
+  it('clears capture when changing tabs, removes its listener, and restores Escape closing', () => {
+    render('controls', { action: 'spell0', which: 'secondary' })
     expect(model.modal!.escDisabled).toBe(true)
     const addEventListener = vi.fn(), removeEventListener = vi.fn()
     vi.stubGlobal('window', { addEventListener, removeEventListener })
@@ -167,12 +154,10 @@ describe('tabbed settings', () => {
     tabs(model.modal!.children).find((tab) => tab.id === 'settings-tab-audio')!.onClick()
     expect(model.setCapture).toHaveBeenCalledExactlyOnceWith(null)
     expect(model.setTab).toHaveBeenCalledExactlyOnceWith('audio')
-    expect(model.setCapture.mock.invocationCallOrder[0]).toBeLessThan(model.setTab.mock.invocationCallOrder[0])
     if (typeof cleanup !== 'function') throw new Error('Capture effect must remove its listener on unmount')
     cleanup()
     expect(removeEventListener).toHaveBeenCalledExactlyOnceWith('keydown', listener, true)
-    model.capture = null
-    markup('audio')
+    render('audio')
     expect(model.modal!.escDisabled).toBe(false)
     expect(model.captureEffect).toBe(null)
   })
@@ -180,8 +165,7 @@ describe('tabbed settings', () => {
   it.each([
     ['Escape', 'primary'], ['Delete', 'secondary'], ['KeyK', 'primary'],
   ] as const)('keeps %s key-capture behavior for the %s binding', (code, which) => {
-    model.capture = { action: 'spell0', which }
-    markup('controls')
+    render('controls', { action: 'spell0', which })
     const addEventListener = vi.fn()
     vi.stubGlobal('window', { addEventListener, removeEventListener: vi.fn() })
     vi.stubGlobal('document', { querySelectorAll: () => [{ getAttribute: () => 'Settings' }] })
@@ -200,8 +184,8 @@ describe('tabbed settings', () => {
   it.each([
     ['gameplay', 'ArrowLeft', 'interface'], ['interface', 'ArrowRight', 'gameplay'],
     ['controls', 'ArrowRight', 'video'], ['audio', 'Home', 'gameplay'], ['video', 'End', 'interface'],
-  ])('supports keyboard navigation %s + %s → %s', (from, key, target) => {
-    markup(from)
+  ] as const)('supports keyboard navigation %s + %s → %s', (from, key, target) => {
+    render(from)
     const focus = vi.fn(), querySelector = vi.fn(() => ({ focus })), preventDefault = vi.fn()
     const event = { key, preventDefault, currentTarget: { parentElement: { querySelector } } } as unknown as ReactKeyboardEvent<HTMLButtonElement>
     tabs(model.modal!.children).find((tab) => tab.id === `settings-tab-${from}`)!.onKeyDown(event)

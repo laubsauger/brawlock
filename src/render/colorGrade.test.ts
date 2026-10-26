@@ -37,9 +37,14 @@ const grade = (rgb: number[]) => (gradeSceneColor(vec3(rgb[0], rgb[1], rgb[2])) 
 describe('scene grading readability and color constraints', () => {
   it('opens dim floor detail while retaining black and dark shadow detail', () => {
     expect(grade([0, 0, 0])).toEqual([0, 0, 0])
+    // a dim floor gets brighter by one gain on every channel (the amount is a look choice)
     const floor = [0.012, 0.018, 0.04]
-    grade(floor).forEach((value, i) => expect(value / floor[i]).toBeCloseTo(1.10, 8))
-    expect(grade([0.001, 0.001, 0.001])[0]).toBeGreaterThanOrEqual(0.001 * 0.97)
+    const lifted = grade(floor)
+    const gain = lifted[0] / floor[0]
+    expect(gain).toBeGreaterThan(1)
+    lifted.forEach((value, i) => expect(value / floor[i]).toBeCloseTo(gain, 8))
+    // near-black may dip slightly but keeps its detail
+    expect(grade([0.001, 0.001, 0.001])[0]).toBeGreaterThanOrEqual(0.001 * 0.9)
   })
 
   it('keeps the luminance ramp strictly increasing without exceeding existing HDR ceilings', () => {

@@ -1,53 +1,46 @@
-import { describe, expect, it, vi } from 'vitest'
-import { MatchWorld } from './MatchWorld'
+import { describe, expect, it } from 'vitest'
+import { planBountyCollection } from './bountyCollectionLogic'
 
-const victim = { owner: 1, x: -200, y: 50, h: 20, floorH: 20 }
-const collector = { owner: 0, x: 300, y: -100, h: 20, floorH: 20 }
-
-function world(fx = 1, reducedMotion = false) {
-  return {
-    views: new Map([[1, victim], [2, collector]]),
-    overlay: { callout: vi.fn() },
-    particles: { budget: vi.fn((n: number) => n), spawn: vi.fn() },
-    ground: { spawn: vi.fn() },
-    opts: { fx }, reducedMotion: { matches: reducedMotion },
-  }
-}
-
-function collect(w: ReturnType<typeof world>, amount: number) {
-  const prototype = MatchWorld.prototype as unknown as {
-    bountyCollection(this: ReturnType<typeof world>, victim: typeof collector, killer: number, amount: number, now: number): void
-  }
-  prototype.bountyCollection.call(w, victim, collector.owner, amount, 5)
-}
+const victim = { x: -200, y: 50, h: 20 }
+const collector = { x: 300, y: -100, h: 20 }
+const all = (n: number) => n
 
 describe('bounty collection presentation', () => {
   it('sends a fixed gold handful from victim to collector and labels the exact authoritative payout', () => {
-    const w = world()
-    collect(w, 3)
-    expect(w.overlay.callout).toHaveBeenCalledWith('+3 bounty', collector.x, collector.y, collector.h + 125, 5)
-    expect(w.particles.spawn).toHaveBeenCalledTimes(10)
-    expect(w.ground.spawn).toHaveBeenCalledTimes(1)
-    for (const args of w.particles.spawn.mock.calls as number[][]) {
-      const [x, y, h, vx, vy, vh, life, , , , , , gravity] = args
-      // Existing GPU particle integration lands every facet at the collector.
-      expect(x + vx * life).toBeCloseTo(collector.x, 6)
-      expect(y + vy * life).toBeCloseTo(collector.y, 6)
-      expect(h + vh * life + gravity * life * life * 0.5).toBeCloseTo(collector.h + 85, 6)
-      expect(args.every(Number.isFinite)).toBe(true)
+    const plan = planBountyCollection(victim, collector, 3, 1, false, all)
+    expect(plan.label).toMatchObject({ text: '+3 bounty', x: collector.x, y: collector.y })
+    expect(plan.label.h).toBeGreaterThan(collector.h)
+    expect(plan.animate).toBe(true)
+    expect(plan.facets.length).toBeGreaterThan(0)
+    for (const f of plan.facets) {
+      // thrown from the defeated holder...
+      expect(Math.hypot(f.x - victim.x, f.y - victim.y)).toBeLessThan(Math.hypot(f.x - collector.x, f.y - collector.y))
+      // ...and the GPU particle integration lands every facet on the collector, above its feet
+      expect(f.x + f.vx * f.life).toBeCloseTo(collector.x, 6)
+      expect(f.y + f.vy * f.life).toBeCloseTo(collector.y, 6)
+      const landing = f.h + f.vh * f.life + f.gravity * f.life * f.life * 0.5
+      expect(landing).toBeGreaterThan(collector.h)
+      expect(Object.values(f).every(Number.isFinite)).toBe(true)
     }
-    const large = world()
-    collect(large, 1000)
-    expect(large.particles.spawn.mock.calls).toEqual(w.particles.spawn.mock.calls)
-    expect(large.overlay.callout.mock.calls[0][0]).toBe('+1000 bounty')
+    // payout size changes the label, never the particle cost
+    const large = planBountyCollection(victim, collector, 1000, 1, false, all)
+    expect(large.facets).toEqual(plan.facets)
+    expect(large.label.text).toBe('+1000 bounty')
+    // a richer quality tier adds facets on the same paths
+    const rich = planBountyCollection(victim, collector, 3, 1, false, (n) => n + 2).facets
+    expect(rich.slice(0, plan.facets.length)).toEqual(plan.facets)
+    expect(rich).toHaveLength(plan.facets.length + 2)
   })
 
   it('keeps the payout readable with motion/FX disabled without emitting animated extras', () => {
-    for (const w of [world(0), world(1, true)]) {
-      collect(w, 2)
-      expect(w.overlay.callout).toHaveBeenCalledOnce()
-      expect(w.particles.spawn).not.toHaveBeenCalled()
-      expect(w.ground.spawn).not.toHaveBeenCalled()
+    for (const [fx, reducedMotion] of [[0, false], [1, true]] as const) {
+      const asked: number[] = []
+      const plan = planBountyCollection(victim, collector, 2, fx, reducedMotion, (n) => { asked.push(n); return n })
+      expect(plan.label.text).toBe('+2 bounty')
+      expect(plan.animate).toBe(false)
+      expect(plan.facets).toEqual([])
+      // no particle budget is spent either
+      expect(asked).toEqual([])
     }
   })
 })

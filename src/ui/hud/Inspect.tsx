@@ -79,10 +79,10 @@ function useLoadout(player: number): LoadoutView {
  */
 export function Loadout({ player, size = 26, cards = false }: { player: number; size?: number; cards?: boolean }) {
   const v = useLoadout(player)
-  if (!v.ok) return <span className="text-sm text-ash">Loadout unavailable</span>
-  if (v.kind === 'unrevealed') return <span className="text-sm text-ash">{inspectionLabel(v.kind)}</span>
+  if (!v.ok) return <span className="text-sm text-ash" data-testid="loadout" data-state="unavailable">Loadout unavailable</span>
+  if (v.kind === 'unrevealed') return <span className="text-sm text-ash" data-testid="loadout" data-state={v.kind}>{inspectionLabel(v.kind)}</span>
   return (
-    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1" title={inspectionLabel(v.kind)}>
+    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1" title={inspectionLabel(v.kind)} data-testid="loadout" data-state={v.kind}>
       {v.kind === 'lastRound' && <span className="w-full text-xs text-ash">{inspectionLabel(v.kind)}</span>}
       {v.kit && <BuildIcons kit={v.kit} size={size} cardProps={cards ? (id, level, slot, kind) => abilityCardProps(() => ({ kind, id, context: 'inspect', slot, level, player, side: 'left' })) : undefined} />}
       {v.gold != null && (

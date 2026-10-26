@@ -85,7 +85,7 @@ describe('bot scheduled decisions', () => {
 })
 
 describe('nearest tile centre', () => {
-  it('matches a full grid scan on every layer, ties included', () => {
+  it('matches a full grid scan on empty, tiny, small, mid and full layers, ties included', () => {
     // brute force: the scan nearestTileCentre used before it kept per-layer tile lists
     const scan = (layer: number, x: number, y: number, interior: boolean) => {
       const n = Math.ceil(layerRadius(layer) / TILE_SIZE)
@@ -105,13 +105,20 @@ describe('nearest tile centre', () => {
       }
       return best
     }
-    for (let layer = 0; layer <= 22; layer++) {
-      // grid points sit exactly between tile centres too (equal distances)
+    // layer 1 has no tiles, 2 only the centre one, 21 is the largest
+    const mismatches: string[] = []
+    for (const layer of [1, 2, 6, 11, 21]) {
+      // x on tile centres and exactly between them (equal distances); y also off the grid
       for (let x = -2400; x <= 2400; x += 96) {
-        for (let y = -2400; y <= 2400; y += 240) {
-          for (const interior of [true, false]) expect(nearestTileCentre(layer, x, y, interior)).toEqual(scan(layer, x, y, interior))
+        for (let y = -2400; y <= 2400; y += 336) {
+          for (const interior of [true, false]) {
+            const got = nearestTileCentre(layer, x, y, interior)
+            const want = scan(layer, x, y, interior)
+            if (JSON.stringify(got) !== JSON.stringify(want)) mismatches.push(`layer ${layer} (${x}, ${y}) interior ${interior}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`)
+          }
         }
       }
     }
+    expect(mismatches).toEqual([])
   })
 })

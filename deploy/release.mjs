@@ -27,7 +27,7 @@ export function parseOptions(args) {
     seen.add(flag)
     if (flag === '--apply') result.apply = true
     else if (flag === '--admission') result.admission = true
-    // skips only the full vitest suite (release-tool tests, typecheck and builds still run)
+    // skips only the full vitest suite (release-tool tests, typecheck, invariant lints and builds still run)
     else if (flag === '--skip-tests') result.skipTests = true
     else if (['--revision', '--config', '--resume'].includes(flag) && args.length) result[flag.slice(2)] = args.shift()
     else fail(usage)
@@ -329,6 +329,7 @@ export async function main(args = process.argv.slice(2)) {
       await run(process.execPath, ['--test', '--test-concurrency=1', 'deploy/release.test.mjs', 'scripts/release-notes.test.mjs', 'scripts/analytics-model.test.mjs', 'scripts/analytics-report.test.mjs', 'server/monitoring.test.mjs', 'server/feedback-mail.test.mjs'])
       if (!state.skipTests) await run('npm', ['test', '--', '--maxWorkers=1'])
       await run('npm', ['run', 'typecheck'])
+      await run('npm', ['run', 'lint:invariants'])
       await run('npm', ['run', 'build', '--', '--base=/'])
       await run('npm', ['run', 'server:build'])
       await run('npm', ['run', 'accounts:build'])

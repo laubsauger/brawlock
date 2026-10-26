@@ -7,12 +7,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MatchResult, Screen } from '../store'
 import { createBot } from '../../bots'
-import { cloneState, createMatch, step } from '../../sim'
+import { createMatch, step } from '../../sim'
 import { killPawn } from '../../sim/combat'
 import { ticks } from '../../sim/config'
 import { startRound } from '../../sim/mode'
 import { applyRosterChanges } from '../../sim/roster'
-import { TICK_HZ, setTickRate, type InputCommand, type MatchSettings, type PlayerInput, type PlayerSlot, type SimState } from '../../sim/types'
+import { TICK_HZ, setTickRate, type InputCommand, type MatchSettings, type PlayerInput, type PlayerSlot } from '../../sim/types'
 import { codeFromSearch, roomLink } from '../../net/code'
 import { createMemoryNet, mulberry32, type LinkOptions } from '../../net/memory'
 import { createSession, type NetMode, type SessionDeps } from '../../net/session'
@@ -25,6 +25,8 @@ import { REPLAY_KEEP, ReplayLibrary, memoryBackend } from './store'
 import { ReplayViewer } from './viewer'
 
 const NET_ID = 'test-net-1'
+/** the fake clock's pulse, ms: half a tick (the sessions step from an accumulator) */
+const PULSE_MS = 500 / TICK_HZ
 
 const SETTINGS: MatchSettings = {
   teamMode: 'ffa',
@@ -53,8 +55,6 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
   const lib = new ReplayLibrary(memoryBackend())
   const hook = createReplayHook(NET_ID, lib)
   const saved: string[] = []
-  /** hash of the last authoritative state this peer stepped / saw */
-  const last = { tick: -1, hash: 0, state: null as SimState | null }
   /** every authoritative tick's hash (replays must reproduce each one) */
   const auth = new Map<number, number>()
   const results: MatchResult[] = []
@@ -76,11 +76,6 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
       observe: (s, e) => {
         hook.observe(s, e)
         auth.set(s.tick, replayHash(s))
-        if (s.tick >= last.tick) {
-          last.tick = s.tick
-          last.hash = replayHash(s)
-          last.state = cloneState(s)
-        }
       },
       finish: (r) => {
         results.push(r)
@@ -98,7 +93,7 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
     defaultSettings: SETTINGS,
     net,
     startClock: (onPulse) => {
-      const id = setInterval(() => onPulse(performance.now()), 4)
+      const id = setInterval(() => onPulse(performance.now()), PULSE_MS)
       return () => clearInterval(id)
     },
     now: () => performance.now(),
@@ -107,7 +102,7 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
     clientKey: () => key,
     netMode: () => mode,
   }
-  return { session: createSession(deps), store, lib, saved, last, results, auth, hook }
+  return { session: createSession(deps), store, lib, saved, results, auth, hook }
 }
 
 async function untilResults(...peers: ReturnType<typeof makePeer>[]): Promise<void> {
@@ -161,7 +156,8 @@ describe('record -> replay reproduces the match', () => {
     solo.session.leave()
   }, 30000)
 
-  it('input-stream client: its replay matches the host’s authoritative match', async () => {
+  /** Why: stats and replays come from authoritative states only, and every peer agrees on the result. */
+  it('input-stream client: records the host’s result from authoritative states, and its replay matches the host’s match', async () => {
     const net = createMemoryNet(LINK)
     const host = makePeer(net, 'Hosty', 'host-key')
     const client = makePeer(net, 'Clienta', 'client-key')
@@ -173,6 +169,11 @@ describe('record -> replay reproduces the match', () => {
     host.session.addBot('hard')
     host.session.startMatch()
     await untilResults(host, client)
+    expect(host.results).toHaveLength(1)
+    expect(client.results).toEqual(host.results)
+    // the recorder saw authoritative states only: every one is a host state
+    expect(client.auth.size).toBeGreaterThan(100)
+    for (const [tick, hash] of client.auth) expect(hash).toBe(host.auth.get(tick))
     const hostReplay = playToEnd(await loadSaved(host))
     const clientReplay = playToEnd(await loadSaved(client))
     expect(hostReplay.desync).toBeNull()
@@ -185,7 +186,8 @@ describe('record -> replay reproduces the match', () => {
     client.session.leave()
   }, 60000)
 
-  it('snapshot-only clients record nothing (no inputs are stepped there)', async () => {
+  /** Why: with no server, each peer's stats come from its own recording; a snapshot client steps no inputs to replay. */
+  it('snapshot-only clients record the same finished match for stats, but no replay', async () => {
     const net = createMemoryNet(LINK)
     const host = makePeer(net, 'Hosty', 'host-key', 'classic')
     const client = makePeer(net, 'Clienta', 'client-key', 'classic')
@@ -197,6 +199,11 @@ describe('record -> replay reproduces the match', () => {
     host.session.addBot('hard')
     host.session.startMatch()
     await untilResults(host, client)
+    expect(host.results).toHaveLength(1)
+    expect(client.results).toEqual(host.results)
+    expect(host.results[0].ticks).toBeGreaterThan(0)
+    expect(host.results[0].winners.length).toBeGreaterThan(0)
+    expect(client.auth.size).toBeGreaterThan(100)
     expect(host.saved).toHaveLength(1)
     expect(client.saved).toHaveLength(0)
     host.session.leave()

@@ -31,6 +31,7 @@ export function BuildIcons({ kit, size = 26, cardProps }: {
         {...(id ? cardProps?.(id, level, slot, kind) : null)}
         className="loadout-slot"
         data-empty={!id}
+        data-ability={id ?? undefined}
         style={{ width: size, height: size + (max > 1 ? 4 : 0) }}
         title={title}
         aria-label={title}
@@ -50,7 +51,7 @@ export function BuildIcons({ kit, size = 26, cardProps }: {
       </span>
       <span className="tabular flex gap-1 text-[0.72rem] font-semibold text-ash" title={MASTERIES.map((m) => `${m.name} mastery ${kit.masteries[m.id]} of ${MASTERY_MAX_LEVEL}`).join(', ')}>
         {MASTERIES.map((m) => (
-          <span key={m.id} className={kit.masteries[m.id] ? 'text-[#ffcf9a]' : ''} title={`${m.name} mastery ${kit.masteries[m.id]} of ${MASTERY_MAX_LEVEL}`}>
+          <span key={m.id} className={kit.masteries[m.id] ? 'text-[#ffcf9a]' : ''} title={`${m.name} mastery ${kit.masteries[m.id]} of ${MASTERY_MAX_LEVEL}`} data-mastery={m.id}>
             {m.name[0]}
             {kit.masteries[m.id]}
           </span>

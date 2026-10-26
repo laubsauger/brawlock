@@ -41,18 +41,18 @@ export function PracticeHud() {
     <section data-testid="guided-practice" className="hud-plate interactive pointer-events-auto absolute top-4 left-4 z-20 w-[min(340px,calc(100vw-32px))] rounded-md p-4" aria-label="Guided practice">
       <div className="mb-2 flex items-center justify-between gap-3 text-xs text-ash"><span className="font-bold tracking-wider text-gold uppercase">Guided practice</span><span>{Math.min(current + 1, 5)} / 5</span></div>
       <h2 className="font-display text-2xl font-bold text-[#ffe0a9]" aria-live="polite">{TITLES[view.step]}</h2>
-      <div className="mt-2 min-h-14 text-sm leading-relaxed text-bone">
+      <div className="mt-2 min-h-14 text-sm leading-relaxed text-bone" data-testid="practice-instruction" data-cast-mode={mode}>
         {view.step === 'move' ? <><Kbd>Right mouse</Kbd> on the gold ring to walk there. Aim your spells with the mouse.</>
           : view.step === 'shop' ? <>Choose <strong>Teleport</strong> in the <strong>Transport</strong> column. This shop has no timer. You’ll choose one spell from each column in a real match.</>
             : view.step === 'complete' ? <>You’ve moved, cast, shopped and escaped. Try a gentle match against two bots, or return to the menu.</>
               : <>{cast} {at}{mode === 'quick' ? <>, then press <Kbd>{key}</Kbd></> : null}.{view.step === 'lava' && ' Hits push enemies back. Send this dummy over the edge.'}</>}
       </div>
       {view.retries > 0 && <p className="mt-2 text-xs text-[#ffc69a]">Lava burns! You’re back on solid ground. Keep going.</p>}
-      <ol className="my-3 space-y-1 text-sm" aria-label="Practice checklist">{CHECKS.map((title, i) => <li key={title} className={i < current ? 'text-[#a5d6ce]' : i === current ? 'font-semibold text-bone' : 'text-ash/65'} aria-current={i === current ? 'step' : undefined}>
+      <ol className="my-3 space-y-1 text-sm" aria-label="Practice checklist">{CHECKS.map((title, i) => <li key={title} className={i < current ? 'text-[#a5d6ce]' : i === current ? 'font-semibold text-bone' : 'text-ash/65'} aria-current={i === current ? 'step' : undefined} data-state={i < current ? 'done' : i === current ? 'current' : 'todo'}>
         <span className="mr-2 inline-block w-4" aria-hidden>{i < current ? '✓' : i === current ? '›' : '○'}</span>{title}{i < current && <span className="sr-only"> complete</span>}
       </li>)}</ol>
       {view.step === 'shop' && <Button size="sm" variant="primary" className="mb-2 w-full" onClick={() => useGame.getState().toggle('shopOpen', true)}>Open shop <Kbd>{bindLabel(binds, 'shop')}</Kbd></Button>}
-      {view.step === 'complete' && <Button variant="primary" className="mb-2 w-full" onClick={playBotPractice}>Play a bot match</Button>}
+      {view.step === 'complete' && <Button variant="primary" className="mb-2 w-full" onClick={playBotPractice} data-testid="practice-bot-match">Play a bot match</Button>}
       <Button size="sm" variant="ghost" className="w-full" sound="back" onClick={leaveToMenu}>{view.step === 'complete' ? 'Back to menu' : 'Leave practice'}</Button>
       <p className="mt-2 text-[0.7rem] text-ash/80">Offline · no stakes · short practice cooldowns · Esc to pause</p>
     </section>

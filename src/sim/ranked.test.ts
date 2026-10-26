@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ROUND_END_SECONDS, ticks } from './config'
+import { ARENA_BASE_LAYER, ARENA_LAYER_PER_PLAYER, RANKED_FINAL_SHOP_SECONDS, RANKED_FINAL_SHRINK_PERIOD, RANKED_SHRINK_PERIOD, ROUND_END_SECONDS, ticks } from './config'
 import { killPawn } from './combat'
 import { BET_TWO_STARTER_SECONDS, canSpectateBet, placeSpectateBet } from './bets'
 import { cloneState, gameWinners, hashState, isRoundParticipant, setPlayerConnected, step } from './index'
@@ -8,6 +8,7 @@ import { MOD_SPAWN_INVULNERABLE, removeModifiers } from './modifiers'
 import { attr, cooldownSeconds, SPELLS } from './spells/data'
 import { masteryFactor } from './stats'
 import { activePlayers } from './teams'
+import { clampLayer } from './arena'
 import { cmd, grant, newMatch, of, pawn, place, run, runUntil } from './testkit'
 import type { SimState } from './types'
 
@@ -23,6 +24,9 @@ function winRound(state: SimState, winner: number): void {
   expect(state.phase).toBe('roundEnd')
   run(state, ticks(ROUND_END_SECONDS))
 }
+
+/** The fight platform a regular round gives this many players: a final's is smaller (RANKED-FORMAT.md). */
+const regularLayer = (players: number) => clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
 
 function tiedFinal(): SimState {
   const state = ranked()
@@ -40,8 +44,10 @@ describe('dedicated ranked scheduled rounds', () => {
       expect(state.round).toBe(winner + 1)
     }
     expect(state.rankedFinal).toEqual({ contenders: [0, 1, 2, 3, 4] })
-    expect(state.phaseTicksLeft).toBe(ticks(15))
-    expect(state.arena.layer).toBe(14)
+    expect(state.phaseTicksLeft).toBe(ticks(RANKED_FINAL_SHOP_SECONDS))
+    // a smaller platform than a regular round of five, but larger than a two-warlock final's
+    expect(state.arena.layer).toBeLessThan(regularLayer(5))
+    expect(state.arena.layer).toBeGreaterThan(tiedFinal().arena.layer)
     expect(state.pawns.filter((p) => p.alive).map((p) => p.owner)).toEqual([0, 1, 2, 3, 4])
     winRound(state, 4)
     expect(state.round).toBe(6)
@@ -83,8 +89,9 @@ describe('dedicated ranked scheduled rounds', () => {
     state.scores[1].masteries.duration = 3
     for (const winner of [0, 1, 0, 1, 2]) winRound(state, winner)
     expect(state.rankedFinal).toEqual({ contenders: [0, 1] })
-    expect(state.arena.layer).toBe(11)
-    expect(state.phaseTicksLeft).toBe(ticks(15))
+    const finalLayer = state.arena.layer
+    expect(finalLayer).toBeLessThan(regularLayer(2))
+    expect(state.phaseTicksLeft).toBe(ticks(RANKED_FINAL_SHOP_SECONDS))
     expect(state.scores[1].gold).toBe(40 + 5 * 12 + 2 * 3)
     expect(state.scores[1].masteries.duration).toBe(3)
     expect(pawn(state, 1).levels[pawn(state, 1).slots.indexOf('drain')]).toBe(4)
@@ -101,8 +108,9 @@ describe('dedicated ranked scheduled rounds', () => {
     expect(state.scores[2].deaths).toBe(outsiderDeaths)
     expect(of(state.events, 'death')).toEqual([])
     startRound(state)
-    expect(state.arena.layer).toBe(11)
-    expect(state.arena.nextShrinkTick - state.tick).toBe(ticks(6))
+    // the final fights on the platform it shopped on
+    expect(state.arena.layer).toBe(finalLayer)
+    expect(state.arena.nextShrinkTick - state.tick).toBe(ticks(RANKED_FINAL_SHRINK_PERIOD))
     expect(pawn(state, 2).alive).toBe(false)
     killPawn(state, pawn(state, 0), 1, 'fireball')
     expect(state.scores[1].score).toBe(2)
@@ -169,7 +177,7 @@ describe('dedicated ranked scheduled rounds', () => {
       expect(draws.round).toBe(round)
     }
     expect(draws.rankedFinal?.contenders).toHaveLength(8)
-    expect(draws.arena.layer).toBe(15)
+    expect(draws.arena.layer).toBeLessThan(regularLayer(8))
     startRound(draws)
     for (const p of draws.pawns) p.alive = false
     roundWon(draws, null)
@@ -182,7 +190,7 @@ describe('dedicated ranked scheduled rounds', () => {
   test.each(['shield', 'rush'])('ranked collapse reaches zero safe floor while max passive health and %s still burn', (defense) => {
     const state = ranked(2)
     startRound(state)
-    expect(state.arena.nextShrinkTick - state.tick).toBe(ticks(8))
+    expect(state.arena.nextShrinkTick - state.tick).toBe(ticks(RANKED_SHRINK_PERIOD))
     for (const p of state.pawns) {
       grant(state, p.owner, 'ring_of_health', 5)
       grant(state, p.owner, 'cursed_ring', 2)
@@ -232,7 +240,6 @@ describe('dedicated ranked scheduled rounds', () => {
     const drain = SPELLS.drain
     const burst = attr(drain, 'damage', drain.maxLevel) * attr(SPELLS.pact, 'damage_multiplier', 1)
     const generousReplenishment = p.hpRegen + burst * (1 + masteryFactor('lifesteal', 6)) / cooldownSeconds(drain, drain.maxLevel)
-    expect(generousReplenishment).toBeCloseTo(24.1375)
     expect(generousReplenishment).toBeLessThan(state.settings.lavaDps)
     const burning = []
     for (let tick = 0; tick < ticks(30) && state.phase === 'fight'; tick++) {

@@ -7,12 +7,20 @@
  * off the next one. A tweak that makes a top step a near-sweep again (as it was before, 85-96%)
  * or erases it fails here. Easy and Medium are meant for new players, so the gaps below Hard stay
  * wide on purpose.
+ *
+ * The replays play dozens of full first-to-5 matches (about 5 s), so they only run with
+ * `LADDER=1 npx vitest run src/bots/ladder.test.ts`: do that after any change to src/bots that
+ * can move bot strength (presets, decisions, aim, dodging, shopping).
  */
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, createMatch, step, ticks } from '../sim'
 import type { BotDifficulty, PlayerSlot } from '../sim'
 import { BOT_ELO, createBot } from './index'
 import { expectedScore } from './rating'
+// the measurement BOT_ELO is rounded from (presets.ts); a preset change that moves a step needs a new one
+import calibrationJson from '../../docs/research/bot-calibration-2026-10-26-windups.json?raw'
+
+const LADDER = !!(globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.LADDER
 
 /** share of decided rounds `strong` wins over seeded first-to-5 matches, sides swapped */
 function roundShare(strong: BotDifficulty, weak: BotDifficulty, seeds: number): number {
@@ -34,7 +42,7 @@ function roundShare(strong: BotDifficulty, weak: BotDifficulty, seeds: number): 
   return won / (won + lost)
 }
 
-describe('bots: calibrated difficulty ladder', () => {
+describe.runIf(LADDER)('bots: calibrated difficulty ladder (LADDER=1)', () => {
   it('Uber stays clearly above Brutal', () => {
     // Measured 69% of rounds (400 matches; 65% on these 16 seeds). Widening Hard–Brutal took
     // part of Uber's lead (64%), and Uber taking openings at Brutal's rate won a little back.
@@ -54,23 +62,23 @@ describe('bots: calibrated difficulty ladder', () => {
     expect(roundShare('medium', 'easy', 4)).toBeGreaterThanOrEqual(0.9)
     expect(roundShare('hard', 'medium', 4)).toBeGreaterThanOrEqual(0.9)
   }, 20_000)
+})
 
+describe('bots: difficulty labels', () => {
   it('BOT_ELO describes the measured round shares, with Medium anchored at 1000', () => {
     expect(BOT_ELO.medium).toBe(1000)
     const tiers = ['easy', 'medium', 'hard', 'brutal', 'uber'] as const
     for (let i = 1; i < tiers.length; i++) expect(BOT_ELO[tiers[i]]).toBeGreaterThan(BOT_ELO[tiers[i - 1]])
-    // Independent 400-match measurements, seeds 1–400, recorded in
-    // docs/research/bot-calibration-2026-10-26-windups.json (after Hard and up learned to read
-    // windups). A preset change that moves a step needs a new measurement here.
-    for (const [hi, lo, wins, losses] of [
-      ['medium', 'easy', 2000, 42],
-      ['hard', 'medium', 2000, 16],
-      ['brutal', 'hard', 1944, 623],
-      ['uber', 'brutal', 1935, 638],
-    ] as const) {
+    // independent 400-match measurements of each neighbouring pair
+    const { pairs } = (JSON.parse(calibrationJson) as { duels: { pairs: { a: string; b: string; winsA: number; winsB: number }[] } }).duels
+    for (let i = 1; i < tiers.length; i++) {
+      const [lo, hi] = [tiers[i - 1], tiers[i]]
+      const pair = pairs.find((p) => (p.a === lo && p.b === hi) || (p.a === hi && p.b === lo))
+      expect(pair, `${hi} over ${lo} measured`).toBeDefined()
+      const wins = pair!.a === hi ? pair!.winsA : pair!.winsB
+      const losses = pair!.a === hi ? pair!.winsB : pair!.winsA
       const predicted = expectedScore(BOT_ELO[hi], BOT_ELO[lo])
-      const measured = wins / (wins + losses)
-      expect(Math.abs(predicted - measured), `${hi} over ${lo}`).toBeLessThan(0.05)
+      expect(Math.abs(predicted - wins / (wins + losses)), `${hi} over ${lo}`).toBeLessThan(0.05)
     }
   })
 })

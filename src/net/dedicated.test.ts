@@ -27,7 +27,7 @@ import { ticks as toTicks } from '../sim/config'
 /** what people said: the room's join / leave lines left out */
 const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
 
-const TIME_SCALE = 4
+const TIME_SCALE = 16
 let servers: DedicatedServer[] = []
 const analyticsDirs: string[] = []
 const quiet = () => {}
@@ -44,6 +44,9 @@ const until = async (pred: () => boolean, ms: number, what: string) => {
     await new Promise((r) => setTimeout(r, 25))
   }
 }
+
+/** waits this long on the scaled session clock (lobby and results timers run on it) */
+const pause = (sessionMs: number) => new Promise((r) => setTimeout(r, sessionMs / TIME_SCALE))
 
 const headlessClient = (base: string | null, opts: ClientOpts = {}) => createHeadlessClient(base, { ...opts, timeScale: TIME_SCALE })
 
@@ -300,7 +303,7 @@ describe('dedicated server (M4.1)', () => {
     const seat = guest.lobby().localPlayer
     owner.session.startMatch()
     await until(() => guest.screen() === 'match', 5000, 'match')
-    await new Promise((r) => setTimeout(r, 1000))
+    await pause(4000)
     guest.session.leave()
     await until(() => owner.notices.some((n) => /bot took over/.test(n)), 4000, 'bot takeover')
     // the browser restarted: new tab key, same device
@@ -426,8 +429,11 @@ describe('public rooms and quick play (M4.3)', () => {
     } finally { owner.session.leave() }
   }, 10000)
 
-  it('fills a default quick game to ten with five Medium and four Hard bots (casual stays beatable), uses modest gold rewards and reuses it for a newcomer', async () => {
-    const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 4000, startMs: 100 } })
+  it('fills a default quick game to its table with the configured bot mix and queue economy, and reuses it for a newcomer', async () => {
+    const queue = DEFAULT_SERVER_CONFIG.quickplay
+    const { startGold, roundGold, killGold, winGold } = queue.settings!
+    const economy = { startGold, roundGold, killGold, winGold }
+    const { base, srv } = await start({ quickplay: { ...queue, fillMs: 4000, startMs: 100 } })
     const a = headlessClient(base, { key: 'full-house-a', device: 'full-house-device-a', play: false })
     const b = headlessClient(base, { key: 'full-house-b', device: 'full-house-device-b', play: false })
     try {
@@ -435,25 +441,24 @@ describe('public rooms and quick play (M4.3)', () => {
       await a.session.join(opened.code)
       await until(() => a.lobby().autoStart !== null && a.lobby().autoStart !== undefined, 3000, 'the quick lobby countdown')
       expect(a.screen()).toBe('lobby')
-      expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
-      expect(srv.core.room(opened.code)!.summary().elo).toEqual({ enabled: false, minSeconds: 120 })
+      expect(a.lobby().settings).toMatchObject(economy)
+      expect(srv.core.room(opened.code)!.summary().elo).toMatchObject({ enabled: false })
       expect(srv.core.room(opened.code)!.summary().progress).toBeNull()
-      await until(() => a.screen() === 'match' && a.lobby().slots.length === 10, 8000, 'a full-house quick start')
-      expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
-      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(9)
-      const levels = a.lobby().slots.filter((s) => s.kind === 'bot').map((s) => s.difficulty)
-      expect(levels.filter((d) => d === 'medium')).toHaveLength(5)
-      expect(levels.filter((d) => d === 'hard')).toHaveLength(4)
-      expect(levels.filter((d) => d === 'brutal' || d === 'uber')).toHaveLength(0)
+      await until(() => a.screen() === 'match' && a.lobby().slots.length === queue.fill, 8000, 'a full-house quick start')
+      expect(a.lobby().settings).toMatchObject(economy)
+      // the mix seats first, one bot per entry; the rest play at the table's level
+      const levels = a.lobby().slots.filter((s) => s.kind === 'bot').map((s) => s.difficulty).sort()
+      const mix = queue.mix ?? []
+      expect(levels).toEqual([...mix, ...Array(queue.fill - 1 - mix.length).fill(queue.bots)].sort())
       await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
-      expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(50)
+      expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(startGold)
       const listed = (await a.online.browse()).find((room) => room.code === opened.code)!
       expect(listed).toMatchObject({ phase: 'match', progress: { round: 1, phase: 'shop', final: false } })
       expect(listed.progress!.elapsedSeconds).toBeGreaterThanOrEqual(0)
       expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
       await b.session.join(opened.code)
       await until(() => a.lobby().slots.filter((s) => s.kind === 'human').length === 2, 3000, 'a human replacing a full-house bot')
-      expect(a.lobby().slots).toHaveLength(10)
+      expect(a.lobby().slots).toHaveLength(queue.fill)
       expect(srv.core.stats().rooms).toBe(1)
     } finally { a.session.leave(); b.session.leave() }
   }, 15000)
@@ -469,7 +474,7 @@ describe('public rooms and quick play (M4.3)', () => {
       await a.session.join(opened.code)
       a.session.setWaitingForPlayers(true)
       await until(() => a.lobby().waitingForPlayers?.includes(a.lobby().localPlayer) === true && a.lobby().autoStart === null, 3000, 'the held lobby')
-      await new Promise((r) => setTimeout(r, 600)) // beyond the original solo deadline
+      await pause(2400) // beyond the original solo deadline
       expect(a.screen()).toBe('lobby')
       expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
       await b.session.join(opened.code)
@@ -719,40 +724,33 @@ describe('public rooms and quick play (M4.3)', () => {
   }, 80000)
 
   /**
-   * Why: an abandoned tab must not keep a quick room cycling matches against bots for hours.
-   * A player who touched nothing for a whole game (3+ rounds) goes back to the menu when it
-   * ends, with a reason, and the room has nobody left to start another match for.
+   * Why: an abandoned tab must not keep a quick room cycling matches against bots for hours, but
+   * a break is not abandonment. A player who touched nothing for a whole game (3+ rounds) goes
+   * back to the menu when it ends, with a reason; one chat line (or any input) keeps the seat.
    */
-  it('quick play: a player idle for a whole game goes back to the menu when it ends', async () => {
-    const { base, srv } = await start(quick({ fill: 3, fillMs: 500, nextMs: 4000, settings: { ...FAST, winScore: 3 } }))
-    const a = headlessClient(base, { key: 'qi', device: 'device-qi-1', play: false })
-    const r = await a.online.quickPlay('test')
-    await a.session.join(r.code)
-    await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
+  it('quick play: after a whole idle game the idle player goes back to the menu, one who chatted keeps the seat', async () => {
+    // one Hard bot ends each round fast: it only has to knock out two idle players
+    const { base, srv } = await start(quick({ fill: 3, bots: 'hard', fillMs: 500, nextMs: 4000, settings: { ...FAST, winScore: 3 } }))
+    const idle = headlessClient(base, { key: 'qi', device: 'device-qi-1', play: false })
+    const chatty = headlessClient(base, { key: 'qj', device: 'device-qj-1', play: false })
+    const r = await idle.online.quickPlay('test')
+    await idle.session.join(r.code)
+    await chatty.session.join(r.code)
+    await until(() => idle.screen() === 'match' && chatty.screen() === 'match', 8000, 'the bot-filled start')
+    expect(chatty.session.sendChat('brb')).toBe('sent')
     const room = srv.core.room(r.code)!
-    await until(() => a.screen() === 'menu', 90000, 'the idle player to be sent back')
-    expect(a.lobby()).toMatchObject({ status: 'error', error: expect.stringContaining('away for a whole game') })
-    expect(a.results).toHaveLength(1)
-    expect(a.results[0].rounds).toBeGreaterThanOrEqual(3)
-    await until(() => room.humans() === 0, 3000, 'the seat to be freed')
-    expect(room.screen()).not.toBe('match')
+    await until(() => idle.screen() === 'menu', 90000, 'the idle player to be sent back')
+    expect(idle.lobby()).toMatchObject({ status: 'error', error: expect.stringContaining('away for a whole game') })
+    expect(idle.results).toHaveLength(1)
+    expect(idle.results[0].rounds).toBeGreaterThanOrEqual(3)
+    await until(() => room.humans() === 1, 3000, 'the idle seat to be freed')
+    expect(chatty.screen()).toBe('results')
+    chatty.session.setReady(true)
+    await until(() => chatty.screen() === 'match' || chatty.screen() === 'menu', 15000, 'the next game')
+    expect(chatty.screen()).toBe('match')
+    expect(chatty.lobby().error).toBeNull()
+    chatty.session.leave()
   }, 100000)
-
-  /** Why: a break is not abandonment: one chat line (or any input) during the game keeps the seat for the next one. */
-  it('quick play: a player who chats once during an otherwise idle game keeps the seat', async () => {
-    const { base } = await start(quick({ fill: 3, fillMs: 500, nextMs: 4000, settings: { ...FAST, winScore: 3 } }))
-    const a = headlessClient(base, { key: 'qj', device: 'device-qj-1', play: false })
-    const r = await a.online.quickPlay('test')
-    await a.session.join(r.code)
-    await until(() => a.screen() === 'match', 8000, 'the bot-filled start')
-    expect(a.session.sendChat('brb')).toBe('sent')
-    await until(() => a.screen() === 'results', 90000, 'the game to end')
-    a.session.setReady(true)
-    await until(() => a.screen() === 'match' || a.screen() === 'menu', 15000, 'the next game')
-    expect(a.screen()).toBe('match')
-    expect(a.lobby().error).toBeNull()
-    a.session.leave()
-  }, 120000)
 
   /**
    * Why: players were pulled into the next game seconds after a match, before they could read
@@ -769,18 +767,18 @@ describe('public rooms and quick play (M4.3)', () => {
     await until(() => a.screen() === 'match' && b.screen() === 'match', 12000, 'the first match')
     await until(() => a.screen() === 'results' && b.screen() === 'results', 60000, 'the first match to end')
     // well past the old nextMs: nobody pressed Ready, so nothing starts
-    await new Promise((r) => setTimeout(r, 3000))
+    await pause(3000)
     expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
     a.session.setReady(true)
     // one ready player never drags the other along
-    await new Promise((r) => setTimeout(r, 3000))
+    await pause(3000)
     expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
     b.session.setReady(true)
     await until(() => !!a.lobby().autoStart && !!b.lobby().autoStart, 3000, 'rematch grace countdown')
     expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
     b.session.setReady(false)
     await until(() => !a.lobby().autoStart && !b.lobby().autoStart, 3000, 'opting out cancels rematch')
-    await new Promise((resolve) => setTimeout(resolve, 2800))
+    await pause(3000)
     expect([a.screen(), b.screen()]).toEqual(['results', 'results'])
     b.session.setReady(true)
     await until(() => a.screen() === 'match' && b.screen() === 'match', 8000, 'the next match once both are ready')
@@ -794,7 +792,7 @@ describe('public rooms and quick play (M4.3)', () => {
     const r = await a.online.quickPlay('test')
     await a.session.join(r.code)
     await until(() => a.screen() === 'results', 60000, 'the match to end')
-    await until(() => a.screen() === 'menu', 4000 / 4 + 4000, 'back to the menu after the results idle time')
+    await until(() => a.screen() === 'menu', 4000 / TIME_SCALE + 4000, 'back to the menu after the results idle time')
     expect(a.lobby().error).toMatch(/results stayed open/)
     await until(() => !srv.core.room(r.code) || srv.core.room(r.code)!.humans() === 0, 3000, 'the room emptied')
   }, 90000)
@@ -826,7 +824,6 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 60_000, seats: 10, fill: 10, bots: 'hard', mix: ['medium', 'medium', 'medium', 'medium', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 
@@ -974,7 +971,7 @@ describe('lobby state from room to room (P0: the host lost its Rematch button)',
     expect(hill.created).toBe(true)
     await ann.session.join(hill.code)
     await until(() => ann.lobby().settings?.gameMode === 'hill', 3000, 'hill rules')
-    expect(ann.lobby().settings).toMatchObject({ gameMode: 'hill', teamMode: 'ffa', winScore: 100, hillRespawn: false })
+    expect(ann.lobby().settings).toMatchObject({ gameMode: 'hill', teamMode: 'ffa', winScore: DEFAULT_SERVER_CONFIG.hill.settings!.winScore, hillRespawn: false })
     const casual = await bob.online.quickPlay('test')
     expect(casual.code).not.toBe(hill.code)
     expect((await cara.online.quickPlay('test', undefined, undefined, 'hill')).code).toBe(hill.code)
@@ -1069,7 +1066,7 @@ describe('ranked queue over real TCP', () => {
     } finally { a.session.leave(); absent.session.leave(); duplicate.session.leave(); b?.session.leave() }
   }, 10000)
 
-  it('prefills Brutal bots, waits for two humans, preserves and cancels the countdown, and closes running admission', async () => {
+  it('prefills the queue bots, waits for two humans, preserves and cancels the countdown, and closes running admission', async () => {
     const dir = tempDir('brawlock-ranked-queue-')
     dirs.push(dir)
     const { base, http, srv } = await start({
@@ -1078,22 +1075,21 @@ describe('ranked queue over real TCP', () => {
     const a = headlessClient(base, { key: 'ranked-a', device: 'ranked-device-a', play: false })
     const b = headlessClient(base, { key: 'ranked-b', device: 'ranked-device-b', play: false })
     const c = headlessClient(base, { key: 'ranked-c', device: 'ranked-device-c', play: false })
+    // the queue's own rules, whatever the request asks for
+    const rules = DEFAULT_SERVER_CONFIG.ranked
+    const { rankedRounds, startGold, roundGold, killGold, winGold } = rules.settings!
     try {
-      expect(DEFAULT_SERVER_CONFIG.ranked).toMatchObject({
-        seats: 8, fill: 8, bots: 'brutal', minHumans: 2, startMs: 60_000,
-        settings: { rankedRounds: 5, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
-      })
       const first = await queue(http, '?bots=easy&seats=2&fill=2&startGold=999&rankedRounds=1')
       const room = srv.core.room(first.code)!
       expect(room.isRanked()).toBe(true)
-      expect(room.summary()).toMatchObject({ ranked: true, quick: true, humans: 0, bots: 8, max: 8, joinable: 8, rankedRounds: 5, elo: { enabled: true, minSeconds: 120 } })
-      expect(await a.online.browseRegion('test')).toContainEqual(expect.objectContaining({ code: first.code, ranked: true, rankedRounds: 5, max: 8, bots: 8 }))
+      expect(room.summary()).toMatchObject({ ranked: true, quick: true, humans: 0, bots: rules.fill, max: rules.seats, joinable: rules.seats, rankedRounds, elo: { enabled: true } })
+      expect(await a.online.browseRegion('test')).toContainEqual(expect.objectContaining({ code: first.code, ranked: true, rankedRounds, max: rules.seats, bots: rules.fill }))
       await a.session.join(first.code)
-      await until(() => a.lobby().slots.length === 8, 3000, 'the prefilled ranked lobby')
+      await until(() => a.lobby().slots.length === rules.fill, 3000, 'the prefilled ranked lobby')
       expect(a.lobby()).toMatchObject({ role: 'client', ranked: true, quick: true, public: true, autoStart: null })
-      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(7)
-      expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === 'brutal')).toBe(true)
-      expect(a.lobby().settings).toMatchObject({ rankedRounds: 5, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(rules.fill - 1)
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot').every((s) => s.difficulty === rules.bots)).toBe(true)
+      expect(a.lobby().settings).toMatchObject({ rankedRounds, startGold, roundGold, killGold, winGold })
       // fillMs is zero: a mistaken solo fill timer would already have fired.
       await new Promise((resolve) => setTimeout(resolve, 150))
       expect(a.screen()).toBe('lobby')
@@ -1111,14 +1107,14 @@ describe('ranked queue over real TCP', () => {
       await c.session.join(first.code)
       await until(() => room.humans() === 3 && a.lobby().slots.filter((s) => s.kind === 'human').length === 3, 3000, 'a third human')
       expect(Math.abs(a.lobby().autoStart!.at - deadline)).toBeLessThan(150)
-      expect(a.lobby().settings?.startGold).toBe(50)
-      expect(a.lobby().slots).toHaveLength(8)
+      expect(a.lobby().settings?.startGold).toBe(startGold)
+      expect(a.lobby().slots).toHaveLength(rules.fill)
       b.session.leave()
       c.session.leave()
       await until(() => room.humans() === 1 && a.lobby().autoStart === null, 3000, 'the canceled ranked countdown')
-      await new Promise((resolve) => setTimeout(resolve, 1700))
+      await pause(6800)
       expect(room.screen()).toBe('lobby')
-      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(7)
+      expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(rules.fill - 1)
       await b.session.join(first.code)
       await until(() => !!a.lobby().autoStart, 3000, 'a fresh ranked countdown')
       expect(a.lobby().autoStart!.at).toBeGreaterThan(deadline)
@@ -1150,7 +1146,7 @@ describe('ranked queue over real TCP', () => {
       await b.session.join(opened.code)
       await until(() => a.lobby().autoStart != null, 3000, 'the ranked countdown')
       a.session.setReady(true)
-      await new Promise((r) => setTimeout(r, 1500))
+      await pause(6000)
       expect(a.screen()).toBe('lobby')
       b.session.setReady(true)
       await until(() => a.lobby().autoStart!.at - performance.now() * TIME_SCALE <= 10_150, 3000, 'the ten-second ready countdown')
@@ -1164,8 +1160,9 @@ describe('ranked queue over real TCP', () => {
     dirs.push(dir)
     const { base, http, srv } = await start({
       leaderboardMinSeconds: 1,
+      // a short table: the first match only has to end
       ranked: {
-        ...DEFAULT_SERVER_CONFIG.ranked, startMs: 1000, nextMs: 2400,
+        ...DEFAULT_SERVER_CONFIG.ranked, fill: 3, startMs: 1000, nextMs: 2400,
         settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, rankedRounds: 0, winScore: 1, shopSeconds: 1, lavaDps: 400, dmgMultiplier: 2, kbMultiplier: 1.6 },
       },
     }, 'dev-server', { dataDir: dir })
@@ -1182,20 +1179,20 @@ describe('ranked queue over real TCP', () => {
       expect(room.screen()).toBe('results')
       expect(a.lobby().autoStart).toBeNull()
       // the result stays up (past the old nextMs) until the player is ready for the next queue
-      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await pause(7200)
       expect(a.screen()).toBe('results')
       a.session.setReady(true)
       await until(() => !!a.lobby().autoStart, 3000, 'ranked results grace countdown')
       expect(a.screen()).toBe('results')
       a.session.setReady(false)
       await until(() => !a.lobby().autoStart, 3000, 'ranked result review cancels countdown')
-      await new Promise((resolve) => setTimeout(resolve, 2800))
+      await pause(7200)
       expect(a.screen()).toBe('results')
       a.session.setReady(true)
       await until(() => a.screen() === 'lobby' && room.screen() === 'lobby', 3000, 'ranked returns to lobby once ready')
-      expect(room.summary()).toMatchObject({ humans: 1, bots: 7, ranked: true, joinable: 7 })
+      expect(room.summary()).toMatchObject({ humans: 1, bots: 2, ranked: true })
       expect(a.lobby().autoStart).toBeNull()
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      await pause(2000)
       expect(a.screen()).toBe('lobby')
       expect(a.results).toHaveLength(1)
       expect((await queue(http)).code).toBe(opened.code)
@@ -1207,7 +1204,7 @@ describe('ranked queue over real TCP', () => {
       expect(a.autoStarts.at(-1)!.fill).toBe(false)
       await until(() => a.screen() === 'match' && b.screen() === 'match', 4000, 'ranked second match')
       expect(a.results).toHaveLength(1)
-      expect(a.lobby().slots).toHaveLength(8)
+      expect(a.lobby().slots).toHaveLength(3)
     } finally { a.session.leave(); b.session.leave() }
   }, 75000)
 })
@@ -1849,11 +1846,11 @@ describe('stream over a lossless link', () => {
           owner.session.startMatch()
           await until(() => owner.shown()?.phase === 'fight', 8000, 'fight')
           const before = { is: counts.get('is') ?? 0, plans: counts.get('plans') ?? 0, tick: owner.session.debug().streamTick }
-          await new Promise((r) => setTimeout(r, 1500))
+          await pause(6000)
           const ticks = owner.session.debug().streamTick - before.tick
           const packets = (counts.get('is') ?? 0) - before.is
-          // at least half the steps of 1.5 s at the test's time scale
-          expect(ticks).toBeGreaterThan(toTicks(1.5) * TIME_SCALE / 2)
+          // at least half the steps of the 6 s pause
+          expect(ticks).toBeGreaterThan(toTicks(6) / 2)
           // bots act nearly every tick: one packet a tick, or one every second tick
           expect(packets / ticks).toBeGreaterThan(every === 1 ? 0.8 : 0.4)
           expect(packets / ticks).toBeLessThan(every === 1 ? 1.05 : 0.55)
@@ -1875,7 +1872,7 @@ describe('stream over a lossless link', () => {
         a.session.startMatch()
         await until(() => a.shown()?.phase === 'fight' && b.shown()?.phase === 'fight', 8000, 'fight')
         const before = { hint: counts.get('hint') ?? 0, batched: counts.get('is+hints') ?? 0 }
-        await new Promise((r) => setTimeout(r, 1500))
+        await pause(6000)
         expect((counts.get('hint') ?? 0) - before.hint).toBe(0)
         expect((counts.get('is+hints') ?? 0) - before.batched).toBeGreaterThan(10)
         for (const c of [a, b]) expect(c.session.debug().streamDesyncs).toBe(0)

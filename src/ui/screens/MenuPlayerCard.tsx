@@ -45,7 +45,7 @@ export function MenuPlayerCard(props: Props) {
   const avatarColor = preferred === null ? '#efc58e' : `#${preferred.toString(16).padStart(6, '0')}`
   const actions = Number(ranked) + Number(accountsEnabled || elsewhere)
   return <section className="menu-player-card" aria-label="Player and account" data-testid="menu-player-card">
-    <button type="button" className="menu-player-profile" data-testid="player-profile" onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? `Signed in as ${account.email}` : 'Edit your name and color'}>
+    <button type="button" className="menu-player-profile" data-testid="player-profile" data-state={checking ? 'checking' : account ? account.profile ? 'account' : 'setup' : 'guest'} onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? `Signed in as ${account.email}` : 'Edit your name and color'}>
       <span className="menu-player-avatar">{emblem ? <EmblemBadge emblem={emblem} color={avatarColor} size={34} /> : <MenuGlyph kind="profile" size={23} />}</span>
       <span className="menu-player-identity">
         <span className="menu-player-status">{status}</span>
@@ -55,12 +55,12 @@ export function MenuPlayerCard(props: Props) {
       <span className="menu-player-edit"><MenuGlyph kind="edit" size={15} /></span>
     </button>
     {actions > 0 && <div className="menu-player-actions" data-columns={actions}>
-      {ranked && <button type="button" className="menu-player-action" data-testid="profile-elo" onClick={invoke(props.onLeaderboard)} onMouseEnter={hoverSfx} title="Open the global Elo leaderboard" aria-label={ratingState === 'ready' && rating ? `Global Elo ${Math.round(rating.rating)}, rank ${rating.rank}. Open leaderboard` : 'Open the global Elo leaderboard'}>
+      {ranked && <button type="button" className="menu-player-action" data-testid="profile-elo" data-state={ratingState === 'ready' ? rating ? 'rated' : 'unranked' : ratingState} onClick={invoke(props.onLeaderboard)} onMouseEnter={hoverSfx} title="Open the global Elo leaderboard" aria-label={ratingState === 'ready' && rating ? `Global Elo ${Math.round(rating.rating)}, rank ${rating.rank}. Open leaderboard` : 'Open the global Elo leaderboard'}>
         <span className="menu-player-action-heading"><MenuGlyph kind="record" size={15} /> Global Elo</span>
         <span className="menu-player-action-value tabular">{ratingState === 'loading' ? 'Checking…' : ratingState === 'error' ? 'Unavailable' : rating ? Math.round(rating.rating).toLocaleString() : 'Unranked'}</span>
         <span className="menu-player-action-detail">{ratingState === 'ready' && rating ? `Rank #${rating.rank.toLocaleString()}` : 'Leaderboard'} <span aria-hidden>›</span></span>
       </button>}
-      {accountsEnabled && (account ? <button type="button" className="menu-player-action" data-testid="open-collection" onClick={invoke(props.onCollection)} onMouseEnter={hoverSfx} title={emberProblem ?? (emberBalance === null ? 'Your permanent cosmetic collection' : `${emberBalance.toLocaleString()} Embers · Open your collection`)}>
+      {accountsEnabled && (account ? <button type="button" className="menu-player-action" data-testid="open-collection" data-state={emberProblem ? 'error' : emberBalance === null ? 'loading' : 'ready'} onClick={invoke(props.onCollection)} onMouseEnter={hoverSfx} title={emberProblem ?? (emberBalance === null ? 'Your permanent cosmetic collection' : `${emberBalance.toLocaleString()} Embers · Open your collection`)}>
         <span className="menu-player-action-heading"><EmberMark size={15} /> Collection</span>
         <span className="menu-player-action-value tabular">{emberBalance === null ? '—' : balanceLabel(emberBalance)}<span className="menu-player-unit">Embers</span></span>
         <span className="menu-player-action-detail">{emberProblem ? 'Balance unavailable' : emberBalance === null ? 'Loading balance…' : 'Cosmetics'} <span aria-hidden>›</span></span>

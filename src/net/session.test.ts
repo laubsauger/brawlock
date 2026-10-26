@@ -11,6 +11,9 @@ import type { ChatLine } from './chat'
 import { killPawn } from '../sim/combat'
 import { ticks } from '../sim/config'
 
+/** the fake clock's pulse, ms: half a tick (the sessions step from an accumulator) */
+const PULSE_MS = 500 / TICK_HZ
+
 /** what people said: the room's join / leave lines left out */
 const said = (chat: readonly ChatLine[] | undefined) => chat?.filter((line) => !line.system)
 
@@ -172,7 +175,7 @@ function makePeer(net: NetFactory, name: string, key: string, api: SimApi = noSi
     defaultSettings: SETTINGS,
     net,
     startClock: (onPulse) => {
-      const id = setInterval(() => onPulse(performance.now()), 4)
+      const id = setInterval(() => onPulse(performance.now()), PULSE_MS)
       return () => clearInterval(id)
     },
     now: () => performance.now(),
@@ -1132,9 +1135,7 @@ describe.skipIf(!sim)(`session match over the network${sim ? '' : ` (SKIPPED: re
   })
 })
 
-const bots = await import('../bots').catch(() => null)
-
-describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () => {
+describe.skipIf(!sim)('session rematch, pings, profiles and stats', () => {
   const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms)
 
   it.each([false, true])('waits for persistence and preserves an explicit lobby transition: cancel UI = %s', async (cancelUi) => {
@@ -1286,28 +1287,5 @@ describe.skipIf(!sim || !bots)('session rematch, pings, profiles and stats', () 
     expect(client.store.lobby.slots[2].profileId).toBe('bot:hard')
   })
 
-  /**
-   * Why: with no server, each peer's stats come from its own recording. Host and
-   * client must both record the same finished match (same winners, scores, length).
-   */
-  it('every peer records the finished match', async () => {
-    const { host, client } = await hostAndClient(sim!, LINK, { createBot: bots!.createBot }, { createBot: bots!.createBot })
-    host.session.updateSettings({ winScore: 1, shopSeconds: 1 })
-    host.session.addBot('brutal')
-    host.session.startMatch()
-    for (let s = 0; s < 400 && host.store.screen !== 'results'; s++) await advance(1000)
-    await advance(1000)
-    expect(host.store.screen).toBe('results')
-    expect(client.store.screen).toBe('results')
-    expect(host.stats.results).toHaveLength(1)
-    expect(client.stats.results).toHaveLength(1)
-    const [hr] = host.stats.results
-    const [cr] = client.stats.results
-    expect(cr).toEqual(hr)
-    expect(hr.ticks).toBeGreaterThan(0)
-    expect(hr.winners.length).toBeGreaterThan(0)
-    expect(client.stats.observed).toBeGreaterThan(100)
-    // a whole bot match runs under fake timers (deterministic outcome); only the real
-    // CPU time grows with machine load, so this test gets more than the default 5 s
-  }, 30000)
+  // every peer recording the same finished match (classic and predict): replay.test.ts
 })

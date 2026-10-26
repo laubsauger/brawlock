@@ -27,7 +27,7 @@ export function ServerMatchList({ matches, personal = true }: { matches: readonl
     const me = subject && match.players.find((p) => p.player === subject.self)
     const win = subject?.outcome === 'win'
     const winners = match.players.filter(p => p.won).map(p => p.name)
-    return <li key={match.id}>
+    return <li key={match.id} data-outcome={subject?.outcome}>
       <details className="rounded-lg border-l-[3px] bg-black/25" style={{ borderLeftColor: !subject ? '#d3a954' : win ? '#7fe39a' : '#ff6a55' }}>
         <summary className="cursor-pointer rounded px-3 py-3 focus-visible:outline-2 focus-visible:outline-gold">
           <span className="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-3 gap-y-1 align-middle">
@@ -49,7 +49,7 @@ export function ServerMatchList({ matches, personal = true }: { matches: readonl
         <div className="flex flex-col gap-2 px-3 pb-3">
           <p className="text-sm text-ash">{match.region} · {match.teamMode === 'ffa' ? 'Free for all' : match.teamMode === 'teams' ? 'Teams' : 'Shuffle'} · {match.gameMode === 'deathmatch' ? 'Deathmatch' : `${match.rounds} rounds`}</p>
           {subject?.outcome === 'forfeit' && <p className="text-sm text-[#ffb08a]">Left before the end and did not return. The match counted, so this is a loss.</p>}
-          <ul className="grid gap-2 lg:grid-cols-2" aria-label="Recorded players and equipment">{match.players.map((player) => <li key={player.player} className="min-w-0 rounded bg-black/20 px-3 py-2">
+          <ul className="grid gap-2 lg:grid-cols-2" aria-label="Recorded players and equipment">{match.players.map((player) => <li key={player.player} className="min-w-0 rounded bg-black/20 px-3 py-2" data-forfeited={player.forfeited || undefined}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
               {player.color !== undefined && <i className="h-2.5 w-2.5 rotate-45 rounded-[1px]" style={{ background: hex(player.color) }} aria-hidden />}
               <b className={player.player === subject?.self ? 'text-gold' : 'text-bone'}>{player.name}</b>

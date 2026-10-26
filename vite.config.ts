@@ -100,7 +100,10 @@ export default defineConfig(({ mode }) => {
       strictPort: false,
     },
     test: {
-      include: ['src/**/*.test.ts'],
+      // *.lint.test.ts scan the whole source for invariants (effect cleanups, bot math, rate
+      // constants): `npm run lint:invariants` and every release run them, not each test run
+      include: process.env.LINT_INVARIANTS ? ['src/**/*.lint.test.ts'] : ['src/**/*.test.ts'],
+      exclude: process.env.LINT_INVARIANTS ? [] : ['src/**/*.lint.test.ts'],
       setupFiles: ['src/testing/tickRate.ts'],
     },
   }

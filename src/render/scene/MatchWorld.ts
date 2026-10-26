@@ -13,7 +13,6 @@ import { PawnLocator } from '../overlay/PawnLocator'
 import { renderPrefs } from '../prefs'
 import { victoryCameraOffset, victoryCameraWeight } from '../victoryCamera'
 import { victoryStyle } from '../character/victoryPose'
-import { windupHiddenFrom } from '../character/castStyles'
 import { createWarlock, warlockParams, warlockReady, type CastArm } from '../character'
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
@@ -22,7 +21,9 @@ import type { RenderSource } from '../source'
 import { Arena, SINK_DROP, SINK_SWALLOW, sinkDelay } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
-import { CastMarks, hasHandMark } from './CastMarks'
+import { CastMarks } from './CastMarks'
+import { castMarkOf, windupLayers, type WindupLayers } from './castWindupLogic'
+import { planBountyCollection } from './bountyCollectionLogic'
 import { FacingChevrons } from './FacingChevrons'
 import { MoveDestination } from './MoveDestination'
 import { HillBeacon } from './HillBeacon'
@@ -1411,23 +1412,15 @@ export class MatchWorld {
     let collector: PawnView | undefined
     for (const v of this.views.values()) if (v.owner === killer) { collector = v; break }
     if (!collector) return
-    this.overlay?.callout(`+${amount} bounty`, collector.x, collector.y, collector.h + 125, now)
     const fx = this.opts.fx
-    if (fx <= 0 || this.reducedMotion.matches) return
     // A fixed handful of gold facets crosses from the defeated holder to the
     // collector. Payout size changes the label, never particle or voice cost.
-    const n = this.particles.budget(10)
-    for (let i = 0; i < n; i++) {
-      const angle = i * 2.39996
-      const ox = Math.cos(angle) * 15
-      const oy = Math.sin(angle) * 15
-      const life = 0.3 + (i % 3) * 0.035
-      const h = victim.h + 65 + (i % 3) * 8
-      const gravity = -850
-      this.particles.spawn(victim.x + ox, victim.y + oy, h,
-        (collector.x - victim.x - ox) / life, (collector.y - victim.y - oy) / life,
-        (collector.h + 85 - h - gravity * life * life * 0.5) / life,
-        life, 8, 2, 2.1 * fx, 1.25 * fx, 0.22 * fx, gravity, 0, -0.025)
+    const plan = planBountyCollection(victim, collector, amount, fx, this.reducedMotion.matches, (n) => this.particles.budget(n))
+    this.overlay?.callout(plan.label.text, plan.label.x, plan.label.y, plan.label.h, now)
+    if (!plan.animate) return
+    for (const f of plan.facets) {
+      this.particles.spawn(f.x, f.y, f.h, f.vx, f.vy, f.vh,
+        f.life, 8, 2, 2.1 * fx, 1.25 * fx, 0.22 * fx, f.gravity, 0, -0.025)
     }
     this.ground.spawn(RING_IMPLODE, collector.x, collector.y, collector.floorH + 2, 24, 100, 0.4, 4, 1.2 * fx, 0.72 * fx, 0.15 * fx)
   }
@@ -2234,20 +2227,19 @@ export class MatchWorld {
   private drawCastMarks(state: SimState | null, camera: THREE.PerspectiveCamera): void {
     this.castMarks.begin(camera)
     if (!state) return
+    const viewer = this.opts.source.buf.localPlayer
     for (const p of state.pawns) {
       const v = this.views.get(p.id)
-      if (!v || !p.alive) continue
-      if (p.cast && p.cast.started !== false) {
-        if (!hasHandMark(p.cast.spell)) continue
-        v.castOrigin(this.wO)
-        this.castMarks.charge(p.cast.spell, this.wO, Math.min(1, v.castFraction))
-      } else if (!p.cast && v.castCancelFraction >= 0 && !windupHiddenFrom(v.canceledCastSpell, p.owner, this.opts.source.buf.localPlayer)) {
-        v.castOrigin(this.wO)
-        this.castMarks.cancel(this.wO, v.castCancelFraction)
-      }
+      if (!v) continue
+      const mark = castMarkOf(p, v, viewer)
+      if (!mark) continue
+      v.castOrigin(this.wO)
+      if (mark === 'charge') this.castMarks.charge(p.cast!.spell, this.wO, Math.min(1, v.castFraction))
+      else this.castMarks.cancel(this.wO, v.castCancelFraction)
     }
   }
 
+  private windupLayer: WindupLayers = { rings: false, spiral: false, orb: false, ground: false, light: false }
   private windCol = new THREE.Color()
   private windHot = new THREE.Color()
   private ringFades = new Map<PawnView, number>()
@@ -2291,10 +2283,8 @@ export class MatchWorld {
    */
   private drawWindup(v: PawnView, p: PawnState): void {
     const spell = p.cast!.spell
-    const marked = hasHandMark(spell)
     const mod = this.modulesOn ? vfxForSpell(spell) : undefined
     const style = mod?.windupStyle?.(spell, p) ?? null
-    const hide = style?.hide ?? []
     const pal = spellPalette(spell)
     this.windCol.setHex(style?.color ?? pal.accent)
     this.windHot.setHex(pal.core)
@@ -2303,6 +2293,7 @@ export class MatchWorld {
     const k = Math.min(1, v.castFraction)
     const gather = k * k
     const motion = !this.reducedMotion.matches
+    const layers = windupLayers(spell, mod !== undefined, motion, style?.hide ?? [], this.windupLayer)
     const fx = this.ctx.uFx.value
     const t = this.ctx.uTime.value
     // geometry: the character's real arm bones (castArm), else an approximation
@@ -2330,7 +2321,7 @@ export class MatchWorld {
       const rx = -(oy - ey)
       const ry = ox - ex
       const rl = Math.hypot(rx, ry) || 1
-      if (!marked && !mod && !hide.includes('rings')) {
+      if (layers.rings) {
         const n = style?.ringCount ?? 3
         for (let i = 0; i < n; i++) {
           const ph = ((motion ? t * 0.75 : 0) + i / n + k * 0.22) % 1
@@ -2350,7 +2341,7 @@ export class MatchWorld {
           B.add(px * S, ph2 * S, -py * S, size * S, (c.r + h.r * 0.12) * br, (c.g + h.g * 0.12) * br, (c.b + h.b * 0.12) * br, -2.6)
         }
       }
-      if (!marked && !mod && motion && !hide.includes('spiral')) {
+      if (layers.spiral) {
         const ns = Math.ceil(4 * fx)
         for (let i = 0; i < ns; i++) {
           const u = (i + 0.5) / ns
@@ -2368,15 +2359,15 @@ export class MatchWorld {
     }
     // A soft hand glow must never resemble an airborne projectile. It is
     // rebuilt at the current hand position and disappears with the windup.
-    if (!marked && !mod && !hide.includes('orb')) {
+    if (layers.orb) {
       const os = style?.orbScale ?? 1
       B.add(this.wO.x, this.wO.y, this.wO.z, (24 + k * 20) * os * S, c.r * (0.85 + gather * 2.1) * flick, c.g * (0.85 + gather * 2.1) * flick, c.b * (0.85 + gather * 2.1) * flick, 1.4)
     }
-    if (!hide.includes('ground')) {
+    if (layers.ground) {
       v.setCastRing(k, c, 0.8 + gather * 0.2)
       this.ringFades.set(v, 1)
     }
-    if (!hide.includes('light')) this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
+    if (layers.light) this.ctx.glow.add(v.x, v.y, 150 + k * 110, 0.25 + k * 0.6, c.r * 0.6, c.g * 0.6, c.b * 0.6)
   }
 
   // ---------------------------------------------------------------- ambient

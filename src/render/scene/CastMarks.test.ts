@@ -1,76 +1,59 @@
-import { describe, expect, it, vi } from 'vitest'
-import { Color, PerspectiveCamera, Vector3 } from 'three/webgpu'
-import { CastMarks, HAND_MARKS } from './CastMarks'
+import { describe, expect, it } from 'vitest'
+import { HAND_MARKS, cancelStrokes, chargeStrokes, type StrokeSink } from './CastMarks'
 import { S } from '../coords'
 
-function marks() {
-  const instance = Object.create(CastMarks.prototype) as CastMarks
-  const sink = { addStreak: vi.fn(), begin: vi.fn() }
-  Object.assign(instance, { batch: sink, right: new Vector3(1, 0, 0), up: new Vector3(0, 1, 0), color: new Color() })
-  return { instance, sink }
+// Strokes are planned in the camera plane around the hand (CastMarks places them at the current
+// hand along the camera's right and up axes), so they follow the hand at any facing.
+type Stroke = Parameters<StrokeSink>
+const strokes = (draw: (out: StrokeSink) => void): Stroke[] => {
+  const all: Stroke[] = []
+  draw((...stroke) => { all.push(stroke) })
+  return all
 }
+const brightness = (all: Stroke[]) => Math.max(...all.map((s) => Math.max(s[5], s[6], s[7])))
+const charge = (spell: string, progress: number) => strokes((out) => chargeStrokes(spell, progress, out))
 
 describe('attached ability signatures', () => {
-  it('has eight different silhouettes even without colour or motion, all legible from charge start', () => {
+  it('gives every authored spell its own silhouette without colour or motion, whole from charge start', () => {
+    const spells = Object.keys(HAND_MARKS)
     const silhouettes = new Set<string>()
-    for (const spell of Object.keys(HAND_MARKS)) {
-      const { instance, sink } = marks()
-      instance.charge(spell, new Vector3(), 0)
-      expect(sink.addStreak.mock.calls.length).toBeGreaterThanOrEqual(5)
-      silhouettes.add(JSON.stringify(sink.addStreak.mock.calls.map((s) => s.slice(0, 6))))
-      expect(sink.addStreak.mock.calls.every((s) => Math.max(s[6], s[7], s[8]) >= .8)).toBe(true)
+    for (const spell of spells) {
+      const start = charge(spell, 0)
+      expect(start.length).toBeGreaterThanOrEqual(5)
+      const shape = (all: Stroke[]) => JSON.stringify(all.map((s) => s.slice(0, 5)))
+      silhouettes.add(shape(start))
+      // progress brightens the glyph; it never grows, travels or draws strokes in
+      for (const progress of [.5, 1]) expect(shape(charge(spell, progress))).toBe(shape(start))
+      expect(brightness(charge(spell, .5))).toBeGreaterThan(brightness(start))
+      expect(brightness(start)).toBeGreaterThanOrEqual(brightness(charge(spell, 1)) / 2)
     }
-    expect(silhouettes.size).toBe(8)
+    expect(silhouettes.size).toBe(spells.length)
   })
 
-  it('keeps every stroke on the current hand across translations, facings and charge progress', () => {
-    for (const spell of Object.keys(HAND_MARKS)) for (const progress of [0, .5, 1]) {
-      const { instance, sink } = marks()
-      const camera = new PerspectiveCamera()
-      camera.position.set(5, 7, -4)
-      camera.lookAt(0, 0, 0)
-      camera.updateMatrixWorld()
-      instance.begin(camera)
-      const hand = new Vector3(10, 3, -8)
-      instance.charge(spell, hand, progress)
-      const first = sink.addStreak.mock.calls.map((s) => [...s])
-      for (const s of first) {
-        const center = new Vector3(s[0], s[1], s[2])
-        // Whole glyph, including line endpoints/caps, fits a 40-unit hand patch.
-        const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
-        const up = new Vector3().setFromMatrixColumn(camera.matrixWorld, 1)
-        const along = right.multiplyScalar(Math.cos(s[5])).addScaledVector(up, Math.sin(s[5]))
-        const halfLength = s[3] * s[4] * .5
-        const endA = center.clone().addScaledVector(along, halfLength)
-        const endB = center.clone().addScaledVector(along, -halfLength)
-        expect(Math.max(endA.distanceTo(hand), endB.distanceTo(hand)) + s[3] * .5).toBeLessThan(40 * S)
-        expect(s.every(Number.isFinite)).toBe(true)
+  it('keeps every stroke, line ends and caps included, on a 40-unit hand patch', () => {
+    for (const spell of Object.keys(HAND_MARKS)) {
+      for (const [mx, my, width, aspect, angle, ...colour] of charge(spell, 1)) {
+        const half = width * aspect * .5
+        const ends = [1, -1].map((side) => Math.hypot(mx + Math.cos(angle) * half * side, my + Math.sin(angle) * half * side))
+        expect(Math.max(...ends) + width * .5).toBeLessThan(40 * S)
+        expect([mx, my, width, aspect, angle, ...colour].every(Number.isFinite)).toBe(true)
       }
-      sink.addStreak.mockClear()
-      const shift = new Vector3(-3, 1, 6)
-      instance.charge(spell, hand.clone().add(shift), progress)
-      sink.addStreak.mock.calls.forEach((s, i) => {
-        expect(s[0] - first[i][0]).toBeCloseTo(shift.x)
-        expect(s[1] - first[i][1]).toBeCloseTo(shift.y)
-        expect(s[2] - first[i][2]).toBeCloseTo(shift.z)
-      })
     }
   })
 
   it('cancellation contracts and dims instead of creating a launch flash or moving remnant', () => {
-    const { instance, sink } = marks()
     const radii: number[] = []
-    const brightness: number[] = []
+    const dims: number[] = []
     for (const age of [0, .5, .99]) {
-      sink.addStreak.mockClear()
-      instance.cancel(new Vector3(), age)
-      radii.push(Math.max(...sink.addStreak.mock.calls.map((s) => Math.hypot(s[0], s[1], s[2]))))
-      brightness.push(Math.max(...sink.addStreak.mock.calls.map((s) => Math.max(s[6], s[7], s[8]))))
+      const ring = strokes((out) => cancelStrokes(age, out))
+      radii.push(Math.max(...ring.map((s) => Math.hypot(s[0], s[1]))))
+      dims.push(brightness(ring))
     }
     expect(radii[2]).toBeLessThan(radii[1])
     expect(radii[1]).toBeLessThan(radii[0])
-    expect(brightness[2]).toBeLessThan(brightness[1])
-    expect(brightness[1]).toBeLessThan(brightness[0])
-    expect(brightness[0]).toBeLessThan(.4)
+    expect(dims[2]).toBeLessThan(dims[1])
+    expect(dims[1]).toBeLessThan(dims[0])
+    // dimmer than any charge, even at charge start
+    expect(dims[0]).toBeLessThan(Math.min(...Object.keys(HAND_MARKS).map((spell) => brightness(charge(spell, 0)))))
   })
 })

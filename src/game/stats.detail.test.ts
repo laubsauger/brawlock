@@ -277,7 +277,7 @@ describe('awards pick clear outliers above sensible thresholds', () => {
     expect(choose({ fireball: [19, 0] })).toBeUndefined()
     expect(choose({ fireball: [8, 0], teleport: [90, 0], shield: [30, 0] })).toBeUndefined()
     expect(choose({ fireball: [20, 6] })).toBeUndefined()
-    expect(choose({ fireball: [20, 5], teleport: [90, 0] })).toMatchObject({ value: 15, blurb: '15 damaging casts hit nobody. The floor looked terrified.' })
+    expect(choose({ fireball: [20, 5], teleport: [90, 0] })).toMatchObject({ value: 15, blurb: expect.stringMatching(/\b15\b/) })
     expect(choose({ fireball: [20, 0] })).toMatchObject({ value: 20 })
   })
 
@@ -313,7 +313,11 @@ describe('awards pick clear outliers above sensible thresholds', () => {
     const other = part(2, {})
     const kills: MatchRecord['kills'] = [[0, 1, 3], [0, 2, 1]]
     const awards = matchAwards({ participants: [hunter, bot, other], kills })
-    expect(awards.find((a) => a.id === 'personalGrudge')).toMatchObject({ player: 0, value: 3, blurb: '3 of 4 kills were Thorn (bot). Very selective customer service.' })
+    const grudge = awards.find((a) => a.id === 'personalGrudge')
+    expect(grudge).toMatchObject({ player: 0, value: 3 })
+    // the count, out of all kills, and the target, marked as a bot
+    expect(grudge!.blurb).toMatch(/\b3\b.*\b4\b/)
+    expect(grudge!.blurb).toMatch(/Thorn\b.*\bbot\b/)
     expect(matchAwards({ participants: [hunter, bot], kills: [[0, 1, 4]] }).some((a) => a.id === 'personalGrudge')).toBe(false)
     expect(matchAwards({ participants: [hunter, bot, other], kills: [[0, 1, 3], [0, 2, 3]] }).some((a) => a.id === 'personalGrudge')).toBe(false)
     const ally = { ...other, team: hunter.team }

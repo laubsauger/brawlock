@@ -32,7 +32,8 @@ export interface MenuStage {
 
 /** Real, private combat. Bots shop from their seeded build pools, move, dodge,
  * land hits and finish rounds; nothing is registered as a player session. */
-export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000)): MenuStage {
+/** `winScore`: round wins that end a match (a test plays to 1 to reach a restart quickly). */
+export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000), winScore = 3): MenuStage {
   const rng = new Rng(seed)
   const names = ['Sunbinder', 'Tidecaller', 'Nightveil', 'Ashkeeper', 'Stormwatch', 'Runewarden', 'Mosscloak', 'Dusksinger']
   const colors = [0xffb957, 0x4bdac9, 0xb98cff, 0xe66d52, 0x80bafa, 0xd1a367, 0x86b874, 0xd57fb4]
@@ -42,7 +43,7 @@ export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000
   const advance = () => stepSim(sim, bots.map((bot) => ({ player: bot.player, tick: sim.tick, cmds: bot.think(sim) })))
   const begin = (tick: number) => {
     const matchSeed = rng.int(0x1_0000_0000)
-    sim = createMatch({ ...DEFAULT_SETTINGS, winScore: 3, startGold: 110, roundGold: 12, shopSeconds: 7, spectatorBets: false, bounties: false }, slots, matchSeed)
+    sim = createMatch({ ...DEFAULT_SETTINGS, winScore, startGold: 110, roundGold: 12, shopSeconds: 7, spectatorBets: false, bounties: false }, slots, matchSeed)
     // Keep the renderer's event timeline monotonic across fresh matches.
     sim.tick = tick
     bots = slots.map((slot) => new BotController(slot.id, slot.difficulty!, matchSeed))

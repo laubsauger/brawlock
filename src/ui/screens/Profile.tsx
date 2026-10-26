@@ -457,7 +457,7 @@ function RecordedStatsGroups({ totals: t, kills, damage, spells, spellCaption, h
             {HALL.filter((h) => hall[h.key]).map((h) => {
               const e = hall[h.key]!
               return (
-                <li key={h.key} className="flex items-baseline justify-between gap-2 rounded-md bg-[rgba(0,0,0,0.28)] px-3 py-1.5">
+                <li key={h.key} className="flex items-baseline justify-between gap-2 rounded-md bg-[rgba(0,0,0,0.28)] px-3 py-1.5" data-hall={h.key}>
                   <span className="flex min-w-0 flex-col">
                     <span className="text-[0.8rem] font-semibold text-ash">{h.label}</span>
                     <span className="tabular text-[1.05rem] font-bold text-gold">{h.fmt(e.value)}</span>
@@ -503,10 +503,10 @@ export function DetailedProfileStats({ coverage, detail, activity = null, casual
     ...(partial > 0 ? [`the human-controlled part of ${games(partial)} left unfinished or partly played`] : [])]
   const pieces = [`${complete} complete`, ...(partial > 0 ? [`${partial} partial`] : []), ...(casualGames > 0 ? [`${casualGames} casual`] : [])]
   const total = complete + partial + casualGames
-  return <div className="flex flex-col gap-5" data-testid="recorded-profile-stats">
+  return <div className="flex flex-col gap-5" data-testid="recorded-profile-stats" data-source={source} data-state={shown ? 'detail' : 'empty'}>
     <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-sm">
       <p className="font-semibold text-bone">{source === 'server' ? 'Recorded by the game server' : 'Recorded on this device'}</p>
-      <p className="mt-1 text-ash">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.{also.length > 0 && ` The totals also include ${and(also)}.`}</p>
+      <p className="mt-1 text-ash" data-testid="profile-coverage">{coverage.detailedMatches} of {coverage.totalMatches} {source === 'server' ? 'ranked' : 'stored'} matches have detailed stats.{also.length > 0 && ` The totals also include ${and(also)}.`}</p>
       <p className="mt-1 text-xs text-ash">{source === 'server'
         ? 'Complete ranked matches played as a human from start to finish, plus the time a human controlled the seat in aborted, unrated or partly played ranked games and in casual quick play (those add no result, Elo or Embers). Custom games are not included. These combat details include bots; ranked K/D excludes bot combat. Earlier matches have results only.'
         : 'Only retained match records are included, with details kept for the latest 30 matches on this device. These are observed match stats, including bot combat.'}</p>
@@ -684,6 +684,7 @@ export function EloChange7d({ change }: { change: number }) {
   const value = change === 0 ? '0' : signed(change)
   return <span
     className={`whitespace-nowrap text-[0.76rem] font-semibold ${change > 0 ? 'text-heal' : change < 0 ? 'text-[#ff9b8a]' : 'text-ash'}`}
+    data-trend={change > 0 ? 'up' : change < 0 ? 'down' : 'flat'}
     title="Net Elo change over the last 7 days"
     aria-label={`${value} Elo over the last 7 days`}
   >{value} <span className="text-[0.68rem] font-normal opacity-75">7d</span></span>

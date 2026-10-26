@@ -51,12 +51,65 @@ export const HAND_MARKS: Readonly<Record<string, readonly Stroke[]>> = {
 
 export function hasHandMark(spell: string): boolean { return HAND_MARKS[spell] !== undefined }
 
+/** One stroke in the camera plane around the hand: centre offset along the camera's right and
+ * up axes, width, length / width, screen angle and colour (world units). */
+export type StrokeSink = (mx: number, my: number, width: number, aspect: number, angle: number, r: number, g: number, b: number) => void
+
+const tint = new Color()
+
+function segment(out: StrokeSink, x0: number, y0: number, x1: number, y1: number, width: number, r: number, g: number, b: number): void {
+  const mx = (x0 + x1) * .5
+  const my = (y0 + y1) * .5
+  const dx = x1 - x0
+  const dy = y1 - y0
+  const length = Math.hypot(dx, dy) + width * .6
+  out(mx, my, width, length / width, Math.atan2(dy, dx), r, g, b)
+}
+
+/** The authored glyph of a hand-marked spell, whole from charge start: progress only brightens it. */
+export function chargeStrokes(spell: string, progress: number, out: StrokeSink): void {
+  const strokes = HAND_MARKS[spell]
+  if (!strokes) return // Only explicitly authored spells use this batch.
+  tint.setHex(spellPalette(spell).accent)
+  const c = tint
+  const peak = Math.max(c.r, c.g, c.b)
+  const strength = .8 + progress * .65
+  const r = c.r / peak * strength
+  const g = c.g / peak * strength
+  const b = c.b / peak * strength
+  const radius = 27 * S
+  for (const [x0, y0, x1, y1] of strokes) {
+    segment(out, x0 * radius, y0 * radius, x1 * radius, y1 * radius, 6 * S, r, g, b)
+  }
+}
+
+/** A dim broken ring folds inward at the *current* hand, with no release burst. */
+export function cancelStrokes(fraction: number, out: StrokeSink): void {
+  const radius = (1 - fraction) * 20 * S
+  const dim = (1 - fraction) * .35
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2
+    const b = a + .65
+    segment(out, Math.cos(a) * radius, Math.sin(a) * radius, Math.cos(b) * radius, Math.sin(b) * radius, 4 * S, dim * .65, dim * .7, dim)
+  }
+}
+
 /** One pooled sprite batch for all hand marks; no per-pawn objects or particles. */
 export class CastMarks {
   readonly batch = new Billboards(512, false, null, true)
   private right = new Vector3()
   private up = new Vector3()
-  private color = new Color()
+  private hand = new Vector3()
+  /** places a camera-plane stroke at the current hand */
+  private readonly place: StrokeSink = (mx, my, width, aspect, angle, r, g, b) => {
+    const hand = this.hand
+    this.batch.addStreak(
+      hand.x + this.right.x * mx + this.up.x * my,
+      hand.y + this.right.y * mx + this.up.y * my,
+      hand.z + this.right.z * mx + this.up.z * my,
+      width, aspect, angle, r, g, b, .6,
+    )
+  }
 
   constructor() { this.batch.sprite.name = 'cast-hand-marks' }
 
@@ -67,43 +120,12 @@ export class CastMarks {
   }
 
   charge(spell: string, hand: Vector3, progress: number): void {
-    const strokes = HAND_MARKS[spell]
-    if (!strokes) return // Only explicitly authored spells use this batch.
-    this.color.setHex(spellPalette(spell).accent)
-    const c = this.color
-    const peak = Math.max(c.r, c.g, c.b)
-    const strength = .8 + progress * .65
-    const r = c.r / peak * strength
-    const g = c.g / peak * strength
-    const b = c.b / peak * strength
-    const radius = 27 * S
-    for (const [x0, y0, x1, y1] of strokes) {
-      this.stroke(hand, x0 * radius, y0 * radius, x1 * radius, y1 * radius, 6 * S, r, g, b)
-    }
+    this.hand.copy(hand)
+    chargeStrokes(spell, progress, this.place)
   }
 
-  /** A dim broken ring folds inward at the *current* hand, with no release burst. */
   cancel(hand: Vector3, fraction: number): void {
-    const radius = (1 - fraction) * 20 * S
-    const dim = (1 - fraction) * .35
-    for (let i = 0; i < 4; i++) {
-      const a = i * Math.PI / 2
-      const b = a + .65
-      this.stroke(hand, Math.cos(a) * radius, Math.sin(a) * radius, Math.cos(b) * radius, Math.sin(b) * radius, 4 * S, dim * .65, dim * .7, dim)
-    }
-  }
-
-  private stroke(hand: Vector3, x0: number, y0: number, x1: number, y1: number, width: number, r: number, g: number, b: number): void {
-    const mx = (x0 + x1) * .5
-    const my = (y0 + y1) * .5
-    const dx = x1 - x0
-    const dy = y1 - y0
-    const length = Math.hypot(dx, dy) + width * .6
-    this.batch.addStreak(
-      hand.x + this.right.x * mx + this.up.x * my,
-      hand.y + this.right.y * mx + this.up.y * my,
-      hand.z + this.right.z * mx + this.up.z * my,
-      width, length / width, Math.atan2(dy, dx), r, g, b, .6,
-    )
+    this.hand.copy(hand)
+    cancelStrokes(fraction, this.place)
   }
 }

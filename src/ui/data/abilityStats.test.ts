@@ -122,8 +122,9 @@ describe('effective ability stats follow the actual cast and explicit owner cont
     }
     const context = { masteries: { duration: 3 } }
     const delta = abilityDelta('rush', 2, 7, context).find((s) => s.label === 'Duration')!
-    expect(delta.value).toBe('8.13s')
-    expect(delta.next).toBe('8.75s')
+    const rush = spellDef('rush')!
+    expect(Number(delta.value.replace(/s$/, ''))).toBeCloseTo(attr(rush, 'duration', 2) * masteryFactor('duration', 3), 2)
+    expect(Number(delta.next!.replace(/s$/, ''))).toBeCloseTo(attr(rush, 'duration', 3) * masteryFactor('duration', 3), 2)
   })
 
   it('keeps fixed placement/dash ranges fixed while matching real projectile travel caps', () => {
@@ -167,8 +168,11 @@ describe('effective ability stats follow the actual cast and explicit owner cont
     expect(seconds(abilityStats('pact', 1, context), 'Slow lasts')).toBeCloseTo(6 * debuffFactor(s.pawns[0]), 2)
     expect(seconds(abilityStats('redirector', 1, context), 'Penalty lasts')).toBeCloseTo(8 * debuffFactor(s.pawns[0]), 2)
     const delta = abilityDelta('pocket_watch', 1, 2, context).find((x) => x.label === 'Total debuff duration')!
-    expect(delta.value).toBe('×1.05')
-    expect(delta.next).toBe('×0.95')
+    const factor = (text: string) => Number(text.replace(/^×/, ''))
+    // the sim's own total, with the watch at level 1 now and at level 2 next
+    expect(factor(delta.value)).toBeCloseTo(debuffFactor(s.pawns[0]), 2)
+    grant(s, 0, 'pocket_watch', 2)
+    expect(factor(delta.next!)).toBeCloseTo(debuffFactor(s.pawns[0]), 2)
   })
 
   it('shows target-dependent durations honestly, without applying the caster’s own resistance to enemies', () => {

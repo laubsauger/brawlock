@@ -1,41 +1,28 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Color, Vector3 } from 'three/webgpu'
-import { MatchWorld } from './MatchWorld'
+import { HAND_MARKS } from './CastMarks'
+import { castMarkOf, windupLayers, type WindupLayers } from './castWindupLogic'
 import { KitA, palFor } from '../vfx/spells/kitA'
-import { S } from '../coords'
 import { PawnView } from './Pawns'
+
+const layers = (spell: string, module = false, motion = true, hide: string[] = []): WindupLayers =>
+  windupLayers(spell, module, motion, hide, { rings: false, spiral: false, orb: false, ground: false, light: false })
 
 // Windup is immediate-mode on the character. Nothing may continue flying after
 // a cancel, or look like an already released projectile while a cast is pending.
 describe('cancellable hand charge', () => {
-  it('keeps Fireball charge on the arm and palm at every progress and facing', () => {
-    const draw = MatchWorld.prototype as unknown as { drawWindup(v: unknown, p: unknown): void }
-    for (const fraction of [0, 0.5, 0.99]) {
-      for (const shift of [0, 500]) {
-        const hand = new Vector3((shift + 30) * S, 100 * S, 10 * S)
-        const v = {
-          castFraction: fraction, setCastRing: vi.fn(), x: shift, y: 0,
-          castOrigin: (out: Vector3) => out.copy(hand),
-          castArms: (arm: Record<string, Vector3>) => {
-            arm.shoulder.set(shift * S, 80 * S, 0)
-            arm.elbow.set((shift + 10) * S, 90 * S, 0)
-            arm.palm.copy(hand)
-            return 1
-          },
-        }
-        const w = {
-          modulesOn: false, windCol: new Color(), windHot: new Color(),
-          reducedMotion: { matches: false }, ctx: { uFx: { value: 1 }, uTime: { value: 5 }, glow: { add: vi.fn() } },
-          wO: new Vector3(), armA: { shoulder: new Vector3(), elbow: new Vector3(), palm: new Vector3() }, armB: {},
-          castMarks: { charge: vi.fn() }, billboardsTop: { add: vi.fn() }, particles: { spawn: vi.fn(), budget: vi.fn() }, ringFades: new Map(),
-        }
-        draw.drawWindup.call(w, v, { cast: { spell: 'fireball' } })
-        expect(w.particles.spawn).not.toHaveBeenCalled()
-        expect(w.billboardsTop.add).not.toHaveBeenCalled()
-        // Hand signatures are drawn after the final pose/camera update.
-        expect(w.castMarks.charge).not.toHaveBeenCalled()
-      }
+  it('hand-marked spells charge only on their hand glyph: no arm rings, spiral or palm orb', () => {
+    // the glyph is drawn after the final pose and camera update (drawCastMarks), so it cannot lag
+    for (const spell of Object.keys(HAND_MARKS)) {
+      expect(layers(spell)).toEqual({ rings: false, spiral: false, orb: false, ground: true, light: true })
     }
+  })
+
+  it('other spells draw the shared arm layers, unless their VFX module does; styles hide layers', () => {
+    expect(layers('lightning')).toEqual({ rings: true, spiral: true, orb: true, ground: true, light: true })
+    // the spiral is the moving part
+    expect(layers('lightning', false, false)).toMatchObject({ rings: true, spiral: false, orb: true })
+    expect(layers('lightning', true)).toEqual({ rings: false, spiral: false, orb: false, ground: true, light: true })
+    expect(layers('lightning', false, true, ['orb', 'ground', 'light'])).toEqual({ rings: true, spiral: true, orb: false, ground: false, light: false })
   })
 
   it('shared spell charge uses only a compact glow at the current hand', () => {
@@ -54,48 +41,23 @@ describe('cancellable hand charge', () => {
   })
 })
 
-  it('cancel emits no outward sparks, expanding ring, smoke or release flash', () => {
-    const prototype = MatchWorld.prototype as unknown as { fizzleFx(v: unknown): void }
-    const v = { setCastRing: vi.fn() }
-    const w = {
-      windCol: new Color(), ringFades: new Map([[v, 1]]),
-      particles: { spawn: vi.fn() }, smoke: { spawn: vi.fn() },
-      handRings: [], flashes: [],
-    }
-    prototype.fizzleFx.call(w, v)
-    expect(w.ringFades.has(v)).toBe(false)
-    expect(w.particles.spawn).not.toHaveBeenCalled()
-    expect(w.smoke.spawn).not.toHaveBeenCalled()
-    expect(w.handRings).toHaveLength(0)
-    expect(w.flashes).toHaveLength(0)
-  })
-
-
 describe('charge, cancel and release separation', () => {
   it('draws live authored marks, suppresses unstarted/dead charges and respects hidden Scourge cancellation', () => {
-    const fn = MatchWorld.prototype as unknown as { drawCastMarks(state: unknown, camera: unknown): void }
+    const fading = (spell: string) => ({ castCancelFraction: .3, canceledCastSpell: spell })
+    const idle = { castCancelFraction: -1, canceledCastSpell: '' }
+    const pawn = (cast: { spell: string; started?: boolean } | null, alive = true) => ({ owner: 0, alive, cast })
     for (const viewer of [-1, 0, 1]) {
-      const v = {
-        castFraction: .5, castCancelFraction: .3, canceledCastSpell: 'scourge',
-        castOrigin: (out: Vector3) => out.set(1, 2, 3),
-      }
-      const w = {
-        views: new Map([[1, v]]), wO: new Vector3(),
-        opts: { source: { buf: { localPlayer: viewer } } },
-        castMarks: { begin: vi.fn(), charge: vi.fn(), cancel: vi.fn() },
-      }
-      fn.drawCastMarks.call(w, { pawns: [{ id: 1, owner: 0, alive: true, cast: null }] }, {})
-      expect(w.castMarks.cancel).toHaveBeenCalledTimes(viewer === 0 ? 1 : 0)
-      w.castMarks.cancel.mockClear()
-      for (const cast of [{ spell: 'twin', started: false }, { spell: 'twin', started: true }]) {
-        w.castMarks.charge.mockClear()
-        fn.drawCastMarks.call(w, { pawns: [{ id: 1, owner: 0, alive: true, cast }] }, {})
-        expect(w.castMarks.charge).toHaveBeenCalledTimes(cast.started ? 1 : 0)
-        expect(w.castMarks.cancel).not.toHaveBeenCalled()
-      }
-      w.castMarks.charge.mockClear()
-      fn.drawCastMarks.call(w, { pawns: [{ id: 1, owner: 0, alive: false, cast: { spell: 'twin', started: true } }] }, {})
-      expect(w.castMarks.charge).not.toHaveBeenCalled()
+      // an enemy's cancelled Scourge stays as hidden as its windup; the caster sees the fade
+      expect(castMarkOf(pawn(null), fading('scourge'), viewer)).toBe(viewer === 0 ? 'cancel' : null)
+      expect(castMarkOf(pawn(null), fading('twin'), viewer)).toBe('cancel')
+      expect(castMarkOf(pawn(null), idle, viewer)).toBeNull()
+      expect(castMarkOf(pawn({ spell: 'twin', started: false }), idle, viewer)).toBeNull()
+      expect(castMarkOf(pawn({ spell: 'twin', started: true }), fading('twin'), viewer)).toBe('charge')
+      expect(castMarkOf(pawn({ spell: 'twin' }), idle, viewer)).toBe('charge')
+      // only authored spells have a hand glyph
+      expect(castMarkOf(pawn({ spell: 'lightning', started: true }), idle, viewer)).toBeNull()
+      expect(castMarkOf(pawn({ spell: 'twin', started: true }, false), idle, viewer)).toBeNull()
+      expect(castMarkOf(pawn(null, false), fading('twin'), viewer)).toBeNull()
     }
   })
 

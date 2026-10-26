@@ -29,6 +29,8 @@ export interface ServerOptions {
   ratingAuthorityRequestMs?: number
   ratingAuthorityRetryMs?: number
   accountsRegisterRetryMs?: number
+  /** tests only: wall ms between account checks of a live play permission (default 5000) */
+  playCheckMs?: number
   accountsAuthorityUrl?: string
   accountsAllowInsecureForTests?: boolean
   /** Tests inject a private operator token; production reads MAINTENANCE_SECRET_FILE. */

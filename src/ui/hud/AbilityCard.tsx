@@ -165,7 +165,7 @@ interface CardModel {
   progression: { level: number; stats: AbilityStat[] }[]
   desc: string
   /** shop: what clicking does and what it costs, or why it can't */
-  action?: { text: string; price: number | null; tone: 'ok' | 'muted' | 'warn' }
+  action?: { text: string; price: number | null; tone: 'ok' | 'muted' | 'warn'; state: OfferState }
   keyLabel?: string
 }
 
@@ -192,9 +192,9 @@ function actionOf(o: Offer): CardModel['action'] {
   const why = stateText(o.state)
   if (o.state === 'ok' || o.state === 'poor') {
     const text = o.level === 0 ? 'Buy' : `Upgrade to level ${o.level + 1}`
-    return { text: o.state === 'poor' ? `${text}: not enough gold` : text, price: o.price, tone: o.state === 'ok' ? 'ok' : 'warn' }
+    return { text: o.state === 'poor' ? `${text}: not enough gold` : text, price: o.price, tone: o.state === 'ok' ? 'ok' : 'warn', state: o.state }
   }
-  return why ? { text: why, price: null, tone: o.state === 'max' ? 'muted' : 'warn' } : undefined
+  return why ? { text: why, price: null, tone: o.state === 'max' ? 'muted' : 'warn', state: o.state } : undefined
 }
 
 const pct = (id: MasteryId, lvl: number) => {
@@ -535,17 +535,17 @@ export function AbilityCardPanel({ t }: { t: CardTarget }) {
           {levelText && (
             <div className="mt-0.5 flex items-center gap-2 text-[0.8rem] text-ash">
               {model.max > 1 && <Pips level={model.level} max={model.max} />}
-              <span>{levelText}</span>
+              <span data-testid="ability-card-level">{levelText}</span>
             </div>
           )}
         </div>
       </header>
       <AbilityStatList stats={model.stats} />
       <LevelTable progression={model.progression} level={model.level} />
-      {abilityNotes(model.stats, model.progression).map((note) => <p key={note} className="text-[0.72rem] leading-snug text-ash">{note}</p>)}
+      {abilityNotes(model.stats, model.progression).map((note) => <p key={note} className="text-[0.72rem] leading-snug text-ash" data-testid="ability-card-note">{note}</p>)}
       {model.desc && <p className="ability-card-desc">{model.desc}</p>}
       {model.action && (
-        <p className={`ability-card-action ${model.action.tone === 'ok' ? 'text-[#ffe0ad]' : model.action.tone === 'warn' ? 'text-[#ffb08f]' : 'text-ash'}`}>
+        <p className={`ability-card-action ${model.action.tone === 'ok' ? 'text-[#ffe0ad]' : model.action.tone === 'warn' ? 'text-[#ffb08f]' : 'text-ash'}`} data-testid="ability-card-action" data-state={model.action.state}>
           {model.action.text}
           {model.action.price != null && (
             <span className="cost ml-auto inline-flex items-center gap-1">

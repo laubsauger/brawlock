@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { useGame } from '../../game/store'
 import { MAX_CHAT_LENGTH, type ChatLine } from '../../net/chat'
+import { renderMarkup } from '../testing/markup'
 
 vi.mock('../../game/session', () => ({ session: { sendChat: vi.fn() } }))
 vi.mock('../../game/store', async (importOriginal) => {
@@ -38,51 +39,49 @@ describe('room chat presentation', () => {
     expect(html).toContain('&lt;script&gt;')
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img')
-    const panel = renderToStaticMarkup(createElement(RoomChat))
-    expect(panel).toContain('aria-label="Room-wide chat"')
-    expect(panel).toContain('role="log" aria-label="Room-wide messages"')
-    expect(panel).toContain('Everyone in this room')
-    expect(panel).toContain('Good round!')
-    expect(panel).toContain('Room chat</h2>')
-    expect(panel).toContain('aria-label="Message everyone in this room"')
-    expect(panel).not.toContain('aria-label="Open room chat"')
+    const panel = renderMarkup(createElement(RoomChat))
+    const chat = panel.get('section[aria-label="Room-wide chat"]')
+    expect(chat.attr('data-chat-presentation')).toBe('docked')
+    expect(chat.get('[role="log"]').attr('aria-label')).toBe('Room-wide messages')
+    expect(chat.get('[role="log"]').text).toContain('Good round!')
+    expect(chat.find('input[aria-label="Message everyone in this room"]')).toBeDefined()
+    expect(chat.find('[aria-label^="Open room chat"]')).toBeUndefined()
   })
 
   it('reserves chat space in connected lobbies and results, keeping combat chat compact', () => {
+    const layout = (screen: string, children: ReturnType<typeof createElement> | null = null) => renderMarkup(createElement(RoomChatLayout, { screen, children }))
     for (const screen of ['lobby', 'results'] as const) {
       useGame.setState({ screen })
-      const html = renderToStaticMarkup(createElement(RoomChatLayout, { screen, children: createElement('main', { className: 'room-screen-content' }) }))
-      expect(html).toContain('data-chat-docked="true"')
-      expect(html).toContain('room-chat-dock')
-      expect(html).toContain('aria-label="Message everyone in this room"')
+      const html = layout(screen, createElement('main', { className: 'room-screen-content' }))
+      expect(html.find('[data-chat-docked="true"]')).toBeDefined()
+      expect(html.get('[data-chat-presentation]').attr('data-chat-presentation')).toBe('docked')
+      expect(html.find('input[aria-label="Message everyone in this room"]')).toBeDefined()
     }
     useGame.setState({ screen: 'match' })
-    const match = renderToStaticMarkup(createElement(RoomChatLayout, { screen: 'match', children: null }))
-    expect(match).toContain('room-chat-layout pointer-events-none')
-    expect(match).not.toContain('data-chat-docked')
-    expect(match).toContain('aria-label="Open room chat"')
-    expect(match).not.toContain('aria-label="Message everyone in this room"')
+    const match = layout('match')
+    expect(match.find('[data-chat-docked]')).toBeUndefined()
+    expect(match.get('[data-chat-presentation]').attr('data-chat-presentation')).toBe('passive')
+    expect(match.find('button[aria-label^="Open room chat"]')).toBeDefined()
+    expect(match.find('input[aria-label="Message everyone in this room"]')).toBeUndefined()
     useGame.setState({ screen: 'lobby', lobby: { ...useGame.getState().lobby, role: 'offline' } })
-    const offline = renderToStaticMarkup(createElement(RoomChatLayout, { screen: 'lobby', children: null }))
-    expect(offline).not.toContain('data-chat-docked')
-    expect(offline).not.toContain('Room-wide chat')
+    const offline = layout('lobby')
+    expect(offline.find('[data-chat-docked]')).toBeUndefined()
+    expect(offline.find('section[aria-label="Room-wide chat"]')).toBeUndefined()
   })
 
   it('shows only the latest three messages in the compact closed view', () => {
     useGame.setState({ lobby: { ...useGame.getState().lobby, chat: Array.from({ length: 5 }, (_, i) => line({ id: i + 1, text: `message-${i + 1}` })) } })
-    const compact = renderToStaticMarkup(createElement(RoomChat, { compact: true }))
-    expect(compact).not.toContain('message-1')
-    expect(compact).not.toContain('message-2')
-    for (const id of [3, 4, 5]) expect(compact).toContain(`message-${id}`)
-    const full = renderToStaticMarkup(createElement(RoomChat))
-    for (const id of [1, 2, 3, 4, 5]) expect(full).toContain(`message-${id}`)
-    expect(compact).toContain('max-w-[340px]')
+    const messages = (compact: boolean) => renderMarkup(createElement(RoomChat, { compact })).findAll('[role="log"] li').map((li) => li.text)
+    const ids = (...n: number[]) => n.map((id) => expect.stringContaining(`message-${id}`))
+    expect(messages(true)).toEqual(ids(3, 4, 5))
+    expect(messages(false)).toEqual(ids(1, 2, 3, 4, 5))
+    expect(renderMarkup(createElement(RoomChat, { compact: true })).get('[data-chat-presentation]').attr('data-chat-presentation')).toBe('passive')
   })
 
   it('never exposes online chat offline, disconnected or outside the room screens', () => {
     for (const role of ['host', 'client'] as const) {
       useGame.setState({ lobby: { ...useGame.getState().lobby, role, status: 'open' } })
-      expect(renderToStaticMarkup(createElement(RoomChat))).toContain('Room-wide chat')
+      expect(renderMarkup(createElement(RoomChat)).find('section[aria-label="Room-wide chat"]')).toBeDefined()
     }
     for (const status of ['idle', 'connecting', 'error'] as const) {
       useGame.setState({ lobby: { ...useGame.getState().lobby, status } })

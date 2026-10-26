@@ -52,11 +52,12 @@ describe('shared account progression', () => {
   it('deduplicates region retries and conflicts instead of rewriting an already settled result', () => {
     const { store } = fixture()
     const r = receipt()
-    store.recordMatch(r)
+    const settled = store.recordMatch(r).rewards[0].balance
+    expect(settled).toBeGreaterThan(0)
     expect(store.recordMatch(r)).toMatchObject({ duplicate: true })
     const altered = receipt(); altered.players[0].won = true
     expect(() => store.recordMatch(altered)).toThrow(/different result/)
-    expect(store.snapshot('account-a').balance).toBe(20)
+    expect(store.snapshot('account-a').balance).toBe(settled)
   })
 
   it('uses one atomic receipt for all seats and rejects unknown/duplicate account identities', () => {
@@ -68,9 +69,10 @@ describe('shared account progression', () => {
     r.players[1].accountId = 'account-a'
     expect(() => store.recordMatch(r)).toThrow(/participant/)
     r.players[1].accountId = 'account-b'
-    store.recordMatch(r)
+    const settled = store.recordMatch(r).rewards.find((reward) => reward.accountId === 'account-b')!.balance
+    expect(settled).toBeGreaterThan(0)
     expect(store.recordMatch({ ...r, players: [...r.players].reverse() }).duplicate).toBe(true)
-    expect(store.snapshot('account-b').balance).toBe(20)
+    expect(store.snapshot('account-b').balance).toBe(settled)
   })
 
   it('charges exactly once, refuses key reuse and cannot overspend across authority connections', () => {
@@ -80,7 +82,7 @@ describe('shared account progression', () => {
     const initial = store.snapshot('account-a'), item = initial.offers.find((v) => v.id === 'victory-revel')!
     const request = { itemId: item.id, offerId: initial.offerId, requestId: 'purchase-0001' }
     const bought = store.purchase('account-a', request)
-    expect(bought.balance).toBe(100 - item.price)
+    expect(bought.balance).toBe(initial.balance - item.price)
     expect(bought.owned).toContain(item.id)
     expect(store.purchase('account-a', request).balance).toBe(bought.balance)
     const pricier = initial.offers.find((v) => v.price > bought.balance)!

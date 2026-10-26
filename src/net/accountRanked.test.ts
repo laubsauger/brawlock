@@ -103,10 +103,13 @@ async function fixture({ both = false, autoStart = false } = {}) {
     return { id: user.id, ratingKey: `a_${user.id}`, name, color, headers, login, ticket }
   }
   async function region(id: string, authority?: string) {
-    const srv = await startServer({ port: 0, build: 'dev-account-tcp', timeScale: scale,
+    // a revoked play permission is seen within 100 ms (production checks every 5 s), and a solo
+    // casual player starts without the 30 s wait for others
+    const srv = await startServer({ port: 0, build: 'dev-account-tcp', timeScale: scale, playCheckMs: 100,
       dataDir: `${dir}/${id}`, accountsAuthorityUrl: authOrigin, accountsAllowInsecureForTests: true,
       ratingAuthorityUrl: authority ?? '', ratingAuthorityToken: regionsToken, ratingAuthorityAllowInsecureForTests: true,
       config: { region: id, allowedOrigins: [playOrigin],
+        quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 100 },
         ranked: { ...DEFAULT_SERVER_CONFIG.ranked, startMs: autoStart ? 100 : 60_000,
           settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, shopSeconds: 0.1 } } },
       log: (level, event, fields) => logs.push({ level, event, fields }),
@@ -197,10 +200,15 @@ describe('account-ranked production TCP boundary', () => {
       await until(() => first.lobby().status === 'error', 'sole controller revocation', 8000)
     }
     await until(() => room.peers() === 0, 'old controller detached')
-    // Cross the room's own empty-match check; pending handoffs must not reset the match.
-    await new Promise((resolve) => setTimeout(resolve, 1100))
+    // Run the server's empty-room sweep and the room's empty-match settlement (what their timers
+    // call) now: the pending handoff must keep the match from closing or going back to the lobby.
+    f.us.srv.core.sweep()
+    await room.settleDeparted()
     expect(f.us.srv.core.room(room.code)).toBe(room)
     expect(room.screen()).toBe('match')
+    // the region detaches the old connection from play control asynchronously; until then the
+    // browser's next game permission is refused
+    await until(() => !f.db.prepare('SELECT 1 FROM play_sessions').get(), 'old game permission released')
     const second = f.client(f.us, async () => null, { device, profileId, key: 'solo-second-controller' })
     await second.session.join(room.code)
     expect(second.lobby().status, second.lobby().error ?? '').toBe('open')
@@ -490,6 +498,7 @@ describe('regional startup against the account service', () => {
   it('fails the start when the account service never comes up, so pm2 can restart it', async () => {
     const { started, ops } = await start(Infinity)
     await expect(started).rejects.toThrow(/fetch failed/)
-    expect(ops).toHaveLength(30)
+    // it retried before giving up (the retry budget is listen.mjs's to tune)
+    expect(ops.length).toBeGreaterThan(2)
   })
 })

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useGame, type MatchResult } from '../../game/store'
 import { createMatch, DEFAULT_SETTINGS } from '../../sim'
+import { parseMarkup, renderMarkup, testId } from '../testing/markup'
 
 vi.mock('../flow', () => ({ backToLobby() {}, leaveToMenu() {}, rematch() {}, setReady() {} }))
 vi.mock('./Lobby', () => ({ AutoStart: () => null }))
@@ -38,46 +39,39 @@ describe('final-round results', () => {
   it.each(['host', 'client'] as const)('keeps %s results readable and exposes readiness with a countdown opt-out', (role) => {
     present([1])
     useGame.getState().setLobby({ role, slots: useGame.getState().result!.slots, ready: { 1: true }, autoStart: { at: 10_000, fill: false } })
-    const html = renderToStaticMarkup(createElement(Results))
-    expect(html).toContain('data-testid="rematch-countdown"')
-    expect(html).toContain('Keep reviewing results')
-    expect(html).toContain('stop the countdown')
-    expect(html).toContain('You can still opt out')
-    expect(html).toContain('results-board')
+    const html = renderMarkup(createElement(Results))
+    expect(html.find(testId('results-board'))).toBeDefined()
+    expect(html.find(testId('rematch-countdown'))).toBeDefined()
+    // ready, and pressing it again opts out of the countdown
+    expect(html.get(testId('custom-rematch-ready')).attr('aria-pressed')).toBe('true')
+    expect(html.get(testId('rematch-ready-status')).attr('data-state')).toBe('countdown')
     useGame.getState().setLobby({ ready: {}, autoStart: null })
-    const reviewing = renderToStaticMarkup(createElement(Results))
-    expect(reviewing).toContain('Take your time: nothing starts until you press Ready.')
-    expect(reviewing).not.toContain('data-testid="rematch-countdown"')
+    const reviewing = renderMarkup(createElement(Results))
+    expect(reviewing.get(testId('rematch-ready-status')).attr('data-state')).toBe('reviewing')
+    expect(reviewing.find(testId('rematch-countdown'))).toBeUndefined()
   })
 
   it('puts the final winner first while preserving scoring wins and normal standings for everyone else', () => {
-    const html = present([1])
-    expect(html).toContain('Victory')
-    const board = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'))
-    const rows = [...board.matchAll(/<tr\b[^>]*>(.*?)<\/tr>/g)].map((match) => match[1])
-    expect(rows).toHaveLength(4)
-    expect(rows[0]).toContain('Champion')
-    expect(rows[0]).toContain('aria-label="Winner"')
-    expect(rows[0]).toMatch(/text-gold[^>]*><span>2<\/span>/)
-    expect(rows[1]).toContain('Final loser')
-    expect(rows[1]).toMatch(/text-gold[^>]*><span>2<\/span>/)
-    expect(rows[2]).toContain('Third place')
-    expect(rows[3]).toContain('Fourth place')
+    const html = parseMarkup(present([1]))
+    expect(html.get('h1').attr('data-outcome')).toBe('victory')
+    const rows = html.findAll('tbody tr')
+    expect(rows.map((row) => row.get('td').text)).toEqual(['Champion', 'Final loser', 'Third place', 'Fourth place'].map((name) => expect.stringContaining(name)))
+    expect(rows.map((row) => row.find('[aria-label="Winner"]') !== undefined)).toEqual([true, false, false, false])
+    expect(rows.map((row) => row.findAll('td')[1].text)).toEqual(['2', '2', '1', '0'])
   })
 
   it('shows a bounded final draw as shared champions rather than inventing a scoring win', () => {
-    const html = present([0, 1])
-    const board = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'))
-    expect((board.match(/aria-label="Winner"/g) ?? [])).toHaveLength(2)
-    expect(html).toContain('Victory')
-    expect(html).not.toContain('Nobody took the match')
-    expect((board.match(/text-gold[^>]*><span>2<\/span>/g) ?? [])).toHaveLength(2)
+    const html = parseMarkup(present([0, 1]))
+    expect(html.get('h1').attr('data-outcome')).toBe('victory')
+    const rows = html.findAll('tbody tr')
+    expect(rows.filter((row) => row.find('[aria-label="Winner"]'))).toHaveLength(2)
+    expect(rows.map((row) => row.findAll('td')[1].text)).toEqual(['2', '2', '1', '0'])
   })
 })
 
 describe('final builds', () => {
   it('every row opens to its final build once the result carries builds; older results offer nothing to open', () => {
-    const toggles = (html: string) => (html.match(/build and match stats/g) ?? []).length
+    const toggles = (html: string) => parseMarkup(html).findAll('tbody button[aria-expanded]').length
     expect(toggles(present([1]))).toBe(0)
     const result = useGame.getState().result!
     useGame.setState({ result: { ...result, builds: result.slots.map((s) => ({ player: s.id, slots: Array(12).fill(null), levels: Array(12).fill(0) })) } })
@@ -86,10 +80,9 @@ describe('final builds', () => {
 
   it('tells a guest of a build hosted elsewhere that an official game earns Embers once signed in on the site', () => {
     // itch players can't sign in there, so the result is where they learn what they missed
-    expect(present([1])).not.toContain('data-testid="site-embers"')
+    expect(parseMarkup(present([1])).find(testId('site-embers'))).toBeUndefined()
     useGame.setState({ result: { ...useGame.getState().result!, progression: { matchId: 'm-1', status: 'awarded' } } })
-    const html = renderToStaticMarkup(createElement(Results))
-    expect(html).toContain('data-testid="site-embers"')
-    expect(html).toContain('Signed in on brawlock.osc.link')
+    const prompt = renderMarkup(createElement(Results)).get(testId('site-embers'))
+    expect(prompt.text).toContain('brawlock.osc.link')
   })
 })

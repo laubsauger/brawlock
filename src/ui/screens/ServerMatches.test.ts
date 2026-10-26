@@ -9,6 +9,7 @@ import { newMatch } from '../../sim/testkit'
 vi.mock('../../game/session', () => ({ online: { configured: true }, session: {} }))
 import { MatchScoreboard } from './Profile'
 import { ServerMatchList } from './ServerMatches'
+import { parseMarkup } from '../testing/markup'
 
 afterEach(resetFrame)
 const build = {
@@ -40,10 +41,10 @@ describe('authoritative match history presentation', () => {
 
   it('identifies a departure as a loss and retains its rated consequence', () => {
     const html = render(match())
-    expect(html).toContain('Loss · left game')
+    const entry = parseMarkup(html).get('li[data-outcome]')
+    expect(entry.attr('data-outcome')).toBe('forfeit')
     expect(html).toContain('−12 Elo · 1488')
-    expect(html).toContain('Left before the end and did not return. The match counted, so this is a loss.')
-    expect(html).toContain('left game · loss')
+    expect(entry.findAll('[data-forfeited]').map((player) => player.text)).toEqual([expect.stringContaining('Leaver')])
   })
 
   it('uses saved equipment and levels even while a different live build exists', () => {

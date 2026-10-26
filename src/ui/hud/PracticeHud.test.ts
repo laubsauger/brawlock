@@ -1,10 +1,11 @@
 import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../../game/store'
 import { usePractice } from '../../game/practiceState'
 import { PracticeScenario } from '../../game/practiceScenario'
 import { frame, pushState, resetFrame } from '../../game/frame'
+import { spellDef } from '../data/catalog'
+import { renderMarkup, testId } from '../testing/markup'
 import { PracticeHud } from './PracticeHud'
 import { Shop } from './Shop'
 
@@ -21,34 +22,40 @@ vi.mock('../../game/practiceState', async (original) => {
 const settings = useGame.getState().settings
 afterEach(() => { usePractice.setState({ view: null }); useGame.setState({ settings }); resetFrame() })
 
+const checklist = (html: ReturnType<typeof renderMarkup>) => html.findAll('[aria-label="Practice checklist"] li').map((li) => li.attr('data-state'))
+
 describe('practice prompts and shop', () => {
   it('uses the current binding and cast mode rather than assuming quick cast', () => {
     usePractice.setState({ view: { step: 'fireball', retries: 0, target: null } })
     useGame.setState({ settings: { ...settings, keybinds: { item0: 'KeyU' }, castMode: 'normal' } })
-    const html = renderToStaticMarkup(createElement(PracticeHud))
-    expect(html).toContain('then left-click')
-    expect(html).toContain('>U</')
-    expect(html).toContain('Move<span class="sr-only"> complete')
-    expect(html).toContain('Leave practice')
+    const html = renderMarkup(createElement(PracticeHud))
+    const instruction = html.get(testId('practice-instruction'))
+    expect(instruction.attr('data-cast-mode')).toBe('normal')
+    expect(instruction.get('kbd').text).toBe('U')
+    expect(checklist(html)).toEqual(['done', 'current', 'todo', 'todo', 'todo'])
   })
   it('keeps completion explicit and offers a bot game without auto-queueing', () => {
     usePractice.setState({ view: { step: 'complete', retries: 0, target: null } })
-    const html = renderToStaticMarkup(createElement(PracticeHud))
-    expect(html).toContain('Play a bot match')
-    expect(html).toContain('Back to menu')
-    expect(html.match(/class="sr-only"> complete/g)).toHaveLength(5)
+    const html = renderMarkup(createElement(PracticeHud))
+    expect(html.find(testId('practice-bot-match'))).toBeDefined()
+    expect(checklist(html)).toEqual(['done', 'done', 'done', 'done', 'done'])
   })
   it('reuses the real shop but highlights Teleport, disables other choices and removes the timer', () => {
     const lesson = new PracticeScenario({ name: 'Learner', color: null })
     lesson.state.phase = 'shop'
     frame.localPlayer = 0; pushState(lesson.state)
-    const html = renderToStaticMarkup(createElement(Shop, { guidedSpell: 'teleport' }))
-    expect(html).toContain('Practice · no timer')
-    expect(html).toContain('Transport: choose one spell')
-    expect(html).toContain('aria-label="Teleport, buy for 12 gold"')
-    expect(html).toContain('ring-2 ring-gold')
-    expect(html).toContain('Lightning, not part of this lesson')
-    expect(html).not.toContain('aria-label="Masteries and items"')
-    expect(html).not.toContain('undefined selected')
+    const html = renderMarkup(createElement(Shop, { guidedSpell: 'teleport' }))
+    const teleport = spellDef('teleport')!
+    const guided = html.get('[data-guided]')
+    expect(html.findAll('[data-guided]')).toHaveLength(1)
+    expect(guided.text).toContain(teleport.name)
+    expect(guided.text).toContain(String(teleport.buy))
+    expect(guided.attr('data-state')).toBe('ok')
+    const others = html.findAll('.spell-column [data-nav]').filter((tile) => tile !== guided)
+    expect(others.length).toBeGreaterThan(0)
+    expect(others.every((tile) => tile.attr('data-state') === 'locked')).toBe(true)
+    expect(html.find(testId('shop-clock'))).toBeUndefined()
+    expect(html.find('[aria-label="Masteries and items"]')).toBeUndefined()
+    expect(html.findAll('[aria-label*="undefined"]')).toEqual([])
   })
 })

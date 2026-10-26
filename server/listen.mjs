@@ -161,6 +161,8 @@ function wrapSocket(socket, log) {
  */
 export async function startServer(opts = {}) {
   const { port = 5350, host = '127.0.0.1', build = NET_BUILD, config = {}, trustProxy = false, timeScale = 1, log = jsonLog, dataDir = '', clock = Date.now } = opts
+  // wall ms between account checks of a live play permission (tests shorten it)
+  const playCheckMs = opts.playCheckMs ?? 5000
   // one simulation rate per server process (30 or 60 Hz; unset: the process's, by default 30);
   // clients take it from the room's welcome
   if (opts.tickHz !== undefined) setTickRate(opts.tickHz)
@@ -463,14 +465,14 @@ export async function startServer(opts = {}) {
           if (checking || performance.now() < nextCheck) return
           checking = true
           const at = performance.now()
-          nextCheck = at + 5000
+          nextCheck = at + playCheckMs
           try {
             const next = await accounts.checkPlay(hello.playToken, permission.connection)
             if (!next.ok) moved(next.transferring === true)
             else deadline = at + next.expiresAt - next.serverTime - 1000
           } catch { if (performance.now() >= deadline) moved() }
           finally { checking = false }
-        }, 1000)
+        }, Math.min(1000, playCheckMs))
         const permissionClosed = () => { if (closed) return; closed = true; done = true; clearInterval(check); clearTimeout(timer); accounts.detachPlay(permission.connection) }
         textSocket.onClose(permissionClosed)
         if (done) { clearInterval(check); accounts.detachPlay(permission.connection); return }

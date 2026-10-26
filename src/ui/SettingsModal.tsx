@@ -63,8 +63,8 @@ function slotIndex(a: BindAction): number {
 }
 
 type Which = 'primary' | 'secondary'
-type KeyCapture = { action: BindAction; which: Which }
-type SettingsTab = 'gameplay' | 'controls' | 'video' | 'audio' | 'interface'
+export type KeyCapture = { action: BindAction; which: Which }
+export type SettingsTab = 'gameplay' | 'controls' | 'video' | 'audio' | 'interface'
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'gameplay', label: 'Gameplay' },
   { id: 'controls', label: 'Controls' },
@@ -137,6 +137,8 @@ function Keybinds({ capturing, onCapture }: { capturing: KeyCapture | null; onCa
       <button
         type="button"
         className={`kbd h-8 min-w-[5rem] px-2 text-[0.92rem] ${on ? 'animate-pulse ring-2 ring-gold' : 'hover:brightness-125'} ${!code && !on ? 'opacity-60' : ''}`}
+        data-action={a}
+        data-which={which}
         aria-label={`${label}, ${which === 'primary' ? 'main' : 'second'} key: ${code ? keyLabel(code) : 'none'}. Click to change`}
         onClick={() => {
           setNote(null)
@@ -195,6 +197,7 @@ function Keybinds({ capturing, onCapture }: { capturing: KeyCapture | null; onCa
                       <select
                         className="field col-span-3 mb-1 w-full py-1 text-[0.92rem] sm:col-span-1 sm:mb-0 sm:w-32"
                         aria-label={`Cast mode for ${a.label}`}
+                        data-slot={slot}
                         value={mode ?? ''}
                         onChange={(e) => {
                           const v = e.target.value as CastMode | ''
@@ -230,13 +233,14 @@ function Keybinds({ capturing, onCapture }: { capturing: KeyCapture | null; onCa
               : note}
           </p>
           <span className="flex flex-wrap gap-1">
-            <Button size="sm" variant="ghost" disabled={!slotCustom} onClick={() => resetSlotLayout()}>
+            <Button size="sm" variant="ghost" disabled={!slotCustom} onClick={() => resetSlotLayout()} data-testid="reset-slot-layout">
               Reset slot layout
             </Button>
             <Button
               size="sm"
               variant="ghost"
               disabled={!custom}
+              data-testid="reset-to-preset"
               onClick={() => {
                 setSettings({ keybinds: {}, keybindsAlt: {}, castModeSlots: {} })
                 setNote(`Back to the ${preset_?.label ?? ''} preset.`)
@@ -283,12 +287,22 @@ function ServerRegionRow() {
 }
 
 export function SettingsModal() {
+  const [capturing, setCapturing] = useState<KeyCapture | null>(null)
+  const [tab, setTab] = useState<SettingsTab>('gameplay')
+  return <SettingsDialog tab={tab} onTab={setTab} capturing={capturing} onCapture={setCapturing} />
+}
+
+/** The dialog for a given open tab and key capture; SettingsModal owns both (tests pass them in). */
+export function SettingsDialog({ tab, onTab: setTab, capturing, onCapture: setCapturing }: {
+  tab: SettingsTab
+  onTab: (tab: SettingsTab) => void
+  capturing: KeyCapture | null
+  onCapture: (capture: KeyCapture | null) => void
+}) {
   const s = useGame((st) => st.settings)
   const setSettings = useGame((st) => st.setSettings)
   const toggle = useGame((st) => st.toggle)
   const [name, setName] = useState(s.playerName)
-  const [capturing, setCapturing] = useState<KeyCapture | null>(null)
-  const [tab, setTab] = useState<SettingsTab>('gameplay')
   const tabList = useRef<HTMLDivElement>(null)
   const fullscreen = useFullscreen()
   const close = useCallback(() => {
@@ -487,6 +501,7 @@ export function SettingsModal() {
                 <Button
                   size="sm"
                   sound={null}
+                  data-testid="test-sound"
                   onClick={() => {
                     try {
                       audio.test()

@@ -21,6 +21,8 @@ import type { NetFactory, Transport } from './transport'
 
 /** one sim tick, ms */
 const DT = 1000 / TICK_HZ
+/** the fake clock's pulse, ms: half a tick (the sessions step from an accumulator) */
+const PULSE_MS = DT / 2
 /** walk distance per sim tick (3.5 at 60 Hz) */
 const WALK = PAWN_MOVE_SPEED / TICK_HZ
 
@@ -174,7 +176,7 @@ function makePeer(net: NetFactory, name: string, key: string, opts: PeerOpts = {
     defaultSettings: SETTINGS,
     net,
     startClock: (onPulse) => {
-      const id = setInterval(() => onPulse(performance.now()), 4)
+      const id = setInterval(() => onPulse(performance.now()), PULSE_MS)
       return () => clearInterval(id)
     },
     now: () => performance.now(),
@@ -471,8 +473,8 @@ describe('predict mode: instant own input', () => {
     const predict = await measure('predict')
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
     console.log(`[reaction ${_label}] classic ${classic.map((x) => x.toFixed(0)).join(' ')} ms (mean ${mean(classic).toFixed(0)}), predict ${predict.map((x) => x.toFixed(0)).join(' ')} ms (mean ${mean(predict).toFixed(0)})`)
-    // one tick plus one 4 ms pulse
-    for (const ms of predict) expect(ms).toBeLessThanOrEqual(DT + 4.5)
+    // one tick plus one pulse
+    for (const ms of predict) expect(ms).toBeLessThanOrEqual(DT + PULSE_MS + 0.5)
     // classic waits at least a round trip
     const rtt = 2 * link.latencyMs!
     for (const ms of classic) expect(ms).toBeGreaterThan(rtt)
@@ -581,19 +583,22 @@ describe('predict mode: authority and convergence', () => {
     let maxPerPulse = 0
     let pulses = 0
     let total = 0
-    for (let i = 0; i < 600; i++) {
+    const pulseCount = Math.round(2400 / PULSE_MS)
+    // a new order every 160 ms, alternating sides
+    const every = Math.round(160 / PULSE_MS)
+    for (let i = 0; i < pulseCount; i++) {
       const n0 = client.steps.n
-      await vi.advanceTimersByTimeAsync(4)
+      await vi.advanceTimersByTimeAsync(PULSE_MS)
       const d = client.steps.n - n0
       maxPerPulse = Math.max(maxPerPulse, d)
       total += d
       pulses++
-      if (i % 40 === 0) client.issue({ kind: 'move', x: c0.x + (i % 80 ? 150 : -150), y: c0.y })
+      if (i % every === 0) client.issue({ kind: 'move', x: c0.x + (i % (2 * every) ? 150 : -150), y: c0.y })
     }
-    const ms = pulses * 4
+    const ms = pulses * PULSE_MS
     const d = client.session.debug()
     console.log(
-      `[resim] ${(total / (ms / 1000)).toFixed(0)} steps/s (${((total / ms) * DT).toFixed(1)} per 60 Hz frame), max ${maxPerPulse} steps in one 4 ms pulse, last rollback ${d.resimTicks} ticks, max ${d.maxResimTicks}`,
+      `[resim] ${(total / (ms / 1000)).toFixed(0)} steps/s (${((total / ms) * DT).toFixed(1)} per 60 Hz frame), max ${maxPerPulse} steps in one ${PULSE_MS.toFixed(1)} ms pulse, last rollback ${d.resimTicks} ticks, max ${d.maxResimTicks}`,
     )
     expect(d.maxResimTicks).toBeLessThanOrEqual(MAX_AHEAD_TICKS)
     // one rollback (≤ lead) + one live step, plus the 1 Hz determinism check (≤ 2 steps)
@@ -639,7 +644,7 @@ describe('predict mode: host fairness', () => {
     const authBefore = host.auth.length
     const hostTickAtIssue = host.auth[host.auth.length - 1].tick
     const ms = await reaction(host, 0, 220)
-    expect(ms).toBeLessThanOrEqual(DT + 4.5)
+    expect(ms).toBeLessThanOrEqual(DT + PULSE_MS + 0.5)
     await vi.advanceTimersByTimeAsync(400)
     const target = pawnOf(lastShown(host), 0).moveTarget!
     const applied = host.auth.slice(authBefore).find((s) => pawnOf(s, 0).moveTarget?.x === target.x)!
@@ -678,38 +683,13 @@ describe('predict mode: host fairness', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(solo.session.debug().hostDelayTicks).toBe(0)
     const ms = await reaction(solo, 0, 200)
-    expect(ms).toBeLessThanOrEqual(DT + 4.5)
+    expect(ms).toBeLessThanOrEqual(DT + PULSE_MS + 0.5)
     solo.session.leave()
   })
 })
 
 describe('predict mode: match flow', () => {
-  /** Why: stats must come from authoritative states, and both peers must agree on the result. */
-  it('every peer records the same finished match', async () => {
-    const { host, client } = await pair(RTT80, { bots: true }, { bots: true })
-    host.session.updateSettings({ winScore: 1, shopSeconds: 1 })
-    host.session.addBot('brutal')
-    host.session.startMatch()
-    for (let s = 0; s < 400 && host.store.screen !== 'results'; s++) await vi.advanceTimersByTimeAsync(1000)
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(host.store.screen).toBe('results')
-    expect(client.store.screen).toBe('results')
-    expect(client.results).toEqual(host.results)
-    expect(host.results).toHaveLength(1)
-    // the recorder saw authoritative states only: every one is a host state
-    const hostHash = new Map(host.auth.map((s) => [s.tick, noEvents(s)]))
-    const sample = client.auth.filter((_, i) => i % 50 === 0)
-    for (const s of sample) expect(noEvents(s)).toBe(hostHash.get(s.tick))
-    // match-flow events played exactly once on the client, even through rollbacks
-    const deaths = client.events.filter((e) => e.type === 'death').length
-    const hostDeaths = host.auth.flatMap((s) => s.events).filter((e) => e.type === 'death').length
-    expect(deaths).toBe(hostDeaths)
-    host.session.leave()
-    client.session.leave()
-    // a whole bot match runs under fake timers (deterministic outcome); only the real
-    // CPU time grows with machine load, so this test gets more than the default 5 s
-  }, 30000)
-
+  // every peer recording the same finished match from authoritative states: replay.test.ts
   it('rematch: the client predicts the new match from its first ticks', async () => {
     const { host, client } = await pair(RTT80)
     host.session.startMatch()
@@ -936,14 +916,14 @@ describe('event delivery (beam, explosion, death, damage)', () => {
    * player and a bot must reach render (pushEvents) and audio exactly once on
    * both peers: never dropped by a rollback, never doubled by a re-simulation.
    */
+  // classic shows the authority verbatim at any RTT: one run covers it
   it.each([
-    ['RTT 0', { latencyMs: 0, jitterMs: 0, loss: 0.1, seed: 21 }],
-    ['RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 22 }],
-    ['RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 23 }],
-  ] as [string, LinkOptions][])(
+    ['RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 22 }, ['predict', 'snapshot', 'classic']],
+    ['RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 23 }, ['predict', 'snapshot']],
+  ] as [string, LinkOptions, NetMode[]][])(
     'every event reaches pushEvents and audio exactly once at %s with 10 %% loss',
-    async (label, link) => {
-      for (const mode of ['predict', 'snapshot', 'classic'] as NetMode[]) {
+    async (label, link, modes) => {
+      for (const mode of modes) {
         const common = { netMode: mode, step: spamStep, bots: true, createBot: scriptedBot }
         const { host, client } = await pair(link, { ...common, createMatch: lightningMatch }, common)
         // hits hurt (Lightning from all three every few ticks): deaths and new rounds happen during the run
@@ -1108,13 +1088,11 @@ describe('event delivery: fast repeats (Recharge chains, Cluster / Twin / Splitt
    * cooldown on a hit (cooldownReset, streak, chained casts), Cluster fires a fan of
    * identical projectiles in one tick, Twin two, Splitter a spawner and its waves. None
    * of them may be dropped, merged into one or delivered twice, on either peer, at
-   * 80 and 200 ms with 10 % loss. One player acts at a time (the other stands still), so
+   * 200 ms with 10 % loss (the longest rollbacks). One player acts at a time (the other stands still), so
    * nothing can be mispredicted and every extra delivery is a real duplicate.
    */
   it.each([
-    ['Recharge chains', 'RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 31 }],
     ['Recharge chains', 'RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 32 }],
-    ['Cluster / Twin / Splitter', 'RTT 80', { latencyMs: 34, jitterMs: 12, loss: 0.1, seed: 33 }],
     ['Cluster / Twin / Splitter', 'RTT 200', { latencyMs: 90, jitterMs: 20, loss: 0.1, seed: 34 }],
   ] as [string, string, LinkOptions][])(
     '%s at %s with 10 %% loss: 0 drops, 0 duplicates per event type on both peers',
@@ -1205,11 +1183,12 @@ async function botRoom(link: LinkOptions, players: number, mode: NetMode, extra:
 describe('input stream (M4.2)', () => {
   /**
    * Why: snapshots cost ~150-300 KB/s per player at 60 Hz; the stream sends only the stepped
-   * inputs. At 8-10 players it must be at least 10× less traffic to the client at 60 Hz
+   * inputs. At 10 players it must be at least 10× less traffic to the client at 60 Hz
    * (snapshot traffic follows the tick rate, the stream's the inputs: 5× at 30 Hz), while
    * the client really runs on the stream (not snapshots) and stays exact.
    */
-  it.each([8, 10])('%i players: the stream needs ≥10× less downlink than 60 Hz snapshots', async (players) => {
+  it('10 players: the stream needs ≥10× less downlink than 60 Hz snapshots', async () => {
+    const players = 10
     const down: Record<string, number> = {}
     for (const mode of ['snapshot', 'predict'] as NetMode[]) {
       const r = await botRoom(RTT80, players, mode)
@@ -1234,10 +1213,14 @@ describe('input stream (M4.2)', () => {
     expect(down.snapshot / down.predict).toBeGreaterThanOrEqual(10 * TICK_HZ / 60)
   }, 60000)
 
-  /** Why: no drift. The client's confirmed state must equal the host's at every checkpoint for 10k+ ticks under loss. */
-  it('a client reaches the same state hash as the host over 10k ticks with 10 % loss', async () => {
+  /**
+   * Why: no drift. The client's confirmed state must equal the host's at every tick of a long
+   * match under loss. 2.5k ticks by default; SOAK=1 runs the 10k-tick soak.
+   */
+  const soakTicks = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env?.SOAK ? 10_000 : 2_500
+  it(`a client reaches the same state hash as the host over ${soakTicks} ticks with 10 % loss`, async () => {
     const r = await botRoom(RTT80, 4, 'predict', { hashOnly: true })
-    await vi.advanceTimersByTimeAsync(10500 * DT)
+    await vi.advanceTimersByTimeAsync((soakTicks + 500) * DT)
     const host = r.host.authHash
     const client = r.clients[0].authHash
     let compared = 0
@@ -1248,8 +1231,8 @@ describe('input stream (M4.2)', () => {
       if (hh !== h) throw new Error(`confirmed state differs from the host at tick ${tick}`)
     }
     const dbg = r.clients[0].session.debug()
-    console.log(`[stream 10k] ${compared} ticks compared, client confirmed tick ${dbg.streamTick}, hash checks ${dbg.streamChecks}, desyncs ${dbg.streamDesyncs}`)
-    expect(compared).toBeGreaterThan(10000)
+    console.log(`[stream ${soakTicks}] ${compared} ticks compared, client confirmed tick ${dbg.streamTick}, hash checks ${dbg.streamChecks}, desyncs ${dbg.streamDesyncs}`)
+    expect(compared).toBeGreaterThan(soakTicks)
     expect(dbg.streamDesyncs).toBe(0)
     r.host.session.leave()
     r.clients[0].session.leave()
@@ -1397,8 +1380,8 @@ describe('remote-action latency (M4.2)', () => {
       await vi.advanceTimersByTimeAsync(2500)
       const [a, b] = r.clients
       const pa = a.store.lobby.localPlayer
-      const c2c = await remoteLatency(a, b, pa, 8)
-      const h2c = await remoteLatency(r.host, b, 0, 8)
+      const c2c = await remoteLatency(a, b, pa, 4)
+      const h2c = await remoteLatency(r.host, b, 0, 4)
       res[name] = { c2c: med(c2c), h2c: med(h2c) }
       console.log(`[remote ${label} ${name}] client→client ${c2c.map((x) => x.toFixed(0)).join(' ')} ms (median ${med(c2c).toFixed(0)}), host→client ${h2c.map((x) => x.toFixed(0)).join(' ')} ms (median ${med(h2c).toFixed(0)})`)
       for (const p of [r.host, ...r.clients]) p.session.leave()

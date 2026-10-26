@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { frame, pushState, resetFrame } from '../../game/frame'
 import { newMatch } from '../../sim/testkit'
+import { renderMarkup, testId, type MarkupElement } from '../testing/markup'
 import { Loadout } from './Inspect'
 import { Scoreboard } from './Overlays'
 import * as ticker from '../lib/ticker'
@@ -12,20 +12,14 @@ afterEach(() => {
   resetFrame()
 })
 
-describe('opponent loadout presentation', () => {
-  it('keeps the first shop private and labels it without implying a player has finished buying', () => {
-    const s = newMatch()
-    frame.localPlayer = 0
-    s.pawns[1].slots[0] = 'fireball'
-    s.pawns[1].levels[0] = 1
-    s.scores[1].gold = 0
-    pushState(s, 0)
-    const markup = renderToStaticMarkup(createElement(Loadout, { player: 1, cards: true }))
-    expect(markup).toContain('Revealed when combat starts')
-    expect(markup).not.toContain('fireball.png')
-    expect(markup).not.toContain('mastery')
-  })
+// Which kit may be shown when is game/inspect.test.ts; these check that Loadout and the
+// scoreboard render what it decides, also between polls.
+const loadout = (player: number, cards = false) => renderMarkup(createElement(Loadout, { player, cards })).get(testId('loadout'))
+const abilities = (el: MarkupElement) => el.findAll('[data-ability]').map((slot) => slot.attr('data-ability'))
+const mastery = (el: MarkupElement, id: string) => el.find(`[data-mastery="${id}"]`)?.text.replace(/\D/g, '')
+const pips = (el: MarkupElement, id: string) => el.get(`[data-ability="${id}"]`).findAll('[data-on="true"]').length
 
+describe('opponent loadout presentation', () => {
   it('shows committed icons, levels and masteries in shop, never current purchases', () => {
     const s = newMatch()
     frame.localPlayer = 0
@@ -40,12 +34,11 @@ describe('opponent loadout presentation', () => {
     s.pawns[1].levels[1] = 1
     s.scores[1].masteries.range = 5
     pushState(s, 1)
-    const markup = renderToStaticMarkup(createElement(Loadout, { player: 1, cards: true }))
-    expect(markup).toContain('Last round · current purchases hidden')
-    expect(markup).toContain('fireball.png')
-    expect(markup).not.toContain('teleport.png')
-    expect(markup).toContain('Range mastery 2 of')
-    expect(markup).not.toContain('Range mastery 5 of')
+    const shop = loadout(1, true)
+    expect(shop.attr('data-state')).toBe('lastRound')
+    expect(abilities(shop)).toContain('fireball')
+    expect(abilities(shop)).not.toContain('teleport')
+    expect(mastery(shop, 'range')).toBe('2')
   })
 
   it('shows own and opponent live scoreboard kits while alive and keeps them live while spectating', () => {
@@ -60,29 +53,19 @@ describe('opponent loadout presentation', () => {
     s.pawns[1].levels[0] = 2
     s.scores[1].masteries.range = 4
     pushState(s, 0)
-    const alive = renderToStaticMarkup(createElement(Scoreboard))
-    expect(alive).toContain('boomerang.png')
-    expect(alive).toContain('lightning.png')
-    expect(alive).toContain('title="Inspect p1"')
-    expect(alive).toContain('Current loadout')
-    expect(alive).toContain('Range mastery 1 of')
-    expect(alive).toContain('Range mastery 4 of')
-    const own = renderToStaticMarkup(createElement(Loadout, { player: 0, cards: true }))
-    const opponent = renderToStaticMarkup(createElement(Loadout, { player: 1, cards: true }))
-    const spellPips = (markup: string) => markup.match(/class="loadout-pips"[^>]*>(.*?)<\/span>/)?.[1].match(/data-on="true"/g) ?? []
-    expect(own).toContain('boomerang.png')
-    expect(spellPips(own)).toHaveLength(3)
-    expect(opponent).toContain('lightning.png')
-    expect(spellPips(opponent)).toHaveLength(2)
+    const board = () => renderMarkup(createElement(Scoreboard)).findAll(testId('loadout'))
+    const alive = board()
+    expect(alive.map((el) => el.attr('data-state'))).toEqual(['live', 'live'])
+    expect(alive.flatMap(abilities)).toEqual(expect.arrayContaining(['boomerang', 'lightning']))
+    expect(alive.map((el) => mastery(el, 'range')).sort()).toEqual(['1', '4'])
+    expect(pips(loadout(0, true), 'boomerang')).toBe(3)
+    expect(pips(loadout(1, true), 'lightning')).toBe(2)
     s.pawns[0].alive = false
     s.pawns[1].slots[1] = 'teleport'
     s.pawns[1].levels[1] = 1
-    const dead = renderToStaticMarkup(createElement(Scoreboard))
-    expect(dead).toContain('lightning.png')
-    expect(dead).toContain('teleport.png')
-    expect(dead).toContain('boomerang.png')
-    expect(dead).toContain('Current loadout')
-    expect(dead).toContain('title="Watch p1"')
+    const dead = board()
+    expect(dead.map((el) => el.attr('data-state'))).toEqual(['live', 'live'])
+    expect(dead.flatMap(abilities)).toEqual(expect.arrayContaining(['boomerang', 'lightning', 'teleport']))
   })
 
   it('cannot show an old occupant kit while the next 4Hz poll is still pending', () => {
@@ -102,14 +85,14 @@ describe('opponent loadout presentation', () => {
     pushState(s, 0)
     s.phase = 'shop'
     pushState(s, 1)
-    expect(renderToStaticMarkup(createElement(Loadout, { player: 1 }))).toContain('lightning.png')
+    expect(abilities(loadout(1))).toContain('lightning')
 
     Object.assign(s.slots[1], { kind: 'human', profileId: 'replacement', name: 'New player' })
     pushState(s, 2)
-    const replacement = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
-    expect(replacement).toContain('Revealed when combat starts')
-    expect(replacement).not.toContain('lightning.png')
-    expect(replacement).not.toContain('Range mastery 3')
+    const replacement = loadout(1)
+    expect(replacement.attr('data-state')).toBe('unrevealed')
+    expect(abilities(replacement)).toEqual([])
+    expect(mastery(replacement, 'range')).toBeUndefined()
   })
 
   it('rechecks shop privacy and restores live combat kits even before a stale poll refreshes', () => {
@@ -130,23 +113,22 @@ describe('opponent loadout presentation', () => {
     s.pawns[1].slots[1] = 'teleport'
     s.pawns[1].levels[1] = 1
     s.scores[1].masteries.range = 4
-    const dead = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
-    expect(dead).toContain('teleport.png')
-    expect(dead).toContain('Range mastery 4 of')
+    const dead = loadout(1)
+    expect(abilities(dead)).toContain('teleport')
+    expect(mastery(dead, 'range')).toBe('4')
     s.phase = 'shop'
     pushState(s, 1)
-    const shop = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
-    expect(shop).toContain('Last round · current purchases hidden')
-    expect(shop).not.toContain('teleport.png')
-    expect(shop).toContain('Range mastery 1 of')
-    expect(shop).not.toContain('Range mastery 4 of')
+    const shop = loadout(1)
+    expect(shop.attr('data-state')).toBe('lastRound')
+    expect(abilities(shop)).not.toContain('teleport')
+    expect(mastery(shop, 'range')).toBe('1')
     s.pawns[0].alive = true
     s.phase = 'fight'
     s.round = 2
     pushState(s, 2)
-    const alive = renderToStaticMarkup(createElement(Loadout, { player: 1 }))
-    expect(alive).toContain('Current loadout')
-    expect(alive).toContain('teleport.png')
-    expect(alive).toContain('Range mastery 4 of')
+    const alive = loadout(1)
+    expect(alive.attr('data-state')).toBe('live')
+    expect(abilities(alive)).toContain('teleport')
+    expect(mastery(alive, 'range')).toBe('4')
   })
 })

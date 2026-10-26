@@ -160,6 +160,7 @@ export function Results() {
       <h1
         className="wordmark shrink-0 text-center text-[clamp(2.6rem,min(9vw,8.5vh),6.5rem)] leading-none"
         style={won || !inMatch ? undefined : { filter: 'grayscale(.35) drop-shadow(0 0 18px rgba(196,26,36,.45)) drop-shadow(0 2px 0 rgba(40,0,0,.9))' }}
+        data-outcome={draw ? 'draw' : !inMatch ? 'over' : won ? 'victory' : 'defeat'}
       >
         {title}
       </h1>
@@ -332,7 +333,7 @@ export function Results() {
               Leave
             </Button>
           </div>
-          <p className="text-[0.98rem] text-ash" aria-live="polite" data-testid="quick-ready-status">
+          <p className="text-[0.98rem] text-ash" aria-live="polite" data-testid="quick-ready-status" data-state={localReady ? autoStart ? 'countdown' : 'waiting' : 'reviewing'}>
             {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}
             {localReady
               ? autoStart ? 'You can still opt out before the countdown ends.' : 'Waiting for everyone to be ready.'
@@ -358,7 +359,7 @@ export function Results() {
       </div>
       )}
       {!quick && !maintenance && (
-        <p className="mt-2 shrink-0 text-[0.98rem] text-ash" aria-live="polite">
+        <p className="mt-2 shrink-0 text-[0.98rem] text-ash" aria-live="polite" data-testid="rematch-ready-status" data-state={localReady ? autoStart ? 'countdown' : 'waiting' : 'reviewing'}>
           {humans.length > 1 ? `${readyCount} of ${humans.length} ready · ` : ''}{localReady ? autoStart ? 'You can still opt out before the countdown ends.' : 'Waiting for everyone to be ready.' : 'Take your time: nothing starts until you press Ready.'}
         </p>
       )}

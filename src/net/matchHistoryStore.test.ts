@@ -26,6 +26,8 @@ function history(queue: 'ranked' | 'casual' | 'custom' = 'casual', at = 1000): S
     ],
   }
 }
+/** an Elo change the server computed: the store keeps and returns it as given (the math: leaderboard.test.ts) */
+const LOSS = { delta: -20, rating: 980 }
 function open(file = ':memory:') {
   const store = openLeaderboard(file)
   stores.push(store)
@@ -33,8 +35,8 @@ function open(file = ':memory:') {
 }
 function rankedRows() {
   const result: ResultRow = { device, name: 'Ash', at: 1000, region: 'eu', won: false, roundsPlayed: 5, roundsWon: 2,
-    kills: 4, deaths: 3, delta: -20, rating: 980, forfeited: true }
-  const player: PlayerRow = { device, name: 'Ash', tag: 'abcde', rating: 980, matches: 1, wins: 0,
+    kills: 4, deaths: 3, ...LOSS, forfeited: true }
+  const player: PlayerRow = { device, name: 'Ash', tag: 'abcde', rating: LOSS.rating, matches: 1, wins: 0,
     roundsPlayed: 5, roundsWon: 2, kills: 4, deaths: 3, firstAt: 1000, lastAt: 1000 }
   return [{ at: 1000, region: 'eu', room: 'ABCDE', ticks: 15_000, rounds: 5, humans: 2, bots: 1 }, [result], [player]] as const
 }
@@ -83,12 +85,12 @@ describe('authoritative match history storage', () => {
     let store = open(file)
     for (const [index, queue] of (['ranked', 'casual', 'custom', 'casual'] as const).entries()) {
       const input = history(queue, index < 2 ? 1000 : 2000)
-      const deltas = queue === 'ranked' ? { [device]: { delta: -20, rating: 980 } } : undefined
+      const deltas = queue === 'ranked' ? { [device]: LOSS } : undefined
       store.applyReceipt(`history-receipt-${index}`, `fingerprint-${index}`, () => ({ rating: { status: 'unrated' }, history: { ...input, deltas } }))
     }
     expect(store.history(device, { limit: 2 }).map((r) => r.queue)).toEqual(['casual', 'custom'])
     expect(store.history(device, { queue: 'casual', limit: 10 }).map((r) => r.at)).toEqual([2000, 1000])
-    expect(store.history(device, { queue: 'ranked', limit: 10 })[0]).toMatchObject({ delta: -20, rating: 980 })
+    expect(store.history(device, { queue: 'ranked', limit: 10 })[0]).toMatchObject(LOSS)
     const before = store.history(device, { limit: 10 })
     store.close()
     stores.splice(stores.indexOf(store), 1)
@@ -112,10 +114,10 @@ describe('authoritative match history storage', () => {
     expect(store.recent(device, 10)).toEqual([])
     expect(store.top(board, 100)).toEqual([])
     store.applyReceipt('atomic-receipt', 'fingerprint', () => ({ rating: { status: 'rated' }, commit,
-      history: { ...history('ranked'), deltas: { [device]: { delta: -20, rating: 980 } } } }))
-    expect(store.recent(device, 10)[0]).toMatchObject({ forfeited: true, delta: -20 })
-    expect(store.history(device, { limit: 10 })[0]).toMatchObject({ outcome: 'forfeit', delta: -20 })
-    expect(store.players([device]).get(device)).toMatchObject({ matches: 1, rating: 980 })
+      history: { ...history('ranked'), deltas: { [device]: LOSS } } }))
+    expect(store.recent(device, 10)[0]).toMatchObject({ forfeited: true, delta: LOSS.delta })
+    expect(store.history(device, { limit: 10 })[0]).toMatchObject({ outcome: 'forfeit', ...LOSS })
+    expect(store.players([device]).get(device)).toMatchObject({ matches: 1, rating: LOSS.rating })
   })
 
   it('rolls back partial history rows if a human association cannot be inserted', () => {
