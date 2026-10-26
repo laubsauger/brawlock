@@ -1,0 +1,58 @@
+name: Publish to itch.io
+
+# deploy/release.mjs publishes the v* tag only after fleet proof, so the itch build always matches
+# the live servers' netcode. A manual run must also pick a v* tag. One-time setup: docs/ITCH.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: itch
+  cancel-in-progress: false
+
+jobs:
+  itch:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      # Relative paths and bundled media: itch serves the zip from its own host under /html/<id>/.
+      - run: npm run build -- --base=./ --outDir dist-itch
+        env:
+          # same regions as deploy.yml
+          VITE_GAME_SERVERS: '[{"id":"us-west","label":"US West","url":"wss://us.brawlock.osc.link"},{"id":"eu","label":"Europe","url":"wss://eu.brawlock.osc.link"}]'
+          # guest play permission, feedback, invite links and ranked go through the first-party site
+          VITE_SITE_URL: 'https://brawlock.osc.link/'
+
+      - run: node scripts/package-itch.mjs dist-itch itch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itch-html5
+          path: itch
+          retention-days: 30
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::error::BUTLER_API_KEY secret is missing (docs/ITCH.md). The build is in the itch-html5 artifact."
+            exit 1
+          fi
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler-bin
+          chmod +x butler-bin/butler
+          ./butler-bin/butler -V
+          ./butler-bin/butler push itch laub69/brawlock:html5 --userversion "$(node -p "require('./itch/version.json').version")"

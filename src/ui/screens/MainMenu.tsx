@@ -1,5 +1,6 @@
 import { FeedbackButton } from '../FeedbackButton'
 import { useFeedback } from '../lib/feedbackState'
+import { SITE_URL } from '../../lib/site'
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useGame } from '../../game/store'
 import { Wordmark } from '../Brand'
@@ -159,11 +160,12 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       ranked
       title="Ranked"
       sub={maintenance ? 'New ranked games paused' : 'Global Elo · 8 players · 5 rounds'}
-      badge={maintenance ? 'Maintenance' : !accountsEnabled ? 'Sign-in unavailable' : !accountLoaded ? 'Checking account' : accountError ? 'Account unavailable' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : rankedReady ? 'Ready' : undefined}
+      badge={maintenance ? 'Maintenance' : !accountsEnabled ? (SITE_URL ? 'Opens our site' : 'Sign-in unavailable') : !accountLoaded ? 'Checking account' : accountError ? 'Account unavailable' : !account ? 'Sign in required' : !account.profile ? 'Finish setup' : rankedReady ? 'Ready' : undefined}
       ready={rankedReady}
-      disabled={!playSupported || !!problem || !accountsEnabled}
-      hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? 'Ranked sign-in is unavailable in this build.' : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
-      onClick={() => isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
+      disabled={!playSupported || (!accountsEnabled ? !SITE_URL : !!problem)}
+      hint={!playSupported ? PLAY_REQUIREMENT : !accountsEnabled ? (SITE_URL ? `Ranked needs a Brawlock account. Sign in on ${new URL(SITE_URL).host} (opens in a new tab).` : 'Ranked sign-in is unavailable in this build.') : problem ?? `Find a ranked opponent in ${region?.label}. Sign in to keep your Elo across computers.`}
+      // a build hosted elsewhere (itch.io) cannot sign in inside its iframe: ranked lives on the site
+      onClick={() => !accountsEnabled && SITE_URL ? window.open(SITE_URL, '_blank', 'noopener') : isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
   </div>

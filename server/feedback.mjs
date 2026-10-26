@@ -4,6 +4,7 @@ import { mkdirSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
+import { embedCors, embedOrigins } from './embed-origins.mjs'
 import { FEEDBACK_BODY_BYTES, FEEDBACK_IMAGE_BYTES, FEEDBACK_IMAGE_DIMENSION, FEEDBACK_UUID, validFeedbackSubmission } from '../src/net/feedback.ts'
 
 const MAX_ADDRESSES = 10_000
@@ -101,11 +102,12 @@ function screenshotBytes(screenshot) {
   return bytes
 }
 
-export function openFeedback(file, { origin, token, getAccount, now = Date.now }) {
+export function openFeedback(file, { origin, token, getAccount, now = Date.now, embeds = [] }) {
   const url = new URL(origin)
   if (url.origin !== origin || !['https:', 'http:'].includes(url.protocol) || url.protocol === 'http:' && url.hostname !== 'localhost') throw new Error('Feedback requires an exact HTTPS origin or HTTP localhost')
   if (typeof token !== 'string' || token.length < 32) throw new Error('Feedback operator token must contain at least 32 characters')
   if (getAccount !== undefined && typeof getAccount !== 'function') throw new Error('Invalid feedback account lookup')
+  embedOrigins(embeds)
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   const db = new DatabaseSync(file)
   try {
@@ -144,15 +146,16 @@ export function openFeedback(file, { origin, token, getAccount, now = Date.now }
       if (old.fingerprint !== fingerprint) throw new FeedbackError(409, 'This feedback ID already contains a different report.')
       return json(200, { id: old.id, receivedAt: old.received_at })
     }
-    async function submit(request) {
+    async function submit(request, embedded) {
       if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' }, { allow: 'POST' })
-      if (request.headers.get('origin') !== origin) return json(403, { error: 'Origin required.' })
+      if (request.headers.get('origin') !== origin && !embedded) return json(403, { error: 'Origin required.' })
       if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return json(415, { error: 'Expected JSON.' })
       const ip = request.headers.get('x-brawlock-client-ip')
       if (!ip || ip.length > 128) return json(400, { error: 'Missing trusted connection address.' })
       const body = await readBody(request)
       if (!validFeedbackSubmission(body)) return json(400, { error: 'Invalid feedback report.' })
-      const account = getAccount ? await getAccount(request) : null
+      // an embedded client is cross-site: it never carries the first-party session
+      const account = getAccount && !embedded ? await getAccount(request) : null
       if (account !== null && (!account || typeof account.id !== 'string' || !account.id || account.id.length > 128)) throw new Error('Invalid verified feedback account')
       const accountId = account?.id ?? null
       const fingerprint = createHash('sha256').update(canonical({ accountId, submission: body })).digest('hex')
@@ -214,14 +217,21 @@ export function openFeedback(file, { origin, token, getAccount, now = Date.now }
     }
     return {
       async handler(request) {
+        const from = request.headers.get('origin')
+        const cors = from !== origin && embeds.includes(from) ? embedCors(from) : null
         try {
           const url = new URL(request.url)
-          if (url.pathname === '/api/feedback') return await submit(request)
+          if (url.pathname === '/api/feedback') {
+            if (cors && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: embedCors(from, true) })
+            const response = await submit(request, cors !== null)
+            if (cors) for (const [name, value] of Object.entries(cors)) response.headers.set(name, value)
+            return response
+          }
           if (url.pathname === '/internal/feedback' || url.pathname.startsWith('/internal/feedback/')) return inbox(request, url)
           return json(404, { error: 'Not found.' })
         } catch (error) {
           return json(error instanceof FeedbackError ? error.status : 500,
-            { error: error instanceof FeedbackError ? error.message : 'Feedback could not be saved. Please try again.' })
+            { error: error instanceof FeedbackError ? error.message : 'Feedback could not be saved. Please try again.' }, cors ?? {})
         }
       },
       mailBatch() { return mailRows.all() },

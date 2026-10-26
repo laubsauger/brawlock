@@ -32,12 +32,14 @@ for (const provider of ['google', 'discord', 'microsoft']) {
   providers[provider] = { clientId, clientSecret: readFileSync(secretFile, 'utf8').trim() }
 }
 const origin = required('AUTH_ORIGIN')
+// comma list of hosts that embed the game client (itch.io); guest play and feedback only
+const embeds = (process.env.AUTH_EMBED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 const dataDir = required('AUTH_DATA_DIR')
 const regionsToken = readFileSync(required('AUTH_REGIONS_TOKEN_FILE'), 'utf8').trim()
 const accounts = await openAccounts({
   file: join(dataDir, 'accounts.sqlite'), origin,
   secret: readFileSync(required('AUTH_SECRET_FILE'), 'utf8').trim(), providers,
-  regionsToken,
+  regionsToken, embeds,
   migrate: process.argv.includes('--migrate'),
 })
 if (process.argv.includes('--migrate')) {
@@ -45,7 +47,7 @@ if (process.argv.includes('--migrate')) {
   console.log('Account schema is ready.')
 } else {
   const feedback = openFeedback(join(dataDir, 'feedback.sqlite'), {
-    origin, token: regionsToken,
+    origin, token: regionsToken, embeds,
     getAccount: async (request) => {
       if (!request.headers.has('cookie')) return null
       const session = await accounts.auth.api.getSession({ headers: request.headers })

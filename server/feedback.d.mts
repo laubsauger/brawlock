@@ -3,6 +3,8 @@ export interface FeedbackOptions {
   token: string
   getAccount?: (request: Request) => Promise<{ id: string } | null>
   now?: () => number
+  /** Exact HTTPS origins embedding the client (itch.io): reports without the session. */
+  embeds?: string[]
 }
 export function openFeedback(file: string, options: FeedbackOptions): {
   handler(request: Request): Promise<Response>

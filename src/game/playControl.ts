@@ -2,9 +2,11 @@ import { create } from 'zustand'
 import { PlayControl, type PlayConflict, type PlayTarget } from '../net/playControl'
 import { getDeviceId } from './device'
 import { controllerKey } from './clientKey'
+import { SITE_URL, siteApi, siteCredentials } from '../lib/site'
 
 export const usePlayControl = create<{ conflict: PlayConflict | null }>(() => ({ conflict: null }))
-const enabled = import.meta.env.VITE_ACCOUNTS_ENABLED === 'true'
+// A build hosted elsewhere (itch.io) has no sign-in but still needs the site's guest permission: servers require it.
+export const playControlEnabled = import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' || SITE_URL !== null
 const TARGET_KEY = 'brawlock.active-game.v1'
 let channel: BroadcastChannel | null = null
 const messages = () => channel ??= new BroadcastChannel('brawlock.game-control.v1')
@@ -14,9 +16,9 @@ let resume: (target: PlayTarget) => Promise<unknown> = async () => { throw new E
 export function connectPlayControl(handlers: { lost: typeof lost; resume: typeof resume }) { lost = handlers.lost; resume = handlers.resume }
 
 export const playControl = new PlayControl({
-  enabled, now: () => performance.now(),
+  enabled: playControlEnabled, now: () => performance.now(),
   async request(body, keepalive) {
-    const response = await fetch('/api/play', { method: 'POST', credentials: 'same-origin', cache: 'no-store', keepalive,
+    const response = await fetch(siteApi('/api/play'), { method: 'POST', credentials: siteCredentials, cache: 'no-store', keepalive,
       signal: AbortSignal.timeout(8000), headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, device: getDeviceId(), controller: controllerKey() }) })
     const result = await response.json()
     if (!response.ok && response.status !== 409) throw new Error(typeof result.error === 'string' ? result.error : 'Game session service is unavailable.')

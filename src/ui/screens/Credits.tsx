@@ -125,7 +125,7 @@ export function Credits() {
 
             <Block title="Legal">
               <p className="text-ash">
-                A non-commercial fan project. Not affiliated with or endorsed by Blizzard Entertainment or Valve. Warcraft is a trademark of Blizzard
+                An independent game inspired by the Warlock custom games. Not affiliated with or endorsed by Blizzard Entertainment or Valve. Warcraft is a trademark of Blizzard
                 Entertainment; Dota 2 is a trademark of Valve Corporation.
               </p>
               <p>Operated by Promp' Industries. Use Bugs & feedback to contact us.</p>

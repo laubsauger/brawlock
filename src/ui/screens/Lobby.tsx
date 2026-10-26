@@ -16,6 +16,7 @@ import { PLAYER_COLORS } from '../../net/session'
 import { sfx } from '../lib/sound'
 import { MatchOptions } from './MatchOptions'
 import { roomLink } from '../../net/code'
+import { SITE_URL } from '../../lib/site'
 import { useLinks } from '../lib/netmonitor'
 import { useMatchRenderReady } from '../MatchLayer'
 import type { PeerNet } from '../lib/netstats'
@@ -271,7 +272,7 @@ function useCopy(): [string | null, (key: string, text: string | null) => void] 
 
 function InviteCard({ code, url, host }: { code: string | null; url: string | null; host: boolean }) {
   const [copied, copy] = useCopy()
-  const link = url ?? (code ? roomLink(window.location.href, code) : null)
+  const link = url ?? (code ? roomLink(SITE_URL ?? window.location.href, code) : null)
   return (
     <div className="mb-3">
       <div className="flex flex-wrap items-center gap-3">

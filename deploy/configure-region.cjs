@@ -26,12 +26,13 @@ if (!app.env.MAINTENANCE_SECRET_FILE) fields.push(`MAINTENANCE_SECRET_FILE: ${JS
 if (fields.length) text = text.replace(envMarker, (marker) => `${marker}\n        ${fields.join('\n        ')}`)
 const origins = app.env.ALLOWED_ORIGINS
 if (typeof origins !== 'string' || !origins) throw new Error('Production requires an explicit origin allowlist')
-const addOrigin = !origins.split(',').map((s) => s.trim()).includes('https://brawlock.osc.link')
-if (addOrigin) {
+// the first-party site, and itch.io's HTML game host for the embedded client (docs/ITCH.md)
+const addOrigin = ['https://brawlock.osc.link', 'https://html-classic.itch.zone'].filter((o) => !origins.split(',').map((s) => s.trim()).includes(o))
+if (addOrigin.length) {
   const pattern = /(?:"ALLOWED_ORIGINS"|'ALLOWED_ORIGINS'|\bALLOWED_ORIGINS)\s*:\s*(['"])([^'"\n]*)\1/
   const found = text.match(pattern)
   if (!found || found[2] !== origins) throw new Error('Origin allowlist must be a reviewed literal')
-  text = text.replace(pattern, `ALLOWED_ORIGINS: ${JSON.stringify(origins + ',https://brawlock.osc.link')}`)
+  text = text.replace(pattern, `ALLOWED_ORIGINS: ${JSON.stringify([origins, ...addOrigin].join(','))}`)
 }
 const gid = Number(execFileSync('id', ['-g', 'brawlock'], { encoding: 'utf8' }).trim())
 const configStat = fs.statSync(file)
@@ -42,7 +43,7 @@ if (!createCredential) {
   if (stat.uid !== 0 || stat.gid !== gid || (stat.mode & 0o777) !== 0o640 || fs.readFileSync(credential, 'utf8').trim().length < 32) throw new Error('Existing maintenance credential is invalid; it will not be rotated automatically')
 }
 const changed = text !== original
-console.log(JSON.stringify({ region, accountOrigin: accountsUrl, configChange: changed, addGameOrigin: addOrigin, createMaintenanceCredential: createCredential, apply: option === '--apply' }))
+console.log(JSON.stringify({ region, accountOrigin: accountsUrl, configChange: changed, addGameOrigins: addOrigin, createMaintenanceCredential: createCredential, apply: option === '--apply' }))
 if (option !== '--apply') process.exit(0)
 if (changed) {
   const backup = `/root/brawlock-backups/region-config-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}`

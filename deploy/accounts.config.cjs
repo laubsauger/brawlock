@@ -10,6 +10,8 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       AUTH_ORIGIN: 'https://brawlock.osc.link',
+      // itch.io's HTML game host: guest play permissions and feedback only (docs/ITCH.md)
+      AUTH_EMBED_ORIGINS: 'https://html-classic.itch.zone',
       AUTH_PORT: '5352',
       AUTH_DATA_DIR: '/opt/apps/brawlock-accounts/data',
       AUTH_SECRET_FILE: '/etc/brawlock/accounts-session-secret',

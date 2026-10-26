@@ -6,6 +6,8 @@ dist/
 dist-ssr/
 dist-server/
 dist-accounts/
+dist-itch/
+itch-package/
 
 # TypeScript
 *.tsbuildinfo

@@ -6,6 +6,8 @@ export interface AccountConfig {
   providers: Partial<Record<'google' | 'discord' | 'microsoft', { clientId: string; clientSecret: string }>>
   migrate?: boolean
   regionsToken?: string
+  /** Exact HTTPS origins embedding the client (itch.io): cookieless guest play only. */
+  embeds?: string[]
 }
 export function accountName(raw: unknown): { name: string; key: string } | null
 export function accountOptions(opts: Omit<AccountConfig, 'file' | 'migrate'> & { database: unknown }): BetterAuthOptions

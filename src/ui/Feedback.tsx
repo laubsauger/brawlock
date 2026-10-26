@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FEEDBACK_MESSAGE_MAX, validFeedbackSubmission, type FeedbackSubmission } from '../net/feedback'
 import { feedbackRequest, useFeedback } from './lib/feedbackState'
 import { Button, Modal, Segmented } from './widgets'
+import { siteApi, siteCredentials } from '../lib/site'
 
 function FeedbackForm() {
   const draft = useFeedback((state) => state.draft)!
@@ -30,7 +31,7 @@ function FeedbackForm() {
     if (!validFeedbackSubmission(request.current.submission)) { setError('Check your message and reply email. The report could not be validated.'); return }
     setBusy(true); setError(null)
     try {
-      const response = await fetch(`${import.meta.env.BASE_URL}api/feedback`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request.current.submission), signal: AbortSignal.timeout(20_000) })
+      const response = await fetch(siteApi(`${import.meta.env.BASE_URL}api/feedback`), { method: 'POST', credentials: siteCredentials, headers: { 'content-type': 'application/json' }, body: JSON.stringify(request.current.submission), signal: AbortSignal.timeout(20_000) })
       const result: unknown = await response.json()
       if (!response.ok) {
         const detail = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : 'The report service could not accept this report.'

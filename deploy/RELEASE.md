@@ -41,6 +41,8 @@ deploy/maintenance.sh reopen
 DEPLOY_HOST=root@167.99.216.102 deploy/maintenance.sh reopen
 ```
 
+The `v*` tag that `deploy/release.mjs` publishes after proof triggers `.github/workflows/itch.yml`, which pushes the matching itch.io build ([docs/ITCH.md](../docs/ITCH.md)). Before the first itch release, add `AUTH_EMBED_ORIGINS` to the protected accounts config and run `configure-region.cjs` on both regions so `ALLOWED_ORIGINS` includes the itch host.
+
 For rollback, retain current account/game databases and outboxes, restore the verified compatible code/config/client pair, and check schema/protocol support before reopening. Never restore a stale account backup over newer users or purchases. Keep both the first-party app and corresponding Pages media available until rollback is no longer needed.
 
 ## Fleet and protected state

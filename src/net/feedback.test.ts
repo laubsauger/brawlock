@@ -25,9 +25,10 @@ function submission(): FeedbackSubmission {
     errors: [{ at: 999, name: 'Error', message: 'Test rendering failure', stack: 'Error: Test rendering failure\n    at render (https://play.test/assets/main.js:2:3)' }],
   } }
 }
+const embed = 'https://html-classic.itch.zone'
 function fixture({ file = ':memory:', getAccount }: { file?: string; getAccount?: FeedbackOptions['getAccount'] } = {}) {
   let time = 1000
-  let service = openFeedback(file, { origin, token, getAccount, now: () => time })
+  let service = openFeedback(file, { origin, token, getAccount, now: () => time, embeds: [embed] })
   cleanups.push(() => service.close())
   const post = (body: unknown = submission(), headers: Record<string, string> = {}, options: RequestInit = {}) => service.handler(new Request(`${origin}/api/feedback`, {
     method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-brawlock-client-ip': '127.0.0.10', ...headers },
@@ -37,7 +38,7 @@ function fixture({ file = ':memory:', getAccount }: { file?: string; getAccount?
     headers: { authorization: `Bearer ${token}`, ...headers },
   }))
   return { post, inbox, mailDelivery: (build: Parameters<typeof service.mailDelivery>[0]) => service.mailDelivery(build), completeMail: (key: string) => service.completeMail(key), lastMailedAt: () => service.lastMailedAt(), mailBatch: () => service.mailBatch(), markMailed: (ids: string[]) => service.markMailed(ids), mailPending: () => service.mailPending(), handler: (request: Request) => service.handler(request), time: (value: number) => { time = value },
-    reopen() { service.close(); service = openFeedback(file, { origin, token, getAccount, now: () => time }) } }
+    reopen() { service.close(); service = openFeedback(file, { origin, token, getAccount, now: () => time, embeds: [embed] }) } }
 }
 
 describe('first-party feedback contract', () => {
@@ -89,6 +90,23 @@ describe('private feedback inbox', () => {
     expect((await f.post(submission(), {}, { body: '{' })).status).toBe(400)
     expect((await f.post(submission(), { 'content-length': String(FEEDBACK_BODY_BYTES + 1) })).status).toBe(413)
     expect((await f.post({ ...submission(), message: 'x'.repeat(FEEDBACK_BODY_BYTES) }, { 'content-length': '1' })).status).toBe(413)
+  })
+
+  it('accepts reports from the itch-embedded client over CORS, never with the first-party session', async () => {
+    const getAccount = vi.fn(async () => ({ id: 'site-account' }))
+    const f = fixture({ getAccount })
+    const preflight = await f.handler(new Request(`${origin}/api/feedback`, { method: 'OPTIONS', headers: { origin: embed } }))
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(embed)
+    const report = submission()
+    const sent = await f.post(report, { origin: embed, cookie: 'brawlock.session_token=cross-site' })
+    expect(sent.status).toBe(201)
+    expect(sent.headers.get('access-control-allow-origin')).toBe(embed)
+    expect(getAccount).not.toHaveBeenCalled()
+    expect(await (await f.inbox(`/${report.id}`)).json()).toMatchObject({ id: report.id, accountId: null })
+    const refused = await f.post(submission(), { origin: 'https://other.itch.zone' })
+    expect(refused.status).toBe(403)
+    expect(refused.headers.get('access-control-allow-origin')).toBeNull()
   })
 
   it('does not turn a failed account verification into an anonymous report', async () => {

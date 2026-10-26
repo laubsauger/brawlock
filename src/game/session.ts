@@ -48,7 +48,7 @@ import { startPractice, stopPractice } from './practice'
 import { clientKey } from './clientKey'
 import { showRankedConflict } from './rankedControl'
 import type { AccountGame } from '../net/accounts'
-import { playControl, connectPlayControl } from './playControl'
+import { playControl, playControlEnabled, connectPlayControl } from './playControl'
 import type { PlayTarget } from '../net/playControl'
 import { roomProgress, type RoomProgress } from '../net/roomProgress'
 import { trackEvent, type MatchAnalyticsMode } from '../lib/analytics'
@@ -96,7 +96,7 @@ let routed: ServerRegion | null = null
 /** Consumed by exactly one dial. Explicit browser/rejoin routes never change backend. */
 let nextJoinRoute: RoomRoute | null = null
 let rankedTakeover = false
-const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url, undefined, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => getAdmissionToken(false, rankedTakeover) : undefined, showRankedConflict, import.meta.env.VITE_ACCOUNTS_ENABLED === 'true' ? () => playControl.token() : undefined), (region) => { routed = region })
+const network = hybridNet(online.configured ? createPeerNet(() => online.iceConfiguration()) : peerNet, online, (url) => wsNet(url, undefined, playControlEnabled ? () => getAdmissionToken(false, rankedTakeover) : undefined, showRankedConflict, playControlEnabled ? () => playControl.token() : undefined), (region) => { routed = region })
 
 /** `?net=classic` / `?net=snapshot` / `?net=predict` overrides the Settings choice (escape hatch, testing). */
 function netMode(): NetMode {

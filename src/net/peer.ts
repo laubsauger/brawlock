@@ -24,6 +24,7 @@ import type { DataConnection, Peer as PeerType } from 'peerjs'
 import { newRoomCode, peerIdForCode, roomLink } from './code'
 import { BaseTransport, type HostEndpoint, type NetFactory, type Transport } from './transport'
 import { recoverFromChunkError } from '../lib/staleBuild'
+import { SITE_URL } from '../lib/site'
 
 type PeerCtor = typeof import('peerjs').Peer
 
@@ -382,5 +383,5 @@ export const peerNet: NetFactory = createPeerNet()
 /** Shareable invite link for a room code: the app URL with ?room=CODE. */
 export function joinUrlFor(code: string): string {
   const origin = typeof location !== 'undefined' ? location.origin : 'http://localhost'
-  return roomLink(`${origin}${import.meta.env.BASE_URL}`, code)
+  return roomLink(SITE_URL ?? `${origin}${import.meta.env.BASE_URL}`, code)
 }

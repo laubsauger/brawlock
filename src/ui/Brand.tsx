@@ -19,8 +19,10 @@ export function Wordmark({ size = 'lg' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) 
   // lg follows the screen height too, so the main menu fits on short screens (1280x720 with the server options)
   const width = { sm: '220px', md: '340px', lg: 'min(520px, 84vw, 58vh)', xl: 'min(640px, 86vw)' }[size]
   const src = assetUrl('brand/wordmark.webp')
+  // absolute: a relative url() in a custom property resolves against the stylesheet under assets/ (itch build, base ./)
+  const mask = new URL(src, document.baseURI).href
   return (
-    <h1 className={`brand-mark m-0 max-w-[calc(100vw-48px)] leading-none ${size === 'lg' ? 'brand-mark-live' : ''}`} style={{ width, '--brand-image': `url("${src}")` } as CSSProperties}>
+    <h1 className={`brand-mark m-0 max-w-[calc(100vw-48px)] leading-none ${size === 'lg' ? 'brand-mark-live' : ''}`} style={{ width, '--brand-image': `url("${mask}")` } as CSSProperties}>
       <img
         src={src}
         width={1200}

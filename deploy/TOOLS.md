@@ -5,7 +5,7 @@ Keep reusable deployment work here. `/private/tmp` contains disposable builds, c
 | Tool | Purpose | Changes |
 | --- | --- | --- |
 | `deploy.sh` | Build/upload a matching regional game | Only Brawlock code and its non-root PM2 process; `--dry-run` available |
-| `configure-region.cjs` | Prepare an existing region for accounts/maintenance | Reviewed env additions, origin allowlist, separate maintenance secret; dry-run by default |
+| `configure-region.cjs` | Prepare an existing region for accounts/maintenance | Reviewed env additions, origin allowlist (site and itch.io host), separate maintenance secret; dry-run by default |
 | `accounts.sh` | Deploy the single shared account service on US | Auth bundle, explicit additive migration, only `brawlock-accounts` |
 | `web.sh` | Stage/activate a packaged first-party website | Versioned release directory and atomic `current` symlink |
 | `maintenance.sh` | Drain, inspect or reopen a region | Persistent regional switch; secret is read remotely |

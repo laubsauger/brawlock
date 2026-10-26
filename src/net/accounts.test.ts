@@ -15,13 +15,14 @@ const digest = async (value: string) => [...new Uint8Array(await crypto.subtle.s
 const boundDevice = await digest(`device:${admission.device}`)
 const connection = { device: boundDevice, controller: await digest(`controller:${boundDevice}:${admission.controller}`), takeover: false }
 const providers = { google: { clientId: 'test-client', clientSecret: 'test-provider-secret' } }
+const embed = 'https://html-classic.itch.zone'
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const close of cleanups.reverse()) close(); cleanups.length = 0; vi.unstubAllGlobals(); vi.useRealTimers() })
 
 async function fixture() {
   const dir = tempDir('brawlock-accounts-')
   cleanups.push(() => removeDir(dir))
-  const config = { file: `${dir}/accounts.sqlite`, origin, secret, providers, regionsToken }
+  const config = { file: `${dir}/accounts.sqlite`, origin, secret, providers, regionsToken, embeds: [embed] }
   const accounts = await openAccounts({ ...config, migrate: true })
   cleanups.push(accounts.close)
   const db = openTestDatabase(config.file)
@@ -92,6 +93,34 @@ describe('account authority', () => {
     const invalid = await f.request('POST', guest, { ...body, target: { mode: 'unknown', region: null, code: null } }, '/api/play')
     expect(invalid.status).toBe(400)
     expect(JSON.stringify(await invalid.json())).not.toContain(user.id)
+  })
+  it('lets the itch-embedded client play as a cookieless guest: never the session, never other origins', async () => {
+    const f = await fixture(), user = await f.player('embedded-play@example.com')
+    // Even if a browser sent the first-party session cookie cross-site, the embed path must stay a guest.
+    const itch = new Headers(user.headers); itch.set('origin', embed); itch.set('x-brawlock-client-ip', 'itch-address')
+    const body = { action: 'acquire', device: 'itch-browser-id', controller: 'itch-tab', target: { mode: 'casual', region: null, code: null } }
+    const preflight = await f.request('OPTIONS', new Headers({ origin: embed }), undefined, '/api/play')
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(embed)
+    expect(preflight.headers.get('access-control-allow-headers')).toBe('content-type')
+    const granted = await f.request('POST', itch, body, '/api/play')
+    expect(granted.status).toBe(200)
+    expect(granted.headers.get('access-control-allow-origin')).toBe(embed)
+    expect(granted.headers.get('set-cookie')).toBeNull()
+    // the account is still free: the itch permission was not bound to it
+    const own = new Headers(user.headers); own.set('x-brawlock-client-ip', 'site-address')
+    expect((await f.request('POST', own, { ...body, device: 'site-browser-id', controller: 'site-tab' }, '/api/play')).status).toBe(200)
+    // one game per browser still holds, and the conflict is readable across origins
+    const again = await f.request('POST', itch, { ...body, controller: 'itch-second-tab' }, '/api/play')
+    expect(again.status).toBe(409)
+    expect(again.headers.get('access-control-allow-origin')).toBe(embed)
+    const other = new Headers(itch); other.set('origin', 'https://other.itch.zone')
+    const refused = await f.request('POST', other, body, '/api/play')
+    expect(refused.status).toBe(403)
+    expect(refused.headers.get('access-control-allow-origin')).toBeNull()
+    // only the play permission is shared: account endpoints stay first-party
+    expect((await f.request('GET', itch)).status).toBe(403)
+    await expect(openAccounts({ ...f.config, embeds: ['http://html-classic.itch.zone'] })).rejects.toThrow('Embed origins')
   })
   it('explicitly expands schema 3 for ranked controllers while preserving accounts, sessions, profiles and occupancy', async () => {
     const f = await fixture(), user = await f.player('upgrade-control@example.com')

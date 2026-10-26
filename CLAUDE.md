@@ -22,7 +22,7 @@ Browser remake of Warlock / Warlock Brawl. Plan: `docs/PLAN.md`. Original mechan
 ## Commands
 
 - `npm run dev`, `npm run build`, `npm test`, `npm run typecheck`
-- Deploy: push to `main`, GitHub Actions publishes to Pages.
+- Deploy: push to `main`, GitHub Actions publishes to Pages. A `v*` release tag also publishes the itch.io build (`docs/ITCH.md`).
 
 ## Testing: selective by default
 

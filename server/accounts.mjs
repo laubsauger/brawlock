@@ -17,6 +17,7 @@ import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { createPresence } from './presence.mjs'
 import { openAnalytics } from './analytics.mjs'
 import { PLAY_SCHEMA, createPlayControl } from './play-control.mjs'
+import { embedCors, embedOrigins } from './embed-origins.mjs'
 
 const RESERVED = new Set(['admin', 'administrator', 'brawlock', 'moderator', 'server', 'system', 'support'])
 const PROVIDERS = ['google', 'discord', 'microsoft']
@@ -87,8 +88,9 @@ export function accountOptions({ database, origin, secret, providers }) {
 }
 
 /** Explicit additive migration; a normal startup refuses an incomplete schema. */
-export async function openAccounts({ file, origin, secret, providers, regionsToken = '', migrate = false }) {
+export async function openAccounts({ file, origin, secret, providers, regionsToken = '', migrate = false, embeds = [] }) {
   if (regionsToken && regionsToken.length < 32) throw new Error('Account region token must contain at least 32 characters')
+  embedOrigins(embeds)
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   const db = new DatabaseSync(file)
   let analytics
@@ -151,34 +153,40 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
     const handler = async (request) => {
       const url = new URL(request.url)
       if (url.pathname === '/api/play') {
-        if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
-        if (request.headers.get('origin') !== origin) return json(403, { error: 'Origin required.' })
+        // An embedded client (itch.io) plays as a guest of its own browser storage: CORS, no cookies.
+        const from = request.headers.get('origin')
+        const embedded = from !== origin && embeds.includes(from)
+        if (embedded && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: embedCors(from, true) })
+        const respond = (status, body, extra = {}) => json(status, body, embedded ? { ...extra, ...embedCors(from) } : extra)
+        if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' })
+        if (from !== origin && !embedded) return respond(403, { error: 'Origin required.' })
         const ip = request.headers.get('x-brawlock-client-ip')
-        if (!ip) return json(400, { error: 'Missing trusted connection address.' })
+        if (!ip) return respond(400, { error: 'Missing trusted connection address.' })
         playWrites.sweep(Date.now())
-        if (!playWrites.take(ip, Date.now())) return json(429, { error: 'Too many game session updates.' })
-        if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return json(415, { error: 'Expected JSON.' })
+        if (!playWrites.take(ip, Date.now())) return respond(429, { error: 'Too many game session updates.' })
+        if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return respond(415, { error: 'Expected JSON.' })
         const raw = await request.text()
-        if (Buffer.byteLength(raw, 'utf8') > 1024) return json(413, { error: 'Game session request is too large.' })
+        if (Buffer.byteLength(raw, 'utf8') > 1024) return respond(413, { error: 'Game session request is too large.' })
         let body
-        try { body = JSON.parse(raw) } catch { return json(400, { error: 'Expected JSON.' }) }
+        try { body = JSON.parse(raw) } catch { return respond(400, { error: 'Expected JSON.' }) }
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['action', 'device', 'controller', 'target', 'token', 'id'].includes(key))
           || typeof body.device !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.device)
-          || typeof body.controller !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.controller)) return json(400, { error: 'Invalid game session request.' })
+          || typeof body.controller !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.controller)) return respond(400, { error: 'Invalid game session request.' })
         let browser
-        try { browser = browserDevice(request, body.device) } catch { return json(400, { error: 'Browser verification failed. Clear this site’s cookies and sign in again.' }) }
+        if (embedded) browser = { device: controlKey('device', body.device), headers: {} }
+        else try { browser = browserDevice(request, body.device) } catch { return respond(400, { error: 'Browser verification failed. Clear this site’s cookies and sign in again.' }) }
         if (body.action === 'release') {
-          try { play.release(body.token); return json(200, { ok: true }, browser.headers) }
-          catch { return json(400, { error: 'Invalid game permission.' }) }
+          try { play.release(body.token); return respond(200, { ok: true }, browser.headers) }
+          catch { return respond(400, { error: 'Invalid game permission.' }) }
         }
-        const session = request.headers.has('cookie') ? await auth.api.getSession({ headers: request.headers }) : null
+        const session = !embedded && request.headers.has('cookie') ? await auth.api.getSession({ headers: request.headers }) : null
         const identity = { userId: session?.user.id ?? null, device: browser.device, controller: controlKey('controller', `${browser.device}:${body.controller}`) }
         try {
-          if (body.action === 'acquire') { const result = play.acquire(identity, body.target); return json(result.ok ? 200 : 409, result, browser.headers) }
-          if (body.action === 'heartbeat') { const result = play.heartbeat(body.token, body.target, identity); return json(result.ok ? 200 : 409, result, browser.headers) }
-          if (body.action === 'takeover' && typeof body.id === 'string' && /^[a-f0-9-]{36}$/.test(body.id)) return json(200, play.takeover(identity, body.id), browser.headers)
-          return json(400, { error: 'Invalid game session action.' })
-        } catch { return json(400, { error: 'Invalid game permission or destination.' }) }
+          if (body.action === 'acquire') { const result = play.acquire(identity, body.target); return respond(result.ok ? 200 : 409, result, browser.headers) }
+          if (body.action === 'heartbeat') { const result = play.heartbeat(body.token, body.target, identity); return respond(result.ok ? 200 : 409, result, browser.headers) }
+          if (body.action === 'takeover' && typeof body.id === 'string' && /^[a-f0-9-]{36}$/.test(body.id)) return respond(200, play.takeover(identity, body.id), browser.headers)
+          return respond(400, { error: 'Invalid game session action.' })
+        } catch { return respond(400, { error: 'Invalid game permission or destination.' }) }
       }
       if (url.pathname === '/internal/analytics') {
         const received = Buffer.from(request.headers.get('authorization') ?? '')
