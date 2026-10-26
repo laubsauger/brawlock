@@ -62,11 +62,21 @@ Deployment is established by release receipts, not by implementation status here
      remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels Hard 1825,
      Brutal 2025, Uber 2225 (PLAN §7).
 6. **Bot follow-ups still open.**
-   - Hard bots kill rarely in every mode (about 3 deaths in 3 minutes of a bot-only rounds game).
    - Value presets still drop a Scourge when predicted victims "walk out" (`gone`); its model assumes
      every enemy flees at once. Check it against real play once the cancels above are fixed.
-   - In a bot-only free-for-all the hill was contested about 78% of the time; measure again with the
-     new targeting and capture time.
+   - Hill queue length (measured 2026-10-26, bot-only, the queue's setup: 10 seats, FFA, rounds
+     style, first to 100). The hill is contested about 62% of fight time, held 27%, and changes
+     hands about 24 times a minute, so a hold lasts about 0.7 s, under the capture time. Matches
+     barely score between round wins: with a 1.75 s capture they ran past 90 minutes (28 rounds,
+     leaders at 59–74 tickets). A contest used to restart the holder's capture; it now pauses it
+     (leaders 87–89 at 90 minutes). With that: capture 1 s gives about 61 minutes, 0.5 s about 46,
+     no capture about 28. Needs a call: capture time, the ticket target, or ticket rate per
+     player count. Humans may hold longer than bots; check a real match's length.
+   - Hard bots kill rarely (measured 2026-10-26, 4-bot FFA rounds): first death after about 107 s
+     (Medium 72 s, Brutal 115 s), 83% of deaths are pushes into lava once the arena has sunk about
+     11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few
+     hundred) and dodges most bolts, so early hits never reach lava. More kills means riskier
+     positioning (closer, nearer the edge), which also makes Hard easier for players: a design call.
 7. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
    filterable by region. Needs a shared relay (the account authority or the global game authority),
    rate limits, mute/block, report, and the same name rules as in-match chat.

@@ -3,7 +3,8 @@
  * the centre (settings.hillLayer, shrinking one ring every HILL_SHRINK_PERIOD); it never reaches
  * past the arena itself. A team standing on it alone earns one ticket (score) per
  * HILL_TICKET_SECONDS for each member, the first HILL_CAPTURE_SECONDS after taking it; any enemy
- * team on it contests it and nobody earns tickets.
+ * team on it contests it and nobody earns tickets; the holder's progress pauses until it stands
+ * alone again (a different team starts its own capture).
  * First to winScore tickets wins, checked on every ticket. Gold is personal and pays while
  * contested too: every HILL_GOLD_SECONDS of an unbroken stay on the hill pays HILL_GOLD_FIRST,
  * one more every HILL_GOLD_STEP grants up to HILL_GOLD_MAX; stepping off or dying starts over.
@@ -76,6 +77,7 @@ export function newHill(state: SimState): HillState {
     team: null,
     contested: false,
     heldTicks: 0,
+    holder: null,
     nextIncomeTick: respawnsInFight(state.settings) ? state.tick + ticks(HILL_INCOME_SECONDS) : -1,
     stays: [],
   }
@@ -135,7 +137,13 @@ export function hillTick(state: SimState): boolean {
     state.events.push({ type: 'hill', team, contested, prev: h.team })
     h.team = team
     h.contested = contested
-    h.heldTicks = team === null ? 0 : ticks(HILL_TICKET_SECONDS) - ticks(HILL_CAPTURE_SECONDS)
+    // only a new holder captures; the last one resumes where a contest paused it (playtest
+    // 2026-10-25 follow-up: one tick of an enemy brushing the hill restarted the capture, so a
+    // busy 10-player hill paid almost no tickets and bot-only matches ran past 90 minutes)
+    if (team !== null && team !== h.holder) {
+      h.holder = team
+      h.heldTicks = ticks(HILL_TICKET_SECONDS) - ticks(HILL_CAPTURE_SECONDS)
+    }
   }
   if (team === null) return false
   h.heldTicks += 1

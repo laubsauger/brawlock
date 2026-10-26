@@ -82,19 +82,32 @@ describe('King of the Hill: holding', () => {
     expect(of(events, 'hill')[0]).toMatchObject({ team: 0, contested: false, prev: null })
   })
 
-  test('contesting resets the capture: the holder waits the capture time again', () => {
+  test('a contest pauses the holder, who resumes after it; a newcomer captures from scratch', () => {
+    // Why: one tick of an enemy brushing the hill used to restart the holder's capture, so a busy
+    // 10-player hill paid almost no tickets (bot-only matches past 90 minutes)
     const s = hill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), OFF, 0)
     run(s, ticks(HILL_CAPTURE_SECONDS))
     expect(scoreOf(s, 0)).toBe(1)
+    run(s, ticks(0.5))
     place(pawn(s, 1), 192, 0)
-    run(s, 1)
+    run(s, ticks(3))
+    expect(scoreOf(s, 0)).toBe(1)
     place(pawn(s, 1), OFF, 0)
-    run(s, ticks(HILL_CAPTURE_SECONDS) - 1)
+    // the half second held before the contest still counts: the next ticket comes half a second later
+    run(s, ticks(0.5) - 1)
     expect(scoreOf(s, 0)).toBe(1)
     run(s, 1)
     expect(scoreOf(s, 0)).toBe(2)
+
+    // the other warlock takes over alone: a fresh capture
+    place(pawn(s, 0), OFF, 0)
+    place(pawn(s, 1), 0, 0)
+    run(s, ticks(HILL_CAPTURE_SECONDS) - 1)
+    expect(scoreOf(s, 1)).toBe(0)
+    run(s, 1)
+    expect(scoreOf(s, 1)).toBe(1)
   })
 
   test('an enemy on the hill contests it: nobody earns while both stand there', () => {

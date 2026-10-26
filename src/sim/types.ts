@@ -284,8 +284,10 @@ export interface HillState {
   team: number | null
   contested: boolean
   /** ticks held by `team` toward its next ticket; a fresh capture starts below zero, so its
-   * first ticket takes HILL_CAPTURE_SECONDS */
+   * first ticket takes HILL_CAPTURE_SECONDS. Paused while contested or empty. */
   heldTicks: number
+  /** last team to hold it alone this fight (kept through contests): it resumes, others capture */
+  holder?: number | null
   /** tick of the next income payout to everyone */
   nextIncomeTick: number
   /** players standing on the hill right now (contested or not), toward their next gold grant */
