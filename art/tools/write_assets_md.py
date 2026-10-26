@@ -40,6 +40,7 @@ BRAND = [
     ("emblem", "`art/brand/apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png`", "Emblem at 84% on an opaque dark background (maskable-safe)"),
     ("splash", "`art/brand/splash.png`, `art/brand/splash.webp` (1920x1080)", "Two warlocks trading fireballs on a crumbling obsidian platform over a lava caldera, moonlit; empty sky center-top for the wordmark; no text"),
     ("splash", "`art/brand/og-image.png`, `art/brand/og-image.jpg` (1200x630)", "Composite of splash + wordmark (made in `art/tools/process_brand.py`, not generated)"),
+    ("emblem", "`art/brand/lockup.png`, `art/brand/lockup.webp`", "Secondary logo: emblem with the wordmark across the lower hood (composite of emblem + wordmark made in `art/tools/process_brand.py`, not generated)"),
 ]
 for name, path, what in BRAND:
     m = f"art/source/brand/{name}.png"

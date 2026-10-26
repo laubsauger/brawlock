@@ -1,5 +1,5 @@
 """Build art/brand/* finals from art/source/brand/* masters.
-Usage: python -I process_brand.py [wordmark] [emblem] [splash] [og]   (default: all available)"""
+Usage: python -I process_brand.py [wordmark] [emblem] [splash] [og] [lockup]   (default: all available)"""
 import os, sys
 import numpy as np
 from PIL import Image, ImageFilter
@@ -79,6 +79,33 @@ def og():
     bg.convert("RGB").save(f"{OUT}/og-image.jpg", quality=90)
     print("og-image", bg.size)
 
-steps = {"wordmark": wordmark, "emblem": emblem, "splash": splash, "og": og}
+def lockup():
+    """Secondary logo: wordmark across the emblem's lower hood. Composite of the finals, not generated."""
+    e = trim(Image.open(f"{OUT}/emblem.png").convert("RGBA"), pad=0)
+    # the cloak fades out under the letters so the word, not the ragged hem, ends the mark
+    a = np.array(e.getchannel("A"), dtype=np.float32)
+    ramp = np.clip((np.arange(e.height) / e.height - 0.74) / 0.18, 0, 1)
+    e.putalpha(Image.fromarray((a * (1 - ramp ** 1.4)[:, None]).astype(np.uint8)))
+    w = trim(Image.open(f"{OUT}/wordmark.png").convert("RGBA"), pad=0)
+    tw = int(e.width * 1.3)
+    w = rs(w, (tw, round(w.height * tw / w.width)))
+    m = w.height // 2  # room for the halo
+    c = Image.new("RGBA", (tw + 2 * m, e.height + 2 * m), (0, 0, 0, 0))
+    c.alpha_composite(e, ((c.width - e.width) // 2, m))
+    pos = (m, m + int(e.height * 0.70 - w.height / 2))
+    # dark halo from the letters' alpha carves the word out of the busy disc behind it
+    ha = Image.new("L", c.size, 0)
+    ha.paste(w.getchannel("A"), pos)
+    ha = ha.filter(ImageFilter.MaxFilter(int(w.height * 0.10) | 1)).filter(ImageFilter.GaussianBlur(w.height * 0.093))
+    halo = Image.new("RGBA", c.size, BG + (0,))
+    halo.putalpha(ha.point(lambda v: int(v * 0.9)))
+    c.alpha_composite(halo)
+    c.alpha_composite(w, pos)
+    c = trim(c, thr=4, pad=0.03)
+    c.save(f"{OUT}/lockup.png", optimize=True)
+    c.save(f"{OUT}/lockup.webp", quality=90, method=6)
+    print("lockup", c.size)
+
+steps = {"wordmark": wordmark, "emblem": emblem, "splash": splash, "og": og, "lockup": lockup}
 for k in sys.argv[1:] or steps:
     steps[k]()
