@@ -149,7 +149,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
     <MenuEntry
       title="King of the Hill"
       sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.hill ?? 'Checking open games…'}</span>}
-      note="Casual · hold the centre tiles alone for tickets · first to 100 · rich gold"
+      note="Casual · hold the centre tiles alone for tickets · first to 75 · rich gold"
       disabled={!playSupported || !!problem}
       hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join or create a King of the Hill game in ${region?.label}: stand on the glowing centre tiles with no enemy on them to earn tickets`}
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id, 'hill')}

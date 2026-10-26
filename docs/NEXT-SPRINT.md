@@ -80,7 +80,9 @@ Deployment is established by release receipts, not by implementation status here
      (leaders 87–89 at 90 minutes). With that: capture 1 s gives about 61 minutes, 0.5 s about 46,
      no capture about 28. A real match took far too long too. Capture set to 1 s after alpha.15
      (user call, 2026-10-26); about 61 minutes bot-only is still long, so the ticket target (or a
-     ticket rate per player count) is still open.
+     ticket rate per player count) is still open. After alpha.16 (user call, 2026-10-26):
+     capture 0.5 s (about 46 minutes bot-only by the numbers above) and the queue's target 75
+     tickets; not remeasured together.
    - Hard bots kill rarely (measured 2026-10-26, 4-bot FFA rounds): first death after about 107 s
      (Medium 72 s, Brutal 115 s), 83% of deaths are pushes into lava once the arena has sunk about
      11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few
