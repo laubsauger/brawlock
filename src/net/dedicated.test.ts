@@ -426,7 +426,7 @@ describe('public rooms and quick play (M4.3)', () => {
     } finally { owner.session.leave() }
   }, 10000)
 
-  it('fills a default quick game to ten with Hard bots plus one Brutal and one Medium, uses modest gold rewards and reuses it for a newcomer', async () => {
+  it('fills a default quick game to ten with five Medium and four Hard bots (casual stays beatable), uses modest gold rewards and reuses it for a newcomer', async () => {
     const { base, srv } = await start({ quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, fillMs: 4000, startMs: 100 } })
     const a = headlessClient(base, { key: 'full-house-a', device: 'full-house-device-a', play: false })
     const b = headlessClient(base, { key: 'full-house-b', device: 'full-house-device-b', play: false })
@@ -442,9 +442,9 @@ describe('public rooms and quick play (M4.3)', () => {
       expect(a.lobby().settings).toMatchObject({ startGold: 50, roundGold: 15, killGold: 2, winGold: 3 })
       expect(a.lobby().slots.filter((s) => s.kind === 'bot')).toHaveLength(9)
       const levels = a.lobby().slots.filter((s) => s.kind === 'bot').map((s) => s.difficulty)
-      expect(levels.filter((d) => d === 'brutal')).toHaveLength(1)
-      expect(levels.filter((d) => d === 'medium')).toHaveLength(1)
-      expect(levels.filter((d) => d === 'hard')).toHaveLength(7)
+      expect(levels.filter((d) => d === 'medium')).toHaveLength(5)
+      expect(levels.filter((d) => d === 'hard')).toHaveLength(4)
+      expect(levels.filter((d) => d === 'brutal' || d === 'uber')).toHaveLength(0)
       await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
       expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(50)
       const listed = (await a.online.browse()).find((room) => room.code === opened.code)!
@@ -826,7 +826,7 @@ describe('public rooms and quick play (M4.3)', () => {
     await extra.session.join(codes[0].code)
     expect(extra.lobby()).toMatchObject({ status: 'error' })
     expect(extra.lobby().error).toMatch(/full/i)
-    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 60_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
+    expect(DEFAULT_SERVER_CONFIG.quickplay).toMatchObject({ fillMs: 30_000, startMs: 60_000, seats: 10, fill: 10, bots: 'hard', mix: ['medium', 'medium', 'medium', 'medium', 'medium'], settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 } })
     for (const c of cs) c.session.leave()
   }, 30000)
 

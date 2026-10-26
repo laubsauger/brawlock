@@ -96,9 +96,11 @@ export const DEFAULT_SERVER_CONFIG: Omit<ServerConfig, 'build'> = {
   // Lobby: 30 s alone, 60 s once two humans are in (playtest 2026-10-25: 30 s felt rushed);
   // everyone Ready cuts it short.
   // Casual games are short: first to 3 round wins (ranked plays its fixed rounds). The table
-  // is Hard bots with one Brutal and one Medium for variety (ranked keeps all Brutal).
+  // is Medium and Hard bots: five Medium seat first, the rest Hard (2026-10-26: all-Hard felt
+  // too tough for casual). King of the Hill keeps Hard with one Brutal and one Medium; ranked
+  // keeps all Brutal.
   quickplay: {
-    fillMs: 30_000, startMs: 60_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['brutal', 'medium'],
+    fillMs: 30_000, startMs: 60_000, nextMs: 10_000, seats: 10, fill: 10, bots: 'hard', mix: ['medium', 'medium', 'medium', 'medium', 'medium'],
     settings: { winScore: 3, startGold: 50, roundGold: 15, killGold: 2, winGold: 3 },
   },
   // King of the Hill (free for all, rounds style): first to 100 tickets, and more gold for a
