@@ -288,6 +288,21 @@ describe('announcer: final round vs match point', () => {
     expect(roundCall(v)).toBe('final_round')
   })
 
+  it('ranked follows its schedule: match point when a win would clinch, the last round and the final are final', () => {
+    // Why: ranked ends after five scheduled rounds or an early clinch, not at winScore, so the
+    // winScore rule called the decisive rounds wrong (a 3-0 lead before round 4 is match point).
+    const ranked = (scores: number[], round: number, over: Partial<AnnouncerView> = {}) => {
+      const v = scored(scores, { round, ...over })
+      v.settings = { ...DEFAULT_SETTINGS, rankedRounds: 5 }
+      return v
+    }
+    expect(roundCall(ranked([0, 0, 0], 0))).toBe('round_one')
+    expect(roundCall(ranked([3, 0, 0], 3))).toBe('match_point')
+    expect(roundCall(ranked([2, 2, 0], 3))).toBe('round_four')
+    expect(roundCall(ranked([2, 1, 1], 4))).toBe('final_round')
+    expect(roundCall(ranked([2, 2, 1], 5, { rankedFinal: { contenders: [0, 1] } }))).toBe('final_round')
+  })
+
   it('above round nine only Fight! (no Round N), deathmatch has no match point', () => {
     expect(roundCall(scored([2, 2], { round: 9 }))).toBeNull()
     const dm = scored([4, 0], { round: 0 })

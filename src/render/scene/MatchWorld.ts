@@ -2001,7 +2001,8 @@ export class MatchWorld {
       // shop-phase ward (combat off): full until the 3-2-1, easing down through it
       if (curr.phase === 'shop' || curr.phase === 'warmup') {
         const left = curr.phaseTicksLeft
-        v.wardTarget = left < 0 || left > 180 ? 1 : 0.35 + 0.65 * (left / 180)
+        const countdown = ticks(3)
+        v.wardTarget = left < 0 || left > countdown ? 1 : 0.35 + 0.65 * (left / countdown)
       } else v.wardTarget = 0
       const view = v
       view.beginRound(curr.round)

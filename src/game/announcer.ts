@@ -296,11 +296,27 @@ export function roundCall(state: AnnouncerView): AnnouncerLine | null {
       const side = settings.teamMode === 'teams' ? (state.slots?.find((s) => s.id === sc.id)?.team ?? sc.id) : sc.id
       best.set(side, Math.max(best.get(side) ?? 0, sc.score))
     }
+    if (settings.rankedRounds) return scheduledCall(state, settings.rankedRounds, best)
     const atPoint = [...best.values()].filter((v) => v >= settings.winScore - 1).length
     if (atPoint > 0) return atPoint === best.size ? 'final_round' : 'match_point'
   }
   const next = (state.round ?? 0) + 1
   return next >= 1 && next <= ROUND_LINES.length ? ROUND_LINES[next - 1] : null
+}
+
+/**
+ * Scheduled rounds (ranked) end by the schedule, not by winScore: the last scheduled round and the
+ * leaders' final are the Final Round; before that it is Match Point when one more round win would
+ * let somebody clinch early (the rule in sim/mode.ts gameWinners).
+ */
+function scheduledCall(state: AnnouncerView, rounds: number, best: ReadonlyMap<number, number>): AnnouncerLine | null {
+  const next = (state.round ?? 0) + 1
+  if (state.rankedFinal || next >= rounds) return 'final_round'
+  const remaining = rounds - next
+  for (const [side, score] of best) {
+    if ([...best].every(([other, v]) => other === side || v + remaining < score + 1)) return 'match_point'
+  }
+  return next <= ROUND_LINES.length ? ROUND_LINES[next - 1] : null
 }
 
 /** One credited kill as the announcer counts it. */
