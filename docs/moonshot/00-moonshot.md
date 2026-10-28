@@ -15,7 +15,8 @@ The series:
 | `03-moonshot-v2.md` | Re-ambition after the critique |
 | `04-keystones.md` | Deep designs for three keystone bets |
 | `05-roadmap.md` | Twelve months, kill criteria, the first 30 days |
-| `research/` | Inputs: codebase map, backlog and pain synthesis, external frontier, two harness experiments |
+| `research/` | Inputs: codebase map, backlog and pain synthesis, external frontier, harness experiments |
+| `specs/` | Implementation specs and design drafts for the parts the developer picked (after 05) |
 
 ---
 

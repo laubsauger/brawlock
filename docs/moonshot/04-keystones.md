@@ -23,6 +23,9 @@ from outside and change no source file.
 
 ## Keystone 1 · Pace
 
+Specs: [specs/faster-casual.md](specs/faster-casual.md) (measured over 32 matches per setup:
+about 9 minutes a match, 7.9 with shop Ready) and [specs/shop-ready.md](specs/shop-ready.md).
+
 ### What the experiment says
 
 Ten bots in the casual table (five Medium, five Hard), first to 3 in FFA, 8 matches per scenario.
@@ -83,9 +86,11 @@ When every connected human seat has sent it, the shop phase drops to 3 s. It is 
 it rides the input stream, and it is one sim rule plus a button. It helps every mode, ranked
 included.
 
-**What changes in the sim.** Two settings: a starting-layer cap and a shrink period (both scalar
-keys, which settings accept), and the scheduled-rounds format unlocked for casual rooms. All
-three exist in some form already; ranked uses the 8 s period and scheduled rounds today.
+**What changes in the sim.** New scalar settings: `scheduledRounds`, `arenaCap` and
+`shrinkSeconds` (plus `arenaBase`, which the daily shares). Reusing `rankedRounds` as it is was
+measured and rejected: its 8 s shrink leaves matches at about 15 minutes, and it brings
+ranked-only rules into casual (no Fresh start, no new seats mid-match). Details in
+[specs/faster-casual.md](specs/faster-casual.md).
 
 ### Faithfulness
 
@@ -120,6 +125,12 @@ Classic with the same options.
 ---
 
 ## Keystone 2 · Keep and share
+
+Specs: [specs/moments.md](specs/moments.md), [specs/final-blow.md](specs/final-blow.md),
+[specs/results-reel.md](specs/results-reel.md). They supersede the detection rule and the
+timings sketched below where the two differ: the knockout's hit is the last enemy hit whose
+flight carried the victim into the lava (a fixed 4 s window missed 29% of lava deaths), and the
+round Final Blow plays the hit at half speed from 0.3 s before to 0.5 s after, at most 2.2 s.
 
 ### The parts
 
@@ -248,6 +259,10 @@ not wait for them.
 
 ## Keystone 3 · Opponents that feel like people and fit you
 
+Spec for Parts A and B: [specs/bot-motion.md](specs/bot-motion.md), with a working prototype in
+[research/bot-motion-prototype/](research/bot-motion-prototype/) and timing noise added at the
+developer's request (bots no longer decide on a shared fixed 0.1 s clock).
+
 ### What the experiment says
 
 Bot-only six-warlock FFA fights, per alive fight-second (definitions in
@@ -268,8 +283,21 @@ seven giving orders while going nowhere. That is the dance. It is identical acro
 and Uber because they share the decision code and the 0.1 s think; only Easy and Medium, which
 think less often, look calmer.
 
-No human baseline exists yet. The first task is to run the same definitions over recorded human
-replays.
+**The human baseline** (added 2026-10-28, [research/replay-motion.ts](research/replay-motion.ts)):
+five exported matches, each re-simulated on the release that recorded it, measured the same way.
+Click-flip is the share of consecutive move orders within 0.5 s aimed more than 120° apart.
+
+| Player | Orders per s | Reversals per s | Dithering | Click-flip |
+|---|---|---|---|---|
+| BeFlat (top-rated) | 4.1 to 5.5 | 0.18 to 0.32 | 0.05 to 0.08 | 0.03 to 0.06 |
+| Laub | 4.9 to 5.8 | 0.16 to 0.33 | 0.06 to 0.08 | 0.03 to 0.06 |
+| Hard bots, same matches | 8.3 to 8.6 | 0.76 to 0.91 | 0.11 to 0.13 | 0.10 to 0.12 |
+| Brutal bots, same matches | 8.3 to 8.8 | 0.74 to 1.34 | 0.11 to 0.17 | 0.10 to 0.16 |
+
+Some dancing is human: strong players click about five times a second and dither in 5 to 8% of
+seconds. The bots' tell is turning around three to five times as often, and clicking in opposite
+directions two to three times as often. Three humans in five matches is a small sample; the tool
+reruns as more replays come in.
 
 ### Part A · The motor model
 
@@ -278,7 +306,7 @@ rule, all in `src/bots/presets.ts` and `controller.ts`:
 
 | Source | Change |
 |---|---|
-| A new order every think (up to 10 a second) | `orderRate`: a token bucket per tier (a starting guess of 3 to 5 orders a second for Hard and up, set from the human baseline). Lethal dodges and Teleport saves bypass it |
+| A new order every think (up to 10 a second) | `orderRate`: a token bucket per tier, at or under the strong humans' 5 to 6 orders a second. Lethal dodges and Teleport saves bypass it |
 | Wander re-picked every think once within 100 units, with "stay here" as a candidate | `commitSeconds`: a goal is kept for 0.6 to 1.5 s unless it turns unsafe, enters a pillar or a threat appears; choosing to stay means staying for that long |
 | No exit margin between dodging and wandering | Dodge hysteresis: enter at the current threshold (2.5), leave only below about 1.6; the dodge side holds for 0.4 to 0.6 s instead of two thinks |
 | Duel points re-drawn at random angles every 0.3 to 0.6 s (Brutal, Uber) | The standoff angle takes a small random step (about ±0.15 rad) every 1 to 2 s instead of a fresh draw |
@@ -288,9 +316,9 @@ rule, all in `src/bots/presets.ts` and `controller.ts`:
 | Hill go or wait flips at random | Decided with hysteresis about every 2 s; aware of the hill's opening seal |
 | FFA position re-rolled from 12 fresh candidates | The current goal stays unless a candidate beats it by a margin |
 
-Acceptance: every tier inside the human band on all four measures (provisional, until the
-baseline exists: under 4 orders a second, under 0.5 reversals a second, dithering under 3% of
-seconds), and `LADDER=1 npx vitest run src/bots/ladder.test.ts` with each tier within about 50
+Acceptance: every tier inside the human band (from the baseline above: reversals under about
+0.35 a second, click-flip under about 0.07, dithering under about 0.08, orders at or under about
+6 a second), and `LADDER=1 npx vitest run src/bots/ladder.test.ts` with each tier within about 50
 Elo of its label, or a deliberate remeasure and relabel with `npm run bots:elo`. The menu
 backdrop gets a visual check in a muted headless browser.
 
