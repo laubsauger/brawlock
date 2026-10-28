@@ -416,6 +416,9 @@
   /* Combat chat stays light over the arena. Only typing adds a translucent
      backing; passive lines have no panel and let arena clicks pass through. */
   .room-chat-overlay { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95); }
+  /* Global chat in the main menu: bottom right, under the player card column, passive until opened */
+  .global-chat { right: max(24px, 4vw); bottom: 4.25rem; width: min(340px, calc(100vw - 48px)); }
+  .global-chat-open { background: rgba(8, 8, 12, 0.72); backdrop-filter: blur(6px); }
   .room-chat-composing {
     background: rgba(8, 8, 12, 0.3);
     border: 1px solid rgba(255, 186, 120, 0.18);
@@ -1338,6 +1341,7 @@
   .hill-status .hill-crown { color: #e9b45a; text-shadow: 0 0 8px rgba(255, 190, 80, 0.7); }
   .hill-status[data-status="held"] .hill-crown { color: #ffe2a0; text-shadow: 0 0 12px rgba(255, 210, 120, 0.95); }
   .hill-status[data-status="waiting"] .hill-crown { opacity: 0.55; }
+  .hill-status[data-status="sealed"] .hill-crown { color: #a9dcff; text-shadow: 0 0 10px rgba(120, 200, 255, 0.85); }
   .hill-status::after {
     content: "";
     position: absolute;

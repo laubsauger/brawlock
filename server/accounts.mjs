@@ -365,7 +365,13 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
       accounts: { registered: db.prepare('SELECT COUNT(*) AS n FROM user').get().n, profiles: db.prepare('SELECT COUNT(*) AS n FROM player_profile').get().n } })
     // Operator dashboard: current account names; a deleted account reads null.
     const profileNames = (ids) => new Map(ids.map((id) => [id, getProfile.get(id)?.name ?? null]))
-    return { auth, handler, admin, activityReport, profileNames, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
+    // Global chat (chat.mjs): who is posting comes from the session only, never from the request body.
+    const speaker = async (request) => {
+      if (!request.headers.has('cookie')) return null
+      const session = await auth.api.getSession({ headers: request.headers })
+      return session ? { id: session.user.id, profile: getProfile.get(session.user.id) ?? null } : null
+    }
+    return { auth, handler, admin, activityReport, profileNames, speaker, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
   } catch (error) {
     analytics?.close()
     db.close()

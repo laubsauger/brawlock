@@ -16,7 +16,7 @@ Deploy the account bundle and `deploy/web.nginx.conf` together: only the exact f
 
 ## Review reports
 
-The normal web inbox is `https://brawlock.osc.link/admin.html` → **Bugs & feedback**, protected by the verified operator Google account. Optional Resend digests are configured on the server after sender-domain verification; see [Operations dashboard](OPERATIONS-DASHBOARD.md). The address is never exposed to players.
+The normal web inbox is `https://brawlock.osc.link/admin.html` → **Bugs & feedback**, protected by the verified operator Google account. The first report of a global chat line also lands here, as kind `chat` with the reported text; hide the line or mute its sender under **Global chat** (see [ACCOUNTS.md](ACCOUNTS.md#global-chat)). Optional Resend digests are configured on the server after sender-domain verification; see [Operations dashboard](OPERATIONS-DASHBOARD.md). The address is never exposed to players.
 
 For a private offline export:
 

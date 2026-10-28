@@ -92,6 +92,7 @@ export default defineConfig(({ mode }) => {
         '/api/account': { target: 'http://127.0.0.1:5352' },
         '/api/progression': { target: 'http://127.0.0.1:5352' },
         '/api/presence': { target: 'http://127.0.0.1:5352' },
+        '/api/chat': { target: 'http://127.0.0.1:5352' },
         '/api/play': { target: 'http://127.0.0.1:5352' },
         '/api/admin': { target: 'http://127.0.0.1:5352' },
         '/api/feedback': { target: 'http://127.0.0.1:5352' },

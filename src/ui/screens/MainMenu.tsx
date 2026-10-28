@@ -10,6 +10,7 @@ import { MenuGlyph } from '../icons'
 import { hostGame, hostOnServer, joinRoom, lastHostAction, quickPlay, rankedPlay, useLastHostResult } from '../flow'
 import { BrowseGames } from './BrowseGames'
 import { LiveGames } from './LiveGames'
+import { GlobalChat } from './GlobalChat'
 import { PlaySetup } from './PlaySetup'
 import { online, rejoin, session, type PublicRoom, type ServerProfile } from '../../game/session'
 import { getProfile, setPreferredColor } from '../../game/profile'
@@ -538,6 +539,7 @@ export function MainMenu() {
           </span>
         </div>
       </footer>
+      <GlobalChat onSignIn={openAccount} />
       {playSupported && playMode && <PlaySetup onClose={() => setPlayMode(null)} />}
       {accountOpen && <Suspense fallback={null}><Account mode={accountMode} initialProblem={accountProblem} rankedRegion={rankedRegion} onClose={() => { setAccountOpen(false); setRankedRegion(undefined); setAccountProblem(undefined) }} onWardrobe={() => { setAccountOpen(false); setCollectionOpen(true) }} onContinue={() => { if (!rankedRegion || !useAccount.getState().player?.profile || !isPlaySupported()) return; setAccountOpen(false); rankedPlay(rankedRegion); setRankedRegion(undefined); setAccountProblem(undefined) }} /></Suspense>}
       {collectionOpen && <Suspense fallback={null}><Collection onClose={() => setCollectionOpen(false)} onSignIn={accountsEnabled ? () => { setCollectionOpen(false); openAccount() } : undefined} /></Suspense>}

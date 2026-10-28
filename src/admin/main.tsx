@@ -104,6 +104,38 @@ function Players() {
     <p className="footnote">Counts finished games on Brawlock's servers (quick play, ranked and server-hosted custom rooms) from the global match history. Player-hosted games and bots are not included. Kills include bot kills. Signed-in players show their current account name; guests show the name from their latest game, and one guest on two browsers counts twice. Names and play counts are visible to other players in game, but check with a player before featuring them publicly.</p>
   </section>
 }
+interface ChatReport { line: string; sender: string; name: string; region: string; text: string; sentAt: number; reportedAt: number; reports: number; status: 'open' | 'hidden' | 'kept'; muted: { until: number | null } | null }
+interface ChatMute { sender: string; name: string; until: number | null; at: number }
+const muteSpan = (until: number | null) => until === null ? 'for good' : `until ${new Date(until).toLocaleString()}`
+function ChatModeration() {
+  const [data, setData] = useState<{ reports: ChatReport[]; mutes: ChatMute[] } | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const load = (signal?: AbortSignal) => api<{ reports: ChatReport[]; mutes: ChatMute[] }>('/api/admin/chat', signal).then((value) => { setData(value); setError('') }).catch((e) => { if (!signal?.aborted) setError(e.message) })
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal); const timer = setInterval(() => { if (!document.hidden) void load(controller.signal) }, 30_000)
+    return () => { clearInterval(timer); controller.abort() }
+  }, [])
+  const act = async (body: { action: string; line?: string; sender?: string; hours?: number | null }) => {
+    setBusy(true)
+    try {
+      const response = await fetch('/api/admin/chat', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) throw new Error((await response.json()).error)
+      await load()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+  }
+  return <section className="card"><header><h2>Global chat</h2><button onClick={() => void load()}>Refresh</button></header>
+    <p>Reported lines, newest first; each first report also reaches the inbox. A line that three accounts report hides itself until you look. Hide and show act for everyone; a mute also hides the player's other lines and stops them posting. Lines are kept in memory only, so a restart of the account service clears the channel but not these reports.</p>
+    {error && <p className="error">{error}</p>}
+    {!data ? <p>Loading…</p> : !data.reports.length ? <p>No reports yet.</p> : <div className="table-wrap"><table className="players"><thead><tr><th>Reported</th><th>Player</th><th>Message</th><th>Reports</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>{data.reports.map((r) => <tr key={r.line}><td>{new Date(r.reportedAt).toLocaleString()}</td><td><b>{r.name}</b> · {r.region}</td><td>{r.text}</td><td>{r.reports}</td>
+        <td>{r.status === 'open' ? 'Visible' : r.status === 'kept' ? 'Kept (reviewed)' : 'Hidden'}{r.muted && ` · muted ${muteSpan(r.muted.until)}`}</td>
+        <td className="players-actions">{r.status === 'hidden' ? <button disabled={busy} onClick={() => void act({ action: 'show', line: r.line })}>Show</button> : <button disabled={busy} onClick={() => void act({ action: 'hide', line: r.line })}>Hide</button>}
+          <button disabled={busy} onClick={() => void act({ action: 'mute', line: r.line, hours: 24 })}>Mute 24 h</button>
+          <button disabled={busy} onClick={() => void act({ action: 'mute', line: r.line, hours: null })}>Mute for good</button></td></tr>)}</tbody></table></div>}
+    <h3>Muted players</h3>
+    {data?.mutes.length ? <ul>{data.mutes.map((m) => <li key={m.sender}><b>{m.name}</b> muted {muteSpan(m.until)} <button disabled={busy} onClick={() => void act({ action: 'unmute', sender: m.sender })}>Unmute</button></li>)}</ul> : <p>Nobody is muted.</p>}
+  </section>
+}
 function Dashboard() {
   const [email, setEmail] = useState<string | null>(null), [authState, setAuthState] = useState('checking'), [error, setError] = useState('')
   const [hours, setHours] = useState(1), [region, setRegion] = useState('all'), [tab, setTab] = useState(location.hash === '#feedback' ? 'feedback' : 'fleet')
@@ -123,9 +155,9 @@ function Dashboard() {
   }, [authState, hours])
   return <main><header className="masthead"><div><a className="wordmark" href="/">BRAWLOCK</a><h1>Operations</h1><p>Fleet health, player connections and activity.</p></div><div className="account">{email && <span>{email}</span>}<a href="/">Back to game</a>{authState === 'ready' || authState === 'denied' ? <button onClick={() => void auth.signOut().then(() => location.reload())}>Sign out</button> : null}</div></header>
     {authState !== 'ready' ? <section className="card login"><h2>{authState === 'checking' ? 'Checking access…' : authState === 'denied' ? 'Administrator access required' : 'Sign in to operations'}</h2><p>{error || 'This dashboard is private.'}</p>{authState === 'login' && <button className="primary" onClick={() => { setError(''); void auth.signIn.social({ provider: 'google', callbackURL: `${location.origin}/admin.html` }).then((result) => { if (result.error) setError(result.error.message ?? 'Google sign-in failed.') }).catch(() => setError('Google sign-in could not start.')) }}>Continue with Google</button>}</section> : <>
-      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
+      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback'], ['chat', 'Global chat']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
       {error && <p className="error" role="alert">{error} The displayed data may be stale.</p>}
-      {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : !view ? <p>Waiting for fleet data…</p> : <>
+      {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : tab === 'chat' ? <ChatModeration /> : !view ? <p>Waiting for fleet data…</p> : <>
         <div className="toolbar"><div className="live-label"><i />Automatic collection · 10s samples · last check {requestAt ? age(requestAt) : 'pending'}</div><div><label>Region <select value={region} onChange={(e) => setRegion(e.target.value)}><option value="all">All regions</option>{view.regions.map((r) => <option value={r.id} key={r.id}>{r.label}</option>)}</select></label><label>History <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); setHovered(null) }}><option value={0.25}>Last 15 minutes</option><option value={1}>Last hour</option><option value={24}>24 hours</option><option value={168}>7 days</option><option value={720}>30 days</option></select></label></div></div>
         <div className="deployment"><span><b>Website</b> {view.website?.ok ? `${view.website.version} · ${view.website.build?.slice(0, 8)} · ${view.website.releaseDate}` : 'Version unavailable'}</span><span>History retained {view.retentionDays} days · collected even when this page is closed</span></div>
         {view.website?.ok && view.regions.some((r) => { const release = view.latest[r.id]?.sample?.release; return release?.commit && release.commit !== view.website?.build }) && <p className="error">Deployment versions differ across the website and game servers. A rollout may still be in progress.</p>}

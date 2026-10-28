@@ -7,8 +7,8 @@ Brawlock is also published as an HTML5 game at https://prompin.itch.io/brawlock.
 itch serves the uploaded files from `https://html-classic.itch.zone/html/<upload id>/` inside a cross-site iframe on itch.io. So the build:
 
 - uses relative paths (`--base=./`) and bundles all media in the upload instead of loading it from GitHub Pages;
-- sets `VITE_SITE_URL=https://brawlock.osc.link/`, which sends the guest play permission (`/api/play`), bug reports (`/api/feedback`) and invite links to the first-party site;
-- has no sign-in. OAuth providers refuse to load inside an iframe, and browsers block the site's cookies there. Casual, King of the Hill, custom and peer-to-peer games work as guests. Everything that needs an account sends the player to the site in a new tab and says what they miss: the player card's Account action (with a note: no ranked Elo, Embers or wardrobe as a guest), Ranked, Wardrobe, and the Embers line on the results of an official game.
+- sets `VITE_SITE_URL=https://brawlock.osc.link/`, which sends the guest play permission (`/api/play`), bug reports (`/api/feedback`), global chat reads (`/api/chat`) and invite links to the first-party site;
+- has no sign-in. OAuth providers refuse to load inside an iframe, and browsers block the site's cookies there. Casual, King of the Hill, custom and peer-to-peer games work as guests. Everything that needs an account sends the player to the site in a new tab and says what they miss: the player card's Account action (with a note: no ranked Elo, Embers or wardrobe as a guest), Ranked, Wardrobe, the Embers line on the results of an official game, and posting in the main menu's global chat (the chat itself is readable).
 
 itch keeps the iframe's storage separate from the site, so a browser is a different guest on itch than on brawlock.osc.link (separate name, stats and device id).
 
@@ -16,7 +16,7 @@ itch keeps the iframe's storage separate from the site, so a browser is a differ
 
 The embed origin is allowed in exactly two places:
 
-- **Accounts service** (US): `AUTH_EMBED_ORIGINS=https://html-classic.itch.zone` in `/etc/brawlock/accounts.config.cjs` (see the template). Requests from that origin get CORS on `/api/play` and `/api/feedback` only. They never carry or receive a cookie: the play permission is keyed to the device id the client sends and is always a guest's, and a report never attaches an account.
+- **Accounts service** (US): `AUTH_EMBED_ORIGINS=https://html-classic.itch.zone` in `/etc/brawlock/accounts.config.cjs` (see the template). Requests from that origin get CORS on `/api/play`, `/api/feedback` and reads of `/api/chat` only; posting or reporting in global chat from it is refused. They never carry or receive a cookie: the play permission is keyed to the device id the client sends and is always a guest's, and a report never attaches an account.
 - **Game servers** (both regions): `https://html-classic.itch.zone` in `ALLOWED_ORIGINS`. `deploy/configure-region.cjs` adds it next to the site origin.
 
 `html-classic.itch.zone` is shared by every HTML game on itch, and the Origin header carries no path. Any itch game could therefore request the same guest permissions or rooms. That gives it nothing a script outside a browser could not already do by sending a forged Origin.

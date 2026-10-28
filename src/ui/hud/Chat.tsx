@@ -41,7 +41,7 @@ export function chatShortcutTarget(target: EventTarget | null): boolean {
   return !isTypingTarget(target) && !(target instanceof HTMLElement && target.closest('button, a, summary, [role="button"], input, textarea, select, [role="dialog"]'))
 }
 
-function senderColor(color: number): string {
+export function senderColor(color: number): string {
   // Keep every chosen player color readable against the dark transcript.
   const channel = (shift: number) => Math.round(((color >>> shift) & 255) * 0.65 + 255 * 0.35)
   return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`

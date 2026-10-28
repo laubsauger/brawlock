@@ -14,7 +14,7 @@ Better Auth and `@better-auth/passkey` are pinned to 1.7.11. The library owns co
 
 ## Public API and player profiles
 
-All browser endpoints are same-origin and `no-store`; writes require the exact configured Origin and JSON. Browser API paths are `/api/auth/*`, `/api/account`, `/api/account/config`, `/api/account/admission`, `/api/progression*` and `/api/presence`. The direct library one-time-token routes are blocked from browsers.
+All browser endpoints are same-origin and `no-store`; writes require the exact configured Origin and JSON. Browser API paths are `/api/auth/*`, `/api/account`, `/api/account/config`, `/api/account/admission`, `/api/progression*`, `/api/presence` and `/api/chat*` (global chat below). The direct library one-time-token routes are blocked from browsers.
 
 Authenticated `GET /api/account` returns `{id, email, profile, game}`: a stable account ID, the owner's sign-in email, the reserved name/preferred color or `null`, and an occupied ranked region/room or `null`. Profile writes return the same private shape. Email is shown only to its signed-in owner; it is absent from regional admission, snapshots, leaderboards, public profiles and population counts. Provider credentials and session tokens are never returned here.
 
@@ -66,6 +66,14 @@ The explorer offers Today/7/30/90-day presets within the exported window, custom
 Production collection began with matching account, regional server and client release `38a2f766fb5b`. Earlier guest visits, casual/abandoned matches or version context cannot be recovered from the narrower Elo ladder.
 
 Leaderboard and public-profile reads resolve the current reserved name from the account authority. Completed matches store their server-verified historical label under the immutable account key; rating commits do not depend on the account service being reachable. An older result therefore cannot revert the visible current name, and a temporary auth outage cannot discard a completed US rating. Account-name lookup failures are explicit rather than displaying a potentially reassigned historical name.
+
+## Global chat
+
+Unreleased after alpha.16: the main menu has one chat channel for everyone online (`server/chat.mjs`; client `src/ui/screens/GlobalChat.tsx`). Reading is public. `GET /api/chat?epoch=&after=&v=` long-polls: with nothing new it is held for up to 15 seconds (under nginx's 20-second `/api/` proxy timeout) until a line arrives or one is hidden, then returns the lines after the client's cursor. The itch.io embed may read with CORS. Posting (`POST /api/chat`) and reporting (`POST /api/chat/report`) need the exact site Origin, JSON and a session with a claimed name. The name and color come from the profile, never from the body, so nobody can post under another player's name. Each line carries an opaque sender handle (an HMAC of the account ID under the auth secret) for muting, never the account ID.
+
+Lines are held in memory only: the last 100, cleared by a restart. A new random epoch then tells clients to drop what they hold. Each line carries the sender's selected region, and the menu can filter by it. Limits: three posts, then one per 5 seconds per account; ten, then one per 2 seconds per address; six reports per 10 minutes per account; 120 reads, then four per second per address. At most 2000 reads are held at once (eight per address); past that a read answers at once.
+
+Players can mute others for themselves; the list lives in browser storage. A report stores the line in `AUTH_DATA_DIR/chat.sqlite` and, on the first report of that line, files it in the feedback inbox as kind `chat`, which is mailed like other reports. When three different accounts report a line, it is hidden for everyone until the operator reviews it. Operations › Global chat lists the reports and can hide or show a line and mute its sender for 24 hours or for good. A mute also hides the sender's lines still in memory. `chat.sqlite` is additive and independent of the account schema; release backups copy it with the rest of the data directory.
 
 ## Regional admission and reconnects
 

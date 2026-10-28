@@ -14,6 +14,7 @@ import { Readable } from 'node:stream'
 import { toNodeHandler } from 'better-auth/node'
 import { openAccounts } from './accounts.mjs'
 import { openFeedback } from './feedback.mjs'
+import { openChat } from './chat.mjs'
 
 process.umask(0o077)
 
@@ -36,9 +37,10 @@ const origin = required('AUTH_ORIGIN')
 const embeds = (process.env.AUTH_EMBED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 const dataDir = required('AUTH_DATA_DIR')
 const regionsToken = readFileSync(required('AUTH_REGIONS_TOKEN_FILE'), 'utf8').trim()
+const secret = readFileSync(required('AUTH_SECRET_FILE'), 'utf8').trim()
 const accounts = await openAccounts({
   file: join(dataDir, 'accounts.sqlite'), origin,
-  secret: readFileSync(required('AUTH_SECRET_FILE'), 'utf8').trim(), providers,
+  secret, providers,
   regionsToken, embeds,
   migrate: process.argv.includes('--migrate'),
 })
@@ -54,6 +56,7 @@ if (process.argv.includes('--migrate')) {
       return session ? { id: session.user.id } : null
     },
   })
+  const chat = openChat(join(dataDir, 'chat.sqlite'), { origin, secret, embeds, feedback, speaker: accounts.speaker })
   const mail = openFeedbackMail({ origin, feedback,
     apiKey: process.env.RESEND_API_KEY ?? '', from: process.env.FEEDBACK_MAIL_FROM ?? '' })
   const perf = createServerPerf()
@@ -62,10 +65,11 @@ if (process.argv.includes('--migrate')) {
   const collector = startMonitoring({ store, regions: fleet.regions, token: regionsToken, appOrigin: origin,
     localSample: () => ({ version: 1, ...machine.snapshot(), online: accounts.presence(), uptimeSec: process.uptime(),
       release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate, commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__ } }) })
-  const admin = createAdmin({ accounts, store, collector, regions: fleet.regions, token: regionsToken, origin, feedback, css: analyticsCSS, mail })
+  const admin = createAdmin({ accounts, store, collector, regions: fleet.regions, token: regionsToken, origin, feedback, chat, css: analyticsCSS, mail })
   const handle = toNodeHandler(async (request) => {
     const path = new URL(request.url).pathname
     if (path.startsWith('/api/admin/')) return admin(request)
+    if (path === '/api/chat' || path === '/api/chat/report') return chat.handler(request)
     return path === '/api/feedback' || path === '/internal/feedback' || path.startsWith('/internal/feedback/')
       ? feedback.handler(request) : accounts.handler(request)
   })
@@ -105,7 +109,7 @@ if (process.argv.includes('--migrate')) {
   const stop = () => {
     if (stopping) return
     stopping = true
-    server.close(async () => { await collector.close(); await mail.close(); machine.close(); perf.close(); store.close(); feedback.close(); accounts.close(); process.exit(0) })
+    server.close(async () => { await collector.close(); await mail.close(); machine.close(); perf.close(); store.close(); chat.close(); feedback.close(); accounts.close(); process.exit(0) })
   }
   process.on('SIGTERM', stop)
   process.on('SIGINT', stop)

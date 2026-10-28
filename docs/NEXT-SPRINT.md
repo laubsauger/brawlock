@@ -88,9 +88,15 @@ Deployment is established by release receipts, not by implementation status here
      11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few
      hundred) and dodges most bolts, so early hits never reach lava. More kills means riskier
      positioning (closer, nearer the edge), which also makes Hard easier for players: a design call.
-8. **Global chat in the main menu (user idea, 2026-10-25).** One channel for everyone by default,
-   filterable by region. Needs a shared relay (the account authority or the global game authority),
-   rate limits, mute/block, report, and the same name rules as in-match chat.
+8. **Global chat in the main menu: built, not released (2026-10-28).** One channel for everyone
+   online, bottom right of the main menu and passive like the in-game chat (the last three lines;
+   Enter or a click opens it), filterable by region. Accounts with a claimed name post; guests and
+   the itch.io embed read. Per-browser mute, report (the first report reaches the feedback inbox),
+   hidden for everyone at three reports, and Operations › Global chat hides or shows lines and
+   mutes accounts for 24 hours or for good. See [ACCOUNTS.md](ACCOUNTS.md#global-chat). Ships with
+   the account service and the client in the same release.
+   - Follow-up: guests can still show any name, including an account's claimed name. Dedicated
+     rooms only mark them as guests (`sanitizeName` in `src/net/protocol.ts`).
 
 ## Completed in this planning pass
 

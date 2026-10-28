@@ -8,6 +8,8 @@ export interface FeedbackOptions {
 }
 export function openFeedback(file: string, options: FeedbackOptions): {
   handler(request: Request): Promise<Response>
+  /** files a report from the service itself (kind 'chat'); returns its id */
+  note(accountId: string, message: string): string
   mailBatch(): { id: string; at: number; kind: string; message: string }[]
   mailDelivery(build: (reports: { id: string; at: number; kind: string; message: string }[]) => { from: string; to: string[]; subject: string; text: string }): { key: string; payload: string } | null
   completeMail(key: string): void

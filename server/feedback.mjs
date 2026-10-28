@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { KeyedLimiter } from '../src/net/ratelimit.ts'
 import { embedCors, embedOrigins } from './embed-origins.mjs'
 import { FEEDBACK_BODY_BYTES, FEEDBACK_IMAGE_BYTES, FEEDBACK_IMAGE_DIMENSION, FEEDBACK_UUID, validFeedbackSubmission } from '../src/net/feedback.ts'
@@ -233,6 +233,13 @@ export function openFeedback(file, { origin, token, getAccount, now = Date.now, 
           return json(error instanceof FeedbackError ? error.status : 500,
             { error: error instanceof FeedbackError ? error.message : 'Feedback could not be saved. Please try again.' }, cors ?? {})
         }
+      },
+      /** A report filed by the service itself (global chat, chat.mjs) into the same inbox and mail. */
+      note(accountId, message) {
+        const id = randomUUID(), receivedAt = now()
+        const payload = { id, kind: 'chat', message, context: {} }
+        insert.run(id, createHash('sha256').update(canonical({ accountId, submission: payload })).digest('hex'), accountId, receivedAt, JSON.stringify(payload), null)
+        return id
       },
       mailBatch() { return mailRows.all() },
       mailDelivery(build) {

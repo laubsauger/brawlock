@@ -12,14 +12,19 @@ const usePresence = create<{ snapshot: PresenceSnapshot | null; at: number }>(()
 declare const __BUILD_ID__: string
 declare const __NET_ID__: string
 
-/** One small heartbeat for the whole app, including menus, local games and replays. */
-export function useOnlinePresence(): void {
+/** The region this browser counts toward (presence, global chat): its game's, else the one it would host in. */
+export function usePresenceRegion(): string | undefined {
   const choice = useGame((s) => s.settings.serverRegion)
-  const screen = useGame((s) => s.screen)
-  const accountId = useAccount((s) => s.player?.id)
   const [statuses, setStatuses] = useState(regionStatus)
   useEffect(() => online.subscribe(() => setStatuses(online.status())), [])
-  const region = session.region()?.id ?? pickRegion(statuses, choice)?.id
+  return session.region()?.id ?? pickRegion(statuses, choice)?.id
+}
+
+/** One small heartbeat for the whole app, including menus, local games and replays. */
+export function useOnlinePresence(): void {
+  const screen = useGame((s) => s.screen)
+  const accountId = useAccount((s) => s.player?.id)
+  const region = usePresenceRegion()
   useEffect(() => {
     if (!accountsEnabled || !region || !PRESENCE_REGIONS.some((id) => id === region)) return
     let stopped = false
