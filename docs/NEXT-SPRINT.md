@@ -22,7 +22,8 @@ Deployment is established by release receipts, not by implementation status here
      while the host is still about half idle, and plain health checks slow down with them. Generate the
      load from a machine other than the developer's home connection to tell the server's network path
      from the generator's uplink.
-   - The 30 Hz simulation (branch `exp/30hz-v2`) waits for a playtest decision.
+   - The 30 Hz simulation shipped as the default in alpha.11 (`DEFAULT_TICK_HZ`); 60 Hz stays a
+     per-server option.
 4. **Playtest 2026-10-25 evening, shipped in alpha.14.** Touched suites and typecheck passed; the
    full suite was skipped for this release by the user's call.
    - King of the Hill: a fresh capture pays its first ticket after `HILL_CAPTURE_SECONDS` (3 s in alpha.14, 1.75 s in alpha.15),

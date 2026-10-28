@@ -405,7 +405,8 @@ describe('seeking and verification', () => {
     const p = new ReplayPlayer(d, NET_ID)
     const targets = [...forward.keys()]
     // a mix of forward jumps, rewinds and keyframe boundaries
-    const order = [targets[20], targets[3], targets[targets.length - 1], targets[1], targets[12], targets[12], targets[0]]
+    const at = (share: number) => targets[Math.floor(share * (targets.length - 1))]
+    const order = [at(0.8), targets[3], targets[targets.length - 1], targets[1], at(0.5), at(0.5), targets[0]]
     for (const t of order) {
       p.seek(t)
       expect(p.tick).toBe(t)

@@ -9,13 +9,15 @@
  * re-simulates the rest, so it lands on exactly the state forward play reaches.
  */
 import { cloneState, step as simStep } from '../../sim'
+import { ticks } from '../../sim/config'
 import { applyRosterChanges } from '../../sim/roster'
-import type { PlayerInput, SimEvent, SimState } from '../../sim/types'
+import { onTickRate, type PlayerInput, type SimEvent, type SimState } from '../../sim/types'
 import { checkReplay, decodeInputs, type ReplayCheck, type ReplayData, type ReplayStep } from './format'
 import { replayHash } from './recorder'
 
-/** 10 s */
-export const KEYFRAME_EVERY = 600
+/** seek keyframe interval, ticks (10 s; was the literal 600, 20 s at 30 Hz) */
+export let KEYFRAME_EVERY = 0
+onTickRate(() => { KEYFRAME_EVERY = ticks(10) })
 
 export interface Desync {
   tick: number

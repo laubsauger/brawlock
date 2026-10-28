@@ -127,7 +127,7 @@ Duration, Range, Lifesteal. 6 levels each, 5 gold per level, or 13 to raise all 
 
 ### 3.4 Modes and lobby options
 
-Team mode Shuffle (default) / FFA / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
+Team mode FFA (default; the original defaulted to Shuffle) / Shuffle / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
 
 Spectator betting and bounties (Rounds only) are our additions, not in the original. A knocked-out human may stake 1 gold, once per round, on a living player or team until fewer than three warlocks are alive (or 10 s into a round that starts with two). Payouts are a pool: all stakes form the pot and each correct bet gets an equal floored share, so long shots pay more. Coins that don't split evenly, or the whole pot when nobody is right, fund the winners' bounty for the next round when bounties are on; with bounties off they go one each to the earliest correct bets, or back to every bettor when nobody is right. A draw refunds every stake. Rules: `src/sim/bets.ts`.
 
@@ -163,7 +163,7 @@ src/
 - **Fixed step at 30 or 60 Hz** (`TICK_HZ`, set per game server, default 30; fixed at 60 until alpha.10), independent of render rate. The original ticked at 0.035 s on a 30 Hz Dota server. Per-tick constants convert exactly (`friction ** (DT / 0.035)`).
 - **Deterministic**: seeded mulberry32 in state, no `Math.random`, no wall clock, no engine trig in state paths (own sin/cos/atan2 in `sim/math.ts`). `+ - * / Math.sqrt` are IEEE-exact across engines.
 - **Plain-data state** (`SimState`): structured-cloneable, diffable, serializable. One `step(state, inputs)` function.
-- Physics re-implements the original: swept circles, sort-and-sweep broadphase on X, collisions resolved in time-of-impact order, elastic response with per-body elasticity, collision matrix by alliance and channel (player, projectile, obstacle).
+- Physics re-implements the original: swept circles, an all-pairs check with an early reject on swept X intervals (enough for about 60 bodies), collisions resolved in time-of-impact order, elastic response with per-body elasticity, collision matrix by alliance and channel (player, projectile, obstacle).
 - **Data-driven spells**: each spell is a definition (numbers per level) plus a behavior module with hooks (`onCast`, `onTick`, `onCollide`, `onExpire`). Modifiers use the same hook model (`onPreTick`, `onDamageTaken`, `onCollision`, ...) as the original.
 - Events (`SimEvent`) per tick drive VFX, SFX, UI and the killfeed. Gameplay never depends on render.
 
@@ -243,7 +243,7 @@ Target look: "Unreal Engine quality without the performance penalty". Dark fanta
 A spell counts as implemented only when its sim behavior, tests and this VFX standard are all done; VFX is not deferred to a later polish pass.
 
 
-- GPU particles with TSL compute (WebGPU tier), instanced CPU particles as fallback.
+- Stateless GPU particles: written once into ring buffers at spawn and evaluated analytically in the vertex shader (`src/render/scene/Particles.ts`); no compute pass, so the WebGL2 fallback runs the same path.
 - Heavy impacts: directional spark cone along the knockback normal, ground shockwave, victim flash, camera kick toward the hit, all scaled by impulse.
 - Hit stop of 2–4 frames on big hits, scaled screen shake (setting), chromatic flash on own damage.
 - Camera: top-down tilted follow with smoothed zoom (original: 500–1500, default 1100), optional free pan, spectator cam on death.
@@ -336,7 +336,7 @@ Gamepad, shift-queued orders and alternative WASD movement are post-v1 experimen
 ## 7. Bots
 
 - Bots run on the host, read the same `SimState` a human client sees (the game has no fog of war), and emit `InputCommand`s through the same pipeline as humans. No direct sim access.
-- **Difficulty is a parameter vector**, not one knob: reaction latency, aim error, lead-prediction quality, dodge lookahead (forward-simulates incoming projectiles with the shared sim), action rate cap, lava and edge awareness, target selection, build quality (shop plans per archetype), team coordination.
+- **Difficulty is a parameter vector**, not one knob: reaction latency, aim error, lead-prediction quality, dodge lookahead (forward-simulates incoming projectiles with the shared sim), lava and edge awareness, target selection, build quality (shop plans per archetype). Not built: an action-rate cap (Hard and up give a move order on almost every 0.1 s think; see [the moonshot keystones](moonshot/04-keystones.md)) and team coordination (bots do not plan with allies).
 - Presets: **Dummy** (stands, for practice), **Easy**, **Medium**, **Hard**, **Brutal**, **Uber**. Every preset is human-plausible; Brutal is strong, not omniscient; Uber wins on decisions, not reflexes (knob table: `src/bots/presets.ts`).
 - Every active tier draws its shop build from the same seeded six-build pool (`src/bots/plan.ts`), then buys and upgrades that plan as gold allows. Easy, Medium and Hard keep their own reaction, aim and combat settings; Dummy never shops. Build variety and reproducibility, first-shop purchases for every tier/build, and the difficulty ladder are covered by the bot tests.
 - Lobby: add bot to any slot, pick difficulty per slot, "fill empty slots" toggle, bots-for-leavers toggle. The difficulty selector's tooltip shows the tier's Elo and who it is for.
