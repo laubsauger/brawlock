@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, isEnemy, onHill, spellDef, ticks } from '../sim'
+import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillSealed, isEnemy, onHill, spellDef, ticks } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -1132,13 +1132,15 @@ export class BotController implements Bot {
     const carry = { x: ph.x * keep, y: ph.y * keep }
     const zones = threatZones(state, this.player)
     const enemies = state.pawns.filter((o) => seenEnemy(state, this.player, o))
+    // the sealed hill's force field stops a Teleport at its edge, short of the landing
+    const sealed = hillSealed(state)
     let best: Vec2 | null = null
     let bestCost = Infinity
     for (const rf of TP_RADII) {
       for (let i = 0; i < TP_DIRS; i++) {
         const a = (i / TP_DIRS) * Math.PI * 2
         const land = { x: me.x + cos(a) * range * rf, y: me.y + sin(a) * range * rf }
-        if (!isSafeWithMargin(safety, land.x, land.y, 40) || inPillar(state, land.x, land.y) || insideAny(zones, land.x, land.y)) continue
+        if (!isSafeWithMargin(safety, land.x, land.y, 40) || inPillar(state, land.x, land.y) || (sealed && onHill(state, land.x, land.y)) || insideAny(zones, land.x, land.y)) continue
         const out = lavaOutcome(state, land, carry, me.hp, me.moveSpeed, safety, 2.5)
         if (out.lethal) continue
         let cost = out.damage * 8 + out.lavaTime * 150
@@ -1231,7 +1233,7 @@ export class BotController implements Bot {
     const def = spellDef('teleport')
     const range = def ? attr(def, 'range', me.levels[tp] || 1) : 770
     const spot = { x: target.x - ox * 430, y: target.y - oy * 430 }
-    if (dist(me, spot) > range || !isSafeWithMargin(safety, spot.x, spot.y, 120) || inPillar(state, spot.x, spot.y)) return null
+    if (dist(me, spot) > range || !isSafeWithMargin(safety, spot.x, spot.y, 120) || inPillar(state, spot.x, spot.y) || (hillSealed(state) && onHill(state, spot.x, spot.y))) return null
     if (insideAny(threatZones(state, this.player), spot.x, spot.y) || this.dangerHere(state, threats, spot.x, spot.y) > 1) return null
     return spot
   }

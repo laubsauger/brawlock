@@ -1,5 +1,5 @@
 import { frame } from '../../game/frame'
-import { HILL_SHRINK_PERIOD } from '../../sim'
+import { HILL_SHRINK_PERIOD, hillSealed } from '../../sim'
 import type { SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { usePolled } from '../lib/ticker'
@@ -19,13 +19,15 @@ interface Standing {
 }
 
 interface HillView {
-  status: 'waiting' | 'open' | 'held' | 'contested'
+  status: 'waiting' | 'sealed' | 'open' | 'held' | 'contested'
   holder: Standing | null
   /** the holder is still inside the capture time: no tickets yet */
   taking: boolean
   standings: Standing[]
   target: number
   shrinkIn: number | null
+  /** whole seconds until the opening force field drops, while it is up */
+  opensIn: number | null
 }
 
 /** One row per side: a player in FFA, a team (sharing its tickets) otherwise. */
@@ -58,7 +60,8 @@ function read(): HillView | null {
   const all = standings(s, local)
   const h = s.hill
   const fight = s.phase === 'fight' && !!h
-  const status = !fight || !h ? 'waiting' : h.contested ? 'contested' : h.team !== null ? 'held' : 'open'
+  const sealed = fight && hillSealed(s)
+  const status = !fight || !h ? 'waiting' : sealed ? 'sealed' : h.contested ? 'contested' : h.team !== null ? 'held' : 'open'
   const holder = status === 'held' ? all.find((x) => x.team === h!.team) ?? null : null
   let shrinkIn: number | null = null
   if (fight && h && h.nextShrinkTick >= 0) {
@@ -70,11 +73,12 @@ function read(): HillView | null {
   const mine = all.find((x) => x.mine)
   if (mine && !top.includes(mine)) top[ROWS - 1] = mine
   const taking = status === 'held' && !!h && h.heldTicks < 0
-  return { status, holder, taking, standings: top, target: Math.max(1, s.settings.winScore), shrinkIn }
+  const opensIn = sealed ? Math.ceil((h!.openTick! - s.tick) / TICK_HZ) : null
+  return { status, holder, taking, standings: top, target: Math.max(1, s.settings.winScore), shrinkIn, opensIn }
 }
 
 const key = (v: HillView | null) =>
-  v ? `${v.status}|${v.holder?.team}|${v.taking}|${v.shrinkIn}|${v.target}|${v.standings.map((x) => `${x.team}:${x.score}:${x.label}`).join(',')}` : ''
+  v ? `${v.status}|${v.holder?.team}|${v.taking}|${v.shrinkIn}|${v.opensIn}|${v.target}|${v.standings.map((x) => `${x.team}:${x.score}:${x.label}`).join(',')}` : ''
 
 /**
  * King of the Hill status under the clock: who holds the hill (or that it is contested), and
@@ -85,6 +89,7 @@ export function HillStatus() {
   if (!v) return null
   const head = v.status === 'held' && v.holder
     ? <><b style={{ color: v.holder.color }}>{v.holder.mine ? (v.taking ? 'You are taking' : 'You hold') : `${v.holder.label} ${v.taking ? 'is taking' : 'holds'}`}</b> the hill</>
+    : v.status === 'sealed' ? <span className="text-[#a9dcff]">Hill sealed, opens in <b className="tabular" data-testid="hill-opens-in" data-seconds={v.opensIn}>{v.opensIn}s</b></span>
     : v.status === 'contested' ? <b className="text-[#ff9b7a]">Hill contested</b>
       : v.status === 'open' ? <span className="text-[#ffd890]">The hill is open, take it</span>
         : <span className="text-ash">Hold the glowing centre tiles</span>

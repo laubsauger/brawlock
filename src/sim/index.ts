@@ -3,9 +3,10 @@
  * Owned by the sim workstream; signatures are the contract.
  */
 import { DT } from './types'
-import type { InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
+import type { EntityId, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
 import { ARENA_SHOP_LAYER, DEFAULT_SETTINGS, PAWN_DP_REGEN, frictionPerTick } from './config'
 import { killPawn } from './combat'
+import { hillField, hillSealed } from './hill'
 import { deliverBettingCredits } from './bets'
 import { lavaTick } from './lava'
 import { prepareForRound, phaseTick } from './mode'
@@ -42,6 +43,7 @@ export {
   SPELL_MAX_LEVEL,
   TEAM_DRAW,
   HILL_CAPTURE_SECONDS,
+  HILL_SEAL_SECONDS,
   HILL_DEFAULT_TICKETS,
   HILL_GOLD_FIRST,
   HILL_GOLD_MAX,
@@ -54,7 +56,7 @@ export {
   ticks,
   secondsOf,
 } from './config'
-export { hillLayerNow, hillLayerOn, hillStartLayer, hillStayOf, onHill, respawnsInFight } from './hill'
+export { hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, hillStayOf, onHill, respawnsInFight } from './hill'
 export {
   TILE_SIZE,
   CORNER_PX_PY,
@@ -270,6 +272,8 @@ function regenTick(state: SimState): void {
 export function step(state: SimState, inputs: PlayerInput[]): void {
   state.events = []
   deliverBettingCredits(state)
+  // while the hill is sealed, where everyone stood before moving: its force field stops paths
+  const sealedFrom = hillSealed(state) ? new Map<EntityId, { x: number; y: number }>(state.pawns.map((p) => [p.id, { x: p.x, y: p.y }])) : null
   if (state.phase !== 'gameOver') {
     // by player, then by the client's tick stamp; stable for equal keys
     const sorted = inputs.slice().sort((a, b) => a.player - b.player || a.tick - b.tick)
@@ -287,6 +291,7 @@ export function step(state: SimState, inputs: PlayerInput[]): void {
   projectilePostTick(state)
   obstacleTick(state)
   tickModifiers(state)
+  if (sealedFrom) hillField(state, sealedFrom)
   lavaTick(state)
   if (state.phase !== 'gameOver') phaseTick(state)
   regenTick(state)

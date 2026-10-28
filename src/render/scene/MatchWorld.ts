@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
 import { HILL_MIN_LAYER, ticks } from '../../sim/config'
-import { hillLayerNow, hillLayerOn, hillStartLayer } from '../../sim/hill'
+import { hillLayerNow, hillLayerOn, hillSealed, hillStartLayer } from '../../sim/hill'
 import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
@@ -27,6 +27,7 @@ import { planBountyCollection } from './bountyCollectionLogic'
 import { FacingChevrons } from './FacingChevrons'
 import { MoveDestination } from './MoveDestination'
 import { HillBeacon } from './HillBeacon'
+import { HillField } from './HillField'
 import { resolveDestination, type DestClick } from './moveDestinationLogic'
 import { GroundFx, RING_CHEVRON, RING_EXPAND, RING_IMPLODE } from './GroundFx'
 import { Lava, SPLASH_GULP } from './Lava'
@@ -186,6 +187,7 @@ export class MatchWorld {
   /** local player's persistent move destination (after the click burst) */
   private dest!: MoveDestination
   private beacon!: HillBeacon
+  private hillField!: HillField
   private hillColor = new THREE.Color()
   private practiceDest: MoveDestination | null = null
   private practiceGold = new THREE.Color(0xffc45c)
@@ -295,6 +297,8 @@ export class MatchWorld {
     this.root.add(this.dest.mesh)
     this.beacon = new HillBeacon(this.ctx.uTime)
     this.root.add(this.beacon.mesh)
+    this.hillField = new HillField(this.ctx.uTime)
+    this.root.add(this.hillField.mesh)
     this.overlay = opts.mode === 'match' && opts.overlayParent ? new WorldOverlay(opts.overlayParent) : null
     this.locator = opts.mode === 'match' && opts.overlayParent ? new PawnLocator(opts.overlayParent) : null
     for (let i = 0; i < 12; i++) {
@@ -989,6 +993,7 @@ export class MatchWorld {
     if (curr.settings.gameMode !== 'hill') {
       u.set(0, 0, 0, 0)
       this.beacon.update(null, this.hillColor, TILE_TOP_H, dt)
+      this.hillField.update(0, null, TILE_TOP_H, dt)
       return
     }
     const h = curr.hill
@@ -1008,6 +1013,7 @@ export class MatchWorld {
     else this.hillColor.setRGB(1, 0.68, 0.24)
     this.arena.uHillColor.value.copy(this.hillColor)
     this.beacon.update(mode, this.hillColor, TILE_TOP_H, dt)
+    this.hillField.update(layer, h && hillSealed(curr) ? (h.openTick! - (curr.tick + alpha)) / TICK_HZ : null, TILE_TOP_H, dt)
   }
 
   /** identity colour of a team (its first member's: the team colour in team modes) */
@@ -2574,6 +2580,7 @@ export class MatchWorld {
     this.chevrons.dispose()
     this.dest.dispose()
     this.beacon.dispose()
+    this.hillField.dispose()
     this.practiceDest?.dispose()
     this.locator?.dispose()
     this.contact.dispose()

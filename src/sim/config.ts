@@ -119,6 +119,9 @@ export const HILL_TICKET_SECONDS = 1
  * back to 1 s on 2026-10-26: a hold lasts under a second, so longer captures barely scored and
  * matches dragged on (docs/NEXT-SPRINT.md, bot follow-ups); 0.5 s after alpha.16 (user call) */
 export const HILL_CAPTURE_SECONDS = 0.5
+/** every fight opens with a force field over the hill for this long: nobody walks, teleports or
+ * is knocked onto it (user call after alpha.16: an instant Teleport onto it decided the start) */
+export const HILL_SEAL_SECONDS = 5
 /** layer 6 = 21 tiles (a rounded 5x5); 5 = 13, 4 = the 3x3 block, 3 = a plus of 5. 13 tiles to start:
  * at 21 (playtest 2026-10-25) somebody always contested it and nobody earned tickets */
 export const HILL_DEFAULT_LAYER = 5

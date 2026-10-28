@@ -2,12 +2,20 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import { frame, pushState, resetFrame } from '../../game/frame'
-import { HILL_CAPTURE_SECONDS, HILL_TICKET_SECONDS, ticks } from '../../sim/config'
+import { HILL_CAPTURE_SECONDS, HILL_SEAL_SECONDS, HILL_TICKET_SECONDS, ticks } from '../../sim/config'
 import { fight, place, pawn, run } from '../../sim/testkit'
+import { renderMarkup, testId } from '../testing/markup'
 import { HillStatus } from './HillStatus'
 
 afterEach(resetFrame)
 const render = () => renderToStaticMarkup(createElement(HillStatus))
+const hill = () => fight(2, undefined, { gameMode: 'hill', winScore: 100 })
+/** a hill fight with its opening force field already down */
+const openHill = () => {
+  const s = hill()
+  s.hill!.openTick = s.tick
+  return s
+}
 
 describe('King of the Hill status plate', () => {
   it('stays away outside King of the Hill', () => {
@@ -15,8 +23,17 @@ describe('King of the Hill status plate', () => {
     expect(render()).toBe('')
   })
 
+  it('counts down the opening force field, so nobody wastes a Teleport on the sealed hill', () => {
+    const s = hill()
+    run(s, ticks(1))
+    pushState(s)
+    const html = renderMarkup(createElement(HillStatus))
+    expect(html.get('[data-status]').attr('data-status')).toBe('sealed')
+    expect(html.get(testId('hill-opens-in')).attr('data-seconds')).toBe(String(HILL_SEAL_SECONDS - 1))
+  })
+
   it('says who holds the hill and shows the ticket race toward the target', () => {
-    const s = fight(2, undefined, { gameMode: 'hill', winScore: 100 })
+    const s = openHill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 1000, 0)
     // two tickets: the capture time, then one ticket period more
@@ -30,7 +47,7 @@ describe('King of the Hill status plate', () => {
   })
 
   it('calls out a contested hill', () => {
-    const s = fight(2, undefined, { gameMode: 'hill', winScore: 100 })
+    const s = openHill()
     place(pawn(s, 0), 0, 0)
     place(pawn(s, 1), 192, 0)
     run(s, 2)

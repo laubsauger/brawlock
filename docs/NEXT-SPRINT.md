@@ -82,7 +82,9 @@ Deployment is established by release receipts, not by implementation status here
      (user call, 2026-10-26); about 61 minutes bot-only is still long, so the ticket target (or a
      ticket rate per player count) is still open. After alpha.16 (user call, 2026-10-26):
      capture 0.5 s (about 46 minutes bot-only by the numbers above) and the queue's target 75
-     tickets; not remeasured together.
+     tickets; not remeasured together. Also after alpha.16 (user call, 2026-10-27): every fight
+     opens with a force field over the hill for 5 s (`HILL_SEAL_SECONDS`), so an opening Teleport
+     no longer takes it; bots wait at the field.
    - Hard bots kill rarely (measured 2026-10-26, 4-bot FFA rounds): first death after about 107 s
      (Medium 72 s, Brutal 115 s), 83% of deaths are pushes into lava once the arena has sunk about
      11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few

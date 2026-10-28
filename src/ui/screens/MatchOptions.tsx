@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { DEFAULT_SETTINGS, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
+import { DEFAULT_SETTINGS, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
 import { session } from '../../game/session'
 import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
@@ -45,7 +45,7 @@ const MODE_HINT: Record<GameMode, string> = {
 function HillRules({ settings }: { settings: MatchSettings }) {
   return <div className="mb-2 rounded-md border border-[rgba(255,190,90,0.18)] bg-[rgba(255,170,60,0.06)] px-3 py-2 text-sm leading-relaxed text-bone">
     <p className="mb-1 font-semibold text-gold">King of the Hill</p>
-    <p>The glowing tiles in the middle are the hill. Hold them with no enemy on them for {HILL_CAPTURE_SECONDS} s and you start earning a ticket every second. Anyone else on the hill contests it and nobody earns tickets. Knock them off.</p>
+    <p>The glowing tiles in the middle are the hill. Hold them with no enemy on them for {HILL_CAPTURE_SECONDS} s and you start earning a ticket every second. Anyone else on the hill contests it and nobody earns tickets. Knock them off. Every fight opens with the hill sealed for {HILL_SEAL_SECONDS} s: nobody gets on it, not even by Teleport.</p>
     <p className="mt-1">Standing on the hill also pays gold, contested or not: {HILL_GOLD_FIRST} gold every {HILL_GOLD_SECONDS} s, rising to {HILL_GOLD_MAX} the longer you stay. Stepping off starts over.</p>
     <p className="mt-1 text-ash">First to {settings.winScore} tickets wins. The hill loses its outer ring every {HILL_SHRINK_PERIOD} s. {settings.hillRespawn
       ? `One long fight: the shop stays open, you respawn ${HILL_RESPAWN_SECONDS} s after dying, and everyone gets round gold every ${HILL_INCOME_SECONDS} s.`

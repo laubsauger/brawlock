@@ -5,6 +5,8 @@
  * HILL_TICKET_SECONDS for each member, the first HILL_CAPTURE_SECONDS after taking it; any enemy
  * team on it contests it and nobody earns tickets; the holder's progress pauses until it stands
  * alone again (a different team starts its own capture).
+ * Every fight opens with the hill sealed by a force field for HILL_SEAL_SECONDS (hillField): no
+ * walking, teleporting or being knocked onto it, so nobody takes it with an opening Teleport.
  * First to winScore tickets wins, checked on every ticket. Gold is personal and pays while
  * contested too: every HILL_GOLD_SECONDS of an unbroken stay on the hill pays HILL_GOLD_FIRST,
  * one more every HILL_GOLD_STEP grants up to HILL_GOLD_MAX; stepping off or dying starts over.
@@ -20,7 +22,7 @@
  *
  * Pure helpers here are shared with render, bots and the HUD.
  */
-import { isLocationSafeAtLayer } from './arena'
+import { TILE_SIZE, isLocationSafeAtLayer, isTileAt, tileCoord } from './arena'
 import {
   HILL_CAPTURE_SECONDS,
   HILL_DEFAULT_LAYER,
@@ -31,12 +33,16 @@ import {
   HILL_INCOME_SECONDS,
   HILL_MAX_LAYER,
   HILL_MIN_LAYER,
+  HILL_SEAL_SECONDS,
   HILL_SHRINK_PERIOD,
   HILL_TICKET_SECONDS,
+  OBSTACLE_ELASTICITY,
+  PAWN_ELASTICITY,
+  PAWN_RADIUS,
   ticks,
 } from './config'
 import { activePlayers, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
-import type { HillState, HillStay, MatchSettings, PlayerId, SimState } from './types'
+import type { EntityId, HillState, HillStay, MatchSettings, PlayerId, SimState } from './types'
 
 /** The hill's starting layer for these settings (whole layers, HILL_MIN_LAYER..HILL_MAX_LAYER). */
 export function hillStartLayer(settings: Pick<MatchSettings, 'hillLayer'>): number {
@@ -79,7 +85,115 @@ export function newHill(state: SimState): HillState {
     heldTicks: 0,
     holder: null,
     nextIncomeTick: respawnsInFight(state.settings) ? state.tick + ticks(HILL_INCOME_SECONDS) : -1,
+    openTick: state.tick + ticks(HILL_SEAL_SECONDS),
     stays: [],
+  }
+}
+
+/** True while the hill's force field is up: the first HILL_SEAL_SECONDS of every fight. */
+export function hillSealed(state: Pick<SimState, 'hill' | 'phase' | 'tick'>): boolean {
+  const open = state.hill?.openTick
+  return open !== undefined && state.phase === 'fight' && state.tick < open
+}
+
+const HALF_TILE = TILE_SIZE / 2
+
+/**
+ * The point of a hill of `layer` nearest to (x, y) and its distance (0 on the hill; whole square
+ * cells, as onHill counts them). Only the 3x3 cells around (x, y) are checked: any other cell is
+ * at least TILE_SIZE / 2 away, far more than a pawn's radius. Infinity when none of them is hill.
+ */
+function nearestHillPoint(layer: number, x: number, y: number): { d: number; x: number; y: number } {
+  const gx = tileCoord(x)
+  const gy = tileCoord(y)
+  let best = { d: Infinity, x, y }
+  for (let j = gy - 1; j <= gy + 1; j++) {
+    for (let i = gx - 1; i <= gx + 1; i++) {
+      if (!isTileAt(layer, i, j)) continue
+      const qx = Math.min(Math.max(x, i * TILE_SIZE - HALF_TILE), i * TILE_SIZE + HALF_TILE)
+      const qy = Math.min(Math.max(y, j * TILE_SIZE - HALF_TILE), j * TILE_SIZE + HALF_TILE)
+      const d = Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy))
+      if (d < best.d) best = { d, x: qx, y: qy }
+    }
+  }
+  return best
+}
+
+/** a pawn's body at (x, y) would touch the hill */
+const touchesHill = (layer: number, x: number, y: number) => nearestHillPoint(layer, x, y).d < PAWN_RADIUS
+
+/** knockback bounces off the field as off a pillar */
+const FIELD_BOUNCE = 0.5 * (PAWN_ELASTICITY + OBSTACLE_ELASTICITY)
+
+/**
+ * The sealed hill's force field, once everything moved this tick (`from`: where each pawn stood
+ * when it began). A pawn whose body would touch a hill tile stops where its path met the field
+ * and slides along it for the rest of its move, so a Teleport or Swap onto the hill ends at its
+ * edge (and its event says so). Walking into the field stops; knockback bounces off it.
+ */
+export function hillField(state: SimState, from: ReadonlyMap<EntityId, { x: number; y: number }>): void {
+  const layer = hillLayerNow(state)
+  if (layer <= 1) return
+  for (const p of state.pawns) {
+    if (!p.alive || !touchesHill(layer, p.x, p.y)) continue
+    const start = from.get(p.id)
+    let x: number
+    let y: number
+    let nx: number
+    let ny: number
+    if (start && !touchesHill(layer, start.x, start.y)) {
+      // the last point of its path clear of the field
+      let lo = 0
+      let hi = 1
+      for (let i = 0; i < 12; i++) {
+        const t = (lo + hi) / 2
+        if (touchesHill(layer, start.x + (p.x - start.x) * t, start.y + (p.y - start.y) * t)) hi = t
+        else lo = t
+      }
+      x = start.x + (p.x - start.x) * lo
+      y = start.y + (p.y - start.y) * lo
+      const q = nearestHillPoint(layer, x, y)
+      nx = (x - q.x) / q.d
+      ny = (y - q.y) / q.d
+      // the rest of the move, without the part into the field
+      let rx = p.x - x
+      let ry = p.y - y
+      const rn = rx * nx + ry * ny
+      rx -= rn * nx
+      ry -= rn * ny
+      if (!touchesHill(layer, x + rx, y + ry)) {
+        x += rx
+        y += ry
+      }
+    } else {
+      // on it without a move this tick to undo: straight out from the hill's centre
+      const d = Math.sqrt(p.x * p.x + p.y * p.y)
+      nx = d > 0 ? p.x / d : 1
+      ny = d > 0 ? p.y / d : 0
+      let r = d
+      while (touchesHill(layer, nx * r, ny * r)) r += 8
+      x = nx * r
+      y = ny * r
+    }
+    p.x = x
+    p.y = y
+    const kx = p.vx - p.walkVx
+    const ky = p.vy - p.walkVy
+    const kn = kx * nx + ky * ny
+    const wn = p.walkVx * nx + p.walkVy * ny
+    if (wn < 0) {
+      p.walkVx -= wn * nx
+      p.walkVy -= wn * ny
+    }
+    const bounce = kn < 0 ? (1 + FIELD_BOUNCE) * kn : 0
+    p.vx = kx - bounce * nx + p.walkVx
+    p.vy = ky - bounce * ny + p.walkVy
+    for (const e of state.events) {
+      if ((e.type === 'teleport' || e.type === 'swap') && e.pawn === p.id) {
+        e.toX = x
+        e.toY = y
+      }
+    }
   }
 }
 

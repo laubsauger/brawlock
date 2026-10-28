@@ -290,6 +290,8 @@ export interface HillState {
   holder?: number | null
   /** tick of the next income payout to everyone */
   nextIncomeTick: number
+  /** the hill's force field is up until this tick (HILL_SEAL_SECONDS into the fight); absent = none */
+  openTick?: number
   /** players standing on the hill right now (contested or not), toward their next gold grant */
   stays: HillStay[]
 }

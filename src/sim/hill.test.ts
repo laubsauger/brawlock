@@ -1,15 +1,21 @@
 import { describe, expect, test } from 'vitest'
 import { isLocationSafeAtLayer } from './arena'
 import { killPawn } from './combat'
-import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_GOLD_STEP, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_TICKET_SECONDS, ticks } from './config'
-import { hillLayerNow, hillStartLayer, hillStayOf, onHill } from './hill'
+import { HILL_ARENA_MARGIN, HILL_CAPTURE_SECONDS, HILL_DEFAULT_LAYER, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_GOLD_STEP, HILL_MIN_LAYER, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_TICKET_SECONDS, PAWN_RADIUS, ticks } from './config'
+import { hillLayerNow, hillSealed, hillStartLayer, hillStayOf, onHill } from './hill'
 import { prepareForRound } from './mode'
 import { applyRosterChanges } from './roster'
 import { shopOpen } from './shop'
-import { fight, newMatch, of, pawn, place, run, runUntil } from './testkit'
+import { cmd, fight, grant, newMatch, of, pawn, place, run, runUntil } from './testkit'
 import type { MatchSettings, SimState } from './types'
 
-const hill = (overrides: Partial<MatchSettings> = {}, n = 2, teams?: number[]) => fight(n, teams, { gameMode: 'hill', winScore: 100, ...overrides })
+const sealed = (overrides: Partial<MatchSettings> = {}, n = 2, teams?: number[]) => fight(n, teams, { gameMode: 'hill', winScore: 100, ...overrides })
+/** a fight with the opening force field already down; the field has its own tests below */
+const hill = (overrides: Partial<MatchSettings> = {}, n = 2, teams?: number[]) => {
+  const s = sealed(overrides, n, teams)
+  s.hill!.openTick = s.tick
+  return s
+}
 const scoreOf = (s: SimState, id: number) => s.scores.find((sc) => sc.id === id)!.score
 // off the hill (layer 6 reaches 500 from the centre), safe on the 2-player arena (layer 15)
 const OFF = 1000
@@ -67,6 +73,76 @@ describe('King of the Hill: gold for standing on it', () => {
     killPawn(s, pawn(s, 0), 1, 'lightning')
     run(s, 1)
     expect(hillStayOf(s, 0)).toBeUndefined()
+  })
+})
+
+describe('King of the Hill: the opening force field', () => {
+  // Why: an instant Teleport onto the hill decided who held it first (user call after alpha.16).
+  // The default hill's east tip tile ends here; a warlock's body stays a radius off it.
+  const EDGE = 2 * 192 + 96
+
+  test('for its first seconds nobody walks onto the hill, then it opens and pays as usual', () => {
+    const s = sealed()
+    expect(hillSealed(s)).toBe(true)
+    const p = pawn(s, 0)
+    place(p, OFF, 0, Math.PI)
+    place(pawn(s, 1), -OFF, 0)
+    const walk = () => [cmd(0, { kind: 'move', x: 0, y: 0 })]
+    let touched = false
+    for (let i = 0; i < ticks(HILL_SEAL_SECONDS) - 1; i++) {
+      run(s, 1, walk)
+      if (p.x < EDGE + PAWN_RADIUS - 1e-6 || onHill(s, p.x, p.y)) touched = true
+    }
+    expect(touched).toBe(false)
+    expect(p.x).toBeCloseTo(EDGE + PAWN_RADIUS, 0) // pressed against the field, not turned away
+    expect(s.hill).toMatchObject({ team: null, stays: [] })
+    run(s, 1, walk)
+    expect(hillSealed(s)).toBe(false)
+    runUntil(s, (st) => onHill(st, p.x, p.y), ticks(2))
+    run(s, ticks(HILL_CAPTURE_SECONDS))
+    expect(scoreOf(s, 0)).toBe(1)
+  })
+
+  test('a Teleport onto the sealed hill lands at the field, on its own path, and says so', () => {
+    const s = sealed()
+    const p = pawn(s, 0)
+    place(p, 900, 0, Math.PI)
+    place(pawn(s, 1), -OFF, 0)
+    const slot = grant(s, 0, 'teleport')
+    const events = run(s, 1, () => [cmd(0, { kind: 'cast', slot, x: 0, y: 0 })])
+    expect(p.x).toBeCloseTo(EDGE + PAWN_RADIUS, 0)
+    expect(p.y).toBeCloseTo(0, 6)
+    expect(of(events, 'teleport')[0]).toMatchObject({ fromX: 900, toX: p.x, toY: p.y })
+  })
+
+  test('a warlock knocked into the field bounces off it, as off a pillar', () => {
+    const s = sealed()
+    const p = pawn(s, 0)
+    place(p, EDGE + 200, 0)
+    place(pawn(s, 1), -OFF, 0)
+    p.vx = -900
+    let touched = false
+    let bounced = false
+    for (let i = 0; i < ticks(1); i++) {
+      run(s, 1)
+      if (p.x < EDGE + PAWN_RADIUS - 1e-6) touched = true
+      if (p.vx > 0) bounced = true
+    }
+    expect(touched).toBe(false)
+    expect(bounced).toBe(true)
+  })
+
+  test('every fight opens sealed, the next round included, and never the shop', () => {
+    const s = sealed()
+    run(s, ticks(HILL_SEAL_SECONDS))
+    expect(hillSealed(s)).toBe(false)
+    killPawn(s, pawn(s, 1), 0, 'test')
+    runUntil(s, (st) => st.phase === 'shop')
+    expect(hillSealed(s)).toBe(false)
+    runUntil(s, (st) => st.phase === 'fight')
+    expect(hillSealed(s)).toBe(true)
+    run(s, ticks(HILL_SEAL_SECONDS))
+    expect(hillSealed(s)).toBe(false)
   })
 })
 
