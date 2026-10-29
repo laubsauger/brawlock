@@ -6,6 +6,7 @@
  */
 import { FLOOR, Follow, clamp01, ease, ease5, fitPose, lerp, orbit, span, type CamPose, type FrameBox, type V3 } from '../cam'
 import type { ShotSim } from '../simShot'
+import { ticks } from '../../../sim/config'
 import type { CamCtx, OverlaySpec, ShotSpec } from '../types'
 import { Smooth, rimRadius, slowmo, stage } from './common'
 import { trailerMatch } from './trailerMatch'
@@ -410,7 +411,7 @@ function bulletCam(o: MomentOpts, hitSt: number, s0: number, hold: number, sweep
 function holdRound(base?: (s: ShotSim) => void): (s: ShotSim) => void {
   return (s) => {
     base?.(s)
-    if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = 600
+    if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = ticks(10)
   }
 }
 

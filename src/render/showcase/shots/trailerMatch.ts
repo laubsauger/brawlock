@@ -4,6 +4,7 @@
  * the arena shrinks faster than stock so the lava stays in play.
  */
 import { COLORS, type PlayerDef, type ShotSim, type SimShotSpec } from '../simShot'
+import { ticks } from '../../../sim/config'
 
 const NAMES: [string, number][] = [
   ['Ashcaller', COLORS.ember],
@@ -41,7 +42,7 @@ function kits(n: number, shift: number): Record<number, string[]> {
 function shrinkEvery(sec: number): (s: ShotSim) => void {
   return (s) => {
     const a = s.state.arena
-    if (a.nextShrinkTick >= 0 && a.nextShrinkTick - s.state.tick > sec * 60) a.nextShrinkTick = s.state.tick + sec * 60
+    if (a.nextShrinkTick >= 0 && a.nextShrinkTick - s.state.tick > ticks(sec)) a.nextShrinkTick = s.state.tick + ticks(sec)
   }
 }
 

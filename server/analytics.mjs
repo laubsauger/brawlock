@@ -5,6 +5,7 @@ import { mkdirSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { analyticsSeries } from './analytics-series.mjs'
 import { analyticsFacts } from './analytics-facts.mjs'
+import { recordSeconds } from '../src/shared/recordTime.ts'
 
 const DAY = 86400000
 const SESSION_GAP = 30 * 60000
@@ -171,7 +172,7 @@ export function openAnalytics(file, { now = Date.now, serverCommit = null } = {}
       finish(id, match) {
         transaction(() => {
           const changed = db.prepare("UPDATE matches SET status='completed',ended_at=?,seconds=?,rounds=? WHERE id=? AND status='running'")
-            .run(now(), match.ticks / 60, match.rounds, id)
+            .run(now(), recordSeconds(match.ticks), match.rounds, id)
           if (!changed.changes) throw new Error('Analytics match is not running')
           addSeats(id, match.seats.map((seat) => seat.device))
         })

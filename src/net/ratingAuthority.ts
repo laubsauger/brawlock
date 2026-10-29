@@ -1,5 +1,5 @@
 /** One server-side rating authority. Regions submit finished simulations, never client scores. */
-import { LB_MIN_SECONDS, LB_TOP, publicRow, recordSeconds, settleMatch, unfinishedActivity, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue, type UnfinishedActivity } from './leaderboard'
+import { LB_MIN_SECONDS, LB_TOP, RECORD_HZ, publicRow, recordSeconds, settleMatch, unfinishedActivity, type BoardQuery, type BoardRow, type FinishedMatch, type LeaderboardStore, type StoredMatchHistory, type HistoryQueue, type UnfinishedActivity } from './leaderboard'
 import type { MatchRating } from './rating'
 import { PASSIVE_ITEMS, SPELL_IDS } from '../sim/spells/data'
 import type { PlayerMatchStats } from '../game/stats'
@@ -83,7 +83,7 @@ export function validRatingSubmission(v: unknown): v is RatingSubmission {
   if (v.queue !== undefined && !['ranked', 'casual', 'custom'].includes(v.queue as string)) return false
   const m = v.match
   if (!object(m) || !only(m, ['ticks', 'rounds', 'teamMode', 'gameMode', 'bots', 'seats', 'ranked', 'roster', 'abandoned', 'aborted', 'combatPairs'])
-    || !integer(m.ticks, 60 * 60 * 24 * 60) || !integer(m.rounds, 10000) || !integer(m.bots, 10)
+    || !integer(m.ticks, 24 * 60 * 60 * RECORD_HZ) || !integer(m.rounds, 10000) || !integer(m.bots, 10)
     || typeof m.teamMode !== 'string' || !['ffa', 'teams', 'shuffle'].includes(m.teamMode)
     || typeof m.gameMode !== 'string' || !['rounds', 'deathmatch', 'hill'].includes(m.gameMode)
     || !Array.isArray(m.seats) || m.seats.length > 10 || !Array.isArray(m.ranked) || m.ranked.length > 10000) return false

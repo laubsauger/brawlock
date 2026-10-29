@@ -148,7 +148,7 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
               vx: Math.cos(a) * 1000,
               vy: Math.sin(a) * 1000,
               radius: 25,
-              ticksLeft: 60,
+              ticksLeft: ticks(1),
               data: {},
             }
             projectiles.push(pr)
@@ -179,16 +179,16 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
           const lead = d / 1000
           const tx = foe.x + foe.vx * lead * 0.7
           const ty = foe.y + foe.vy * lead * 0.7
-          p.cast = { slot: 0, spell: 'fireball', ticksLeft: 12, x: tx, y: ty }
-          p.cooldowns[0] = calm ? 160 : 100
-          events.push({ type: 'castStart', pawn: p.id, spell: 'fireball', ticks: 12 })
+          p.cast = { slot: 0, spell: 'fireball', ticksLeft: ticks(0.2), x: tx, y: ty }
+          p.cooldowns[0] = ticks(calm ? 2.7 : 1.7)
+          events.push({ type: 'castStart', pawn: p.id, spell: 'fireball', ticks: ticks(0.2) })
           p.walkVx = p.walkVy = 0
           continue
         }
         if (p.cooldowns[1] === 0 && d < 300 && roll < 0.08) {
-          p.cast = { slot: 1, spell: 'scourge', ticksLeft: 54, x: p.x, y: p.y }
-          p.cooldowns[1] = 240
-          events.push({ type: 'castStart', pawn: p.id, spell: 'scourge', ticks: 54 })
+          p.cast = { slot: 1, spell: 'scourge', ticksLeft: ticks(0.9), x: p.x, y: p.y }
+          p.cooldowns[1] = ticks(4)
+          events.push({ type: 'castStart', pawn: p.id, spell: 'scourge', ticks: ticks(0.9) })
           p.walkVx = p.walkVy = 0
           continue
         }
@@ -203,7 +203,7 @@ export function createMockMatch(opts: MockOpts = {}): MockMatch {
           p.y = ty
           p.vx *= 0.8
           p.vy *= 0.8
-          p.cooldowns[2] = 600
+          p.cooldowns[2] = ticks(10)
         }
       }
       if (!p.moveTarget || Math.hypot(p.moveTarget.x - p.x, p.moveTarget.y - p.y) < 30 || roll > 0.995) {

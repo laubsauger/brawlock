@@ -5,6 +5,7 @@
 import { ShotSim } from '../../src/render/showcase/simShot'
 import { trailerMatch } from '../../src/render/showcase/shots/trailerMatch'
 import { isLocationSafe } from '../../src/sim'
+import { TICK_HZ } from '../../src/sim/types'
 
 const [id, seedArg, fromArg, toArg, ownersArg] = process.argv.slice(2)
 const from = Number(fromArg)
@@ -19,7 +20,7 @@ for (let i = 0; i < to * 60 + 1; i++) {
   if (st < from) continue
   for (const e of ev) {
     const t = st.toFixed(2)
-    if (e.type === 'castStart' && show(who(e.pawn))) console.log(t, 'castStart', `P${who(e.pawn)}`, e.spell, `${(e.ticks / 60).toFixed(2)}s`)
+    if (e.type === 'castStart' && show(who(e.pawn))) console.log(t, 'castStart', `P${who(e.pawn)}`, e.spell, `${(e.ticks / TICK_HZ).toFixed(2)}s`)
     if (e.type === 'cast' && show(who(e.pawn))) console.log(t, 'cast', `P${who(e.pawn)}`, e.spell, `-> (${e.x.toFixed(0)},${e.y.toFixed(0)})`)
     if (e.type === 'damage' && e.kb > 0 && show(who(e.target), e.source)) console.log(t, 'HIT', `P${who(e.target)}`, e.cause, `-${e.amount.toFixed(0)} kb ${e.kb.toFixed(0)} by P${e.source}`)
     if (e.type === 'death' && show(e.owner, e.killer)) console.log(t, 'DEATH', `P${e.owner}`, e.cause, `killer P${e.killer}`, `at (${(e.x ?? 0).toFixed(0)},${(e.y ?? 0).toFixed(0)})`)

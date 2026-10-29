@@ -2,6 +2,7 @@
 import { FLOOR, ease5, lerp, orbit } from '../cam'
 import type { PlayerDef, ShotSim } from '../simShot'
 import type { ShotSpec } from '../types'
+import { ticks } from '../../../sim/config'
 import { COLORS, slowmo, stage } from './common'
 
 export const FINALE_PLAYERS: PlayerDef[] = [
@@ -44,7 +45,7 @@ export const FINALE_BASE = {
     const a = s.state.arena
     if (a.nextShrinkTick >= 0 && a.nextShrinkTick - s.state.tick > SHRINK_EVERY * 60) a.nextShrinkTick = s.state.tick + SHRINK_EVERY * 60
     // hold the victory moment (no new round)
-    if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = 600
+    if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = ticks(10)
   },
 }
 

@@ -28,6 +28,7 @@
 import type { MatchResult } from '../game/store'
 import { MatchTracker, mergeMatchStats, type PlayerMatchStats, type RecordedProfileCoverage, type RecordedProfileDetail } from '../game/stats'
 import { hashString } from '../sim/snapshot'
+import { RECORD_HZ, recordSeconds } from '../shared/recordTime'
 import { TICK_HZ, type GameMode, type MatchSettings, type PlayerId, type PlayerSlot, type SimEvent, type SimState, type TeamMode } from '../sim/types'
 import type { MatchRecorder } from './session'
 import type { InspectedKit } from '../game/inspect'
@@ -39,11 +40,8 @@ export const LB_K = 40
 export const LB_MIN_HUMANS = 2
 export const LB_MIN_SECONDS = 120
 export const LB_TOP = 100
-/** Finished-match records (ratings, history, analytics) count time in 1/60 s ticks whatever the
- * simulation rate, so records stored by 60 Hz builds stay comparable after a TICK_HZ change. */
-export const RECORD_HZ = 60
+export { RECORD_HZ, recordSeconds }
 const recordTicks = (simTicks: number) => Math.round((simTicks * RECORD_HZ) / TICK_HZ)
-export const recordSeconds = (ticks: number) => ticks / RECORD_HZ
 
 /** A tracker's match in record time (every tick count it carries). */
 function inRecordTime(m: FinishedMatch): FinishedMatch {

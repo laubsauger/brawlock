@@ -6,6 +6,7 @@
  * Wide, steady framings; overhead plates on so the knockback meter reads.
  */
 import type { LowerThird, ShotSpec } from '../types'
+import { ticks } from '../../../sim/config'
 import { COLORS, cuts, slowmo, stage } from './common'
 
 const KICK = '#ff7a2a'
@@ -80,7 +81,7 @@ export const BRAWL_SHOTS: ShotSpec[] = [
     ffwd: 17.0,
     tick(s) {
       // hold the victory moment (no new round)
-      if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = 600
+      if (s.state.phase === 'roundEnd') s.state.phaseTicksLeft = ticks(10)
     },
     speed: slowmo(6.4, 6.75, 0.3, 0.08),
     camera: cuts([

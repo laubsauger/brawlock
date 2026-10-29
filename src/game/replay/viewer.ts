@@ -23,7 +23,8 @@ export const BUILD_NET_ID: string = typeof __NET_ID__ === 'string' ? __NET_ID__ 
 export const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4] as const
 /** above this speed replays play silently (sound would be a blur) */
 const AUDIO_MAX_SPEED = 2
-/** most ticks one animation frame may advance (4x at 30 fps = 8) */
+/** most ticks one animation frame may advance: a cap on work per frame, so a tick count at any
+ * rate (4x at 30 fps needs 8 at 60 Hz, 4 at 30 Hz) */
 const MAX_TICKS_PER_FRAME = 12
 /** audio listener half-width, game units (same as the live session) */
 const LISTENER_HALF_WIDTH = 1200

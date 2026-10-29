@@ -2,6 +2,7 @@
 // Ten combatants stay constant. This measures AI decisions, not total marginal bot-seat cost.
 import { createBot } from '../../src/bots/index.ts'
 import { createMatch, step } from '../../src/sim/index.ts'
+import { TICK_HZ } from '../../src/sim/types.ts'
 import { DEFAULT_SERVER_CONFIG } from '../../src/net/server.ts'
 import { cpus, totalmem } from 'node:os'
 import { performance } from 'node:perf_hooks'
@@ -13,7 +14,7 @@ function measure(difficulty, seed, seconds) {
   const bots = slots.map(({ id }) => createBot(id, difficulty, seed * 31 + id))
   const decisions = [], activeDecisions = [], steps = [], counters = { casts: 0, moves: 0, purchases: 0, fightTicks: 0, aliveFightCalls: 0, rounds: 0 }
   let aiMs = 0, simMs = 0, activeAiMs = 0
-  for (let tick = 0; tick < seconds * 60 && state.phase !== 'gameOver'; tick++) {
+  for (let tick = 0; tick < seconds * TICK_HZ && state.phase !== 'gameOver'; tick++) {
     if (state.phase === 'fight') counters.fightTicks++
     const inputs = bots.map(bot => {
       const active = state.phase === 'fight' && state.pawns.some(p => p.owner === bot.player && p.alive)
@@ -26,8 +27,8 @@ function measure(difficulty, seed, seconds) {
     const begin = performance.now(); step(state, inputs); const elapsed = performance.now() - begin
     simMs += elapsed; steps.push(elapsed)
   }
-  const simulatedSeconds = state.tick / 60
-  return { difficulty, seed, simulatedSeconds, ...counters, rounds: state.round,
+  const simulatedSeconds = state.tick / TICK_HZ
+  return { difficulty, seed, tickHz: TICK_HZ, simulatedSeconds, ...counters, rounds: state.round,
     aiMs, simMs, aiCorePct: aiMs / simulatedSeconds / 10, simulationCorePct: simMs / simulatedSeconds / 10,
     aiCorePctPerBot: aiMs / simulatedSeconds / 10 / 10,
     activeAiCorePctPerBot: activeDecisions.length ? activeAiMs / activeDecisions.length * 60 / 10 : null,

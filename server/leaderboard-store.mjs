@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { addRecordedMatch, cleanBuild, emptyTotals } from '../src/game/stats.ts'
+import { recordSeconds } from '../src/shared/recordTime.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS matches (
@@ -201,7 +202,7 @@ export function openLeaderboard(file) {
       const detail = previous ? JSON.parse(previous.detail) : { matches: 0, seconds: 0, damage: 0, totals: emptyTotals(), spells: {}, hallOfFame: {} }
       // The numeric match row is a public reference, never an internal receipt,
       // room token, device ID or client profile ID.
-      addRecordedMatch(detail, r.stats, Math.round(m.ticks / 60), m.at, String(id))
+      addRecordedMatch(detail, r.stats, Math.round(recordSeconds(m.ticks)), m.at, String(id))
       upDetails.run(r.device, JSON.stringify(detail), m.at, m.at)
     }
   }
@@ -385,7 +386,7 @@ export function openLeaderboard(file) {
         p.matches++
         if (r.outcome === 'win') p.wins++
         if (r.outcome === 'forfeit') p.forfeits++
-        p.seconds += r.ticks / 60
+        p.seconds += recordSeconds(r.ticks)
         p.kills += r.kills ?? 0
         p.deaths += r.deaths ?? 0
         p.queues[r.queue]++

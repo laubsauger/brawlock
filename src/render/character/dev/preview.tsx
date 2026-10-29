@@ -13,7 +13,7 @@ import * as THREE from 'three/webgpu'
 import { pass } from 'three/tsl'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { PawnState, SimEvent } from '../../../sim/types'
+import { setTickRate, type PawnState, type SimEvent } from '../../../sim/types'
 import { S } from '../../coords'
 import { lavaDeathDepth } from '../../scene/Lava'
 import { clothParams, createWarlock, preloadWarlock, warlockParams, type DeathKind, type StaffVariant, type WarlockHandle, type WarlockStyle } from '../index'
@@ -27,6 +27,8 @@ import { PLAYER_COLOR_OPTIONS } from '../../../net/lobbyColors'
 
 const params = new URLSearchParams(location.search)
 const DT = 1 / 60
+// this page steps its own 60 Hz loop; the warlock times windups from cast ticks at TICK_HZ
+setTickRate(60)
 const FRICTION = Math.pow(0.96, DT / 0.035)
 const COLORS: readonly number[] = PLAYER_COLOR_OPTIONS.map(option => option.color)
 
@@ -307,7 +309,7 @@ async function main() {
       const p = a.pawn
       if (!p.alive) return
       if (p.cast) emit(a, { type: 'castCancel', pawn: p.id, spell: p.cast.spell, slot: 0, started: true })
-      const ticks = Math.max(1, Math.round(seconds * 60))
+      const ticks = Math.max(1, Math.round(seconds / DT))
       const tx = p.x + Math.cos(p.facing) * 500
       const ty = p.y + Math.sin(p.facing) * 500
       p.cast = { slot: 0, spell, ticksLeft: ticks, x: tx, y: ty, started: true }
@@ -492,7 +494,7 @@ async function main() {
       if (state === 'cast') {
         for (const a of actors) {
           const p = a.pawn
-          const ticks = 54
+          const ticks = Math.round(0.9 / DT)
           p.cast = { slot: 0, spell, ticksLeft: ticks, x: p.x + Math.cos(p.facing) * 500, y: p.y + Math.sin(p.facing) * 500, started: true }
           a.pending.push({ type: 'castStart', pawn: p.id, spell, ticks })
         }

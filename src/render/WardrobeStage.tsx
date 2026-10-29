@@ -5,6 +5,7 @@ import * as THREE from 'three/webgpu'
 import { useGame } from '../game/store'
 import type { CosmeticSlot } from '../game/progressionCatalog'
 import type { PawnState, SimEvent, SpellId } from '../sim/types'
+import { ticks } from '../sim/config'
 import { createWarlock, preloadWarlock, type WarlockHandle } from './character'
 import type { VictoryStyle } from './character/victoryPose'
 import type { Outfit } from './character/wardrobe'
@@ -263,7 +264,7 @@ function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs 
       if (!c.winding && c.t > 1.1) {
         c.winding = true
         c.t = 0
-        events = [{ type: 'castStart', pawn: p.id, spell, ticks: 30 }]
+        events = [{ type: 'castStart', pawn: p.id, spell, ticks: ticks(0.5) }]
       } else if (c.winding && c.t > 0.5) {
         c.winding = false
         c.t = 0
