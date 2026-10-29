@@ -1,7 +1,8 @@
 # Daily: a named day, five waves, one board
 
-Status: design draft, 2026-10-28. Needs the developer's choices (end of file) before it becomes an
-implementation spec. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bets 3, 4 and 6 and
+Status: design draft, 2026-10-28; the format and the rewards answered 2026-10-29 (the Gauntlet,
+Embers with a seven-day streak). The other choices (end of file) keep their recommendations until
+answered. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bets 3, 4 and 6 and
 [04-keystones.md](../04-keystones.md) Keystone 3.
 
 The developer, 2026-10-28: "Solo is a brilliant idea too. I do love that. Especially if it can add
@@ -98,7 +99,8 @@ some daily special taste to it in some way, that would be fun."
 
 - **Main menu.** A Daily entry under the queues (the first entry in builds without servers):
   "Daily #12", gold subline "Blood Moon over Rook", note "5 waves · 2 lives · new day in 7 h 12 min",
-  and a badge: "4-day streak", "Play today to keep your 4-day streak", or "Best: Wave 4 · 3:12".
+  and a badge: "Day 5 of 7 · 75 Embers on day 7", "Play today to keep your 4-day streak", or
+  "Best: Wave 4 · 3:12".
 - **The Daily screen**, opened from the entry. The day's name and flavour; the omen's sigil and rule;
   the champion turning on the wardrobe stage (`src/render/WardrobeStage.tsx`) with build icons from
   the Spell library; the five waves ("Wave 3 · Soot (Medium) and Wick (Easy)"); the bounty spell;
@@ -110,7 +112,8 @@ some daily special taste to it in some way, that would be fun."
   Wick"); the champion gets a name plate and an announcer line. The shop has a large Ready button and
   the next wave's preview. Escape opens the menu over a running fight, as online: Resume, Abandon.
 - **The result.** "Wave 4 · 3:12.6" large; a pending state turns into "Verified · 4th of 11 today" or
-  "New best"; per-wave splits, bounty knockouts, the streak flame and week strip; Play again, Watch
+  "New best"; the day's confirmed Embers ("+15 Embers · Day 5"); per-wave splits, bounty knockouts,
+  the streak flame and week strip; Play again, Watch
   your run, Board, Share, Menu. Guests see "Sign in to post this run", the itch.io build "Scores post
   on brawlock.osc.link". After a full clear: "Tomorrow: Mother Ash" (the omen stays hidden).
 - **Share** copies three lines for Discord or chat: `Brawlock Daily #12 · Blood Moon over Rook`,
@@ -199,13 +202,38 @@ some daily special taste to it in some way, that would be fun."
   guided practice does. **Outage days**: a UTC day on which the service issued no token to anyone
   does not break streaks.
 
-### Rewards
+### Rewards and the streak
 
-None in v1: today's Embers rules reward only official Quick Play and Ranked
-([PROGRESSION.md](../../PROGRESSION.md)). Proposal, on a yes (question 3): policy 2 adds queue
-`daily`, 15 Embers once per account per UTC day for the first verified attempt with 30 s of fighting
-and five casts, nothing for score or streak; receipt `daily:<day>:<accountId>` through
-`createProgression().recordMatch` (`server/progression.mjs:165`), in the same process.
+The developer, 2026-10-29: "daily reward sounds good, with a little carrot to come back and get
+7 day streaks or something."
+
+- **The day's reward.** The first verified attempt of the UTC day pays **15 Embers**, once per
+  account, if it has 30 s of fighting and five casts (an idle run earns nothing). Score and rank do
+  not change it: the reward is for showing up, the board is for skill.
+- **The seventh day.** Every seventh day of a streak (day 7, 14, 21 and so on) pays **75 Embers**
+  instead of 15. A full week is 6 × 15 + 75 = 165 Embers, about one mid-priced piece (the catalog
+  runs 50 to 220), beside about 25 per casual match.
+- **The streak** is as defined above: consecutive UTC days with a verified attempt. **One grace
+  day a week**: a single missed day keeps the streak when the last grace was at least 7 days
+  earlier. The missed day does not count, and the flame shows smouldering ("Your streak survived a
+  missed day"). A second miss inside those 7 days resets it. Outage days never break a streak.
+  Reason: losing a six-day streak to one missed evening is when people quit, not come back.
+- **Accounts only for Embers.** A guest's streak lives in the browser and shows the same strip, but
+  pays nothing. Signing in claims today's attempt, so today counts for the account; earlier guest
+  days do not.
+- **Where it shows.** The menu badge ("Day 5 of 7 · 75 Embers on day 7"); the week strip, whose
+  seventh square carries an ember mark and "75"; the result, where `EmberReward` presents the
+  confirmed reward ("+15 Embers · Day 5"). Never an optimistic credit before the server confirms.
+- **Server.** Policy 2 adds the queue `daily`. Verification, in the same process as
+  `createProgression().recordMatch` (`server/progression.mjs:165`), writes the receipt
+  `daily:<day>:<accountId>` with a base of 15 or 75. The streak and its grace come from the daily
+  rows (kept 400 days). The reward is decided once, at the day's first verified attempt; a
+  resubmit returns the stored one. [PROGRESSION.md](../../PROGRESSION.md) documents the queue in
+  the same change.
+- **Later, its own small step: a streak badge.** A first seven-day streak unlocks an emblem that is
+  not for sale. It needs a catalog entry with an unlock rule instead of a price
+  (`src/game/progressionCatalog.ts`, where every item has a price today) and its art, so the
+  Embers ship without it.
 
 ### What verification proves, and its limits
 
@@ -310,7 +338,9 @@ and each player's best, otherwise go at board close; rows stay 400 days for stre
   `src/net/stream.ts`, and never `Date`, `Math.random` or `performance`.
 - `src/net/daily.test.ts` (server): caps, rate limits, expiry, the faster-than-real-time rejection,
   idempotent and conflicting resubmits, closing at 00:30 UTC, unlisted guests, a claim working once,
-  409 for a missing verifier, hidden rows, and streaks across gaps and outage days.
+  409 for a missing verifier, hidden rows, and streaks across gaps and outage days. Rewards: 15
+  once per account per day, 75 on days 7 and 14 of a streak, one grace day per 7 days and a reset
+  on a second miss, nothing for guests or idle runs, a resubmit paying nothing twice.
 - UI markup tests read `data-testid` and `data-state` only: `daily-play` (`fresh`, `played`,
   `unranked`, `offline`), `daily-result` (`pending`, `verified`, `rejected`, `unranked`),
   `daily-ready`. Arena keys: sim suites at 30 and 60 Hz and `npm run lint:invariants`; defaults are
@@ -318,8 +348,8 @@ and each player's best, otherwise go at board close; rows stay 400 days for stre
 
 ## Out of scope
 
-The other five formats; Trials; co-op or Last Stand waves; Embers or cosmetic unlocks (unless
-question 3 gets a yes); boards older than yesterday; friends or regional boards; racing the leader's
+The other five formats; Trials; co-op or Last Stand waves; the streak badge (a later step, see
+Rewards); boards older than yesterday; friends or regional boards; racing the leader's
 ghost inside your run; persona memory and rivalry; Wild's rule omens (Meteor Shower, The Maw) before
 Wild exists; notifications or a Discord bot that posts the day.
 
@@ -340,9 +370,10 @@ Wild exists; notifications or a Discord bot that posts the day.
 
 ## Open questions for the developer
 
-1. **Format**: the Gauntlet (recommended), or the cheaper Champion's Duel with a coarser board?
+1. **Format**: answered 2026-10-29, the Gauntlet.
 2. **Attempts**: unlimited, with Best and First try views (recommended), or one ranked attempt a day?
-3. **Embers**: none (today's rules), or 15 once a day under a policy 2?
+3. **Embers**: answered 2026-10-29, yes with a streak (Rewards). Open: the amounts (15 a day, 75 on
+   the seventh) and the grace day.
 4. **Guests on the board**: accounts only (recommended: no throwaway names), or guests with a mark?
 5. **Dice**: a salt per attempt (recommended: precomputed tapes do not transfer), or identical dice
    for everyone (the purest daily, but routable and precomputable offline)?

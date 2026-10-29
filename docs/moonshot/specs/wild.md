@@ -1,7 +1,7 @@
 # Wild: omens, reactions and a ruleset worth switching on
 
-Status: design draft, 2026-10-28. Needs the developer's choices (end of file) before it becomes an
-implementation spec. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and
+Status: design draft, 2026-10-28; picked for the build list 2026-10-29. The four choices at the end
+now carry recommendations; it becomes an implementation spec once they are answered. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and
 [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even
@@ -126,6 +126,12 @@ Bots fill nine seats in ten, so every omen and reaction needs bot support or it 
 ## Choices for the developer
 
 1. **Which omens** make the first deck (the table is a menu, not a list to build whole).
+   Recommended six: Blood Moon, Slick Stone, Overcharge and Sudden Collapse (easy, each a
+   number the bots already read), Meteor Shower and Pillar Storm (the most visible). Reactions:
+   Shatter, Nova and Fork.
 2. **Wild Hours** in the casual queue at fixed times, or Wild only in custom lobbies at first.
-3. **Sky and fog tints** per omen (a lighting change), or scene effects only.
-4. **Second Chance**: too swingy for casual, or the most exciting omen in the deck.
+   Recommended: custom lobbies first, for the playtest evening; Wild Hours after it.
+3. **Sky and fog tints** per omen (a lighting change), or scene effects only. Recommended: scene
+   effects only, since the arena lighting is approved.
+4. **Second Chance**: too swingy for casual, or the most exciting omen in the deck. Recommended:
+   out of the first deck; tried in a custom lobby later.

@@ -116,7 +116,8 @@ Constants in `src/game/finalBlow.ts` and `src/game/finishZoom.ts`, seconds, conv
    banner stays. No post-processing or lighting change: arena lighting is approved.
 7. **Point of view.** The replay is neutral: its source has `localPlayer` -1, so replayed hits give
    no hurt flash, shake or hit-stop, Scourge previews show as others see them, and every nameplate
-   shows. The victim may be the local player; the Final Blow still plays (Open question 5).
+   shows. The victim may be the local player; the Final Blow still plays, as a kill cam (the
+   developer, 2026-10-29).
 8. **Sound.** Live effects dip to 0.35 through a new `moment` gain while it plays. Replayed events go
    through `audio.playReplayEvents`: one-shot effects at the camera target, no announcer, no
    UI-bus cues, no music intensity, no travel loops, a low-pass (3 kHz) on the replay bus during
@@ -281,8 +282,8 @@ weeks means match only), and how many turn the zoom off.
    play (1,100 at 60). If the current warlock does not hold up there (an afternoon's check), use 60
    degrees and 1,000 until the character upgrade.
 4. **The freeze.** 0.15 s on the match-winning impact (Sakurai's "boss stop"): wanted?
-5. **Your own death.** Replay the round's last knockout even when you were the victim (a kill cam),
-   or skip it then?
+5. **Your own death.** Answered 2026-10-29: yes, a kill cam. The round's last knockout replays
+   even when you were the victim.
 6. **Zoom for onlookers.** Spectators and eliminated players get the zoom on any round-ending hit
    (recommended). Or only for your side's wins?
 7. **Esc** skips the replay instead of opening the menu. Fine?

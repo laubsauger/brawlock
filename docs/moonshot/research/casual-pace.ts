@@ -39,6 +39,11 @@ const ALL: Scn[] = [
   { name: 'P sched5 L15 7s shop12', settings: SCHED, layer: 15, period: 7, shop: 12 },
   { name: 'Q sched5 L15 6s shop25 seeds2', settings: SCHED, layer: 15, period: 6, shop: null },
   { name: 'R ft3 L21 10s shop25 seeds2', settings: FT3, layer: null, period: null, shop: null },
+  // "more explorative" (2026-10-29): builds as big as today's nine shops in five
+  { name: 'S sched5 L15 7s shop12 round30', settings: { ...SCHED, roundGold: 30 }, layer: 15, period: 7, shop: 12 },
+  { name: 'T sched5 L15 7s shop12 start80 round22', settings: { ...SCHED, startGold: 80, roundGold: 22 }, layer: 15, period: 7, shop: 12 },
+  { name: 'U sched5 L17 7s shop12 round30', settings: { ...SCHED, roundGold: 30 }, layer: 17, period: 7, shop: 12 },
+  { name: 'V sched5 L15 6s shop12 round30', settings: { ...SCHED, roundGold: 30 }, layer: 15, period: 6, shop: 12 },
 ]
 const args = process.argv.slice(2).filter((a) => a !== '--')
 const pick = args[0] ?? 'all'

@@ -1,6 +1,7 @@
 # Faster casual: five rounds on a compact arena
 
-Status: implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
+Status: implementation spec, 2026-10-28; the numbers answered 2026-10-29 ("a bit more
+explorative": a ring every 7 s and 30 gold a round, finding 9). From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
 [04-keystones.md](../04-keystones.md) Keystone 1 ("Brisk casual"). Ships in one release batch with
 [shop-ready.md](shop-ready.md), on the developer's yes.
 
@@ -42,10 +43,15 @@ seconds; match minutes include shops and round ends, not the lobby.
 | D | 5 rounds | 15 | 8 s | 25 s | 40 / 56 | 97 / 105 | 10.7 / 12.0 | 5 (6) | 14 / 32 | 0 / 32 |
 | O | 5 rounds | 15 | 7 s | 25 s | 39 / 55 | 88 / 93 | 9.9 / 11.3 | 5 (6) | 14 / 32 | 18 / 32 |
 | E | 5 rounds | 17 | 6 s | 25 s | 42 / 56 | 89 / 94 | 9.9 / 11.3 | 5 (6) | 12 / 32 | 18 / 32 |
-| **F, recommended** | 5 rounds | 15 | 6 s | 25 s | **36 / 50** | **78 / 81** | **9.0 / 10.2** | 5 (6) | 14 / 32 | 23 / 32 |
+| F, first recommendation | 5 rounds | 15 | 6 s | 25 s | 36 / 50 | 78 / 81 | 9.0 / 10.2 | 5 (6) | 14 / 32 | 23 / 32 |
 | F, seeds 200+ | 5 rounds | 15 | 6 s | 25 s | 36 / 50 | 76 / 81 | 9.0 / 10.2 | 5 (6) | 15 / 32 | 22 / 32 |
 | G, F with Ready | 5 rounds | 15 | 6 s | 12 s | 37 / 53 | 77 / 82 | 7.9 / 9.2 | 5 (6) | 15 / 32 | 32 / 32 |
 | K, F with Ready | 5 rounds | 15 | 6 s | 6 s | 38 / 50 | 77 / 82 | 7.2 / 8.5 | 5 (6) | 10 / 32 | 32 / 32 |
+| P, O with Ready | 5 rounds | 15 | 7 s | 12 s | 38 / 53 | 88 / 94 | 8.7 / 10.1 | 5 (6) | 13 / 32 | 28 / 32 |
+| **S, recommended: P with 30 gold a round** | 5 rounds | 15 | 7 s | 12 s | **38 / 54** | **88 / 94** | **8.9 / 10.1** | 5 (6) | 14 / 32 | 27 / 32 |
+| T, P with 80 to start and 22 a round | 5 rounds | 15 | 7 s | 12 s | 38 / 52 | 88 / 95 | 8.9 / 10.3 | 5 (6) | 15 / 32 | 22 / 32 |
+| U, S on 17 layers | 5 rounds | 17 | 7 s | 12 s | 42 / 63 | 102 / 107 | 9.8 / 11.2 | 5 (6) | 10 / 32 | 19 / 32 |
+| V, G with 30 gold a round | 5 rounds | 15 | 6 s | 12 s | 35 / 48 | 78 / 83 | 7.9 / 9.3 | 5 (6) | 13 / 32 | 32 / 32 |
 
 Who wins, and what they spend:
 
@@ -57,6 +63,11 @@ Who wins, and what they spend:
 | F | 9% | | 32 / 32 | 9 / 32 | 3.9 | 120 |
 | F, seeds 200+ | 8% | | 32 / 32 | 9 / 32 | 4.3 | 121 |
 | G | 8% | | 32 / 32 | 10 / 32 | 3.9 | 119 |
+| P | 9% | | 32 / 32 | 10 / 32 | 4.0 | 119 |
+| S | 9% | | 31 / 32 | 9 / 32 | 4.2 | 182 |
+| T | 12% | | 32 / 32 | 12 / 32 | 4.1 | 178 |
+| U | 8% | | 30 / 32 | 8 / 32 | 4.0 | 180 |
+| V | 15% | | 32 / 32 | 11 / 32 | 4.1 | 180 |
 
 Findings:
 
@@ -86,21 +97,31 @@ Findings:
    bots each taking one round). Human tables will tie differently; to be measured.
 8. **Shops**: bots finish buying within about 2 s, and about 4 gold is left at fight start in
    every scenario, 6 s shops included.
+9. **More explorative** (scenarios P to V, run 2026-10-29). The developer's direction: "let's aim
+   for casual to be a bit more explorative", read as room to try things, in the fight and in the
+   build. A ring every 7 s gives each round 10 s more (88 s against 78) for 0.8 minutes a match.
+   30 gold a round (start 50, kills and wins as before) restores today's build in five shops:
+   182 gold spent per warlock, against 171 today and 119 in F. It costs no time (8.9 against
+   8.7 minutes, with Ready) and does not move the table (Medium's round share 9%, as in P).
+   Front-loading the same gold (T) leaves fewer matches under 10 minutes (22 of 32). A 17-layer
+   arena (U) adds 14 s a round and a minute a match; 19 of 32 end within 10 minutes. Recommended: S.
 
 ## What the player sees
 
 - **Main menu**: the Casual entry reads "10 players · 5 rounds · Medium and Hard bots" instead of
   "first to 3" (`src/ui/screens/MainMenu.tsx:144`).
 - **Lobby**: the read-only rules show the match length ("5 rounds · final if tied"), the arena
-  ("Compact") and the shrink ("a ring every 6 s"). Timers, Ready and "Wait for players" unchanged.
+  ("Compact"), the shrink ("a ring every 7 s") and the gold ("30 gold a round"). Timers, Ready and "Wait for players" unchanged.
 - **In the match**: ranked's presentation, now driven by the format instead of ranked: "Round 3/5"
   and "5 scheduled rounds" at the clock (`src/ui/hud/TopBar.tsx:28-38`), the scoreboard header,
   "Final brawl" with the finalists strip (`FinalBrawlStatus`, `TopBar.tsx:49-57`); benched players
   watch, inspect and bet. The fight arena for ten is 15 layers (radius 1400, spawn ring 1100)
-  instead of 21 (radius 2000, ring 1700); a ring sinks every 6 s.
+  instead of 21 (radius 2000, ring 1700); a ring sinks every 7 s.
 - **Results**: champion first, "Wins" counts scoring rounds, as ranked's results already do.
+- **Gold**: 30 a round instead of 15, so five shops buy what nine did. Start, kill and win gold
+  unchanged.
 - **Unchanged in casual**: Fresh start, taking a bot's seat between rounds with the full refund,
-  the bot table, gold, the 25 s shop (Ready can end it early), no Elo.
+  the bot table, the 25 s shop (Ready can end it early), no Elo.
 - **Custom lobbies**: three new options (Rules 1-3), defaults classic.
 
 ## Rules
@@ -138,8 +159,8 @@ accept them (`src/net/protocol.ts:393-404`):
    `src/game/announcer.ts:299-300`, which in ranked means 4 of the unused default 5, and would mean
    2 of the preset's 3 in casual). The fix applies to ranked too.
 8. **The casual quick-play preset ("Brisk")**: `scheduledRounds: 5`, `arenaCap: 15`,
-   `shrinkSeconds: 6`; economy 50/15/2/3, table, seats, lobby timers, shop 25 s and
-   `botsReplaceLeavers` unchanged. `winScore` leaves the preset (unused with scheduled rounds).
+   `shrinkSeconds: 7`, `roundGold: 30` (an existing setting); start, kill and win gold (50/2/3),
+   table, seats, lobby timers, shop 25 s and `botsReplaceLeavers` unchanged. `winScore` leaves the preset (unused with scheduled rounds).
 
 ## Design
 
@@ -178,7 +199,7 @@ without the new keys read as the defaults.
 
 | Original | v1 decision |
 |---|---|
-| Arena `13 + players` layers, a ring every 10 s, first to N round wins | Casual quick play only (decided 2026-MM-DD after the pace harness and a playtest): at most 15 layers, a ring every 6 s, five scheduled rounds plus at most one tied-leaders' final (ranked's format, without rating). Reason: the original community's one recorded complaint ("the arena shrinks too slowly with many players"); casual ran about 28 minutes over 8 rounds and measures 9 minutes over 5 (`docs/moonshot/specs/faster-casual.md`). Custom games keep the classic rules by default and offer all three as options |
+| Arena `13 + players` layers, a ring every 10 s, first to N round wins, 15 gold a round | Casual quick play only (decided 2026-MM-DD after the pace harness and a playtest): at most 15 layers, a ring every 7 s, 30 gold a round, five scheduled rounds plus at most one tied-leaders' final (ranked's format, without rating). Reason: the original community's one recorded complaint ("the arena shrinks too slowly with many players"); casual ran about 28 minutes over 8 rounds and measures 9 minutes over 5, with builds as large as before (`docs/moonshot/specs/faster-casual.md`). Custom games keep the classic rules by default and offer all three as options |
 
 ## Out of scope
 
@@ -222,30 +243,32 @@ Elsewhere:
 - UI markup: `match-length` (`data-state` `first-to` or `scheduled`, `data-rounds`), `arena-size`
   (`data-state` `classic` or `compact`), `shrink-seconds` (`data-value`), disabled outside their
   modes; `roomMode` and `roomActivity` data for a casual scheduled room.
-- Harness: change `docs/moonshot/research/pace-experiment.ts` to set the three keys instead of
-  editing state, and rerun A and F with 32 matches. Pass: F within 5% of the table above (first
-  knockout p50 at most 45 s, round p50 at most 90 s, match p50 at most 10 minutes, full 25 s
-  shops); A reproduces today's numbers.
+- Harness: change `docs/moonshot/research/casual-pace.ts` to set the three keys instead of
+  editing state, and rerun A, O and S with 32 matches. Pass: O and S within 5% of the table above
+  (first knockout p50 at most 45 s, round p50 at most 95 s; O's match p50 at most 10 minutes with
+  full 25 s shops; S spends at least 170 gold per warlock); A reproduces today's numbers.
 
 Playtest questions (one evening in a custom room with the Brisk options, against the casual queue's
 history):
 
 - Did more matches finish? Did anyone leave mid-match, and when?
 - Did rounds feel better, or rushed? Was the first knockout too early for anyone?
-- Did new players understand dying to lava at a ring every 6 s?
+- Did new players understand dying to lava at a ring every 7 s? Did rounds leave room to try
+  things, or still feel rushed?
 - Did the final feel earned, or like a coin flip? Was watching it as a benched player fine?
-- Were builds satisfying with five shops (about 120 gold spent per warlock instead of about 175)?
+- Did builds feel as full as in today's long matches (about 180 gold spent per warlock)? Did the
+  bigger paydays make the shop feel short?
 
 ## Risks
 
-- **Smaller builds.** Five rounds pay `50 + 4 × 15` before kills and wins; warlocks spend about 120
-  gold per match instead of about 175, and the late, big builds of rounds 6 to 9 disappear. The
-  per-round economy is unchanged and is the one ranked already plays.
-- **Faster lava for new players.** First knockout at 36 s and a full collapse at 84 s. The tile
+- **Bigger paydays.** 30 gold a round keeps today's build size (finding 9) but makes each shop a
+  bigger decision; with 25 s shops that should fit, and shopping while out
+  ([shop-ready.md](shop-ready.md) Part 2) moves much of it into dead time. Ranked keeps 15.
+- **Faster lava for new players.** First knockout at 38 s and a full collapse at 98 s (14 × 7). The tile
   telegraph (last second before each ring) and the death recap already explain lava deaths. The
   top bar's shrink warning pulses for the last 3 s of each period
-  (`ShrinkWarning`, `src/ui/hud/TopBar.tsx:113-142`): at 6 s that is half the time. If the playtest
-  finds it noisy, pulse for the last third of the period. Fallback preset: 7 s (O).
+  (`ShrinkWarning`, `src/ui/hud/TopBar.tsx:113-142`): at 7 s that is almost half the time. If the
+  playtest finds it noisy, pulse for the last third of the period. Fallback if 7 s drags: 6 s (V).
 - **Bots.** Medium bots will win almost no casual match (0 of 64 in F, 1 of 64 today); the long
   tail of rounds where they won a quarter is gone. The fix is skill fit, not a longer format.
 - **Joining late.** A human taking a bot's seat in round 4 inherits its score and has one or two
@@ -257,8 +280,8 @@ history):
 
 ## Open questions for the developer
 
-1. **The numbers.** Layer 15 and a ring every 6 s (recommended; every target met at p50), or 7 s
-   (gentler; round 88 s, match 9.9 minutes p50, 11.3 p90)?
+1. **The numbers.** Answered 2026-10-29: more explorative, so layer 15, a ring every 7 s and 30 gold
+   a round (S; 8.9 minutes p50 with Ready, 9.9 without).
 2. **The final.** Keep ranked's tied-leaders' final in casual, or let tied leaders share the win?
 3. **Embers.** Keep 20 per completed casual match, or scale it to match length?
 4. **Custom lobbies.** Three separate options, or also a one-click "Classic / Brisk pace" button?
@@ -270,5 +293,5 @@ One release batch with [shop-ready.md](shop-ready.md), only on the developer's y
 playtest: server and client deploy together (new netcode id); the queue preset applies to newly
 created rooms. Docs follow in the same change: the `docs/PLAN.md` §2 row above, §3.4 (the new
 options), and `docs/RANKED-FORMAT.md`, whose Duration section says custom and casual keep
-10 seconds per layer (now: custom 10 s, casual 6 s on at most 15 layers) and whose opening
+10 seconds per layer (now: custom 10 s, casual 7 s on at most 15 layers) and whose opening
 sentence on Casual Quick Play gains "five scheduled rounds".

@@ -1,7 +1,9 @@
 # The Pit: the fallen keep fighting
 
-Status: design draft, 2026-10-28. Needs the developer's choices (end of file) before it becomes an
-implementation spec. From [00-moonshot.md](../00-moonshot.md) Bet 2 and the red team's
+Status: **parked**, 2026-10-29. The developer: "the pit is not yet clear or convincing to me."
+Kept as a draft. It returns only if the dead-time trigger below still holds after faster casual
+rounds and shopping while out ([shop-ready.md](shop-ready.md) Part 2), which already give a
+knocked-out player something to do. From [00-moonshot.md](../00-moonshot.md) Bet 2 and the red team's
 [triage](../02-red-team.md#triage) (deferred behind a dead-time measurement).
 
 The developer liked it ("I love the gulag"). The precedent is Warzone's Gulag: the eliminated

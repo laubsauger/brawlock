@@ -91,7 +91,7 @@ each community's self-promotion rules first, and lead with a 15-second clip rath
 | Funnel and D1/D7 recorded, developer traffic filtered | yes |
 | Casual match length, live | p50 under 12 minutes |
 | First knockout in a casual round, live | p50 under 50 s |
-| Bot movement | every tier inside the provisional band, ladder within 50 Elo or relabelled |
+| Bot movement | every tier inside the provisional band, each within 50 Elo of its old self |
 | Discord link test | at least 2 of 5 groups finish a match and start another |
 | Unfurl test | answered: video, poster or nothing |
 
@@ -99,15 +99,16 @@ each community's self-promotion rules first, and lead with a 15-second clip rath
 
 ### Q1 · Months 1 to 3: the keystones
 
-- Brisk casual live and tuned; Classic pace as a custom option.
+- Brisk casual live and tuned (a ring every 7 s, 30 gold a round, decided 2026-10-29), shopping
+  while out with the round's gold at the knockout; Classic pace as a custom option.
 - Bots: motor model, the plausibility gate in CI, skill fit in quick play, twelve personas with
   rivals.
 - Keep and share, local half: the Final Blow live, the finish zoom (at gameplay pitch until the
   character upgrade), the results reel.
-- Solo: the Daily Gauntlet (server re-simulation on the day's sim id), three Trials, Play from
-  here in the replay viewer.
-- The Wild lab: one ruleset toggle and casual playlist slot with the Maw's tide and three
-  spell-to-spell reactions, a mutator of the week from server configuration.
+- Solo: the Daily Gauntlet (server re-simulation on the day's sim id) with daily Embers and a
+  seven-day streak, three Trials, Play from here in the replay viewer.
+- Wild ([specs/wild.md](specs/wild.md)): an omen over every round and three spell reactions, in
+  custom lobbies first, then Wild Hours in casual.
 - Operations: shards merged, a "servers are full" screen, input-automation detection v0 (flags
   only).
 - Music: the soundtrack (confirmed needed) enters the shop and fight once selected.
@@ -142,7 +143,8 @@ Each item starts only if its trigger fired (§4):
 
 Again only on triggers:
 
-- The Pit, if dead time is still a measured problem after Brisk.
+- The Pit (parked 2026-10-29: "not yet clear or convincing"), if dead time is still a measured
+  problem after Brisk and shopping while out.
 - Brawlock Cups, observer mode for casters, Brawlock TV.
 - The Forge's arena editor and a featured community arena.
 - The Sanctum.
@@ -153,7 +155,7 @@ Again only on triggers:
 | Bet | Starts when | Measured by |
 |---|---|---|
 | Tile model and the living arena | Wild is chosen in a quarter or more of the lobbies where it is offered, and reactions happen at least once a round | lobby settings and match events |
-| The Pit | after Brisk, humans still spend more than 40% of fight time dead, or leave while dead | dead-time numbers |
+| The Pit (parked) | after Brisk and shopping while out, humans still spend more than 40% of fight time dead, or leave while dead, and the developer is convinced | dead-time numbers |
 | Ascension | Last Stand holds a fifth of play hours for a month | session analytics |
 | Adaptive music | a soundtrack is chosen | the developer |
 | Ghosts | style features stored for 300 or more players, with opt-in | server profiles |
@@ -173,10 +175,10 @@ Again only on triggers:
 | Warm-up arena | fewer than a third of lobby waits use it, or anyone misses a match start because of it | lobby as today |
 | Final Blow | skipped more than 60% of the time after two weeks | match decider only |
 | Clips | under 2% of matches produce one after six weeks | keep the local reel, stop the share pipeline |
-| Motor model | the ladder cannot hold within 50 Elo without the dance | relabel the tiers rather than keep the dance |
+| Motor model | the ladder cannot hold within 50 Elo without the dance | accept the weaker tiers and update their lobby labels rather than keep the dance |
 | Skill fit | new players' share of opponents outlived stays outside 35 to 65%, or players say they feel handled | make difficulty a visible choice instead |
 | Personas and rivals | rival features change neither D7 nor match counts in two months | keep the names, drop the rival layer |
-| Wild | chosen in under 15% of offers, or under one reaction a round | no tile model; the tide stays a mutator |
+| Wild | chosen in under 15% of offers, or under one reaction a round | no tile model; Wild stays a custom-lobby option |
 | Last Stand | under a tenth of play hours after six weeks | keep it as solo practice; no Ascension |
 | Daily Gauntlet | under 5% of daily players enter after a month | weekly instead of daily |
 | Discord Activity | under 10% of new players after two months | maintain, build nothing Discord-specific on top |
@@ -186,7 +188,8 @@ Again only on triggers:
 Collected from [02](02-red-team.md#triage), [03](03-moonshot-v2.md#5-assumptions-on-the-developers-open-decisions)
 and [04](04-keystones.md#what-the-keystones-ask-of-the-developer), in the order they block work:
 
-1. **Brisk casual** as a written deviation for the casual queue (week 4).
+1. ~~**Brisk casual** as a written deviation for the casual queue~~: decided 2026-10-29, "a bit more
+   explorative": a ring every 7 s and 30 gold a round ([specs/faster-casual.md](specs/faster-casual.md)).
 2. **Where the strongest bot settings live**: client bundle or server only (week 4).
 3. **The Final Blow default**: off, match only or every round (week 4).
 4. ~~Contacting the original authors and communities~~: done by the developer.
