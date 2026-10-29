@@ -106,6 +106,13 @@ Deployment is established by release receipts, not by implementation status here
    protocol change: new netcode id and `PROTOCOL_VERSION` 10, so server and client deploy together.
    Planned to ship with Brisk casual ([moonshot/specs/faster-casual.md](moonshot/specs/faster-casual.md)).
    Spec: [moonshot/specs/shop-ready.md](moonshot/specs/shop-ready.md).
+10. **Bot motion: built, not released (2026-10-29).** Medium and up order their walking the way
+   players click: reversals from about 1.2 to 0.3 a second in 4-player FFA, orders from 8.7 to 5,
+   no shared think clock (same-tick ratio 3.0 to 1.0), inside the strong-human band measured on
+   recorded matches. Bot code only (no netcode change), but bots run both in the browser (solo,
+   P2P hosts, the menu backdrop) and on dedicated servers, so client and server both carry it.
+   Still to do: the playtest evening against Hard and Brutal (do they feel as dangerous, do they
+   look like players). Spec and measurements: [moonshot/specs/bot-motion.md](moonshot/specs/bot-motion.md).
 
 ## Completed in this planning pass
 

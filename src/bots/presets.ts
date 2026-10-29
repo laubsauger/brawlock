@@ -15,7 +15,7 @@
  *
  * | param            | dummy | easy  | medium | hard  | brutal | uber  | original |
  * |------------------|-------|-------|--------|-------|--------|-------|----------|
- * | thinkInterval s  |   -   | 1.0   | 0.35   | 0.1   | 0.1    | 0.1   | 1.0/0.5/0.2 |
+ * | thinkInterval s  |   -   | 1.0   | 0.35   | 0.1   | 0.08   | 0.1   | 1.0/0.5/0.2 |
  * | reactionDelay s  |   -   | 0.35  | 0.22   | 0.18  | 0.15   | 0.12  | 0        |
  * | aimErrorRad      |   -   | 0.20  | 0.08   | 0.03  | 0.02   | 0.015 | 0        |
  * | leadChance       |   -   | 0.33  | 0.5    | 0.95  | 0.95   | 1     | 1/3      |
@@ -51,6 +51,9 @@
  * | shotGate         |   -   | 0     | 0      | 0     | 0      | 0.3   | -        |
  * | punish           |   -   | 0     | 0      | 0     | 0.1    | 0.1   | -        |
  * | readWindups      |   -   | 0     | 0      | 0.3   | 0.7    | 0.7   | -        |
+ * | motor model      |   -   | no    | yes    | yes   | yes    | yes   | no       |
+ * | standoffStep rad |   -   | 0     | 0      | 0     | 0.15   | 0.15  | -        |
+ * | threatInertia s  |   -   | 0     | 0      | 0.2   | 0.2    | 0.2   | -        |
  *
  * comboChance: chance per think to detonate its own Fireball with Lightning when the
  * Fireball flies next to an enemy (the original AI never combined spells).
@@ -118,6 +121,21 @@
  * useCover: a bolt whose flight hits a pillar before reaching us is no threat, so the bot
  * stays in a pillar's cover instead of stepping out of it, and dodges toward cover. Every
  * preset keeps wander points out of pillars, walks around them and never dodges into one.
+ *
+ * Motor model (Medium and up; docs/moonshot/specs/bot-motion.md): the same decisions, ordered the
+ * way a player clicks. Measured against recorded humans, bots turned around three to five times as
+ * often and clicked in opposite directions two to three times as often, all on one shared 0.1 s
+ * clock. Thinking slower did not help (the dance comes from what is ordered, not how often), so:
+ * holding still is a stop, never a walk back to where the bot stood; a wander goal is kept
+ * commitSeconds; a dodge keeps going while the bolt is still close (dodgeExit, dodgeHoldSeconds);
+ * Brutal's and Uber's stand-off point drifts (standoffStep) instead of jumping sides every 0.3-0.6
+ * s; an FFA goal is kept unless a new one is better by ffaKeep; a move that changes nothing on
+ * screen (deadBandRad) goes out only as an occasional re-click (reclickSeconds); orderBudget caps
+ * move and stop orders (urgent ones bypass it, casts are never capped); a faked windup still costs
+ * a short flinch (threatInertia); the hill decision holds hillDecideSeconds; think intervals and
+ * reaction delays get a human spread (thinkSigma, delaySigma; a random phase per bot), so bots of
+ * a tier no longer decide on the same tick. Easy keeps the original's movement: it is already calm.
+ * Every value is 0 in ORIGINAL, so `npm run bots:elo -- --params` can turn each part off.
  *
  * Dummy issues no commands at all: a practice target that stands where it spawned.
  */
@@ -217,6 +235,34 @@ export interface BotParams {
    * (plan.ts), a build id = always that build (tuning)
    */
   buildPlan: 'random' | 'plan' | BuildId
+  // Motor model (see "Motor model" above): how orders become movement. 0 = off, the original's.
+  /**
+   * seconds a wander goal (a point, or holding still) is kept before arriving or the wander timer
+   * may replace it; also turns on "stay means stop" and the pillar side lock
+   */
+  commitSeconds: number
+  /** after a dodge, no wander order while danger stays at or above this (0 = off) */
+  dodgeExit: number
+  /** seconds a dodge keeps its walk and its side (also the cap on dodgeExit's hold) */
+  dodgeHoldSeconds: number
+  /** stand-off point: most the angle beside the target moves per re-draw, radians (0 = fresh draws) */
+  standoffStep: number
+  /** FFA wander: score bonus of the current goal, so a new one must beat it by this much */
+  ffaKeep: number
+  /** a move within this angle of the order in effect changes nothing on screen, radians */
+  deadBandRad: number
+  /** mean seconds between re-clicks of an order already in effect (0 = never re-click) */
+  reclickSeconds: number
+  /** move and stop orders a second (token bucket, burst 3); urgent ones always go (0 = off) */
+  orderBudget: number
+  /** seconds a read windup that vanished without a bolt still counts as one (0 = off) */
+  threatInertia: number
+  /** King of the Hill: seconds between go-or-hang-back decisions (0 = on every pick) */
+  hillDecideSeconds: number
+  /** spread of each think interval (lognormal sigma), with a random phase per bot (0 = fixed clock) */
+  thinkSigma: number
+  /** spread of each reaction delay (lognormal sigma, floored at 0.1 s) (0 = the two whole ticks around it) */
+  delaySigma: number
 }
 
 const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
@@ -260,7 +306,33 @@ const ORIGINAL: Omit<BotParams, 'thinkInterval'> = {
   punish: 0,
   readWindups: 0,
   buildPlan: 'random',
+  commitSeconds: 0,
+  dodgeExit: 0,
+  dodgeHoldSeconds: 0,
+  standoffStep: 0,
+  ffaKeep: 0,
+  deadBandRad: 0,
+  reclickSeconds: 0,
+  orderBudget: 0,
+  threatInertia: 0,
+  hillDecideSeconds: 0,
+  thinkSigma: 0,
+  delaySigma: 0,
 }
+
+/** The motor model (Medium and up): same decisions, human-shaped movement. */
+const MOTOR = {
+  commitSeconds: 0.8,
+  dodgeExit: 1.6,
+  dodgeHoldSeconds: 0.5,
+  ffaKeep: 0.1,
+  deadBandRad: 0.35,
+  reclickSeconds: 0.12,
+  orderBudget: 6,
+  hillDecideSeconds: 2,
+  thinkSigma: 0.4,
+  delaySigma: 0.25,
+} satisfies Partial<BotParams>
 
 export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   dummy: {
@@ -280,6 +352,7 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   medium: {
     ...ORIGINAL,
+    ...MOTOR,
     buildPlan: 'plan',
     thinkInterval: 0.35,
     reactionDelay: 0.22,
@@ -295,6 +368,8 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   hard: {
     ...ORIGINAL,
+    ...MOTOR,
+    threatInertia: 0.2,
     buildPlan: 'plan',
     thinkInterval: 0.1,
     reactionDelay: 0.18,
@@ -331,7 +406,12 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   brutal: {
     ...ORIGINAL,
-    thinkInterval: 0.1,
+    ...MOTOR,
+    standoffStep: 0.15,
+    threatInertia: 0.2,
+    // 0.1 before the motor model, which cost Brutal 76 Elo against its old self (61% of rounds);
+    // thinking a little more often brings that to 35 (55%), inside the 50 accepted for the change
+    thinkInterval: 0.08,
     reactionDelay: 0.15,
     aimErrorRad: 0.02,
     leadChance: 0.95,
@@ -368,6 +448,9 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
   },
   uber: {
     ...ORIGINAL,
+    ...MOTOR,
+    standoffStep: 0.15,
+    threatInertia: 0.2,
     thinkInterval: 0.1,
     reactionDelay: 0.12,
     aimErrorRad: 0.015,

@@ -30,6 +30,9 @@ export interface MenuStage {
   readonly out: Vec2
 }
 
+/** The backdrop's match: short, cheap shops, no side bets (also measured by scripts/bots/motion.ts). */
+export const MENU_BATTLE_SETTINGS = { winScore: 3, startGold: 110, roundGold: 12, shopSeconds: 7, spectatorBets: false, bounties: false } as const
+
 /** Real, private combat. Bots shop from their seeded build pools, move, dodge,
  * land hits and finish rounds; nothing is registered as a player session. */
 /** `winScore`: round wins that end a match (a test plays to 1 to reach a restart quickly). */
@@ -43,7 +46,7 @@ export function createMenuBattle(seed = Math.floor(Math.random() * 0x1_0000_0000
   const advance = () => stepSim(sim, bots.map((bot) => ({ player: bot.player, tick: sim.tick, cmds: bot.think(sim) })))
   const begin = (tick: number) => {
     const matchSeed = rng.int(0x1_0000_0000)
-    sim = createMatch({ ...DEFAULT_SETTINGS, winScore, startGold: 110, roundGold: 12, shopSeconds: 7, spectatorBets: false, bounties: false }, slots, matchSeed)
+    sim = createMatch({ ...DEFAULT_SETTINGS, ...MENU_BATTLE_SETTINGS, winScore }, slots, matchSeed)
     // Keep the renderer's event timeline monotonic across fresh matches.
     sim.tick = tick
     bots = slots.map((slot) => new BotController(slot.id, slot.difficulty!, matchSeed))

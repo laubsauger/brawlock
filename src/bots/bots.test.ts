@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DT } from '../sim/types'
 import type { BotDifficulty, InputCommand, SimState, Vec2 } from '../sim/types'
 import { createBot, BOT_PRESETS, type Bot } from './index'
-import { BotController } from './controller'
+import { BotController, reactionDelayBounds } from './controller'
 import { interceptTime, leadPoint } from './aim'
 import { isSafe } from './arena'
 import { dangerAt } from './danger'
@@ -317,12 +317,14 @@ describe('bots: lava escape', () => {
   it('brutal teleports on its first decision (no dithering on lava)', () => {
     const state = onLavaWithTeleport()
     const bot = createBot(BOT, 'brutal', 9) as BotController
-    const delay = Math.round(BOT_PRESETS.brutal.reactionDelay / DT)
-    for (let t = 0; t <= delay; t++) {
+    const [, latest] = reactionDelayBounds(BOT_PRESETS.brutal)
+    let first: InputCommand[] = []
+    for (let t = 0; t <= latest && first.length === 0; t++) {
       state.tick = t
-      const cmds = bot.think(state)
-      if (t === delay) expect(cmds.some((c) => c.kind === 'cast' && c.slot === TELEPORT_SLOT)).toBe(true)
+      first = bot.think(state)
     }
+    // the first order to leave is the Teleport, within one reaction delay of the first decision
+    expect(first.some((c) => c.kind === 'cast' && c.slot === TELEPORT_SLOT)).toBe(true)
   })
 
   it('with Teleport on cooldown, a lava-aware bot walks toward the nearest tile', () => {
@@ -780,7 +782,22 @@ describe('bots: pillars', () => {
     expect(firstBlocking(state, me, via, 0)).toBeNull()
     expect(Math.abs(via.y)).toBeGreaterThan(60)
     // and an open path is left alone
-    expect(routeAround(state, me, { x: 0, y: 400 }, 15)).toEqual({ x: 0, y: 400 })
+    expect(routeAround(state, me, { x: 0, y: 400 }, 15)).toEqual({ x: 0, y: 400, side: 0 })
+  })
+
+  it('keeps going round a pillar on the side it chose, when asked to (motor model: one side per approach)', () => {
+    const me = makePawn(BOT, 0, 0)
+    const state = makeState([me, makePawn(ENEMY, 1200, 600)])
+    state.obstacles.push(pillar(150, 0))
+    // the goal sits a little below the line, so the shorter way round is below
+    const goal = { x: 400, y: -20 }
+    const free = routeAround(state, me, goal, 15)
+    expect(free.side).not.toBe(0)
+    // a bot that started round the other side keeps to it instead of flipping when the goal shifts
+    const kept = routeAround(state, me, goal, 15, free.side === 1 ? -1 : 1)
+    expect(kept.side).toBe(free.side === 1 ? -1 : 1)
+    expect(Math.sign(kept.y)).toBe(-Math.sign(free.y))
+    expect(firstBlocking(state, me, kept, 0)).toBeNull()
   })
 
   it('reading windups: a close Fireball winding up at us is dodged before it leaves the hand', () => {
@@ -907,8 +924,10 @@ describe('bots: punishing openings (Brutal)', () => {
   it('fires at once at a target committed to a Scourge windup, after the reaction delay', () => {
     const tick = firstShot(500, { cast: { slot: 7, spell: 'scourge', ticksLeft: ticks(0.8), x: 500, y: 0, started: true } })
     expect(tick).not.toBeNull()
-    // the first decision is at tick 0: the order lands exactly one reaction delay later
-    expect(tick).toBe(Math.round(BOT_PRESETS.brutal.reactionDelay / DT))
+    // the first decision is at tick 0: the order lands one reaction delay later
+    const [earliest, latest] = reactionDelayBounds(PUNISHER)
+    expect(tick).toBeGreaterThanOrEqual(earliest)
+    expect(tick).toBeLessThanOrEqual(latest)
   })
 
   it('holds fire at a free target far enough to step aside: that is not an opening', () => {

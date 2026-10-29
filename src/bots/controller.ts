@@ -24,7 +24,7 @@
  * - A purchase the sim rejects is detected and that spell is skipped until the next shop
  *   phase, instead of burning the 40 s buy timer.
  */
-import { cos, exp, hypot, sin } from '../sim/math'
+import { clamp, cos, exp, hypot, sin } from '../sim/math'
 import { TICK_HZ, onTickRate } from '../sim/types'
 import type {
   BotDifficulty,
@@ -36,17 +36,17 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillSealed, isEnemy, onHill, spellDef, ticks } from '../sim'
+import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, isEnemy, onHill, spellDef, ticks } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
 import { dangerAt, dodgeDirection } from './danger'
-import { insideAny, threatZones, type ThreatZone } from './threats'
-import { firstBlocking, inPillar, routeAround, shieldedFrom } from './pillars'
+import { crossesAny, insideAny, threatZones, type ThreatZone } from './threats'
+import { firstBlocking, inPillar, routeAround, shieldedFrom, type Route } from './pillars'
 import { BOT_PRESETS, type BotParams } from './presets'
 import { afterHit, lavaOutcome, leadWithFriction, physVelocity, positionAfter, projectileHit } from './predict'
 import { HILL_WEIGHTS, drawBuild, planStep, type Build } from './plan'
-import { botSeed, Rng } from './prng'
+import { botSeed, lognormal, Rng } from './prng'
 import {
   BOT_SPELLS,
   BUY_INTERVAL,
@@ -143,6 +143,34 @@ const HILL_MENACE_WEIGHT = 1.4
 const GRUDGE_WEIGHT = 0.6
 const GRUDGE_SECONDS = 30
 const GRUDGE_KILL = 3
+/**
+ * Motor model (presets.ts; docs/moonshot/specs/bot-motion.md). Two goals this close are one goal, and
+ * two this far away both just mean "that way": a move between them changes nothing on screen.
+ */
+const DEAD_BAND_NEAR = 100
+const DEAD_BAND_FAR = 400
+/** spread of the gaps between re-clicks (lognormal sigma) */
+const RECLICK_SIGMA = 0.5
+/** the order budget's burst, orders */
+const ORDER_BURST = 3
+/** non-urgent move and stop orders leave at least this far apart, s */
+const ORDER_MIN_GAP = 0.07
+/** no reaction delay under a human's simple-reaction time, s */
+const DELAY_FLOOR = 0.1
+/** a dodge from a bolt that hits within this is urgent (bypasses the order budget), s */
+const URGENT_HIT = 0.5
+/** the stand-off point's radius moves at most this per re-draw, units */
+const STANDOFF_RADIUS_STEP = 40
+/** waiting for the sealed hill: this far outside its field (a body and some slack), units */
+const FIELD_WAIT = 60
+/** a walk is checked against the sealed hill every this many units (under a body's width) */
+const SEAL_PATH_STEP = 40
+/**
+ * FFA: holding still ends after this long, s. Targeting counts standing still toward a sitting duck
+ * (full after SITTING_DUCK_SECONDS), so bots that held for good were mobbed: 4+ bots on one in 13%
+ * of samples in 8-bot FFA, against 4% before holding was a stop (5-6% with this cap).
+ */
+const HOLD_MAX_SECONDS = 2
 
 export type BotAction =
   | 'idle'
@@ -197,16 +225,36 @@ function clampToRange(from: Vec2, to: Vec2, range: number): Vec2 {
   return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k }
 }
 
+/**
+ * Earliest and latest tick after its decision that an order can leave, for this preset: the
+ * reaction delay, dithered to whole ticks, and with delaySigma drawn within the lognormal's bounds
+ * (four uniforms: at most 2 sqrt(3) sigma either way), never under DELAY_FLOOR.
+ */
+export function reactionDelayBounds(p: BotParams): [number, number] {
+  const mean = Math.max(0, p.reactionDelay * TICK_HZ)
+  if (p.delaySigma <= 0) return [Math.floor(mean + 1e-9), Math.ceil(mean - 1e-9)]
+  const z = 2 * Math.sqrt(3) * p.delaySigma
+  const shift = (p.delaySigma * p.delaySigma) / 2
+  return [Math.floor(Math.max(DELAY_FLOOR * TICK_HZ, mean * exp(-z - shift)) + 1e-9), Math.ceil(mean * exp(z - shift) - 1e-9)]
+}
+
 export class BotController implements Bot {
   readonly player: PlayerId
   readonly difficulty: BotDifficulty
   readonly params: BotParams
   /** Last decision taken, for tests and debug overlays. */
   lastAction: BotAction = 'idle'
+  /** Tick of the last decision (the motion meter's think gaps and same-tick ratio). */
+  decisionTick = -1
 
   /** The player this bot is after (tests, the FFA harness, debug overlays). */
   get targetPlayer(): PlayerId | null {
     return this.target
+  }
+
+  /** King of the Hill with hillDecideSeconds: going for the hill (true), hanging back, or undecided (tests, debug overlays). */
+  get hillIntent(): boolean | null {
+    return this.hillPlan?.go ?? null
   }
 
   /** Changes whenever the queue changes other than by releasing due orders (Bot.scheduledVersion). */
@@ -235,8 +283,10 @@ export class BotController implements Bot {
   private wander: Vec2 | null = null
   private nextWanderTick = 0
   private spellEndTick = 0
-  /** readWindups: per enemy pawn, the cast last rolled for and whether we noticed it */
-  private readonly noticed = new Map<number, { key: string; seen: boolean }>()
+  /** readWindups: per enemy pawn, the cast last rolled for, whether we noticed it, and the bolt we read */
+  private readonly noticed = new Map<number, { key: string; seen: boolean; shot?: ProjectileState; at?: number }>()
+  /** threatInertia: noticed windups that vanished without a bolt, as read at `at`, since `since` */
+  private readonly lingering = new Map<number, { shot: ProjectileState; at: number; since: number }>()
   private scourgeEndTick = 0
   private dodgeDir: Vec2 | null = null
   private lastWalk: { tick: number; dist: number } | null = null
@@ -265,6 +315,32 @@ export class BotController implements Bot {
   private recentHit: { owner: PlayerId; tick: number } | null = null
   /** long grudges: decayed damage taken per enemy (in hits of 100), as of `tick` */
   private readonly grudges = new Map<PlayerId, { weight: number; tick: number }>()
+  // Motor model state (presets.ts, "Motor model")
+  /** think gaps, delays and re-clicks: its own stream, so decisions draw what they always drew */
+  private readonly timingRng: Rng
+  /** the wander goal is kept until this tick, while the target stays `wanderTarget` */
+  private commitUntil = 0
+  private wanderTarget: PlayerId | null = null
+  /** the wander goal is holding still where we are: a stop, never a walk back */
+  private holding = false
+  /** tick we last moved faster than STILL_SPEED (HOLD_MAX_SECONDS) */
+  private movedTick = 0
+  /** stand-off point beside the target, as angle and radius, to drift from */
+  private standoff: { a: number; r: number } | null = null
+  private nextReclick = 0
+  private tokens = ORDER_BURST
+  private tokenTick = 0
+  /** release tick of the last frame with a move or stop */
+  private lastWalkOrderAt = -Infinity
+  /** the frame being decided is urgent: no minimum gap */
+  private urgent = false
+  /** fractional think clock (thinkSigma) and the pillar reflex's own phase */
+  private thinkClock = 0
+  private unstickPhase = 0
+  /** the side we go round a pillar toward this goal */
+  private pillarSide: { x: number; y: number; side: 1 | -1 } | null = null
+  /** King of the Hill: go for it or hang back, until `until` */
+  private hillPlan: { go: boolean; until: number } | null = null
 
   constructor(player: PlayerId, difficulty: BotDifficulty, seed: number, params: BotParams = BOT_PRESETS[difficulty]) {
     this.player = player
@@ -273,6 +349,7 @@ export class BotController implements Bot {
     this.rng = new Rng(botSeed(seed, player))
     this.thinkTicks = Math.max(1, ticks(params.thinkInterval))
     this.delayRng = new Rng(botSeed(seed ^ 0x0de1a7ed, player))
+    this.timingRng = new Rng(botSeed(seed ^ 0x7131e, player))
     this.delayTicks = this.reactionDelayTicks()
     const traits = new Rng(botSeed(seed ^ 0x5eedbeef, player))
     this.persona = { grudge: traits.range(0.2, 1), opportunism: traits.range(0.2, 1), risk: traits.range(0, 1), focus: traits.range(0.6, 1) }
@@ -296,7 +373,13 @@ export class BotController implements Bot {
     }
     this.lastTick = state.tick
     if (state.phase !== this.lastPhase) {
-      if (state.phase !== 'fight') this.recentHit = null
+      if (state.phase !== 'fight') {
+        this.recentHit = null
+        this.hillPlan = null
+        this.lingering.clear()
+        this.holding = false
+        this.standoff = null
+      }
       if (state.phase === 'shop') this.failedBuys.clear()
       this.lastPhase = state.phase
     }
@@ -306,12 +389,24 @@ export class BotController implements Bot {
       return []
     }
 
+    const p = this.params
     if (this.nextThinkTick < 0 || state.tick >= this.nextThinkTick) {
-      this.nextThinkTick = state.tick + this.thinkTicks
+      if (p.thinkSigma > 0) {
+        // the first decision comes at once, the next one anywhere within one mean interval (a
+        // random phase: bots of a tier stop deciding on the same ticks, as they all did on one
+        // shared 0.1 s clock); then each gap is drawn around the mean, and the fractional clock
+        // keeps the mean through rounding
+        if (this.nextThinkTick < 0) {
+          this.thinkClock = state.tick + this.timingRng.next() * p.thinkInterval * TICK_HZ
+          this.unstickPhase = this.timingRng.int(UNSTICK_TICKS)
+        } else this.thinkClock = Math.max(this.thinkClock + lognormal(this.timingRng, p.thinkInterval * TICK_HZ, p.thinkSigma), state.tick + 1)
+        this.nextThinkTick = Math.max(state.tick + 1, Math.ceil(this.thinkClock))
+      } else this.nextThinkTick = state.tick + this.thinkTicks
+      this.decisionTick = state.tick
       this.delayTicks = this.reactionDelayTicks()
       const cmds = this.decide(state)
       if (cmds.length > 0) this.enqueue(state.tick + this.delayTicks, cmds)
-    } else if (state.tick % UNSTICK_TICKS === 0) {
+    } else if ((state.tick + this.unstickPhase) % UNSTICK_TICKS === 0) {
       // between decisions: a player notices when they are walking into a pillar
       const cmds = this.unstick(state)
       if (cmds.length > 0) this.enqueue(state.tick + this.delayTicks, cmds)
@@ -324,6 +419,15 @@ export class BotController implements Bot {
   }
 
   private enqueue(at: number, cmds: InputCommand[]): void {
+    const p = this.params
+    const urgent = this.urgent
+    this.urgent = false
+    // orders leave in the order they were decided: a shorter delay never overtakes an earlier one
+    if ((p.delaySigma > 0 || p.orderBudget > 0) && this.queue.length > 0) at = Math.max(at, this.queue[this.queue.length - 1].at)
+    if (p.orderBudget > 0 && cmds.some((c) => c.kind === 'move' || c.kind === 'stop')) {
+      if (!urgent) at = Math.max(at, this.lastWalkOrderAt + Math.ceil(ORDER_MIN_GAP * TICK_HZ - 1e-9))
+      this.lastWalkOrderAt = at
+    }
     this.queue.push({ at, cmds })
     this.queueVersion++
   }
@@ -331,10 +435,13 @@ export class BotController implements Bot {
   /**
    * The reaction delay in whole ticks, dithered: 0.15 s is 4.5 ticks at 30 Hz, so 4 or 5 at
    * random, averaging exactly 0.15 s. Rounding instead merged tiers whose delays round alike
-   * (Hard 0.18 and Brutal 0.15 were both 5 ticks at 30 Hz).
+   * (Hard 0.18 and Brutal 0.15 were both 5 ticks at 30 Hz). With delaySigma the exact delay is
+   * drawn first.
    */
   private reactionDelayTicks(): number {
-    const exact = Math.max(0, this.params.reactionDelay * TICK_HZ)
+    let exact = Math.max(0, this.params.reactionDelay * TICK_HZ)
+    // delaySigma: a human spread around the same mean, never under a simple reaction
+    if (this.params.delaySigma > 0) exact = Math.max(DELAY_FLOOR * TICK_HZ, lognormal(this.timingRng, exact, this.params.delaySigma))
     const whole = Math.floor(exact + 1e-9)
     return whole + (this.delayRng.next() < exact - whole ? 1 : 0)
   }
@@ -359,6 +466,20 @@ export class BotController implements Bot {
     this.lastMoved.clear()
     this.recentHit = null
     this.grudges.clear()
+    this.lingering.clear()
+    this.commitUntil = 0
+    this.wanderTarget = null
+    this.holding = false
+    this.movedTick = 0
+    this.standoff = null
+    this.nextReclick = 0
+    this.tokens = ORDER_BURST
+    this.tokenTick = 0
+    this.lastWalkOrderAt = -Infinity
+    this.urgent = false
+    this.thinkClock = 0
+    this.pillarSide = null
+    this.hillPlan = null
   }
 
   private addGrudge(owner: PlayerId, weight: number, tick: number): void {
@@ -424,6 +545,7 @@ export class BotController implements Bot {
     const layer = state.arena.layer
     const safety = this.safetyLayer(state)
     const enemies = state.pawns.filter((o) => seenEnemy(state, this.player, o))
+    if (hypot(me.vx, me.vy) > STILL_SPEED) this.movedTick = tick
     this.watchShields(enemies, tick)
     for (const e of enemies) if (hypot(e.vx, e.vy) > STILL_SPEED || !this.lastMoved.has(e.owner)) this.lastMoved.set(e.owner, tick)
     let closest: PawnState | null = null
@@ -441,7 +563,7 @@ export class BotController implements Bot {
     const threats = [
       ...state.projectiles.filter((pr) => areEnemies(state, this.player, pr.owner)),
       ...this.comingBack(state, enemies),
-      ...(p.readWindups > 0 ? this.windups(enemies) : []),
+      ...(p.readWindups > 0 ? this.windups(state, enemies) : []),
     ]
     const tp = me.slots.indexOf('teleport')
     const tpReady = tp >= 0 && castable(me, tp) && !(me.cast && me.cast.spell === 'teleport')
@@ -487,7 +609,10 @@ export class BotController implements Bot {
       const counter = p.threatEscape ? this.counterScourge(state, me, zones) : null
       if (counter) return this.act('counter', [counter])
       const flee = this.fleeThreats(state, me, zones, safety)
-      if (flee) return this.act('flee', flee)
+      if (flee) {
+        this.urgent = true
+        return this.act('flee', flee)
+      }
     }
 
     // 3. Retarget: lost target or 1/5 chance -> closest enemy (edgePressure: best kill chance).
@@ -503,12 +628,18 @@ export class BotController implements Bot {
     }
     const target = this.target === null ? null : (state.pawns.find((o) => o.owner === this.target && seenEnemy(state, this.player, o)) ?? null)
 
-    // 4. Wander point.
+    // 4. Wander point. A committed goal (motor model) outlasts arriving and the wander timer, but
+    // not a new target, a pillar or an area threat over it.
+    const committed = tick < this.commitUntil
+    const broken = committed && !!this.wander &&
+      ((target?.owner ?? null) !== this.wanderTarget || inPillar(state, this.wander.x, this.wander.y) || insideAny(zones, this.wander.x, this.wander.y, THREAT_MARGIN))
     if (
       !this.wander ||
-      dist(me, this.wander) < WANDER_ARRIVE_DIST ||
-      tick > this.nextWanderTick ||
-      (p.safeWander && !isSafe(safety, this.wander.x, this.wander.y))
+      broken ||
+      (!committed && (dist(me, this.wander) < WANDER_ARRIVE_DIST || tick > this.nextWanderTick)) ||
+      (p.safeWander && !isSafe(safety, this.wander.x, this.wander.y)) ||
+      // picked in the shop, before the field went up
+      this.sealedHillOnWay(state, me, this.wander)
     ) {
       this.pickWander(state, me, target, safety)
     }
@@ -519,7 +650,7 @@ export class BotController implements Bot {
       const back = !me.cast && p.dodge ? threats.filter((pr) => pr.data.origOwner === this.player) : []
       const self = back.length ? this.predictSelf(me, tick) : null
       if (!self || this.dangerHere(state, back, self.x, self.y) < p.dodgeThreshold) return this.act('idle', [])
-      return this.act('dodge', [this.dodgeMove(state, self, threats, this.dangerHere(state, threats, self.x, self.y))])
+      return this.act('dodge', this.order(me, this.dodgeMove(state, self, threats, this.dangerHere(state, threats, self.x, self.y)), true))
     }
     if (me.cast && me.cast.spell !== 'scourge') return this.act('idle', [])
 
@@ -544,13 +675,18 @@ export class BotController implements Bot {
         this.scourgeEndTick = 0
         const cmds: InputCommand[] = [{ kind: 'stop' }]
         if (dodge) cmds.push(this.dodgeMove(state, self, threats, danger))
+        this.urgent = dodge
         return this.act('cancelScourge', cmds)
       }
       return this.act('channel', [])
     }
 
     // 7. Dodge down the danger gradient.
-    if (mustDodge) return this.act('dodge', [this.dodgeMove(state, self, threats, danger)])
+    if (mustDodge) {
+      // urgent (past the order budget): a bolt about to hit, or a hit walking cannot clear that is dangerous
+      const urgent = p.orderBudget > 0 && (this.soonestHit(threats, self) <= URGENT_HIT || this.unavoidableHit(state, me, threats, layer))
+      return this.act('dodge', this.order(me, this.dodgeMove(state, self, threats, danger), urgent))
+    }
 
     // 8. Scourge: never into an empty radius. Value-based presets weigh who will still be
     // inside after the windup and whether the push kills; the rest keep the original chance.
@@ -642,20 +778,82 @@ export class BotController implements Bot {
     if (p.walkOffLava && (onLava || !isSafe(safety, me.x, me.y))) {
       const tile = nearestTileCentre(safety, me.x, me.y, true) ?? nearestTileCentre(layer, me.x, me.y, true)
       if (tile) {
-        const via = routeAround(state, me, tile, layer)
-        return this.act('offLava', [{ kind: 'move', x: via.x, y: via.y }])
+        const via = this.route(state, me, tile, layer)
+        return this.act('offLava', this.order(me, { kind: 'move', x: via.x, y: via.y }, true))
       }
     }
     // pushing into a pillar since the last think (knocked against it, or it was not in the
     // way when we planned): pick somewhere else
     if (this.pushingIntoPillar(state, me)) this.pickWander(state, me, target, safety)
     const w = this.wander!
-    // never walk into an active area threat: wait at its edge instead
-    if (zones.length > 0 && insideAny(zones, w.x, w.y, THREAT_MARGIN) && !insideAny(zones, me.x, me.y)) {
-      return this.act('hold', [{ kind: 'stop' }])
+    // never walk into (or across) an active area threat: wait at its edge instead. Only the goal
+    // used to count: a bot that had just fled a charging Scourge walked back through it to a goal
+    // on the far side
+    if (zones.length > 0 && !insideAny(zones, me.x, me.y) && crossesAny(zones, me, w, THREAT_MARGIN)) {
+      return this.act('hold', this.order(me, { kind: 'stop' }))
     }
-    const via = routeAround(state, me, w, layer)
-    return this.act('wander', [{ kind: 'move', x: via.x, y: via.y }])
+    // dodgeExit: right after a dodge, while its bolt is still close, keep the dodge walking instead
+    // of turning back into the line just left
+    if (p.dodgeExit > 0 && p.dodge && tick - this.lastDodgeTick <= ticks(p.dodgeHoldSeconds) && danger >= p.dodgeExit) return this.act('dodge', [])
+    // holding still is a stop where we are, never a walk back to where we stood when deciding
+    if (this.holding) return this.act('hold', this.order(me, { kind: 'stop' }))
+    const via = this.route(state, me, w, layer)
+    return this.act('wander', this.order(me, { kind: 'move', x: via.x, y: via.y }))
+  }
+
+  /**
+   * Motor model: a move or stop a viewer could not tell from the order in effect (deadBandRad) is
+   * dropped, but for an occasional re-click, as players re-click too; then the order budget.
+   * `urgent` orders (a dodge from a close or dangerous bolt, leaving lava) go past the budget and
+   * the minimum gap. With the motor model off the order goes as it is.
+   */
+  private order(me: PawnState, cmd: InputCommand, urgent = false): InputCommand[] {
+    const p = this.params
+    if (p.deadBandRad > 0 && this.redundant(me, cmd)) {
+      if (cmd.kind === 'stop' || p.reclickSeconds <= 0 || this.lastTick < this.nextReclick) return []
+      this.nextReclick = this.lastTick + lognormal(this.timingRng, p.reclickSeconds * TICK_HZ, RECLICK_SIGMA)
+    }
+    if (p.orderBudget > 0) {
+      this.tokens = Math.min(ORDER_BURST, this.tokens + ((this.lastTick - this.tokenTick) * p.orderBudget) / TICK_HZ)
+      this.tokenTick = this.lastTick
+      if (this.tokens >= 1) this.tokens -= 1
+      else if (!urgent) return []
+    }
+    if (urgent) this.urgent = true
+    return [cmd]
+  }
+
+  /** A move pointing the way the order in effect does (and to the same goal, or both far), or a stop while standing. */
+  private redundant(me: PawnState, cmd: InputCommand): boolean {
+    const eff = this.effectiveTarget(me)
+    if (cmd.kind === 'stop') return eff === null
+    if (cmd.kind !== 'move' || !eff) return false
+    const d1 = hypot(eff.x - me.x, eff.y - me.y)
+    const d2 = hypot(cmd.x - me.x, cmd.y - me.y)
+    if (d1 < 1 || d2 < 1) return false
+    const same = hypot(eff.x - cmd.x, eff.y - cmd.y) < DEAD_BAND_NEAR || Math.min(d1, d2) > DEAD_BAND_FAR
+    return same && ((eff.x - me.x) * (cmd.x - me.x) + (eff.y - me.y) * (cmd.y - me.y)) / (d1 * d2) > cos(this.params.deadBandRad)
+  }
+
+  /** The move order in effect once our queued orders land; null = standing (or casting). */
+  private effectiveTarget(me: PawnState): Vec2 | null {
+    let eff: Vec2 | null | undefined
+    for (const q of this.queue) {
+      for (const c of q.cmds) {
+        if (c.kind === 'move') eff = c
+        else if (c.kind === 'stop' || c.kind === 'cast') eff = null
+      }
+    }
+    return eff !== undefined ? eff : me.cast ? null : me.moveTarget
+  }
+
+  /** routeAround; with the motor model, round a pillar on one side per goal until it is passed. */
+  private route(state: SimState, from: Vec2, goal: Vec2, layer: number): Route {
+    if (this.params.commitSeconds <= 0) return routeAround(state, from, goal, layer)
+    const lock = this.pillarSide
+    const via = routeAround(state, from, goal, layer, lock && hypot(lock.x - goal.x, lock.y - goal.y) < 1 ? lock.side : undefined)
+    this.pillarSide = via.side ? { x: goal.x, y: goal.y, side: via.side } : null
+    return via
   }
 
   /** Reflex between decisions: pushing into a pillar -> walk around it toward the same goal. */
@@ -674,10 +872,10 @@ export class BotController implements Bot {
     const expected = (me.moveSpeed * (state.tick - last.tick)) / TICK_HZ
     if (last.dist - dist >= 0.3 * expected) return []
     const goal = this.wander && hypot(this.wander.x - target.x, this.wander.y - target.y) > 1 ? this.wander : target
-    const via = routeAround(state, me, goal, state.arena.layer)
+    const via = this.route(state, me, goal, state.arena.layer)
     if (hypot(via.x - target.x, via.y - target.y) < 20) return []
     this.lastCheck = null
-    return [{ kind: 'move', x: via.x, y: via.y }]
+    return this.order(me, { kind: 'move', x: via.x, y: via.y })
   }
 
   /** Own progress check: walking, touching a pillar, and barely closer than at the last think. */
@@ -905,12 +1103,17 @@ export class BotController implements Bot {
    * real one leaves the hand (a player reads the turn and the cast animation, 0.2 s and more on
    * a close Fireball that leaves too little time to step aside once it is out).
    */
-  private windups(enemies: PawnState[]): ProjectileState[] {
+  private windups(state: SimState, enemies: PawnState[]): ProjectileState[] {
     const out: ProjectileState[] = []
     for (const e of enemies) {
       const c = e.cast
       const speed = c ? BOT_SPELLS[c.spell]?.speed : undefined
       if (!c || !speed || BOT_SPELLS[c.spell]?.role !== 'projectile') {
+        // threatInertia: gone without its bolt (a fake, a cancel), it still costs us the flinch
+        const was = this.noticed.get(e.id)
+        if (was?.shot && this.params.threatInertia > 0 && !state.projectiles.some((pr) => pr.owner === e.owner && pr.spell === was.shot!.spell)) {
+          this.lingering.set(e.id, { shot: was.shot, at: was.at!, since: state.tick })
+        }
         this.noticed.delete(e.id)
         continue
       }
@@ -924,7 +1127,18 @@ export class BotController implements Bot {
       const vx = ((c.x - e.x) / d) * speed
       const vy = ((c.y - e.y) / d) * speed
       const t = Math.max(0, c.ticksLeft) / TICK_HZ
-      out.push({ id: -1, owner: e.owner, spell: c.spell, x: e.x - vx * t, y: e.y - vy * t, vx, vy, radius: SHOT_RADIUS, ticksLeft: 1, data: {} })
+      const shot: ProjectileState = { id: -1, owner: e.owner, spell: c.spell, x: e.x - vx * t, y: e.y - vy * t, vx, vy, radius: SHOT_RADIUS, ticksLeft: 1, data: {} }
+      seen.shot = shot
+      seen.at = state.tick
+      out.push(shot)
+    }
+    for (const [id, l] of this.lingering) {
+      if (state.tick - l.since > this.params.threatInertia * TICK_HZ) {
+        this.lingering.delete(id)
+        continue
+      }
+      const t = (state.tick - l.at) / TICK_HZ
+      out.push({ ...l.shot, x: l.shot.x + l.shot.vx * t, y: l.shot.y + l.shot.vy * t })
     }
     return out
   }
@@ -1294,13 +1508,18 @@ export class BotController implements Bot {
   }
 
   private pickWander(state: SimState, me: PawnState, target: PawnState | null, safety: number): void {
+    const p = this.params
+    if (p.commitSeconds > 0) {
+      this.commitUntil = state.tick + ticks(p.commitSeconds)
+      this.wanderTarget = target?.owner ?? null
+    }
     const hill = this.pickHillWander(state, me, target, safety)
     if (hill) {
       this.wander = hill
+      this.holding = p.commitSeconds > 0 && hill.x === me.x && hill.y === me.y
       this.nextWanderTick = state.tick + ticks(this.rng.range(0.3, 0.7))
       return
     }
-    const p = this.params
     const tries = p.safeWander ? 12 : 1
     let point: Vec2 | null = null
     let delay = 0.6
@@ -1316,15 +1535,22 @@ export class BotController implements Bot {
         const tl = hypot(target.x, target.y)
         const ox = tl > 50 ? target.x / tl : (me.x - target.x) / Math.max(1, dist(me, target))
         const oy = tl > 50 ? target.y / tl : (me.y - target.y) / Math.max(1, dist(me, target))
+        const [lo, hi] = far ? [SHIELD_STANDOFF, SHIELD_STANDOFF + 150] : [450, 650]
         for (let i = 0; i < 6 && !point; i++) {
-          const a = this.rng.range(-0.5, 0.5)
-          const r = far ? this.rng.range(SHIELD_STANDOFF, SHIELD_STANDOFF + 150) : this.rng.range(450, 650)
+          // standoffStep: drift from the last point (a band switch slides to its nearest edge);
+          // a fresh draw only once drifting keeps failing
+          const s = p.standoffStep > 0 && i < 3 ? this.standoff : null
+          const a = s ? clamp(s.a + this.rng.range(-p.standoffStep, p.standoffStep), -0.5, 0.5) : this.rng.range(-0.5, 0.5)
+          const r = s ? clamp(s.r + this.rng.range(-STANDOFF_RADIUS_STEP, STANDOFF_RADIUS_STEP), lo, hi) : this.rng.range(lo, hi)
           const c = cos(a)
           const sn = sin(a)
           const cand = { x: target.x - (ox * c - oy * sn) * r, y: target.y - (ox * sn + oy * c) * r }
-          if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
+          if (!inPillar(state, cand.x, cand.y) && isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) {
+            point = cand
+            if (p.standoffStep > 0) this.standoff = { a, r }
+          }
         }
-        delay = this.rng.range(0.3, 0.6)
+        delay = p.standoffStep > 0 ? this.rng.range(1, 2) : this.rng.range(0.3, 0.6)
       }
       for (let i = 0; i < tries && !point; i++) {
         let centre: Vec2
@@ -1341,7 +1567,7 @@ export class BotController implements Bot {
         const a = this.rng.range(0, Math.PI * 2)
         const r = this.rng.range(0, radius)
         const cand = { x: centre.x + cos(a) * r, y: centre.y + sin(a) * r }
-        if (inPillar(state, cand.x, cand.y)) continue
+        if (inPillar(state, cand.x, cand.y) || this.sealedHillOnWay(state, me, cand)) continue
         if (!p.safeWander || isSafeWithMargin(safety, cand.x, cand.y, p.edgeMargin)) point = cand
       }
     }
@@ -1350,7 +1576,52 @@ export class BotController implements Bot {
         nearestTileCentre(state.arena.layer, me.x, me.y, true) ?? { x: 0, y: 0 }
     }
     this.wander = point
+    this.holding = p.commitSeconds > 0 && point.x === me.x && point.y === me.y
     this.nextWanderTick = state.tick + ticks(delay)
+  }
+
+  /**
+   * hillDecideSeconds: no walk to or across the sealed hill (its field stops us at the edge). In the
+   * shop it is the hill the next fight starts with, sealed: pawns walk in the shop, and a goal
+   * picked there was still being walked to when the field went up.
+   */
+  private sealedHillOnWay(state: SimState, from: Vec2, to: Vec2): boolean {
+    if (this.params.hillDecideSeconds <= 0 || state.settings.gameMode !== 'hill') return false
+    let layer = 0
+    if (state.phase === 'shop') layer = hillLayerOn(hillStartLayer(state.settings), state.arena.layer)
+    else if (hillSealed(state)) layer = hillLayerNow(state)
+    if (layer <= 1) return false
+    const steps = Math.ceil(dist(from, to) / SEAL_PATH_STEP)
+    for (let i = 1; i <= steps; i++) {
+      const k = i / steps
+      if (isSafe(layer, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k)) return true
+    }
+    return false
+  }
+
+  /**
+   * King of the Hill, hillDecideSeconds: go for the hill or hang back, redone that often instead of
+   * on every pick. Waiting, the hill must look one warlock emptier to go back for it.
+   */
+  private hillGo(state: SimState, me: PawnState, crowded: number): boolean {
+    const plan = this.hillPlan
+    if (plan && state.tick < plan.until) return plan.go
+    const seen = plan && !plan.go ? crowded + 1 : crowded
+    const go = this.rng.chance(this.params.hillDrive) && !(seen >= 2 && !onHill(state, me.x, me.y) && this.rng.chance(1 - 1 / seen))
+    this.hillPlan = { go, until: state.tick + ticks(this.params.hillDecideSeconds) }
+    return go
+  }
+
+  /** Where to wait for the sealed hill: just outside its field, on our side of it. */
+  private fieldEdge(state: SimState, me: PawnState): Vec2 {
+    const d = hypot(me.x, me.y)
+    if (d < 1 || onHill(state, me.x, me.y)) return { x: me.x, y: me.y }
+    const ux = me.x / d
+    const uy = me.y / d
+    let r = d
+    while (r > PAWN_BODY && !onHill(state, ux * (r - PAWN_BODY), uy * (r - PAWN_BODY))) r -= PAWN_BODY
+    const wait = Math.min(d, r + FIELD_WAIT)
+    return { x: ux * wait, y: uy * wait }
   }
 
   /**
@@ -1361,7 +1632,8 @@ export class BotController implements Bot {
    */
   private pickHillWander(state: SimState, me: PawnState, target: PawnState | null, safety: number): Vec2 | null {
     if (state.settings.gameMode !== 'hill' || !state.hill || state.phase !== 'fight') return null
-    if (!this.rng.chance(this.params.hillDrive)) return null
+    const decided = this.params.hillDecideSeconds > 0
+    if (!decided && !this.rng.chance(this.params.hillDrive)) return null
     const layer = hillLayerNow(state)
     if (layer <= 1) return null
     const r = layerRadius(layer)
@@ -1370,7 +1642,9 @@ export class BotController implements Bot {
     // a crowded hill earns nobody anything: often hang back and shoot the crowd from outside
     // (the usual wander), so somebody gets knocked off and somebody gets to hold it
     const crowded = enemies.filter((e) => e.alive && onHill(state, e.x, e.y)).length
-    if (crowded >= 2 && !onHill(state, me.x, me.y) && this.rng.chance(1 - 1 / crowded)) return null
+    if (decided ? !this.hillGo(state, me, crowded) : crowded >= 2 && !onHill(state, me.x, me.y) && this.rng.chance(1 - 1 / crowded)) return null
+    // sealed: going for it means waiting at its field, not pushing into it
+    if (decided && hillSealed(state)) return this.fieldEdge(state, me)
     let best: Vec2 | null = null
     let bestScore = -Infinity
     const consider = (point: Vec2) => {
@@ -1406,8 +1680,8 @@ export class BotController implements Bot {
     const threats = state.projectiles.filter((shot) => areEnemies(state, this.player, shot.owner))
     let best: Vec2 | null = null
     let bestScore = -Infinity
-    const consider = (point: Vec2) => {
-      if (inPillar(state, point.x, point.y) || (p.safeWander && !isSafeWithMargin(safety, point.x, point.y, p.edgeMargin))) return
+    const consider = (point: Vec2, bonus = 0) => {
+      if (inPillar(state, point.x, point.y) || this.sealedHillOnWay(state, me, point) || (p.safeWander && !isSafeWithMargin(safety, point.x, point.y, p.edgeMargin))) return
       // crowding from everyone but the target, saturating: several bots closing on the same
       // target must not push each other out of shooting range for good
       let crowd = 0
@@ -1422,14 +1696,16 @@ export class BotController implements Bot {
         const radius = hypot(target.x, target.y)
         if (radius > 1) pushAngle = ((target.x - point.x) * target.x + (target.y - point.y) * target.y) / (radius * Math.max(1, range))
       }
-      const score = firing + pushAngle * 0.2 - pressure * (0.2 + caution * 0.5) - travel * 0.25 - danger * 0.6
+      const score = firing + pushAngle * 0.2 - pressure * (0.2 + caution * 0.5) - travel * 0.25 - danger * 0.6 + bonus
       if (score > bestScore) {
         bestScore = score
         best = point
       }
     }
     // Include holding ground: moving is useful only when another position scores better.
-    consider({ x: me.x, y: me.y })
+    // ffaKeep: the goal we have (holding counts) must be beaten by a margin
+    if (p.commitSeconds <= 0 || state.tick - this.movedTick < ticks(HOLD_MAX_SECONDS)) consider({ x: me.x, y: me.y }, this.holding ? p.ffaKeep : 0)
+    if (p.ffaKeep > 0 && this.wander && !this.holding) consider(this.wander, p.ffaKeep)
     for (let i = 0; i < 12; i++) {
       const angle = this.rng.range(0, Math.PI * 2)
       const aroundTarget = target && i < 6
@@ -1504,7 +1780,9 @@ export class BotController implements Bot {
   private dodgeMove(state: SimState, from: Vec2, threats: ProjectileState[], danger: number): InputCommand {
     const lowers = (d: Vec2, reach: number) =>
       this.dangerHere(state, threats, from.x + d.x * reach, from.y + d.y * reach) < danger
-    const prev = state.tick - this.lastDodgeTick <= 2 * this.thinkTicks ? this.dodgeDir : null
+    // the side is kept two thinks, or dodgeHoldSeconds if longer
+    const hold = Math.max(2 * this.thinkTicks, ticks(this.params.dodgeHoldSeconds))
+    const prev = state.tick - this.lastDodgeTick <= hold ? this.dodgeDir : null
     // on the line: keep our side, else break toward the arena centre (away from lava)
     let dir = dodgeDirection(threats, from.x, from.y, prev ?? { x: -from.x, y: -from.y })
     if (prev && lowers(prev, 40)) dir = prev

@@ -1,3 +1,5 @@
+import { exp } from '../sim/math'
+
 /**
  * Seeded mulberry32 for bots. Bots must be reproducible from (seed, states),
  * so Math.random is not allowed anywhere in src/bots.
@@ -43,4 +45,14 @@ export function botSeed(seed: number, player: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0
   return (h ^ (h >>> 16)) >>> 0
+}
+
+/**
+ * A lognormal draw with this mean: human timing is skewed (rarely much faster, sometimes slower).
+ * The normal is four uniforms (Irwin-Hall, scaled to unit variance), so only arithmetic and
+ * sim-math exp are used, and it is bounded: never beyond mean * exp(3.47 sigma).
+ */
+export function lognormal(rng: Rng, mean: number, sigma: number): number {
+  const z = (rng.next() + rng.next() + rng.next() + rng.next() - 2) * Math.sqrt(3)
+  return mean * exp(sigma * z - (sigma * sigma) / 2)
 }

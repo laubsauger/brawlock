@@ -1,6 +1,6 @@
 # Bot motion: stop dancing on the spot
 
-Status: implementation spec, 2026-10-28. From [04-keystones.md](../04-keystones.md) Keystone 3
+Status: built 2026-10-29, not released (see "Built" at the end). Spec of 2026-10-28, from [04-keystones.md](../04-keystones.md) Keystone 3
 Parts A and B and [research/codebase-map.md](../research/codebase-map.md) §8. Every number below
 was measured with the prototype in
 [research/bot-motion-prototype/](../research/bot-motion-prototype/) (a copy of `controller.ts` with
@@ -154,7 +154,9 @@ seconds of sim time from the decision tick. The rules govern move and stop order
 These were measured in the prototype on all five active tiers. One set fits every tier, except
 where a rule needs a tier's feature. Every knob is 0 (off) in `ORIGINAL` and for Dummy.
 
-| Knob | Easy, Medium | Hard | Brutal, Uber |
+Easy keeps every knob at 0 (open question 2).
+
+| Knob | Medium | Hard | Brutal, Uber |
 |---|---|---|---|
 | `commitSeconds` | 0.8 | 0.8 | 0.8 |
 | `dodgeExit` / `dodgeHoldSeconds` | 1.6 / 0.5 | 1.6 / 0.5 | 1.6 / 0.5 |
@@ -229,8 +231,8 @@ Where it lives:
   reversal under a bolt is threatened rather than free, and two seeds give two phases rather than
   lockstep. Each test runs well under a second.
 - **The same file, behind `LADDER=1`.** It replays seeded matches, so it is gated like the
-  ladder: eight 4-player FFA matches (Medium, Hard, Brutal and Uber, seats rotated) and four
-  menu-backdrop matches, about 6 s. It checks each tier against the thresholds, collecting
+  ladder: four 4-player FFA matches (Medium, Hard, Brutal and Uber, seats rotated, ten minutes
+  each) and one menu-backdrop match, about 4 s. It checks each tier against the thresholds, collecting
   per-tick conditions and asserting once.
 - **`scripts/bots/motion.ts`** runs those scenarios with `--params`, as `elo.ts` does.
 - **`scripts/bots/replay-motion.ts`** promotes the research tool onto the shared meter. It reads
@@ -243,18 +245,20 @@ Where it lives:
   reports orders/s and order gaps straight from the recorded input steps, which need no
   positions, and marks the rest missing.
 
-Thresholds, provisional while the sample is three humans:
+Thresholds, provisional while the sample is three humans. The human tops are from
+`docs/research/human-motion-2026-10-29.json` (the shared meter over the five replays; the test
+checks that each upper gate sits at or above them):
 
 | Measure (per tier, 4-player FFA) | Gate | From |
 |---|---|---|
 | reversals/s | ≤ 0.35 | top of BeFlat and Laub (0.32, 0.33) |
-| free reversals/s | ≤ 0.12 until humans are split | the dance itself |
-| dither | ≤ 0.08 | top of BeFlat and Laub |
+| free reversals/s | ≤ 0.12 until humans are split | the dance itself (single human matches reach 0.15–0.20) |
+| dither | ≤ 0.09 | top of BeFlat and Laub (0.088, 0.075; the research tool rounded BeFlat's to 0.08) |
 | orders/s | ≤ 6 | top of the strong humans (5.8) |
-| click-flip | ≤ 0.07 | top of the strong humans (0.06) |
-| move-order gaps | p10 ≥ 0.06 s, p50 0.08–0.20 s, p90 0.25–0.60 s | strong-human ranges, widened a little |
-| same-tick ratio | ≤ 1.2 | chance is 1 |
-| menu backdrop | free reversals ≤ 0.12, dither ≤ 0.09 | the first screen |
+| flips/s | ≤ 0.35 | top of BeFlat and Laub (0.25, 0.31); replaces the click-flip share (open question 3) |
+| move-order gaps (tiers thinking every 0.15 s or faster) | p10 ≥ 0.06 s, p50 0.08–0.20 s, p90 0.25–0.60 s | strong-human ranges, widened a little; Medium clicks like a slow player (p50 0.37 s, as POPE's 0.27–0.75) |
+| same-tick ratio (menu backdrop: four bots per tier) | ≤ 1.2 | chance is 1 |
+| menu backdrop | free reversals ≤ 0.12, dither ≤ 0.10 | the first screen; eight strong bots fire more than any human match |
 
 From ten humans on, each upper gate becomes the p90 of the humans rated above the Medium label
 (per-match values pooled). The order gates then use the humans' p10–p90 band, and the JSON records
@@ -297,13 +301,15 @@ does not hold here, so each part is verified on its own.
    developer accepted a shift ("maybe we have to be open to allow that"). Beyond that, compensate
    in the timing first (a shorter mean think for the tier, or a smaller `thinkSigma`), never by
    dropping motor rules, and probe again.
-5. **Relabel.** Run
-   `npm run bots:elo -- --games 400 --out docs/research/bot-calibration-<date>-motion.json`, then
-   update `BOT_ELO` (presets.ts 421-427), the JSON import and comments in `ladder.test.ts`, and the
-   PLAN §7 table. `BOT_ELO` also feeds the lobby labels (`Lobby.tsx`) and the spectator-bet odds for bots
-   (`SpectatorBets.tsx`). The leaderboard's starting rating of 1000 is defined as Medium's level
-   (`src/net/leaderboard.ts`). Medium stays the anchor unless the developer chooses otherwise
-   (open question 4).
+5. **Labels only if they moved.** The developer, 2026-10-29: "why do we need to relabel
+   anything?" Mostly we do not. `BOT_ELO` (presets.ts 421-427) feeds two things: the lobby hint
+   "about 1825 Elo" (`Lobby.tsx`) and the spectator-bet odds for bots (`SpectatorBets.tsx`). Human
+   ratings never use it: bots never count on the leaderboard (`src/net/leaderboard.ts`, header),
+   whose starting 1000 is only named after Medium. The scale is anchored at Medium and every tier
+   from Medium up gets the motor model, so a shared shift leaves the numbers where they are. Run
+   `npm run bots:elo -- --games 400 --out docs/research/bot-calibration-<date>-motion.json` once
+   as the check. Update `BOT_ELO`, the JSON import and comments in `ladder.test.ts` and the PLAN
+   §7 table only if a tier moved by more than the ±50 its label already carries.
 
 ## Out of scope
 
@@ -347,14 +353,14 @@ does not hold here, so each part is verified on its own.
 
 ## Open questions for the developer
 
-1. **Strength.** Up to about 50 Elo per tier against its old self: accept it, or compensate (a
-   slightly shorter mean think for Uber)?
-2. **Easy.** Easy is the original AI for new players, and a test pins its 1.0 s mean. Motor rules
-   and timing noise too (reversals 0.19 to 0.06 a second), or exactly the original?
-3. **Click-flip.** As a share, it penalises re-clicking the same direction less often. Gate on
-   flips per second once the replay tool reports it, or tune re-clicks until the share passes?
-4. **Anchor.** Keep Medium = 1000 among bots, or anchor to the old Medium, so the lobby labels, bet
-   odds and the leaderboard's starting rating keep meaning the same against humans?
+1. **Strength.** Answered 2026-10-29: up to about 50 Elo per tier against its old self is
+   accepted; no relabel unless the check moves a label beyond its ±50 (Calibration, step 5).
+2. **Easy.** Built as recommended (README Q12): Easy keeps the original's movement; it is
+   already calm (reversals 0.19 a second).
+3. **Click-flip.** Built as recommended (README Q13): the gate is flips per second, now that the
+   replay script reports it.
+4. **Anchor.** Medium = 1000 stays. Human ratings do not depend on bots, so the anchor only names
+   the lobby hints and bet odds.
 5. **More replays.** The gates stay provisional until ten or more humans across skill levels
    (including duels and the hill) are in. Can regular players be asked for exports?
 6. **Cheat risk.** Keystone 3's tension stands: the more human the bots move, the better the
@@ -368,8 +374,79 @@ does not hold here, so each part is verified on its own.
    both rates, and probes.
 3. **Timing noise (rule 11)** as its own step, because its Elo effect differs from the rules'.
    Probe each part.
-4. **Calibration and relabel**, updating in the same change PLAN §7 (the "Not built: an
+4. **The calibration check** (labels only if they moved), updating in the same change PLAN §7 (the "Not built: an
    action-rate cap" line), the presets header table, Keystone 3 Part A (to point here) and the
    calibration JSON.
-5. **Visual check and playtest, then a server deploy.** Dedicated servers run the bots. There is
-   no netcode change, so clients and replays are unaffected.
+5. **Visual check and playtest, then a release.** Dedicated servers run the bots in casual and
+   ranked rooms, and the browser runs them in solo, P2P-hosted games and the menu backdrop, so
+   both carry the change. There is no netcode change: old and new clients still play together and
+   replays still play.
+
+## Built (2026-10-29)
+
+Rules 1–11 are in `src/bots/controller.ts` behind the knobs in `src/bots/presets.ts` (the
+`MOTOR` set for Medium and up; Brutal and Uber add `standoffStep`, Hard and up `threatInertia`;
+every knob 0 in `ORIGINAL`, so Easy and `--params` ablations keep the old behaviour). The meter is
+`src/bots/motion.ts`; `npm run bots:motion` runs its scenarios; `scripts/bots/replay-motion.ts`
+measures replays on the build that recorded them (found by netcode id over release tags, then
+commits, with `git archive`) and wrote `docs/research/human-motion-2026-10-29.json`.
+`src/bots/motion.test.ts` holds the crafted meter tests and, behind `LADDER=1`, the gated
+scenarios (four 4-player FFA matches capped at ten minutes, one menu-backdrop match, about 4 s);
+`src/bots/motor.test.ts` shows rules 8–11 with and without each.
+
+Measured on the built version, 4-player FFA (`npm run bots:motion -- --matches 8`; today in
+brackets):
+
+| Tier | Orders/s | Reversals/s | Free | Dither | Flips/s | Idle | Gaps p10/p50/p90 (s) |
+|---|---|---|---|---|---|---|---|
+| Medium | 2.2 (2.4) | 0.19 (0.66) | 0.08 (0.38) | 0.03 (0.09) | 0.13 (0.66) | 0.20 (0.11) | 0.17/0.37/0.80 |
+| Hard | 4.9 (8.7) | 0.29 (1.32) | 0.08 (0.75) | 0.08 (0.16) | 0.26 (1.25) | 0.15 (0.06) | 0.10/0.13/0.33 (0.07/0.10/0.13) |
+| Brutal | 5.0 (8.7) | 0.33 (1.18) | 0.09 (0.67) | 0.08 (0.15) | 0.30 (1.18) | 0.11 (0.05) | 0.10/0.13/0.33 |
+| Uber | 5.0 (8.7) | 0.34 (1.15) | 0.08 (0.65) | 0.08 (0.15) | 0.30 (1.17) | 0.10 (0.05) | 0.10/0.13/0.33 |
+
+The menu backdrop (two matches): reversals 0.50 a second (today 1.02), free 0.08 (0.28), dither
+0.09 (0.13), same-tick ratio 1.00 (3.00). What remains under fire is a sidestep and the walk back
+once the bolt has passed (dodge to wander, 31–37% of reversals; wander to dodge, 22%), which
+humans do too. Re-picking the goal after a dodge, preferring the walking side on a dodge, a longer
+settle, a longer dodge hold and slower re-clicks were each probed and moved nothing.
+
+Where the build differs from the rules above, and why:
+
+- **Holding still ends after 2 s in FFA** (`HOLD_MAX_SECONDS`). FFA targeting counts standing still
+  toward a "sitting duck" (full at 3 s), so with rule 1 alone the bots stood, became the easiest
+  kill on the table and were mobbed: four or more bots on one in 13% of samples in 8-bot FFA,
+  against 4% before. With the cap, 5–6% (the FFA test's limit is 15%).
+- **The first decision comes at once**; the random phase starts with the second. Bots on lava or
+  under fire at a fight's first tick react as before, and the phase still breaks the lockstep.
+- **Rule 7's minimum gap delays an order** to 0.07 s after the previous release instead of dropping
+  it, so a wander order is late by a tick or two, never lost.
+- **Two bugs the rules exposed, fixed for every tier.** A bot that had fled a charging Scourge
+  walked back through the blast to a goal on its far side: only the goal was checked, now the walk
+  is (`crossesAny`). And with hill decisions, a goal picked in the shop or across the sealed hill
+  walked into the field: the whole walk is checked, and in the shop the next fight's hill counts as
+  sealed.
+
+**Calibration.** Each tier against its old self (the knobs at 0), 200 matches, rounds won by the
+old self: Medium 50% (±0 Elo), Hard 57% (−48), Uber 56% (−41), Brutal 61% (−76). Brutal was over
+the accepted 50, so its think interval went from 0.1 to 0.08 s (timing first, as above): 55%
+(−35). Faster thinking did not help Uber (0.08 s: 56%), which is inside the 50 anyway. The full
+`npm run bots:elo -- --games 400` afterwards (`docs/research/bot-calibration-2026-10-29-motion.json`):
+Easy 383, Medium 1000, Hard 1834, Brutal 2055, Uber 2179. Every label holds within its ±50
+(350, 1000, 1825, 2025, 2225), so `BOT_ELO` and the ladder's calibration import stay. Steps: Brutal
+over Hard 78% of rounds (was 76%), Uber over Brutal 67% (was 75%); the ladder test passes at 30 and
+60 Hz.
+
+**Tests changed, as acceptance item 4 expected.** The delay and Teleport-timing tests check the
+delay distribution's bounds (`reactionDelayBounds`) instead of one tick. The Shield test "dodges
+its own Fireball coming back" now counts over 20 runs: Hard is hit in at most 15% (3 of 40 in a
+wider probe, 0 without the timing spread, when a slow reaction draw comes too late, as a person's
+does); Brutal and Uber never.
+
+**Visual check.** The menu backdrop in a muted headless browser: the eight bots spread out and
+fight, no console errors. Stills cannot show the dance; the meter does. The playtest evening is
+still to come.
+
+**Idle, a new finding.** Humans stand still in 1–3% of their fight-seconds (BeFlat 0.7–3.3%);
+the built bots in 10–20% (today 5–6%, because "stay" was a walk back). Idle is not gated. If the
+playtest finds the standing bots stiff, the next step is to turn holding into small strafes.
+

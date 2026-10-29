@@ -1,0 +1,1723 @@
+{
+  "measured": "2026-10-29",
+  "command": "npx vite-node scripts/bots/replay-motion.ts -- media/replays --out docs/research/human-motion-2026-10-29.json",
+  "meter": "src/bots/motion.ts",
+  "reference": "BeFlat",
+  "groups": "humans by name, bots by tier",
+  "ranges": "min and max of the per-match values; for a bot tier every bot of it in every match is one value",
+  "skipped": [],
+  "replays": [
+    {
+      "file": "brawlock-2026-10-24-BeFlat-vs-Laub-vs-Thorn-vs-Vex.brawlock",
+      "recorded": "2026-10-24T19:39:58.338Z",
+      "netId": "d3d1f10fe9d4",
+      "build": {
+        "commit": "a92f7931d9f5c8d0414966b76c7cdcb6c4bd253e",
+        "tag": "v0.1.0-alpha.10"
+      },
+      "hz": 60,
+      "gameMode": "rounds",
+      "teamMode": "ffa",
+      "source": "resimulated",
+      "desync": null,
+      "players": [
+        {
+          "name": "BeFlat",
+          "kind": "human",
+          "tier": null,
+          "seconds": 675,
+          "ordersPerSecond": 4.271,
+          "castsPerSecond": 0.344,
+          "reversalsPerSecond": 0.255,
+          "freeReversalsPerSecond": 0.129,
+          "dither": 0.055,
+          "idle": 0.007,
+          "clickFlip": 0.052,
+          "flipsPerSecond": 0.196,
+          "shortClick": 0.202,
+          "moveGaps": [
+            0.083,
+            0.15,
+            0.567
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Laub",
+          "kind": "human",
+          "tier": null,
+          "seconds": 488.75,
+          "ordersPerSecond": 5.788,
+          "castsPerSecond": 0.364,
+          "reversalsPerSecond": 0.205,
+          "freeReversalsPerSecond": 0.096,
+          "dither": 0.072,
+          "idle": 0.004,
+          "clickFlip": 0.036,
+          "flipsPerSecond": 0.203,
+          "shortClick": 0.053,
+          "moveGaps": [
+            0.083,
+            0.167,
+            0.233
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "POPE",
+          "kind": "human",
+          "tier": null,
+          "seconds": 406.25,
+          "ordersPerSecond": 0.945,
+          "castsPerSecond": 0.465,
+          "reversalsPerSecond": 0.079,
+          "freeReversalsPerSecond": 0.034,
+          "dither": 0.005,
+          "idle": 0.111,
+          "clickFlip": 0.071,
+          "flipsPerSecond": 0.027,
+          "shortClick": 0.021,
+          "moveGaps": [
+            0.083,
+            0.75,
+            2.583
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Thorn",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 538.2,
+          "ordersPerSecond": 8.606,
+          "castsPerSecond": 0.409,
+          "reversalsPerSecond": 1.02,
+          "freeReversalsPerSecond": 0.444,
+          "dither": 0.14,
+          "idle": 0.026,
+          "clickFlip": 0.121,
+          "flipsPerSecond": 0.972,
+          "shortClick": 0.204,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Vex",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 566.75,
+          "ordersPerSecond": 8.649,
+          "castsPerSecond": 0.376,
+          "reversalsPerSecond": 1.205,
+          "freeReversalsPerSecond": 0.579,
+          "dither": 0.171,
+          "idle": 0.009,
+          "clickFlip": 0.138,
+          "flipsPerSecond": 1.131,
+          "shortClick": 0.219,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Rook",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 697.5,
+          "ordersPerSecond": 8.639,
+          "castsPerSecond": 0.383,
+          "reversalsPerSecond": 1.209,
+          "freeReversalsPerSecond": 0.68,
+          "dither": 0.17,
+          "idle": 0.004,
+          "clickFlip": 0.136,
+          "flipsPerSecond": 1.095,
+          "shortClick": 0.255,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Wisp",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 608.5,
+          "ordersPerSecond": 8.717,
+          "castsPerSecond": 0.37,
+          "reversalsPerSecond": 1.091,
+          "freeReversalsPerSecond": 0.5,
+          "dither": 0.134,
+          "idle": 0.015,
+          "clickFlip": 0.125,
+          "flipsPerSecond": 1.03,
+          "shortClick": 0.206,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Pyre",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 574.75,
+          "ordersPerSecond": 8.705,
+          "castsPerSecond": 0.367,
+          "reversalsPerSecond": 1.195,
+          "freeReversalsPerSecond": 0.531,
+          "dither": 0.157,
+          "idle": 0.014,
+          "clickFlip": 0.129,
+          "flipsPerSecond": 1.056,
+          "shortClick": 0.204,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "file": "brawlock-2026-10-25-Ash-vs-Laub-vs-Thorn-vs-Vex (1).brawlock",
+      "recorded": "2026-10-25T12:03:30.998Z",
+      "netId": "d3d1f10fe9d4",
+      "build": {
+        "commit": "a92f7931d9f5c8d0414966b76c7cdcb6c4bd253e",
+        "tag": "v0.1.0-alpha.10"
+      },
+      "hz": 60,
+      "gameMode": "rounds",
+      "teamMode": "ffa",
+      "source": "resimulated",
+      "desync": null,
+      "players": [
+        {
+          "name": "Laub",
+          "kind": "human",
+          "tier": null,
+          "seconds": 441.617,
+          "ordersPerSecond": 5.702,
+          "castsPerSecond": 0.387,
+          "reversalsPerSecond": 0.328,
+          "freeReversalsPerSecond": 0.195,
+          "dither": 0.075,
+          "idle": 0.018,
+          "clickFlip": 0.055,
+          "flipsPerSecond": 0.306,
+          "shortClick": 0.132,
+          "moveGaps": [
+            0.1,
+            0.15,
+            0.25
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "BeFlat",
+          "kind": "human",
+          "tier": null,
+          "seconds": 509.967,
+          "ordersPerSecond": 4.983,
+          "castsPerSecond": 0.28,
+          "reversalsPerSecond": 0.316,
+          "freeReversalsPerSecond": 0.145,
+          "dither": 0.077,
+          "idle": 0.018,
+          "clickFlip": 0.055,
+          "flipsPerSecond": 0.253,
+          "shortClick": 0.259,
+          "moveGaps": [
+            0.083,
+            0.133,
+            0.45
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Ash",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 313.35,
+          "ordersPerSecond": 8.773,
+          "castsPerSecond": 0.357,
+          "reversalsPerSecond": 1.2,
+          "freeReversalsPerSecond": 0.456,
+          "dither": 0.135,
+          "idle": 0.006,
+          "clickFlip": 0.13,
+          "flipsPerSecond": 1.075,
+          "shortClick": 0.171,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Thorn",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 459.967,
+          "ordersPerSecond": 8.679,
+          "castsPerSecond": 0.389,
+          "reversalsPerSecond": 1.265,
+          "freeReversalsPerSecond": 0.548,
+          "dither": 0.146,
+          "idle": 0.024,
+          "clickFlip": 0.14,
+          "flipsPerSecond": 1.146,
+          "shortClick": 0.212,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Vex",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 415.467,
+          "ordersPerSecond": 8.8,
+          "castsPerSecond": 0.359,
+          "reversalsPerSecond": 1.341,
+          "freeReversalsPerSecond": 0.681,
+          "dither": 0.145,
+          "idle": 0.019,
+          "clickFlip": 0.146,
+          "flipsPerSecond": 1.22,
+          "shortClick": 0.223,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Rook",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 446.217,
+          "ordersPerSecond": 8.722,
+          "castsPerSecond": 0.379,
+          "reversalsPerSecond": 1.224,
+          "freeReversalsPerSecond": 0.424,
+          "dither": 0.171,
+          "idle": 0.016,
+          "clickFlip": 0.136,
+          "flipsPerSecond": 1.132,
+          "shortClick": 0.154,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Wisp",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 306.2,
+          "ordersPerSecond": 8.592,
+          "castsPerSecond": 0.421,
+          "reversalsPerSecond": 1.156,
+          "freeReversalsPerSecond": 0.382,
+          "dither": 0.152,
+          "idle": 0.02,
+          "clickFlip": 0.134,
+          "flipsPerSecond": 1.091,
+          "shortClick": 0.169,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Pyre",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 346.25,
+          "ordersPerSecond": 8.708,
+          "castsPerSecond": 0.378,
+          "reversalsPerSecond": 1.109,
+          "freeReversalsPerSecond": 0.404,
+          "dither": 0.139,
+          "idle": 0.017,
+          "clickFlip": 0.129,
+          "flipsPerSecond": 1.066,
+          "shortClick": 0.167,
+          "moveGaps": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "file": "brawlock-2026-10-25-Ash-vs-Laub-vs-Thorn-vs-Vex.brawlock",
+      "recorded": "2026-10-25T22:19:47.939Z",
+      "netId": "4d7e9e143ff3",
+      "build": {
+        "commit": "c68ce367fcb8b7b1ac5f9816294b5a096895c934",
+        "tag": "v0.1.0-alpha.14"
+      },
+      "hz": 30,
+      "gameMode": "rounds",
+      "teamMode": "ffa",
+      "source": "resimulated",
+      "desync": null,
+      "players": [
+        {
+          "name": "Laub",
+          "kind": "human",
+          "tier": null,
+          "seconds": 577.033,
+          "ordersPerSecond": 5.495,
+          "castsPerSecond": 0.419,
+          "reversalsPerSecond": 0.222,
+          "freeReversalsPerSecond": 0.114,
+          "dither": 0.059,
+          "idle": 0.037,
+          "clickFlip": 0.037,
+          "flipsPerSecond": 0.198,
+          "shortClick": 0.145,
+          "moveGaps": [
+            0.1,
+            0.167,
+            0.267
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "BeFlat",
+          "kind": "human",
+          "tier": null,
+          "seconds": 618.733,
+          "ordersPerSecond": 5.227,
+          "castsPerSecond": 0.325,
+          "reversalsPerSecond": 0.233,
+          "freeReversalsPerSecond": 0.091,
+          "dither": 0.088,
+          "idle": 0.018,
+          "clickFlip": 0.046,
+          "flipsPerSecond": 0.226,
+          "shortClick": 0.287,
+          "moveGaps": [
+            0.067,
+            0.167,
+            0.333
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Ash",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 589.167,
+          "ordersPerSecond": 8.56,
+          "castsPerSecond": 0.429,
+          "reversalsPerSecond": 1.063,
+          "freeReversalsPerSecond": 0.351,
+          "dither": 0.114,
+          "idle": 0.012,
+          "clickFlip": 0.136,
+          "flipsPerSecond": 1.073,
+          "shortClick": 0.191,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Thorn",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 583.233,
+          "ordersPerSecond": 8.506,
+          "castsPerSecond": 0.394,
+          "reversalsPerSecond": 1.072,
+          "freeReversalsPerSecond": 0.49,
+          "dither": 0.119,
+          "idle": 0.017,
+          "clickFlip": 0.14,
+          "flipsPerSecond": 1.096,
+          "shortClick": 0.224,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Vex",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 703.967,
+          "ordersPerSecond": 8.502,
+          "castsPerSecond": 0.42,
+          "reversalsPerSecond": 1.095,
+          "freeReversalsPerSecond": 0.477,
+          "dither": 0.138,
+          "idle": 0.036,
+          "clickFlip": 0.143,
+          "flipsPerSecond": 1.104,
+          "shortClick": 0.231,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Rook",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 713.567,
+          "ordersPerSecond": 8.4,
+          "castsPerSecond": 0.429,
+          "reversalsPerSecond": 1.059,
+          "freeReversalsPerSecond": 0.423,
+          "dither": 0.131,
+          "idle": 0.021,
+          "clickFlip": 0.145,
+          "flipsPerSecond": 1.104,
+          "shortClick": 0.224,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Wisp",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 735.6,
+          "ordersPerSecond": 8.639,
+          "castsPerSecond": 0.392,
+          "reversalsPerSecond": 1.047,
+          "freeReversalsPerSecond": 0.377,
+          "dither": 0.124,
+          "idle": 0.02,
+          "clickFlip": 0.133,
+          "flipsPerSecond": 1.055,
+          "shortClick": 0.223,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Pyre",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 577.667,
+          "ordersPerSecond": 8.583,
+          "castsPerSecond": 0.417,
+          "reversalsPerSecond": 1.032,
+          "freeReversalsPerSecond": 0.405,
+          "dither": 0.111,
+          "idle": 0.017,
+          "clickFlip": 0.132,
+          "flipsPerSecond": 1.059,
+          "shortClick": 0.192,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "file": "brawlock-2026-10-25-BeFlat-vs-Laub-vs-Ash-vs-Cinder.brawlock",
+      "recorded": "2026-10-25T19:33:21.570Z",
+      "netId": "25346d28615a",
+      "build": {
+        "commit": "c2caf7e6f445fdbbfc8699ce98e435a552237d5c",
+        "tag": "v0.1.0-alpha.13"
+      },
+      "hz": 30,
+      "gameMode": "hill",
+      "teamMode": "ffa",
+      "source": "resimulated",
+      "desync": null,
+      "players": [
+        {
+          "name": "BeFlat",
+          "kind": "human",
+          "tier": null,
+          "seconds": 954.733,
+          "ordersPerSecond": 4.068,
+          "castsPerSecond": 0.624,
+          "reversalsPerSecond": 0.224,
+          "freeReversalsPerSecond": 0.069,
+          "dither": 0.071,
+          "idle": 0.033,
+          "clickFlip": 0.046,
+          "flipsPerSecond": 0.165,
+          "shortClick": 0.233,
+          "moveGaps": [
+            0.067,
+            0.167,
+            0.633
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Laub",
+          "kind": "human",
+          "tier": null,
+          "seconds": 461.1,
+          "ordersPerSecond": 4.93,
+          "castsPerSecond": 0.447,
+          "reversalsPerSecond": 0.156,
+          "freeReversalsPerSecond": 0.039,
+          "dither": 0.07,
+          "idle": 0.111,
+          "clickFlip": 0.031,
+          "flipsPerSecond": 0.147,
+          "shortClick": 0.113,
+          "moveGaps": [
+            0.1,
+            0.167,
+            0.267
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Ash",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 798.6,
+          "ordersPerSecond": 8.417,
+          "castsPerSecond": 0.445,
+          "reversalsPerSecond": 0.828,
+          "freeReversalsPerSecond": 0.14,
+          "dither": 0.135,
+          "idle": 0.016,
+          "clickFlip": 0.109,
+          "flipsPerSecond": 0.835,
+          "shortClick": 0.086,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Cinder",
+          "kind": "bot",
+          "tier": "medium",
+          "seconds": 703.433,
+          "ordersPerSecond": 2.327,
+          "castsPerSecond": 0.216,
+          "reversalsPerSecond": 0.486,
+          "freeReversalsPerSecond": 0.175,
+          "dither": 0.058,
+          "idle": 0.048,
+          "clickFlip": 0.249,
+          "flipsPerSecond": 0.462,
+          "shortClick": 0.149,
+          "moveGaps": [
+            0.333,
+            0.367,
+            0.733
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Thorn",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 773.533,
+          "ordersPerSecond": 8.606,
+          "castsPerSecond": 0.393,
+          "reversalsPerSecond": 0.782,
+          "freeReversalsPerSecond": 0.189,
+          "dither": 0.126,
+          "idle": 0.017,
+          "clickFlip": 0.102,
+          "flipsPerSecond": 0.786,
+          "shortClick": 0.092,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Vex",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 911.667,
+          "ordersPerSecond": 8.583,
+          "castsPerSecond": 0.421,
+          "reversalsPerSecond": 0.767,
+          "freeReversalsPerSecond": 0.188,
+          "dither": 0.119,
+          "idle": 0.012,
+          "clickFlip": 0.1,
+          "flipsPerSecond": 0.767,
+          "shortClick": 0.094,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Sable",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 868,
+          "ordersPerSecond": 8.616,
+          "castsPerSecond": 0.389,
+          "reversalsPerSecond": 0.789,
+          "freeReversalsPerSecond": 0.197,
+          "dither": 0.114,
+          "idle": 0.015,
+          "clickFlip": 0.103,
+          "flipsPerSecond": 0.791,
+          "shortClick": 0.094,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Rook",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 928.767,
+          "ordersPerSecond": 8.535,
+          "castsPerSecond": 0.486,
+          "reversalsPerSecond": 0.914,
+          "freeReversalsPerSecond": 0.227,
+          "dither": 0.124,
+          "idle": 0.016,
+          "clickFlip": 0.121,
+          "flipsPerSecond": 0.923,
+          "shortClick": 0.114,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Wisp",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 800.867,
+          "ordersPerSecond": 8.533,
+          "castsPerSecond": 0.4,
+          "reversalsPerSecond": 0.763,
+          "freeReversalsPerSecond": 0.18,
+          "dither": 0.122,
+          "idle": 0.014,
+          "clickFlip": 0.103,
+          "flipsPerSecond": 0.785,
+          "shortClick": 0.088,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Pyre",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 837.567,
+          "ordersPerSecond": 8.631,
+          "castsPerSecond": 0.408,
+          "reversalsPerSecond": 0.768,
+          "freeReversalsPerSecond": 0.167,
+          "dither": 0.118,
+          "idle": 0.024,
+          "clickFlip": 0.102,
+          "flipsPerSecond": 0.786,
+          "shortClick": 0.084,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "file": "brawlock-2026-10-27-Ash-vs-POPE-vs-Laub-vs-BeFlat.brawlock",
+      "recorded": "2026-10-27T21:32:46.149Z",
+      "netId": "cd919e03cef3",
+      "build": {
+        "commit": "202e9ffc11d32c95cde36ba05443ef3ebefc375a",
+        "tag": null
+      },
+      "hz": 30,
+      "gameMode": "hill",
+      "teamMode": "ffa",
+      "source": "resimulated",
+      "desync": null,
+      "players": [
+        {
+          "name": "POPE",
+          "kind": "human",
+          "tier": null,
+          "seconds": 1772.233,
+          "ordersPerSecond": 1.155,
+          "castsPerSecond": 0.721,
+          "reversalsPerSecond": 0.047,
+          "freeReversalsPerSecond": 0.019,
+          "dither": 0.006,
+          "idle": 0.122,
+          "clickFlip": 0.021,
+          "flipsPerSecond": 0.014,
+          "shortClick": 0.033,
+          "moveGaps": [
+            0.1,
+            0.267,
+            2.367
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Laub",
+          "kind": "human",
+          "tier": null,
+          "seconds": 2135.033,
+          "ordersPerSecond": 5.207,
+          "castsPerSecond": 0.55,
+          "reversalsPerSecond": 0.181,
+          "freeReversalsPerSecond": 0.058,
+          "dither": 0.075,
+          "idle": 0.023,
+          "clickFlip": 0.035,
+          "flipsPerSecond": 0.172,
+          "shortClick": 0.153,
+          "moveGaps": [
+            0.1,
+            0.167,
+            0.267
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "BeFlat",
+          "kind": "human",
+          "tier": null,
+          "seconds": 2515.933,
+          "ordersPerSecond": 5.483,
+          "castsPerSecond": 0.475,
+          "reversalsPerSecond": 0.182,
+          "freeReversalsPerSecond": 0.048,
+          "dither": 0.053,
+          "idle": 0.014,
+          "clickFlip": 0.031,
+          "flipsPerSecond": 0.157,
+          "shortClick": 0.11,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.3
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Ash",
+          "kind": "bot",
+          "tier": "brutal",
+          "seconds": 2311.633,
+          "ordersPerSecond": 8.34,
+          "castsPerSecond": 0.54,
+          "reversalsPerSecond": 0.741,
+          "freeReversalsPerSecond": 0.144,
+          "dither": 0.108,
+          "idle": 0.011,
+          "clickFlip": 0.1,
+          "flipsPerSecond": 0.762,
+          "shortClick": 0.079,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Cinder",
+          "kind": "bot",
+          "tier": "medium",
+          "seconds": 2035.433,
+          "ordersPerSecond": 2.344,
+          "castsPerSecond": 0.203,
+          "reversalsPerSecond": 0.555,
+          "freeReversalsPerSecond": 0.177,
+          "dither": 0.065,
+          "idle": 0.028,
+          "clickFlip": 0.27,
+          "flipsPerSecond": 0.533,
+          "shortClick": 0.122,
+          "moveGaps": [
+            0.333,
+            0.367,
+            0.733
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Sable",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 2564.233,
+          "ordersPerSecond": 8.538,
+          "castsPerSecond": 0.448,
+          "reversalsPerSecond": 0.8,
+          "freeReversalsPerSecond": 0.175,
+          "dither": 0.111,
+          "idle": 0.014,
+          "clickFlip": 0.104,
+          "flipsPerSecond": 0.805,
+          "shortClick": 0.088,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Rook",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 2393.567,
+          "ordersPerSecond": 8.344,
+          "castsPerSecond": 0.513,
+          "reversalsPerSecond": 0.846,
+          "freeReversalsPerSecond": 0.173,
+          "dither": 0.124,
+          "idle": 0.018,
+          "clickFlip": 0.112,
+          "flipsPerSecond": 0.849,
+          "shortClick": 0.084,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Wisp",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 2150.733,
+          "ordersPerSecond": 8.407,
+          "castsPerSecond": 0.441,
+          "reversalsPerSecond": 0.833,
+          "freeReversalsPerSecond": 0.162,
+          "dither": 0.117,
+          "idle": 0.01,
+          "clickFlip": 0.107,
+          "flipsPerSecond": 0.82,
+          "shortClick": 0.082,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Pyre",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 2507.333,
+          "ordersPerSecond": 8.399,
+          "castsPerSecond": 0.527,
+          "reversalsPerSecond": 0.835,
+          "freeReversalsPerSecond": 0.166,
+          "dither": 0.116,
+          "idle": 0.01,
+          "clickFlip": 0.112,
+          "flipsPerSecond": 0.857,
+          "shortClick": 0.085,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Slag",
+          "kind": "bot",
+          "tier": "hard",
+          "seconds": 2289.5,
+          "ordersPerSecond": 8.307,
+          "castsPerSecond": 0.468,
+          "reversalsPerSecond": 0.79,
+          "freeReversalsPerSecond": 0.176,
+          "dither": 0.102,
+          "idle": 0.009,
+          "clickFlip": 0.103,
+          "flipsPerSecond": 0.772,
+          "shortClick": 0.098,
+          "moveGaps": [
+            0.067,
+            0.1,
+            0.133
+          ],
+          "thinkGaps": [
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    }
+  ],
+  "players": {
+    "BeFlat": {
+      "kind": "human",
+      "tier": null,
+      "matches": 5,
+      "values": 5,
+      "pooled": {
+        "seconds": 5274.367,
+        "ordersPerSecond": 4.993,
+        "castsPerSecond": 0.449,
+        "reversalsPerSecond": 0.218,
+        "freeReversalsPerSecond": 0.077,
+        "dither": 0.063,
+        "idle": 0.017,
+        "clickFlip": 0.039,
+        "flipsPerSecond": 0.181,
+        "shortClick": 0.174,
+        "moveGaps": [
+          0.067,
+          0.133,
+          0.4
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          4.068,
+          5.483
+        ],
+        "castsPerSecond": [
+          0.28,
+          0.624
+        ],
+        "reversalsPerSecond": [
+          0.182,
+          0.316
+        ],
+        "freeReversalsPerSecond": [
+          0.048,
+          0.145
+        ],
+        "dither": [
+          0.053,
+          0.088
+        ],
+        "idle": [
+          0.007,
+          0.033
+        ],
+        "clickFlip": [
+          0.031,
+          0.055
+        ],
+        "flipsPerSecond": [
+          0.157,
+          0.253
+        ],
+        "shortClick": [
+          0.11,
+          0.287
+        ],
+        "moveGaps": [
+          [
+            0.067,
+            0.083
+          ],
+          [
+            0.1,
+            0.167
+          ],
+          [
+            0.3,
+            0.633
+          ]
+        ]
+      }
+    },
+    "Laub": {
+      "kind": "human",
+      "tier": null,
+      "matches": 5,
+      "values": 5,
+      "pooled": {
+        "seconds": 4103.533,
+        "ordersPerSecond": 5.339,
+        "castsPerSecond": 0.48,
+        "reversalsPerSecond": 0.203,
+        "freeReversalsPerSecond": 0.083,
+        "dither": 0.072,
+        "idle": 0.032,
+        "clickFlip": 0.037,
+        "flipsPerSecond": 0.191,
+        "shortClick": 0.132,
+        "moveGaps": [
+          0.1,
+          0.167,
+          0.267
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          4.93,
+          5.788
+        ],
+        "castsPerSecond": [
+          0.364,
+          0.55
+        ],
+        "reversalsPerSecond": [
+          0.156,
+          0.328
+        ],
+        "freeReversalsPerSecond": [
+          0.039,
+          0.195
+        ],
+        "dither": [
+          0.059,
+          0.075
+        ],
+        "idle": [
+          0.004,
+          0.111
+        ],
+        "clickFlip": [
+          0.031,
+          0.055
+        ],
+        "flipsPerSecond": [
+          0.147,
+          0.306
+        ],
+        "shortClick": [
+          0.053,
+          0.153
+        ],
+        "moveGaps": [
+          [
+            0.083,
+            0.1
+          ],
+          [
+            0.15,
+            0.167
+          ],
+          [
+            0.233,
+            0.267
+          ]
+        ]
+      }
+    },
+    "POPE": {
+      "kind": "human",
+      "tier": null,
+      "matches": 2,
+      "values": 2,
+      "pooled": {
+        "seconds": 2178.483,
+        "ordersPerSecond": 1.116,
+        "castsPerSecond": 0.673,
+        "reversalsPerSecond": 0.053,
+        "freeReversalsPerSecond": 0.022,
+        "dither": 0.006,
+        "idle": 0.12,
+        "clickFlip": 0.027,
+        "flipsPerSecond": 0.016,
+        "shortClick": 0.031,
+        "moveGaps": [
+          0.083,
+          0.333,
+          2.4
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          0.945,
+          1.155
+        ],
+        "castsPerSecond": [
+          0.465,
+          0.721
+        ],
+        "reversalsPerSecond": [
+          0.047,
+          0.079
+        ],
+        "freeReversalsPerSecond": [
+          0.019,
+          0.034
+        ],
+        "dither": [
+          0.005,
+          0.006
+        ],
+        "idle": [
+          0.111,
+          0.122
+        ],
+        "clickFlip": [
+          0.021,
+          0.071
+        ],
+        "flipsPerSecond": [
+          0.014,
+          0.027
+        ],
+        "shortClick": [
+          0.021,
+          0.033
+        ],
+        "moveGaps": [
+          [
+            0.083,
+            0.1
+          ],
+          [
+            0.267,
+            0.75
+          ],
+          [
+            2.367,
+            2.583
+          ]
+        ]
+      }
+    },
+    "medium bots": {
+      "kind": "bot",
+      "tier": "medium",
+      "matches": 2,
+      "values": 2,
+      "pooled": {
+        "seconds": 2738.867,
+        "ordersPerSecond": 2.34,
+        "castsPerSecond": 0.207,
+        "reversalsPerSecond": 0.537,
+        "freeReversalsPerSecond": 0.177,
+        "dither": 0.063,
+        "idle": 0.033,
+        "clickFlip": 0.265,
+        "flipsPerSecond": 0.514,
+        "shortClick": 0.129,
+        "moveGaps": [
+          0.333,
+          0.367,
+          0.733
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          2.327,
+          2.344
+        ],
+        "castsPerSecond": [
+          0.203,
+          0.216
+        ],
+        "reversalsPerSecond": [
+          0.486,
+          0.555
+        ],
+        "freeReversalsPerSecond": [
+          0.175,
+          0.177
+        ],
+        "dither": [
+          0.058,
+          0.065
+        ],
+        "idle": [
+          0.028,
+          0.048
+        ],
+        "clickFlip": [
+          0.249,
+          0.27
+        ],
+        "flipsPerSecond": [
+          0.462,
+          0.533
+        ],
+        "shortClick": [
+          0.122,
+          0.149
+        ],
+        "moveGaps": [
+          [
+            0.333,
+            0.333
+          ],
+          [
+            0.367,
+            0.367
+          ],
+          [
+            0.733,
+            0.733
+          ]
+        ]
+      }
+    },
+    "hard bots": {
+      "kind": "bot",
+      "tier": "hard",
+      "matches": 2,
+      "values": 11,
+      "pooled": {
+        "seconds": 17025.767,
+        "ordersPerSecond": 8.456,
+        "castsPerSecond": 0.461,
+        "reversalsPerSecond": 0.814,
+        "freeReversalsPerSecond": 0.177,
+        "dither": 0.116,
+        "idle": 0.013,
+        "clickFlip": 0.107,
+        "flipsPerSecond": 0.817,
+        "shortClick": 0.089,
+        "moveGaps": [
+          0.067,
+          0.1,
+          0.133
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          8.307,
+          8.631
+        ],
+        "castsPerSecond": [
+          0.389,
+          0.527
+        ],
+        "reversalsPerSecond": [
+          0.763,
+          0.914
+        ],
+        "freeReversalsPerSecond": [
+          0.162,
+          0.227
+        ],
+        "dither": [
+          0.102,
+          0.126
+        ],
+        "idle": [
+          0.009,
+          0.024
+        ],
+        "clickFlip": [
+          0.1,
+          0.121
+        ],
+        "flipsPerSecond": [
+          0.767,
+          0.923
+        ],
+        "shortClick": [
+          0.082,
+          0.114
+        ],
+        "moveGaps": [
+          [
+            0.067,
+            0.067
+          ],
+          [
+            0.1,
+            0.1
+          ],
+          [
+            0.133,
+            0.133
+          ]
+        ]
+      }
+    },
+    "brutal bots": {
+      "kind": "bot",
+      "tier": "brutal",
+      "matches": 5,
+      "values": 19,
+      "pooled": {
+        "seconds": 12286.583,
+        "ordersPerSecond": 8.554,
+        "castsPerSecond": 0.425,
+        "reversalsPerSecond": 1.037,
+        "freeReversalsPerSecond": 0.396,
+        "dither": 0.134,
+        "idle": 0.016,
+        "clickFlip": 0.127,
+        "flipsPerSecond": 1.009,
+        "shortClick": 0.178,
+        "moveGaps": [
+          0.067,
+          0.1,
+          0.133
+        ],
+        "thinkGaps": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "ranges": {
+        "ordersPerSecond": [
+          8.34,
+          8.8
+        ],
+        "castsPerSecond": [
+          0.357,
+          0.54
+        ],
+        "reversalsPerSecond": [
+          0.741,
+          1.341
+        ],
+        "freeReversalsPerSecond": [
+          0.14,
+          0.681
+        ],
+        "dither": [
+          0.108,
+          0.171
+        ],
+        "idle": [
+          0.004,
+          0.036
+        ],
+        "clickFlip": [
+          0.1,
+          0.146
+        ],
+        "flipsPerSecond": [
+          0.762,
+          1.22
+        ],
+        "shortClick": [
+          0.079,
+          0.255
+        ],
+        "moveGaps": [
+          [
+            0.067,
+            0.1
+          ],
+          [
+            0.1,
+            0.1
+          ],
+          [
+            0.1,
+            0.133
+          ]
+        ]
+      }
+    }
+  }
+}

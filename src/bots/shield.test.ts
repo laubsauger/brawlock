@@ -187,7 +187,7 @@ describe('bots: Shield awareness', () => {
   })
 
   it('dodges its own Fireball coming back off a Shield (a bot that stands still is hit)', () => {
-    const run = (difficulty: BotDifficulty | null, k: number) => {
+    const run = (difficulty: BotDifficulty | null, k: number, seed = 9 + k) => {
       const slots: PlayerSlot[] = [
         { id: BOT, name: 'bot', color: 0xff0000, team: 0, kind: 'bot', difficulty: difficulty ?? 'dummy' },
         { id: ENEMY, name: 'turtle', color: 0x0000ff, team: 1, kind: 'human' },
@@ -210,7 +210,7 @@ describe('bots: Shield awareness', () => {
       }
       foe.slots[SHIELD_SLOT] = 'shield'
       foe.levels[SHIELD_SLOT] = 1
-      const bot = difficulty ? createBot(BOT, difficulty, 9 + k) : null
+      const bot = difficulty ? createBot(BOT, difficulty, seed) : null
       const watch = reflectWatch()
       // our Fireball is already on its way (cast before the bot takes over)
       step(state, [{ player: BOT, tick: state.tick, cmds: [{ kind: 'cast', slot: FIREBALL_SLOT, x: foe.x, y: foe.y }] }])
@@ -225,11 +225,15 @@ describe('bots: Shield awareness', () => {
       }
       return watch.hits.get(BOT) ?? 0
     }
-    for (let k = 0; k < 4; k++) {
-      expect(run(null, k), `#${k}: the reflected shot must come back on course`).toBe(1)
-      for (const d of ['hard', 'brutal', 'uber'] as const) expect(run(d, k), `${d} #${k}`).toBe(0)
+    for (let k = 0; k < 4; k++) expect(run(null, k), `#${k}: the reflected shot must come back on course`).toBe(1)
+    // Reaction times have a human spread (presets.ts, motor model): Hard's slowest draws (its mean is
+    // 0.18 s) now and then come too late, as a person's do; Brutal and Uber always make it
+    for (const d of ['hard', 'brutal', 'uber'] as const) {
+      let hits = 0
+      for (let k = 0; k < 4; k++) for (let s = 0; s < 5; s++) hits += run(d, k, 9 + k + 100 * s)
+      expect(hits / 20, d).toBeLessThanOrEqual(d === 'hard' ? 0.15 : 0)
     }
-  })
+  }, 20_000)
 
   it('raises its own Shield against a bolt about to hit (hard and up every time, easy rarely), not for a miss', () => {
     const incoming = (difficulty: BotDifficulty, seed: number, offset = 0, spell = 'fireball') => {

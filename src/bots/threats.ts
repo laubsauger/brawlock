@@ -7,7 +7,7 @@
  */
 import { hypot } from '../sim/math'
 import { TICK_HZ } from '../sim/types'
-import type { PlayerId, SimState } from '../sim/types'
+import type { PlayerId, SimState, Vec2 } from '../sim/types'
 import { attr, isEnemy, spellDef } from '../sim'
 
 export interface ThreatZone {
@@ -55,4 +55,15 @@ export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
 
 export function insideAny(zones: readonly ThreatZone[], x: number, y: number, margin = 0): boolean {
   return zones.some((z) => hypot(x - z.x, y - z.y) < z.r + margin)
+}
+
+/** The straight walk from `from` to `to` passes within a zone (plus `margin`). */
+export function crossesAny(zones: readonly ThreatZone[], from: Vec2, to: Vec2, margin = 0): boolean {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const len2 = dx * dx + dy * dy
+  return zones.some((z) => {
+    const t = len2 > 1e-9 ? Math.max(0, Math.min(1, ((z.x - from.x) * dx + (z.y - from.y) * dy) / len2)) : 0
+    return hypot(from.x + dx * t - z.x, from.y + dy * t - z.y) < z.r + margin
+  })
 }

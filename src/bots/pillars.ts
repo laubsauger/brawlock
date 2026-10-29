@@ -38,15 +38,19 @@ export function firstBlocking(state: SimState, from: Vec2, to: Vec2, extra = PIL
   return best
 }
 
+/** A waypoint, and which way round a pillar it goes (0: no pillar in the way). */
+export type Route = Vec2 & { side: -1 | 0 | 1 }
+
 /**
  * Where to walk next on the way to `to`: `to` itself when the way is clear, else a waypoint
  * around the first pillar in the way, on the side that keeps us on safe ground:
  * - from outside its clearance ring: the tangent point (the shortest way round);
  * - already on the ring (pushed against it): a step around the ring toward `to`.
+ * `prefer` tries that side first (a side kept for the whole approach) instead of the shorter one.
  */
-export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number): Vec2 {
+export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number, prefer?: -1 | 1): Route {
   const o = firstBlocking(state, from, to)
-  if (!o) return to
+  if (!o) return { x: to.x, y: to.y, side: 0 }
   const R = clearance(o, PILLAR_MARGIN) + 8
   const fx = from.x - o.x
   const fy = from.y - o.y
@@ -54,8 +58,8 @@ export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number
   const ok = (w: Vec2) => isSafe(layer, w.x, w.y) && !inPillar(state, w.x, w.y, 0)
   // which way round is shorter: the side `to` lies on, seen from the pillar
   const cross = fx * (to.y - o.y) - fy * (to.x - o.x)
-  const first = cross >= 0 ? 1 : -1
-  for (const side of [first, -first]) {
+  const first: -1 | 1 = prefer ?? (cross >= 0 ? 1 : -1)
+  for (const side of [first, first === 1 ? -1 : 1] as const) {
     let w: Vec2
     if (d0 <= R + 4) {
       const a = atan2(fy, fx) + side * 1.1 // ~63 degrees around the ring
@@ -67,9 +71,9 @@ export function routeAround(state: SimState, from: Vec2, to: Vec2, layer: number
       const t = Math.sqrt(Math.max(0, d0 * d0 - R * R)) * 1.08
       w = { x: from.x + cos(a) * t, y: from.y + sin(a) * t }
     }
-    if (ok(w)) return w
+    if (ok(w)) return { ...w, side }
   }
-  return to
+  return { x: to.x, y: to.y, side: 0 }
 }
 
 /** Time (s) at which a projectile's straight flight first meets a pillar, or null. */

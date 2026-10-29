@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, createMatch, step, ticks } from '../sim'
-import { TICK_HZ, type BotDifficulty, type PlayerInput, type PlayerSlot } from '../sim/types'
+import type { BotDifficulty, PlayerInput, PlayerSlot } from '../sim/types'
 import { isTileAt, TILE_SIZE } from '../sim/arena'
 import { layerRadius, nearestTileCentre } from './arena'
-import { BotController } from './controller'
+import { BotController, reactionDelayBounds } from './controller'
 import { makePawn, makeState } from './fixtures'
 
 describe('bot scheduled decisions', () => {
@@ -13,9 +13,10 @@ describe('bot scheduled decisions', () => {
     expect(bot.think(state)).toEqual([])
     const [planned] = bot.scheduled()
     expect(planned.cmds.length).toBeGreaterThan(0)
-    // the reaction delay is dithered between the whole ticks around it (controller reactionDelayTicks)
-    const exact = bot.params.reactionDelay * TICK_HZ
-    expect([Math.floor(exact), Math.ceil(exact)]).toContain(planned.at)
+    // one reaction delay after the decision at tick 0, as drawn for this preset (reactionDelayTicks)
+    const [earliest, latest] = reactionDelayBounds(bot.params)
+    expect(planned.at).toBeGreaterThanOrEqual(earliest)
+    expect(planned.at).toBeLessThanOrEqual(latest)
     for (let tick = 1; tick < planned.at; tick++) {
       state.tick = tick
       expect(bot.think(state)).toEqual([])

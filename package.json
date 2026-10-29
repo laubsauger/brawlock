@@ -13,6 +13,8 @@
     "lint:invariants": "LINT_INVARIANTS=1 vitest run",
     "server": "vite-node server/main.mjs",
     "bots:elo": "vite-node scripts/bots/elo.ts --",
+    "bots:motion": "vite-node scripts/bots/motion.ts --",
+    "bots:replay-motion": "vite-node scripts/bots/replay-motion.ts --",
     "server:build": "node scripts/build-server.mjs",
     "accounts": "vite-node server/accounts-main.mjs",
     "accounts:migrate": "vite-node server/accounts-main.mjs --migrate",
