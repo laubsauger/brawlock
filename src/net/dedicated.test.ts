@@ -229,6 +229,10 @@ describe('dedicated server (M4.1)', () => {
     expect(view.server).toBe(true)
     expect(view.peers[0].playerId).toBe(-1)
 
+    // a long shop keeps the rematch running until the owner leaves: a Brutal bot otherwise can
+    // finish the idle owner first under load, and a match left after its end counts as completed
+    owner.session.updateSettings({ shopSeconds: 60 })
+    await until(() => owner.lobby().settings?.shopSeconds === 60, 3000, 'the rematch shop time')
     owner.session.rematch()
     await until(() => owner.screen() === 'match', 8000, 'the rematch to start')
     const info = (await (await fetch(`${http}/rooms/${code}`)).json()) as { exists: boolean; state: string; humans: number }
