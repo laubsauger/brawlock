@@ -10,7 +10,7 @@ export type MenuRatingState = 'loading' | 'ready' | 'error' | 'disabled'
 
 interface Props {
   name: string
-  account: Pick<AccountPlayer, 'email' | 'profile'> | null
+  account: Pick<AccountPlayer, 'profile'> | null
   accountsEnabled: boolean
   /** Accounts live on this site instead (a build hosted elsewhere, e.g. itch.io): sign-in opens it. */
   siteHost: string | null
@@ -37,7 +37,8 @@ export function MenuPlayerCard(props: Props) {
   const elsewhere = !accountsEnabled && siteHost !== null
   const checking = accountsEnabled && !accountLoaded
   const status = checking ? 'Checking sign-in…' : account ? account.profile ? 'Your account' : 'Finish account setup' : 'Guest warlock'
-  const profileLabel = account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}, ${account.email}` : `Edit player name and color: ${name}`
+  // no email here, not even in a title: the menu is on screen whenever a streamer is between games
+  const profileLabel = account ? `${account.profile ? 'Account settings' : 'Finish account setup'}: ${name}` : `Edit player name and color: ${name}`
   const invoke = (action: () => void) => () => { sfx('click'); action() }
   // the account's equipped cape emblem is its badge (last progression snapshot)
   const emblem = account ? localEquipment()?.emblem ?? null : null
@@ -45,12 +46,11 @@ export function MenuPlayerCard(props: Props) {
   const avatarColor = preferred === null ? '#efc58e' : `#${preferred.toString(16).padStart(6, '0')}`
   const actions = Number(ranked) + Number(accountsEnabled || elsewhere)
   return <section className="menu-player-card" aria-label="Player and account" data-testid="menu-player-card">
-    <button type="button" className="menu-player-profile" data-testid="player-profile" data-state={checking ? 'checking' : account ? account.profile ? 'account' : 'setup' : 'guest'} onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? `Signed in as ${account.email}` : 'Edit your name and color'}>
+    <button type="button" className="menu-player-profile" data-testid="player-profile" data-state={checking ? 'checking' : account ? account.profile ? 'account' : 'setup' : 'guest'} onClick={invoke(props.onProfile)} onMouseEnter={hoverSfx} aria-label={profileLabel} title={account ? 'Account settings' : 'Edit your name and color'}>
       <span className="menu-player-avatar">{emblem ? <EmblemBadge emblem={emblem} color={avatarColor} size={34} /> : <MenuGlyph kind="profile" size={23} />}</span>
       <span className="menu-player-identity">
         <span className="menu-player-status">{status}</span>
         <span className="menu-player-name" title={name}>{name}</span>
-        {account && <span className="menu-player-email" title={account.email}>{account.email}</span>}
       </span>
       <span className="menu-player-edit"><MenuGlyph kind="edit" size={15} /></span>
     </button>
