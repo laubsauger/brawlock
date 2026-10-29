@@ -228,7 +228,9 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.16**, source `c04177efe27f`, on 2026-10-26:
+The latest rollout is **v0.1.0-alpha.17**, source `463588c3a819`, on 2026-10-29:
+[Shop Ready, global chat and calmer bots](../deploy/releases/2026-10-29-alpha17.md).
+**v0.1.0-alpha.16**, source `c04177efe27f`, on 2026-10-26:
 [easier casual bots, a 1 s hill capture and guest sign-in prompts](../deploy/releases/2026-10-26-alpha16.md).
 **v0.1.0-alpha.15**, source `9fbd5447eee0`, shipped earlier that day:
 [the itch.io build, hill pillars and Fresh start](../deploy/releases/2026-10-26-alpha15.md).
