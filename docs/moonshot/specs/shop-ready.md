@@ -1,9 +1,9 @@
 # Shop Ready: the shop ends when everyone is done
 
-Status: **built 2026-10-29** (not yet released), with Part 2 (shopping while out, round gold at the
+Status: **built 2026-10-29**, shipped in alpha.17, with Part 2 (shopping while out, round gold at the
 knockout). Where the build differs from the first draft, this file says what was built and why. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
-[04-keystones.md](../04-keystones.md) Keystone 1 ("Ready ends the shop"). Ships in one release
-batch with [faster-casual.md](faster-casual.md), on the developer's yes.
+[04-keystones.md](../04-keystones.md) Keystone 1 ("Ready ends the shop"). Shipped ahead of
+[faster-casual.md](faster-casual.md), which is not built yet.
 
 The developer (2026-10-28): "I do love the idea of having a ready button that lets the round start
 when everyone is ready. I don't think it would happen often because people struggle with the bit

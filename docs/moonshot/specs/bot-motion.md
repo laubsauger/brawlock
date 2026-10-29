@@ -1,6 +1,6 @@
 # Bot motion: stop dancing on the spot
 
-Status: built 2026-10-29, not released (see "Built" at the end). Spec of 2026-10-28, from [04-keystones.md](../04-keystones.md) Keystone 3
+Status: built 2026-10-29, shipped in alpha.17 (see "Built" at the end). Spec of 2026-10-28, from [04-keystones.md](../04-keystones.md) Keystone 3
 Parts A and B and [research/codebase-map.md](../research/codebase-map.md) §8. Every number below
 was measured with the prototype in
 [research/bot-motion-prototype/](../research/bot-motion-prototype/) (a copy of `controller.ts` with

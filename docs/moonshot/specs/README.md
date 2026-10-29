@@ -7,9 +7,9 @@ the real sim and bots; the harnesses live in [../research/](../research/).
 
 | Spec | Status | In one line |
 |---|---|---|
-| [shop-ready.md](shop-ready.md) | built 2026-10-29, not released | Everyone Ready ends the shop: cut to 3 s, never before 6 s. Part 2: shop while out, with the round's gold paid at the knockout |
+| [shop-ready.md](shop-ready.md) | shipped in alpha.17 (2026-10-29) | Everyone Ready ends the shop: cut to 3 s, never before 6 s. Part 2: shop while out, with the round's gold paid at the knockout |
 | [faster-casual.md](faster-casual.md) | implementation spec | Brisk casual: five scheduled rounds, arena capped at layer 15, a ring every 7 s, 30 gold a round; about 9 minutes a match instead of 28, builds as large as today |
-| [bot-motion.md](bot-motion.md) | built 2026-10-29, not released | Bots stop dancing: reversals from 1.2 to 0.3 a second, no shared think clock, inside the human band |
+| [bot-motion.md](bot-motion.md) | shipped in alpha.17 (2026-10-29) | Bots stop dancing: reversals from 1.2 to 0.3 a second, no shared think clock, inside the human band |
 | [moments.md](moments.md) | implementation spec | The moments engine: knockouts and the hit that caused them, deciders, multi-knockouts, denies, reflections, close calls, long flights |
 | [final-blow.md](final-blow.md) | implementation spec | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
 | [results-reel.md](results-reel.md) | implementation spec | The match's best moments on the results screen; clips and sharing as the later phase |

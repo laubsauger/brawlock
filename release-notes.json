@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.0-alpha.17",
+    "releaseDate": "2026-10-29",
+    "title": "Shop Ready, global chat and calmer bots",
+    "changes": [
+      "The shop has a Ready button: once every player is ready, the shop ends 3 seconds later (never before 6 seconds).",
+      "Knocked out for the round? Your round gold arrives right away, and the knockout card opens the shop.",
+      "Global chat in the main menu: everyone can read it, and signed-in players with a name can post.",
+      "Bots move more like players: far less turning back and forth on the spot, and they no longer all react on the same beat.",
+      "King of the Hill: taking the hill takes half a second, quick play goes to 75 tickets, and a force field seals the hill for the first 5 seconds of every fight.",
+      "Your email no longer shows in the main menu; Account settings keeps it hidden until you ask.",
+      "Ranked: the announcer calls Match Point and Final Round at the right moments."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.16",
     "releaseDate": "2026-10-26",
     "title": "Friendlier casual games and a quicker hill",

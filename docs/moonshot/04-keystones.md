@@ -301,7 +301,7 @@ reruns as more replays come in.
 
 ### Part A · The motor model
 
-Built 2026-10-29 (not released), with measured values and the differences from this sketch:
+Built 2026-10-29, shipped in alpha.17, with measured values and the differences from this sketch:
 [specs/bot-motion.md](specs/bot-motion.md).
 
 Each likely source in [research/codebase-map.md](research/codebase-map.md) §8 gets a knob or a

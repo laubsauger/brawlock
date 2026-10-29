@@ -91,7 +91,7 @@ Deployment is established by release receipts, not by implementation status here
      11 layers. Hard keeps about 610 units from the edge on the big arena (a hit pushes a few
      hundred) and dodges most bolts, so early hits never reach lava. More kills means riskier
      positioning (closer, nearer the edge), which also makes Hard easier for players: a design call.
-8. **Global chat in the main menu: built, not released (2026-10-28).** One channel for everyone
+8. **Global chat in the main menu: shipped in alpha.17 (built 2026-10-28).** One channel for everyone
    online, bottom right of the main menu and passive like the in-game chat (the last three lines;
    Enter or a click opens it), filterable by region. Accounts with a claimed name post; guests and
    the itch.io embed read. Per-browser mute, report (the first report reaches the feedback inbox),
@@ -100,13 +100,13 @@ Deployment is established by release receipts, not by implementation status here
    the account service and the client in the same release.
    - Follow-up: guests can still show any name, including an account's claimed name. Dedicated
      rooms only mark them as guests (`sanitizeName` in `src/net/protocol.ts`).
-9. **Shop Ready and shopping while out: built, not released (2026-10-29).** Ready in the shop header
+9. **Shop Ready and shopping while out: shipped in alpha.17 (built 2026-10-29).** Ready in the shop header
    ends the shop 3 s after every human is ready (never before 6 s); a knocked-out warlock gets the
    round's gold at the knockout, can shop from the knockout card and ready while out. Sim and
    protocol change: new netcode id and `PROTOCOL_VERSION` 10, so server and client deploy together.
-   Planned to ship with Brisk casual ([moonshot/specs/faster-casual.md](moonshot/specs/faster-casual.md)).
+   Shipped ahead of Brisk casual ([moonshot/specs/faster-casual.md](moonshot/specs/faster-casual.md)).
    Spec: [moonshot/specs/shop-ready.md](moonshot/specs/shop-ready.md).
-10. **Bot motion: built, not released (2026-10-29).** Medium and up order their walking the way
+10. **Bot motion: shipped in alpha.17 (built 2026-10-29).** Medium and up order their walking the way
    players click: reversals from about 1.2 to 0.3 a second in 4-player FFA, orders from 8.7 to 5,
    no shared think clock (same-tick ratio 3.0 to 1.0), inside the strong-human band measured on
    recorded matches. Bot code only (no netcode change), but bots run both in the browser (solo,
