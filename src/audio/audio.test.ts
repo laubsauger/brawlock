@@ -55,6 +55,7 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   hillShrink: { type: 'hillShrink', layer: 5 },
   purchase: { type: 'purchase', player: 0, pawn: 1, kind: 'spell', id: 'teleport', level: 1 },
   freshStart: { type: 'freshStart', player: 0, pawn: 1, refund: 40 },
+  allReady: { type: 'allReady', saved: 300 },
 }
 
 const LISTENER = {

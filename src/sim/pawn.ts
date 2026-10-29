@@ -19,7 +19,7 @@ import { ARRIVE_EPSILON, CAST_TURN_LIMIT_TICKS, FACING_TOLERANCE, PAWN_WALK_SPEE
 import { angleDiff, atan2, wrapAngle } from './math'
 import { modifiersOnSpellCast, modifiersPreTick } from './modifiers'
 import { cancelCast, stopPawn } from './orders'
-import { buyItem, buyMastery, buySpell, freshStart } from './shop'
+import { buyItem, buyMastery, buySpell, freshStart, setShopReady } from './shop'
 import { SPELLS, SPELL_BEHAVIORS, cooldownSeconds } from './spells'
 import type { CastContext } from './spells/types'
 
@@ -106,6 +106,9 @@ export function applyCommand(state: SimState, player: PlayerId, pawn: PawnState,
       return
     case 'freshStart':
       freshStart(state, player)
+      return
+    case 'shopReady':
+      setShopReady(state, player, cmd.ready)
       return
     case 'spectateBet':
       placeSpectateBet(state, player, cmd.round, cmd.target)

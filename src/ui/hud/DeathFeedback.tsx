@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { eventsSince, frame } from '../../game/frame'
 import { useGame } from '../../game/store'
-import { TICK_HZ } from '../../sim'
+import { TICK_HZ, canBuy, respawnsInFight } from '../../sim'
+import { bindLabel, useBinds } from '../lib/keys'
 import { reducedMotion } from '../lib/motion'
 import { useTick } from '../lib/ticker'
 import { slotName } from '../lib/view'
+import { KeyCaps } from '../widgets'
 import { Skull } from './Announce'
 import { deathNextStep, deathRecap } from './deathRecap'
 import { SpectatorBets } from './SpectatorBets'
@@ -17,7 +19,9 @@ export function DeathFeedback() {
   const panel = useRef<HTMLDivElement>(null)
   const recap = useRef<HTMLParagraphElement>(null)
   const next = useRef<HTMLParagraphElement>(null)
+  const shop = useRef<HTMLButtonElement>(null)
   const edge = useRef<HTMLDivElement>(null)
+  const binds = useBinds()
   const memory = useRef({ tick: -1, local: frame.localPlayer, shown: false, at: 0, docked: false, animations: [] as Animation[] })
   const place = useRef<() => void>(() => {})
 
@@ -97,7 +101,11 @@ export function DeathFeedback() {
       m.tick = Math.max(m.tick, batch.tick)
     }
     if (state.phase === 'shop' || state.phase === 'warmup' || state.phase === 'gameOver') m.shown = false
-    panel.current.hidden = !m.shown
+    // the open shop says it all ("Out: buy for next round") and needs the corner the card docks into
+    const shopOpen = useGame.getState().shopOpen
+    panel.current.hidden = !m.shown || shopOpen
+    // shopping while out: the round's gold arrived at the knockout (sim mode.ts onKill)
+    if (shop.current) shop.current.hidden = shopOpen || state.phase !== 'fight' || respawnsInFight(state.settings) || !canBuy(state, local)
     if (m.docked !== (m.shown && performance.now() - m.at > DOCK_MS)) dock(!m.docked)
     if (!m.shown) {
       m.animations.forEach((a) => a.cancel())
@@ -144,6 +152,9 @@ export function DeathFeedback() {
           </div>
           <p ref={recap} className="mt-1 break-words text-[0.95rem] font-semibold text-[#f5ddcc] max-sm:[@media(max-height:740px)]:text-xs" />
           <p ref={next} className="mt-1 text-sm tabular-nums text-ash max-sm:[@media(max-height:740px)]:text-xs" aria-live="off" />
+          <button ref={shop} type="button" hidden className="interactive pointer-events-auto mt-2 inline-flex items-center gap-1.5 rounded border border-gold/40 bg-gold/10 px-2.5 py-1 text-sm font-semibold text-gold hover:bg-gold/20 focus-visible:outline-2 focus-visible:outline-gold" data-testid="death-shop" onClick={() => useGame.getState().toggle('shopOpen', true)}>
+            Shop for the next round <KeyCaps label={bindLabel(binds, 'shop', true)} />
+          </button>
         </div>
       </div>
       <SpectatorBets />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { cloneState, hashState, step } from '../sim'
-import { cmd, fight, grant, pawn, place } from '../sim/testkit'
+import { cmd, fight, grant, newMatch, pawn, place } from '../sim/testkit'
 import { FIREBALL_SLOT, PAWN_MOVE_SPEED } from '../sim/config'
 import { TICK_HZ, type InputCommand, type PlayerInput, type SimEvent, type SimState } from '../sim/types'
 import { EventLedger, FORCE_REBASE_TICKS, LeadClock, MAX_AHEAD_TICKS, Predictor, SNAP_DIST, type LocalFrame } from './predict'
@@ -360,6 +360,22 @@ describe('Predictor events', () => {
     pred.advance(s.tick + 6, (_d, e) => got.push(...e))
     expect(got.filter((e) => e.type === 'cast')).toHaveLength(1)
     expect(got.filter((e) => e.type === 'death')).toHaveLength(1)
+  })
+  it('plays the all-ready cut from the authority only, never from a predicted own Ready', () => {
+    // the cut depends on every human; a client predicting its own last Ready can be wrong about the others
+    const s = newMatch({}, 2)
+    Object.assign(s.slots[0], { kind: 'bot', difficulty: 'medium' })
+    const pred = new Predictor(1, step, cloneState)
+    const got: SimEvent[] = []
+    pred.offer(cloneState(s), 0)
+    pred.local({ seq: 1, tick: pred.stampNext(), cmds: [{ kind: 'shopReady', ready: true }] })
+    pred.advance(s.tick + 4, (_d, e) => got.push(...e))
+    expect(got.filter((e) => e.type === 'allReady')).toHaveLength(0)
+    const host = cloneState(s)
+    step(host, [cmd(1, { kind: 'shopReady', ready: true })])
+    pred.offer(host, 1, [{ tick: host.tick, events: host.events }])
+    pred.advance(host.tick + 4, (_d, e) => got.push(...e))
+    expect(got.filter((e) => e.type === 'allReady')).toHaveLength(1)
   })
   function cast(pawnId: number): SimEvent {
     return { type: 'cast', pawn: pawnId, spell: 'fireball', x: 1, y: 2 }

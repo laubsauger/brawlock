@@ -23,6 +23,7 @@ export type BindAction =
   | 'stop'
   | 'hold'
   | 'shop'
+  | 'shopReady'
   | 'character'
   | 'scoreboard'
   | 'recenter'
@@ -72,6 +73,7 @@ export const BIND_GROUPS: { title: string; actions: { id: BindAction; label: str
     title: 'Interface',
     actions: [
       { id: 'shop', label: 'Shop' },
+      { id: 'shopReady', label: 'Ready (shop done)' },
       { id: 'character', label: 'Character stats' },
       { id: 'scoreboard', label: 'Scoreboard (hold)' },
       { id: 'recenter', label: 'Center camera' },
@@ -86,8 +88,9 @@ export const ACTION_LABEL: Record<BindAction, string> = Object.fromEntries(BIND_
   string
 >
 
-// A is free in every preset, so camera peek sits there everywhere (middle mouse works too)
-const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', peek: 'KeyA', mute: 'KeyM' } as const
+// A is free in every preset, so camera peek sits there everywhere (middle mouse works too).
+// Shop Ready is unbound by default: the shop's button is enough.
+const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', peek: 'KeyA', mute: 'KeyM', shopReady: '' } as const
 const DIGITS = { item0: 'Digit1', item1: 'Digit2', item2: 'Digit3', item3: 'Digit4', item4: 'Digit5', item5: 'Digit6' } as const
 
 export const PRESETS: Record<KeyPreset, BindMap> = {

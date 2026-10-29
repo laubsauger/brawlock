@@ -148,6 +148,8 @@ export type InputCommand =
   | { kind: 'spectateBet'; round: number; target: PlayerId }
   /** sell the seat's whole build back to the starting kit (shop.ts freshStart) */
   | { kind: 'freshStart' }
+  /** done shopping, or not any more (shop.ts setShopReady): the shop ends early once every counted human is ready */
+  | { kind: 'shopReady'; ready: boolean }
 
 /** All commands one player issued for one tick. */
 export interface PlayerInput {
@@ -319,6 +321,8 @@ export interface PlayerScore {
   /** mastery levels */
   masteries: { duration: number; range: number; lifesteal: number }
   connected: boolean
+  /** this round's roundGold was paid at the knockout (mode.ts onKill); endRound skips and clears it */
+  roundPaid?: boolean
 }
 
 /** Economic ownership survives display-name changes, never a different occupant of a seat. */
@@ -463,6 +467,8 @@ export type SimEvent =
   | { type: 'purchase'; player: PlayerId; pawn: EntityId; kind: 'spell' | 'item' | 'mastery'; id: string; level: number }
   /** Fresh start: the seat's build was sold back to the starting kit for `refund` gold */
   | { type: 'freshStart'; player: PlayerId; pawn: EntityId; refund: number }
+  /** every counted human is ready: the shop was cut by `saved` ticks (shop.ts readyCut) */
+  | { type: 'allReady'; saved: number }
   /** deathmatch / hill respawn */
   | { type: 'respawn'; pawn: EntityId; owner: PlayerId; x: number; y: number }
   /** hill: who stands on it changed. team null = nobody alone on it; contested = 2+ teams on it */
@@ -491,6 +497,13 @@ export interface SimState {
   arena: ArenaState
   /** King of the Hill only, present from the first fight */
   hill?: HillState
+  /**
+   * Humans who pressed Ready for the coming fight, ascending (shop.ts setShopReady). Created by
+   * the first Ready, in the shop or while knocked out; startRound deletes it.
+   */
+  shopReady?: PlayerId[]
+  /** this shop was cut because everyone was ready (shop.ts readyCut); startRound deletes it */
+  shopCut?: boolean
   scores: PlayerScore[]
   pawns: PawnState[]
   projectiles: ProjectileState[]

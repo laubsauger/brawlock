@@ -172,7 +172,7 @@ function readPlayers(): StripPlayer[] {
 function useScoreRefs(id: number) {
   const score = useRef<HTMLSpanElement>(null)
   const root = useRef<HTMLDivElement>(null)
-  const last = useRef({ score: -1, alive: true, watch: false })
+  const last = useRef({ score: -1, alive: true, watch: false, ready: false })
   useTick(() => {
     const s = frame.curr
     if (!s) return
@@ -196,6 +196,13 @@ function useScoreRefs(id: number) {
       root.current.style.opacity = alive ? '1' : '0.5'
       l.alive = alive
     }
+    // Shop Ready (sim/shop.ts): marked in the shop phase only
+    const ready = s.phase === 'shop' && !!s.shopReady?.includes(id)
+    if (ready !== l.ready && root.current) {
+      if (ready) root.current.dataset.ready = 'true'
+      else delete root.current.dataset.ready
+      l.ready = ready
+    }
   })
   return { score, root }
 }
@@ -216,7 +223,7 @@ function ScorePill({ p, local, density = 'normal', inGroup = false }: { p: Strip
       ref={root}
       data-player={p.id}
       // inside a team frame (2 px padding each side) a pill is 4 px shorter, so the group matches the clock height
-      className={`hud-plate flex shrink-0 items-center rounded-[5px] transition-opacity ${inGroup ? d.box.replace('h-9', 'h-8') : d.box}`}
+      className={`hud-plate group flex shrink-0 items-center rounded-[5px] transition-opacity ${inGroup ? d.box.replace('h-9', 'h-8') : d.box}`}
       style={local ? { boxShadow: `inset 0 0 0 1px ${p.color}aa, 0 6px 24px rgba(0,0,0,.45)` } : undefined}
       title={p.name}
     >
@@ -229,6 +236,7 @@ function ScorePill({ p, local, density = 'normal', inGroup = false }: { p: Strip
       <span ref={score} className={`tabular inline-block font-bold text-gold ${d.score}`}>
         0
       </span>
+      <span className="hidden font-bold text-heal group-data-[ready=true]:inline" title="Ready" aria-hidden>✓</span>
     </div>
   )
 }
@@ -241,7 +249,7 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
     <div
       ref={root}
       data-player={p.id}
-      className={`flex h-9 items-stretch overflow-hidden transition-opacity ${side === 'right' ? 'flex-row-reverse' : ''}`}
+      className={`group flex h-9 items-stretch overflow-hidden transition-opacity ${side === 'right' ? 'flex-row-reverse' : ''}`}
       style={{ background: `linear-gradient(${toCenter}, ${p.color}55, rgba(14,8,5,.88) 70%)`, boxShadow: `inset 0 0 0 1px ${p.color}66, 0 6px 24px rgba(0,0,0,.45)` }}
     >
       <span className="w-1.5" style={{ background: p.color, boxShadow: `0 0 12px ${p.color}` }} aria-hidden />
@@ -251,7 +259,8 @@ function BroadcastSide({ p, side, local }: { p: StripPlayer; side: 'left' | 'rig
           {p.bot && <span className="bot-mark mr-1" title="Bot" aria-label="Bot" />}
           {p.name}
         </span>
-        {local && <span className="text-[0.68rem] leading-none font-semibold text-gold">You</span>}
+        {local && <span className="text-[0.68rem] leading-none font-semibold text-gold group-data-[ready=true]:hidden">You</span>}
+        <span className="hidden text-[0.68rem] leading-none font-semibold text-heal group-data-[ready=true]:inline" aria-hidden>Ready ✓</span>
       </span>
       <span ref={score} className="tabular hud-text-shadow grid w-10 place-items-center bg-black/35 text-[1.4rem] font-bold text-[#fff1d6]">
         0

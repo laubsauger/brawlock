@@ -1,6 +1,7 @@
 # Shop Ready: the shop ends when everyone is done
 
-Status: implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
+Status: **built 2026-10-29** (not yet released), with Part 2 (shopping while out, round gold at the
+knockout). Where the build differs from the first draft, this file says what was built and why. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
 [04-keystones.md](../04-keystones.md) Keystone 1 ("Ready ends the shop"). Ships in one release
 batch with [faster-casual.md](faster-casual.md), on the developer's yes.
 
@@ -34,8 +35,9 @@ of time that is there, but it is still a great feature to have. So we should hav
   ("2/3 ready") and a check mark on each ready human's pill in the top bar. The pills show it to
   everyone, including spectators, benched players and the replay viewer. With one human the count
   is hidden: "1/1" says nothing.
-- **The countdown.** When the last human readies, a short banner says everyone is ready, the shop
-  clock and the top clock jump to the new time, the button locks, and the existing 3-2-1 and round
+- **The countdown.** When the last human readies, a toast says "Everyone is ready" (a toast, not a
+  banner: the 3-2-1 banner starts on the same frame), the shop clock and the top clock jump to the
+  new time, the button locks, and the existing 3-2-1 and round
   call ("Round Two!", "Final Round!") play as they do today. The new time is 3 s, but never earlier
   than 6 s after the shop opened (Rule 5).
 - **Not shown** to spectators, to players benched for a ranked final, to a player whose seat is
@@ -79,8 +81,9 @@ with `ticks()` at the use site: `SHOP_READY_SECONDS = 3`, `SHOP_READY_MIN_SECOND
 7. **Un-ready** is allowed for the whole shop phase. It matters only before the cut; the UI locks
    the button once the cut has happened or 3 s or less remain. Precedent: the lobby Ready toggles
    (`src/ui/screens/Lobby.tsx:544-545`).
-8. **Clearing.** `prepareForRound` sets `state.shopReady = []`; `startRound` deletes it, so the
-   field exists only in the shop phase. A roster change that gives a seat a new occupant (its
+8. **Clearing.** `startRound` deletes `state.shopReady` and `state.shopCut` (the cut marker, so
+   the cut happens at most once a shop and the HUD can lock the button); the list is created by
+   the first Ready, in the shop or while out (Rule 14). A roster change that gives a seat a new occupant (its
    `kind` or `profileId` differs, `src/sim/roster.ts:6-11`) removes that id: a new occupant never
    inherits consent, the rule the lobby already follows (`src/net/session.ts:1201`). A disconnect
    keeps the entry; while disconnected the seat does not count, and a returning player is still
@@ -104,14 +107,14 @@ with `ticks()` at the use site: `SHOP_READY_SECONDS = 3`, `SHOP_READY_MIN_SECOND
 | Layer | File and seam | Change |
 |---|---|---|
 | Sim types | `src/sim/types.ts:141-150` `InputCommand` | add `{ kind: 'shopReady'; ready: boolean }` |
-| | `src/sim/types.ts:477-499` `SimState` | add `shopReady?: PlayerId[]` (humans who pressed Ready this shop phase, ascending; absent outside it) |
+| | `src/sim/types.ts:477-499` `SimState` | add `shopReady?: PlayerId[]` (humans who pressed Ready for the coming fight, ascending) and `shopCut?: boolean` |
 | | `src/sim/types.ts:374-475` `SimEvent` | add `{ type: 'allReady'; saved: number }` (ticks removed from the shop) |
 | Sim rules | `src/sim/config.ts:105-106` | the two constants |
-| | `src/sim/shop.ts` | `readySeat(state, player)`, `setShopReady(state, player, ready)`, `allReady(state)` and a `shopReadyView(state, player)` for the HUD: `{ can, mine, ready, total, starting }` |
+| | `src/sim/shop.ts` | `canReady(state, player)`, `setShopReady(state, player, ready)`, `allReady(state)`, `shopLength(state)`, `readyCut(state)` and `shopReadyView(state, player)` for the HUD: `{ shown, can, mine, ready, total, starting }` |
 | | `src/sim/pawn.ts:83-114` `applyCommand` | `case 'shopReady': setShopReady(...)` |
 | | `src/sim/index.ts:160-183` `validCommand` | `case 'shopReady': Object.keys(cmd).length === 2 && typeof cmd.ready === 'boolean'`; export `shopReadyView` |
-| | `src/sim/mode.ts:166-184` `prepareForRound` | `state.shopReady = []`; factor `shopLength(state)` out of line 168 so the cut reads the same value |
-| | `src/sim/mode.ts:186-238` `startRound` | `delete state.shopReady` |
+| | `src/sim/mode.ts` `prepareForRound` | uses `shopLength(state)`, and runs `readyCut` as the shop opens, so a shop everyone readied for while out opens already cut and its banner shows the real time |
+| | `src/sim/mode.ts` `startRound` | `delete state.shopReady`, `delete state.shopCut` |
 | | `src/sim/mode.ts:394-400` `phaseTick` | before the shop/roundEnd branch: `if (state.phase === 'shop') readyCut(state)` (Rule 5) |
 | | `src/sim/roster.ts:6-11` | drop the id from `shopReady` when the occupant changes (Rule 8) |
 | Net | `src/net/protocol.ts:323-367` `sanitizeCommand` | `case 'shopReady'`: exactly two keys, boolean `ready` |
@@ -121,9 +124,9 @@ with `ticks()` at the use site: `SHOP_READY_SECONDS = 3`, `SHOP_READY_MIN_SECOND
 | | `src/ui/hud/Shop.tsx:388-404` header | `ShopReady` button and count beside `ShopClock`; hidden with `guidedSpell` |
 | | `src/ui/hud/Shop.tsx:121-140` `ShopClock` | `data-cut` written from the rAF after a cut |
 | | `src/ui/hud/TopBar.tsx:172-209` `useScoreRefs` | write `data-ready` on the pill root (`ScorePill` line 211, `BroadcastSide` line 237) from the rAF, as `data-out` is written; a check glyph styled from it |
-| | `src/ui/hud/Hud.tsx:64-108` `onBatch` | `case 'allReady'`: banner and `sfx('ready')` |
+| | `src/ui/hud/Hud.tsx` `onBatch` | `case 'allReady'`: toast and `sfx('ready')`; `src/audio/events.ts` lists the event as handled by the HUD |
 | | `src/ui/lib/keys.ts:10-31, 72-80` | a `shopReady` bind action in the Interface group; the key handler issues `{ kind: 'shopReady', ready: !mine }` only when `can` |
-| Render | `src/render/scene/MatchWorld.ts:2001-2005` | the shop ward eases over the last 180 *ticks*, a tick literal meant as the 3-2-1 (it is 6 s at 30 Hz). After a cut it would jump from 1 to 0.68. Use `ticks(3)`, per the tick-rate rule in CLAUDE.md |
+| Render | `src/render/scene/MatchWorld.ts` | done earlier (commit 4d86f85): the shop ward eases over `ticks(3)` instead of a 180-tick literal |
 
 The button sends through `input.issue` (`src/game/input.ts:48`), like Fresh start
 (`Shop.tsx:471`). No session, dedicated-room or server code changes: the host steps the command
@@ -133,7 +136,7 @@ fairness delay.
 ### Audio and announcer
 
 The local toggle plays the Button sound the lobby uses (`'ready'` on, `'back'` off). `allReady`
-plays the existing `'ready'` cue with the banner. No new announcer voice line: the countdown call
+plays the existing `'ready'` cue with its toast. No new announcer voice line: the countdown call
 already fires at 3 s (`src/game/announcer.ts:532-538`) and the HUD's 3-2-1 at `Hud.tsx:167-176`,
 both from `phaseTicksLeft`, so they follow the cut without change.
 
@@ -153,6 +156,91 @@ kinds through, so a stale P2P tab hosting for a new client would put `shopReady`
 ignore it in its own sim, and heal the client by keyframe every second. The version check at
 `src/net/session.ts:1085` turns that into a clear "reload" message instead. Faster casual changes
 the id in the same batch; one bump covers both.
+
+## Part 2: shopping while out
+
+The developer, 2026-10-29: "maybe we do actually allow players to already start buying stuff in
+the shop while they are dead and waiting for the next round", then "maybe we should get gold in
+the moment then?"
+
+**It already exists, and almost nobody can use it.** Since 2026-10-15 a knocked-out warlock may buy
+(`SHOP_RULE = 'shopPhaseOrDead'`, `src/sim/config.ts:159`; `canBuy`, `src/sim/shop.ts:45-51`;
+[PLAN §2](../../PLAN.md)), bots already do (`src/bots/controller.ts:404`), and the shop clock says
+"You are out: buy for the next round" (`src/ui/hud/Shop.tsx:132`). Two things make it empty:
+
+- **No gold.** The round's gold is paid at round end (`endRound`, `src/sim/mode.ts:335`), and
+  warlocks spend almost all of their gold before the fight (about 4 gold left at fight start, see
+  [faster-casual.md](faster-casual.md) finding 8). A warlock who is out holds about 4 gold plus
+  any kill gold, which buys nothing.
+- **Nobody sees it.** The shop opens itself only in the shop phase (`Hud.tsx` `onPhase`); a player
+  who was out had to know to press B.
+
+**The time is there.** Bot casual tables (32 matches each, [research/casual-pace.ts](../research/casual-pace.ts)):
+a knocked-out warlock waits for the round to end for 38 s at the median today (p90 105 s), and
+20 s (p90 46 s) in the 5-round casual preset. A fifth of all fight time is spent out. The 25 s
+shop could be mostly done by then.
+
+### Rules
+
+12. **Round gold on knockout.** In modes where a knocked-out warlock stays out until the round
+    ends (Rounds, Teams and Shuffle, King of the Hill rounds style, ranked and its final), the
+    warlock's `roundGold` is paid at the knockout instead of at round end. The amount is the same
+    for everyone and does not depend on the round's outcome, so nothing is decided early.
+    `endRound` pays it only to the players not yet paid this round: survivors, benched finalists,
+    and players without a pawn. Win gold stays at round end (in team modes it goes to dead
+    teammates of the winning team too). Respawn modes (Deathmatch, King of the Hill respawn
+    style) change nothing: their deaths are not "out".
+13. **Once per round.** `PlayerScore.roundPaid?: boolean`, set when paid, cleared by `endRound`
+    when it skips that payment. A draw (everyone out) pays each at their knockout and nobody again at round end.
+    A warlock who joins between rounds is paid as today (`src/sim/roster.ts:19`).
+14. **Ready while out.** A knocked-out player may send `shopReady` during the fight. Rule 2 counts
+    them from the moment they are out; Rule 3 accepts it. `state.shopReady` then lives from the
+    first knockout of the fight to the next `startRound` (Rule 8 changes: `prepareForRound` keeps
+    the list instead of clearing it). The cut follows Rule 5 from the shop's first tick, so when
+    every counted human readied while out, the shop lasts 6 s (the floor) instead of 25 s.
+15. **Unchanged:** Fresh start stays between rounds only (`freshStartRefund`, `shop.ts:77`);
+    nothing bought while out touches the current fight (the pawn is out); a spectator bet still
+    costs its 1 gold stake, which the earlier gold now always covers.
+
+### What the player sees
+
+- **The knockout card offers the shop**: "Shop for the next round" with the shop key, under
+  "Watching the rest of the round" (`src/ui/hud/DeathFeedback.tsx`). The card hides while the shop
+  is open; the shop's clock reads "Out: buy for next round".
+- **Why not open the shop by itself** (the first draft): a headless check showed it covers the
+  spectator bets (the bet panel hides while any panel is open) and the card's docked corner. The
+  knocked-out player is the one with time to bet, so the shop waits for a click or B.
+- **The gold** arrives at the knockout and shows with the existing gold delta.
+- **Ready** sits in the shop header as in the shop phase; the top bar's check mark appears when
+  the shop phase starts (Rule 14).
+
+### Design additions
+
+| Layer | File and seam | Change |
+|---|---|---|
+| Sim | `src/sim/types.ts` `PlayerScore` | `roundPaid?: boolean` |
+| | `killPawn` (`src/sim/combat.ts:110`, where kill gold is paid) | pay `roundGold` to the victim's score when the mode keeps them out (Rule 12) |
+| | `src/sim/mode.ts` `endRound` | skip and clear scores with `roundPaid` |
+| | `src/sim/shop.ts` | `readySeat` accepts a knocked-out round participant during the fight (Rule 14) |
+| | `src/sim/mode.ts` `prepareForRound` | keep `shopReady`; `startRound` still deletes it |
+| HUD | `src/ui/hud/DeathFeedback.tsx` | the knockout card's shop button, shown from the rAF while the local player is out, can buy and the shop is closed; the card hides while the shop is open |
+| Bots | none | bots already buy while out; they now have the gold to |
+
+`LADDER=1 npx vitest run src/bots/ladder.test.ts` at 30 and 60 Hz: bot buys move from the shop
+phase into the fight, which can shift seeded outcomes though not strength.
+
+### Tests (added to `shopReady.test.ts`)
+
+11. *The out are paid when they fall.* A Rounds match: a warlock knocked out at 20 s holds
+    `roundGold` more gold at once, and the same total after round end as today.
+12. *Nobody is paid twice.* A draw pays each warlock once; a survivor is paid at round end only.
+13. *Respawn modes do not change.* A Deathmatch death pays no round gold.
+14. *Out and ready.* Two humans, both out and ready during the fight: the next shop lasts
+    `SHOP_READY_MIN_SECONDS`.
+15. *The outcome stays hidden.* Win gold still arrives only with `roundWin`.
+
+**PLAN §2** gains to the existing shop row: "the round's gold is paid at the knockout to a warlock
+who stays out until round end (the original paid everyone at round end)."
 
 ## Out of scope
 
@@ -207,7 +295,10 @@ UI (`renderMarkup`, state not copy):
 - `shop-ready`: `data-state` is `idle`, `ready` or `starting`; absent with `guidedSpell`, for a
   reserved seat and for a benched finalist.
 - `shop-ready-count`: `data-ready` and `data-total` as numbers; absent with one counted human.
-- Score pills: `data-ready="true"` on ready humans during the shop, no attribute outside it.
+- Score pills: `data-ready="true"` on ready humans during the shop, no attribute outside it. Not a
+  markup test in the build: the pills and the knockout card's shop button are written from the rAF
+  (as `data-out` is), which static markup does not run; both were checked in a muted headless run
+  of the dev build (Ready, the cut, knockout, the card's button, Ready while out, a 6 s shop).
 
 Playtest questions (one evening, casual and a custom room of four or more):
 
@@ -226,6 +317,10 @@ Playtest questions (one evening, casual and a custom room of four or more):
 4. **Ranked.** Recommended on in ranked too (both humans must agree). Confirm.
 5. **`PROTOCOL_VERSION` bump.** The repo bumps it for wire changes only; a new command kind is one.
    Confirm.
+6. **Round gold at the knockout in ranked** too (recommended: the amount is the same for everyone),
+   or casual and custom only?
+7. **The shop opening itself** after your knockout: built as a button on the knockout card
+   instead (see Part 2, What the player sees). Revisit if players miss it.
 
 ## Rollout
 

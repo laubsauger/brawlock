@@ -100,6 +100,12 @@ Deployment is established by release receipts, not by implementation status here
    the account service and the client in the same release.
    - Follow-up: guests can still show any name, including an account's claimed name. Dedicated
      rooms only mark them as guests (`sanitizeName` in `src/net/protocol.ts`).
+9. **Shop Ready and shopping while out: built, not released (2026-10-29).** Ready in the shop header
+   ends the shop 3 s after every human is ready (never before 6 s); a knocked-out warlock gets the
+   round's gold at the knockout, can shop from the knockout card and ready while out. Sim and
+   protocol change: new netcode id and `PROTOCOL_VERSION` 10, so server and client deploy together.
+   Planned to ship with Brisk casual ([moonshot/specs/faster-casual.md](moonshot/specs/faster-casual.md)).
+   Spec: [moonshot/specs/shop-ready.md](moonshot/specs/shop-ready.md).
 
 ## Completed in this planning pass
 

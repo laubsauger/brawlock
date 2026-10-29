@@ -30,7 +30,7 @@
  * settings are open, and when Ctrl / Cmd / Alt is held (browser shortcuts).
  */
 import type { InputCommand } from '../sim/types'
-import { attr, masteryFactor, spellDef } from '../sim'
+import { attr, masteryFactor, shopReadyView, spellDef } from '../sim'
 import { frame } from './frame'
 import { canInspect, cycle, inspectStore, isSpectating, livingPlayers, ownerOfPawn, pickPawnAt } from './inspect'
 import { useGame, type CastMode } from './store'
@@ -449,6 +449,12 @@ export const input: InputApi = {
         case 'shop':
           store.toggle('shopOpen')
           break
+        case 'shopReady': {
+          const s = frame.curr
+          const ready = s ? shopReadyView(s, frame.localPlayer) : null
+          if (ready?.can) push({ kind: 'shopReady', ready: !ready.mine })
+          break
+        }
         case 'character':
           store.toggle('characterOpen')
           break

@@ -7,6 +7,9 @@ export function applyRosterChanges(state: SimState, changes: readonly PlayerSlot
   for (const slot of changes) {
     const index = state.slots.findIndex((s) => s.id === slot.id)
     if (index >= 0) {
+      const prev = state.slots[index]
+      // a new occupant never inherits the last one's Ready (shop.ts setShopReady)
+      if (state.shopReady && (prev.kind !== slot.kind || prev.profileId !== slot.profileId)) state.shopReady = state.shopReady.filter((id) => id !== slot.id)
       state.slots[index] = { ...slot }
       continue
     }

@@ -43,7 +43,8 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Original | v1 decision |
 |---|---|
 | Movement, turning and cast points came from the Dota unit controller | Re-implemented explicitly in the sim: turn rate 1.2 (Dota units, rad per 0.03 s), cast point per spell from KV data, move-while-turning rules |
-| Shop is never closed server-side (buy mid-fight, while dead) | Decided 2026-10-15: buy during the shop phase or while dead; read-only mid-fight. One constant restores buy-anytime |
+| Shop is never closed server-side (buy mid-fight, while dead) | Decided 2026-10-15: buy during the shop phase or while dead; read-only mid-fight. One constant restores buy-anytime. Since 2026-10-29 a warlock out until the round ends gets the round's gold at the knockout instead of at round end (the same amount for everyone, so nothing is decided early; win gold still comes with the win), and the knockout card offers the shop. Respawn modes are unchanged |
+| The shop always ran its full time | Added 2026-10-29: **Shop Ready**. When every connected human taking part in the coming fight is ready, the shop ends 3 s later, never before 6 s after it opened; bots, bot-driven leavers and benched finalists count as ready; the shop time stays the maximum. A knocked-out player can ready while out, so the next shop may open already cut to 6 s. Rules: `src/sim/shop.ts`, spec `docs/moonshot/specs/shop-ready.md` |
 | Deathmatch: lava suicide scores for own team | Fixed |
 | Score win condition iteration bug | Fixed: winners are players with max score ≥ limit |
 | `math.random` float coercion makes bot wander jitter | Fixed (intended float ranges) |
@@ -127,7 +128,7 @@ Duration, Range, Lifesteal. 6 levels each, 5 gold per level, or 13 to raise all 
 
 ### 3.4 Modes and lobby options
 
-Team mode FFA (default; the original defaulted to Shuffle) / Shuffle / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
+Team mode FFA (default; the original defaulted to Shuffle) / Shuffle / Teams. Game mode Rounds (default) / Deathmatch. Win after N rounds or first to score N. Tunables: start, round, kill and win gold; lava DPS; knockback and damage multipliers; friction; shop time (a maximum: Shop Ready ends it early once every human is ready, §2); bots for leavers. Ranked uses its separate fixed format ([RANKED-FORMAT.md](RANKED-FORMAT.md)).
 
 Spectator betting and bounties (Rounds only) are our additions, not in the original. A knocked-out human may stake 1 gold, once per round, on a living player or team until fewer than three warlocks are alive (or 10 s into a round that starts with two). Payouts are a pool: all stakes form the pot and each correct bet gets an equal floored share, so long shots pay more. Coins that don't split evenly, or the whole pot when nobody is right, fund the winners' bounty for the next round when bounties are on; with bounties off they go one each to the earliest correct bets, or back to every bettor when nobody is right. A draw refunds every stake. Rules: `src/sim/bets.ts`.
 
@@ -290,7 +291,7 @@ HUD: HP bar with regen tick, knockback points readout, spell bar (6 columns) wit
 
 **Character sheet** (hotkey C): live stats and their sources: HP and max HP, regen, move speed, knockback points and what they multiply, knockback taken factor (Armor, Cursed Ring), damage factor, debuff duration factor, mastery bonuses (duration, range, lifesteal), owned spells with levels and next-level deltas.
 
-**Shop** is a highlight of the round, not a menu: side panel that keeps your warlock practicing in view, opens automatically with the countdown, big spell cards by role color, affordability states, previews with exact before and after numbers per level, hover tooltips with mechanics, purchase feedback (sound, flash, level pip animation), shows whether buying is allowed right now.
+**Shop** is a highlight of the round, not a menu: side panel that keeps your warlock practicing in view, opens automatically with the countdown (and from the knockout card while you are out), a Ready button that ends the shop early once every human is ready, big spell cards by role color, affordability states, previews with exact before and after numbers per level, hover tooltips with mechanics, purchase feedback (sound, flash, level pip animation), shows whether buying is allowed right now.
 
 Settings: quality tier and individual toggles, resolution scale, fps cap, fx intensity, screen shake, colorblind palette, master, SFX, music and UI volume, mute, keybinds (rebindable), camera zoom speed and edge pan, show perf HUD, Inspector toggle.
 

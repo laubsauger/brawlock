@@ -103,6 +103,11 @@ function useDirector() {
         case 'freshStart':
           if (e.player === local) toast(`Build sold: +${e.refund} gold`)
           break
+        case 'allReady':
+          // a toast, not a banner: the 3-2-1 banner starts on the same frame
+          toast('Everyone is ready')
+          sfx('ready')
+          break
         default:
           break
       }

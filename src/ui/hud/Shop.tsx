@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { frame } from '../../game/frame'
 import { input } from '../../game/input'
 import { useGame } from '../../game/store'
-import { TICK_HZ, isRoundParticipant, type InputCommand } from '../../sim'
+import { TICK_HZ, isRoundParticipant, shopReadyView, type InputCommand, type ShopReadyView } from '../../sim'
 import { Sigil } from '../icons'
 import {
   COLUMNS,
@@ -35,7 +35,8 @@ import { readShop } from './shopView'
  * The shop: two docked panels at the screen edges so the arena center (your
  * warlock practicing) stays visible. Right: the six spell columns. Left:
  * masteries and items, or your stats (C / K). Opens by itself in the shop
- * phase, B toggles it, arrow keys walk the cards, Enter buys.
+ * phase and after your knockout (you can buy while out), B toggles it, arrow
+ * keys walk the cards, Enter buys.
  */
 
 type CardState = OfferState
@@ -129,7 +130,7 @@ function ShopClock() {
       const secs = Math.max(0, Math.ceil(s.phaseTicksLeft / TICK_HZ))
       t = `${roundLabel(s)} in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
     } else if (s.rankedFinal && !isRoundParticipant(s, frame.localPlayer)) t = 'Watching the final brawl'
-    else if (s.phase === 'fight') t = canBuyNow(s) ? 'You are out: buy for the next round' : 'Round in progress'
+    else if (s.phase === 'fight') t = canBuyNow(s) ? 'Out: buy for next round' : 'Round in progress'
     else if (s.phase === 'roundEnd') t = 'Round over'
     if (t !== last.current) {
       ref.current.textContent = last.current = t
@@ -137,6 +138,49 @@ function ShopClock() {
     }
   })
   return <span ref={ref} className="tabular ink-sm text-[1.15rem] font-semibold text-[#f0d9b8] data-[hot=true]:text-[#ffb08f]" data-testid="shop-clock" />
+}
+
+const NO_READY: ShopReadyView = { shown: false, can: false, mine: false, ready: 0, total: 0, starting: false }
+
+function readReady(): ShopReadyView {
+  const s = frame.curr
+  return s ? shopReadyView(s, frame.localPlayer) : NO_READY
+}
+
+/**
+ * Shop Ready (sim/shop.ts): done shopping, in the shop or while knocked out. Once every human in
+ * the coming fight is ready the shop jumps to its last 3 s. The count shows with two or more humans.
+ */
+export function ShopReady() {
+  const r = usePolled(readReady, (x) => JSON.stringify(x), 10)
+  const binds = useBinds()
+  if (!r.shown) return null
+  const state = r.starting ? 'starting' : r.mine ? 'ready' : 'idle'
+  const key = bindLabel(binds, 'shopReady')
+  const out = frame.curr?.phase !== 'shop'
+  return (
+    <span className="flex items-center gap-2">
+      <Button
+        size="sm"
+        variant={r.mine ? 'default' : 'primary'}
+        sound={r.mine ? 'back' : 'ready'}
+        disabled={!r.can}
+        aria-pressed={r.mine}
+        title={out ? 'Done shopping: the next shop can end early' : 'Done shopping: when everyone is ready, the round starts in 3 seconds'}
+        onClick={() => input.issue({ kind: 'shopReady', ready: !r.mine })}
+        data-testid="shop-ready"
+        data-state={state}
+      >
+        {r.starting ? 'Starting' : r.mine ? 'Ready ✓' : 'Ready'}
+        {key && !r.starting && <KeyCaps label={key} />}
+      </Button>
+      {r.total >= 2 && (
+        <span className="tabular text-sm font-semibold text-ash" data-testid="shop-ready-count" data-ready={r.ready} data-total={r.total}>
+          {`${r.ready}/${r.total} ready`}
+        </span>
+      )}
+    </span>
+  )
 }
 
 /** Arrow keys move focus between cards in a grid of [data-nav="col,row"] buttons. */
@@ -398,6 +442,7 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
               </Button>
             )}
             {guidedSpell ? <span className="text-sm text-gold">Practice · no timer</span> : <ShopClock />}
+            {!guidedSpell && <ShopReady />}
             <Button size="sm" variant="ghost" sound={null} className="ml-auto" onClick={close}>
               Close <KeyCaps label={bindLabel(binds, 'shop')} />
             </Button>

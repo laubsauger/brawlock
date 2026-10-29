@@ -20,9 +20,19 @@
  * (PlayerScore.spent) less FRESH_START_PENALTY; a human who took over a bot's seat
  * (PlayerSlot.takeover, set by the host) gets all of it back in that round's shop. Spectator bets
  * are not shop spending and are never refunded.
+ *
+ * Shop Ready (deviation, PLAN §2; the original shop always ran its full time): when every counted
+ * human is ready, the shop ends SHOP_READY_SECONDS later, never before SHOP_READY_MIN_SECONDS
+ * after it opened. Only connected humans taking part in the coming fight count; bots, bot-driven
+ * leavers, the disconnected and benched finalists are always ready. Ready can be pressed in the
+ * shop or, where a knockout lasts until round end, while out, so a player who bought while out
+ * does not wait for the shop (docs/moonshot/specs/shop-ready.md).
  */
 import { respawnsInFight } from './hill'
-import { FRESH_START_PENALTY, ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL } from './config'
+import {
+  FRESH_START_PENALTY, ITEM_SLOT_START, MASTERY_ALL_COST, MASTERY_COST, MASTERY_MAX_LEVEL, RANKED_FINAL_SHOP_SECONDS,
+  SHOP_READY_MIN_SECONDS, SHOP_READY_SECONDS, SHOP_RULE, SLOT_COUNT, SPELL_MAX_LEVEL, ticks,
+} from './config'
 import { PASSIVE_ITEMS, RELEASED_SPELLS, SPELLS } from './spells/data'
 import { cancelCast } from './orders'
 import { giveStartingKit } from './spawn'
@@ -174,4 +184,86 @@ export function buyMastery(state: SimState, player: PlayerId, kind: 'duration' |
   if (!pay(sc, MASTERY_COST)) return false
   m[kind] += 1
   return purchased(state, player, pawn, 'mastery', kind, m[kind])
+}
+
+/** Whether `player`'s Ready matters: a connected human in the coming fight. */
+function readyCounts(state: SimState, player: PlayerId): boolean {
+  return slotOf(state, player)?.kind === 'human' && !!scoreOf(state, player)?.connected && isRoundParticipant(state, player)
+}
+
+/** Whether `player` may press Ready now: in the shop, or knocked out where that lasts the round. */
+export function canReady(state: SimState, player: PlayerId): boolean {
+  if (!readyCounts(state, player)) return false
+  if (state.phase === 'shop') return true
+  if ((state.phase !== 'fight' && state.phase !== 'roundEnd') || respawnsInFight(state.settings)) return false
+  const pawn = pawnOf(state, player)
+  return !!pawn && !pawn.alive
+}
+
+/** Ready or not (idempotent). Ignored when `player` may not press it now. */
+export function setShopReady(state: SimState, player: PlayerId, ready: boolean): void {
+  if (!canReady(state, player)) return
+  const list = state.shopReady ?? []
+  if (list.includes(player) === ready) return
+  state.shopReady = ready ? [...list, player].sort((a, b) => a - b) : list.filter((id) => id !== player)
+}
+
+/** Shop phase: every counted human is ready, and there is at least one. */
+export function allReady(state: SimState): boolean {
+  if (state.phase !== 'shop') return false
+  let counted = 0
+  for (const s of state.slots) {
+    if (!readyCounts(state, s.id)) continue
+    if (!state.shopReady?.includes(s.id)) return false
+    counted += 1
+  }
+  return counted > 0
+}
+
+/** The shop phase's full length in ticks, as prepareForRound sets it. */
+export function shopLength(state: SimState): number {
+  return ticks(state.rankedFinal ? RANKED_FINAL_SHOP_SECONDS : state.settings.shopSeconds)
+}
+
+/**
+ * Shop phase, before its timer counts down: once everyone is ready the shop ends
+ * SHOP_READY_SECONDS from now, never before SHOP_READY_MIN_SECONDS after it opened. It only
+ * shortens, and at most once a shop: an un-ready or a newcomer afterwards gives no time back.
+ */
+export function readyCut(state: SimState): void {
+  if (state.shopCut || !allReady(state)) return
+  const elapsed = shopLength(state) - state.phaseTicksLeft
+  const target = Math.max(ticks(SHOP_READY_SECONDS), ticks(SHOP_READY_MIN_SECONDS) - elapsed)
+  if (state.phaseTicksLeft <= target) return
+  state.events.push({ type: 'allReady', saved: state.phaseTicksLeft - target })
+  state.phaseTicksLeft = target
+  state.shopCut = true
+}
+
+export interface ShopReadyView {
+  /** the button is there: this player may press Ready in this phase */
+  shown: boolean
+  /** the button works now (shown, and the countdown has not begun) */
+  can: boolean
+  mine: boolean
+  /** counted humans ready, of `total` (shop phase only, else 0 of 0) */
+  ready: number
+  total: number
+  /** the countdown to the fight has begun (cut, or the last SHOP_READY_SECONDS): the button locks */
+  starting: boolean
+}
+
+export function shopReadyView(state: SimState, player: PlayerId): ShopReadyView {
+  let ready = 0
+  let total = 0
+  if (state.phase === 'shop') {
+    for (const s of state.slots) {
+      if (!readyCounts(state, s.id)) continue
+      total += 1
+      if (state.shopReady?.includes(s.id)) ready += 1
+    }
+  }
+  const starting = state.phase === 'shop' && (!!state.shopCut || state.phaseTicksLeft <= ticks(SHOP_READY_SECONDS))
+  const shown = canReady(state, player)
+  return { shown, can: shown && !starting, mine: !!state.shopReady?.includes(player), ready, total, starting }
 }

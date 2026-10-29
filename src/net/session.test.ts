@@ -1121,6 +1121,28 @@ describe.skipIf(!sim)(`session match over the network${sim ? '' : ` (SKIPPED: re
     expect(client.out.net.rtt).toBeGreaterThan(60)
   })
 
+  /**
+   * Why: Shop Ready rides the confirmed input stream like any command, so both peers cut the
+   * shop on the same tick and stay identical, with no new message.
+   */
+  it('ends the shop early on both peers once both humans are ready', async () => {
+    const { host, client } = await hostAndClient(sim!)
+    host.session.startMatch()
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(host.out.states.at(-1)!.phase).toBe('shop')
+    host.pending.push({ kind: 'shopReady', ready: true })
+    client.pending.push({ kind: 'shopReady', ready: true })
+    await vi.advanceTimersByTimeAsync(5000)
+    const hostStates = new Map(host.out.states.map((s) => [s.tick, s]))
+    const fight = host.out.states.find((s) => s.phase === 'fight')
+    // a 30 s shop, readied about 4 s in: the fight starts 3 s after the second Ready
+    expect(fight && fight.tick).toBeLessThan(ticks(10))
+    const last = client.out.states.at(-1)!
+    expect(last.phase).toBe('fight')
+    expect(JSON.stringify(last)).toBe(JSON.stringify(hostStates.get(last.tick)))
+    expect(client.out.events.flatMap((b) => b.events).filter((e) => e.type === 'allReady')).toHaveLength(1)
+  })
+
   it('a client dropping mid-match keeps its pawn on the host, marked disconnected', async () => {
     const { host, client } = await hostAndClient(sim!)
     host.session.startMatch()

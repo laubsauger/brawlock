@@ -104,6 +104,13 @@ export const HILL_EXTRA_CLEAR = 150
 
 // --- rounds / shop -------------------------------------------------------------
 export const ROUND_END_SECONDS = 3
+/**
+ * Shop Ready (our addition, PLAN §2): once every counted human is ready (shop.ts allReady) the
+ * shop ends SHOP_READY_SECONDS later, but never before SHOP_READY_MIN_SECONDS after it opened:
+ * Easy bots take up to about 5.4 s to finish buying, and the round result needs a moment.
+ */
+export const SHOP_READY_SECONDS = 3
+export const SHOP_READY_MIN_SECONDS = 6
 /** deathmatch: round length and respawn delay (ModeDeathmatch) */
 export const DM_ROUND_SECONDS = 60
 export const DM_RESPAWN_SECONDS = 10

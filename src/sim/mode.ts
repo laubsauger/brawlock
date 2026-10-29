@@ -48,7 +48,6 @@ import {
   OBSTACLE_MAX_COORD,
   OBSTACLE_RADII,
   ROUND_END_SECONDS,
-  RANKED_FINAL_SHOP_SECONDS,
   RANKED_FINAL_SHRINK_PERIOD,
   RANKED_SHRINK_PERIOD,
   SHRINK_PERIOD,
@@ -60,6 +59,7 @@ import {
 import { hypot } from './math'
 import { MOD_SPAWN_INVULNERABLE, addModifier, removeTemporaryModifiers } from './modifiers'
 import { randomInt, randomRange } from './rng'
+import { readyCut, shopLength } from './shop'
 import { respawnPawn } from './spawn'
 import { activePlayers, assignTeams, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
 import type { PawnState, PlayerId, SimState } from './types'
@@ -165,7 +165,7 @@ function spawnInvulnerable(state: SimState, pawn: PawnState): void {
 /** Shop phase (Mode:prepareForRound). */
 export function prepareForRound(state: SimState): void {
   state.phase = 'shop'
-  state.phaseTicksLeft = ticks(state.rankedFinal ? RANKED_FINAL_SHOP_SECONDS : state.settings.shopSeconds)
+  state.phaseTicksLeft = shopLength(state)
   state.projectiles = []
   state.arena.nextShrinkTick = -1
   newPlatform(state)
@@ -179,6 +179,8 @@ export function prepareForRound(state: SimState): void {
       pawn.cast = null
     }
   }
+  // everyone readied while knocked out: the shop opens already cut, so its banner shows the real time
+  readyCut(state)
   emitPhase(state)
 }
 
@@ -188,6 +190,8 @@ export function startRound(state: SimState): void {
   const first = state.round === 0
   state.round += 1
   state.betting.bets = []
+  delete state.shopReady
+  delete state.shopCut
   state.phase = 'fight'
   assignTeams(state)
   const players = activePlayers(state).length
@@ -257,6 +261,13 @@ export function onKill(state: SimState, victim: PawnState, killer: PlayerId | nu
     }
     victim.respawnTicks = ticks(DM_RESPAWN_SECONDS)
     return
+  }
+  // Shopping while out (deviation, PLAN §2): the round's gold is the same for everyone whatever
+  // the outcome, so a warlock out until the round ends gets it now, to spend while waiting.
+  const sc = scoreOf(state, victim.owner)
+  if (sc && !sc.roundPaid) {
+    sc.gold += state.settings.roundGold
+    sc.roundPaid = true
   }
   const teams = aliveTeams(state)
   if (teams.length <= 1) roundWon(state, teams.length === 1 ? teams[0] : null)
@@ -332,7 +343,10 @@ function hillLeaders(state: SimState): PlayerId[] | null {
 
 /** Mode:onRoundEnd. */
 export function endRound(state: SimState): void {
-  for (const sc of state.scores) sc.gold += state.settings.roundGold
+  for (const sc of state.scores) {
+    if (sc.roundPaid) delete sc.roundPaid // paid at the knockout (onKill)
+    else sc.gold += state.settings.roundGold
+  }
   const winners = gameWinners(state)
   if (winners) {
     finishMatch(state, winners)
@@ -392,6 +406,7 @@ export function phaseTick(state: SimState): void {
     return
   }
   if (state.phase === 'shop' || state.phase === 'roundEnd') {
+    if (state.phase === 'shop') readyCut(state)
     if (state.phaseTicksLeft > 0) state.phaseTicksLeft -= 1
     if (state.phaseTicksLeft <= 0) {
       if (state.phase === 'shop') startRound(state)

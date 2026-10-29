@@ -209,6 +209,7 @@ const MODIFIER_FRAGMENTS: ({ match: string } & ModSound)[] = [
 /** Event types that intentionally make no sound, with the reason. */
 export const IGNORED_EVENTS: Partial<Record<SimEvent['type'], string>> = {
   heal: 'lifesteal heals on every hit and would double each impact; heals show as numbers',
+  allReady: 'the HUD plays the ready cue with its toast (Hud.tsx), as it does for the lobby Ready',
 }
 
 type Handler<K extends SimEvent['type']> = (
@@ -439,6 +440,7 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   },
   // Fresh start: the owner hears the gold come back, like a purchase
   freshStart: (e, c) => (e.player === c.listener.localPlayer ? [cue('buyNew', CENTRE, 1.2)] : []),
+  allReady: null,
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   // King of the Hill: a rising tick when your side takes the hill, a soft tick per ticket you earn,

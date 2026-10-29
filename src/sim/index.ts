@@ -36,6 +36,7 @@ export {
   ARENA_MAX_LAYER,
   SHRINK_PERIOD,
   SHOP_RULE,
+  SHOP_READY_SECONDS,
   SPAWN_OBSTACLES,
   MASTERY_COST,
   MASTERY_ALL_COST,
@@ -77,7 +78,7 @@ export { SPELLS, SPELL_IDS, PASSIVE_ITEMS, RELEASED_SPELLS, attr, cooldownSecond
 export { IMPLEMENTED_SPELLS } from './spells'
 export type { SpellDef, PassiveItemDef } from './spells/data'
 export { cooldownTicks } from './pawn'
-export { canBuy, freshStartRefund, shopOpen } from './shop'
+export { canBuy, freshStartRefund, shopOpen, shopReadyView, type ShopReadyView } from './shop'
 export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
@@ -174,6 +175,8 @@ function validCommand(cmd: InputCommand): boolean {
       return typeof cmd.mastery === 'string'
     case 'freshStart':
       return Object.keys(cmd).length === 1
+    case 'shopReady':
+      return Object.keys(cmd).length === 2 && typeof cmd.ready === 'boolean'
     case 'spectateBet':
       return Object.keys(cmd).length === 3 && Number.isInteger(cmd.round) && cmd.round >= 0 &&
         Number.isInteger(cmd.target) && cmd.target >= 0

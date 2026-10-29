@@ -67,7 +67,7 @@ import type { LobbyVoteChoice, LobbyVoteSetting, LobbyVoteWire, LobbyVoteResult 
 import type { ChatLine } from './chat'
 
 /** Bump on any incompatible change; host rejects mismatching clients. */
-export const PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
 
 /** Snapshots carry the events of this many most recent ticks. */
 export let EVENT_REDUNDANCY_TICKS = 0
@@ -358,6 +358,9 @@ export function sanitizeCommand(c: unknown): InputCommand | null {
     case 'freshStart':
       // the refund is the sim's to compute; the command carries nothing else
       if (keys.length !== 1) return null
+      break
+    case 'shopReady':
+      if (keys.length !== 2 || typeof o.ready !== 'boolean') return null
       break
     case 'spectateBet':
       // Stake and payout belong to the authoritative sim, never to the client.

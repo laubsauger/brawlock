@@ -61,7 +61,7 @@ const OFFSET_EPS = 0.25
 const FUZZ = 3
 const MATCH_DIST = 160
 /** played as authoritative only (banners, killfeed, score) */
-const AUTHORITATIVE_EVENTS = new Set<SimEvent['type']>(['death', 'roundWin', 'gameOver', 'phase'])
+const AUTHORITATIVE_EVENTS = new Set<SimEvent['type']>(['death', 'roundWin', 'gameOver', 'phase', 'allReady'])
 
 export interface LocalFrame {
   seq: number

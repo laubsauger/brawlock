@@ -92,6 +92,15 @@ describe('protocol', () => {
     expect(sanitizeCommand({ ...fresh, gold: 999 })).toBeNull()
   })
 
+  it('carries Shop Ready as a bare boolean: a client cannot send a timer or speak for another seat', () => {
+    const ready = { kind: 'shopReady', ready: true }
+    expect(sanitizeFrames([{ seq: 1, tick: 120, cmds: [ready] }])).toEqual([{ seq: 1, tick: 120, cmds: [ready] }])
+    expect(decodeCmd(JSON.parse(JSON.stringify(encodeCmd(ready as never))))).toEqual(ready)
+    expect(sanitizeCommand({ kind: 'shopReady', ready: false })).toEqual({ kind: 'shopReady', ready: false })
+    for (const malformed of [{ kind: 'shopReady' }, { kind: 'shopReady', ready: 1 }, { kind: 'shopReady', ready: 'true' }, { ...ready, ticks: 90 }, { ...ready, player: 3 }])
+      expect(sanitizeCommand(malformed)).toBeNull()
+  })
+
   it('validates independent spectator-bet and bounty settings as booleans', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({ spectatorBets: true, bounties: true })
     expect(sanitizeSettingsPatch({ spectatorBets: false, bounties: true }, DEFAULT_SETTINGS)).toEqual({ spectatorBets: false, bounties: true })
