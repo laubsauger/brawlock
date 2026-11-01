@@ -17,12 +17,14 @@ import { codeFromSearch, roomLink } from '../../net/code'
 import { createMemoryNet, mulberry32, type LinkOptions } from '../../net/memory'
 import { createSession, type NetMode, type SessionDeps } from '../../net/session'
 import type { NetFactory } from '../../net/transport'
-import { HASH_EVERY, decodeReplay, encodeReplay, metaOf, type ReplayData } from './format'
+import { HASH_EVERY, bestMoments, decodeReplay, encodeReplay, metaOf, type ReplayData } from './format'
 import { createReplayHook } from './hook'
 import { KEYFRAME_EVERY, ReplayPlayer } from './player'
 import { ReplayRecorder, replayHash } from './recorder'
 import { REPLAY_KEEP, ReplayLibrary, memoryBackend } from './store'
 import { ReplayViewer } from './viewer'
+import { MomentsEngine } from '../moments'
+import { momentsOfReplaySync } from './moments'
 
 const NET_ID = 'test-net-1'
 /** the fake clock's pulse, ms: half a tick (the sessions step from an accumulator) */
@@ -59,6 +61,8 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
   const auth = new Map<number, number>()
   const results: MatchResult[] = []
   const queue: InputCommand[] = []
+  /** this peer's moments, from its recorder's authoritative stream (as game/session.ts feeds them) */
+  const moments = new MomentsEngine()
   const deps: SessionDeps = {
     ui: {
       lobby: () => store.lobby,
@@ -71,15 +75,19 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
     },
     profile: () => ({ id: `profile-${name}`, name, color: null }),
     recorder: {
-      start: (info) => hook.start(info),
+      start: (info) => {
+        hook.start(info)
+        moments.reset()
+      },
       step: (b, i, p, slots) => hook.step(b, i, p, slots),
       observe: (s, e) => {
         hook.observe(s, e)
         auth.set(s.tick, replayHash(s))
+        moments.update(e, s)
       },
       finish: (r) => {
         results.push(r)
-        const id = hook.finish(`match-${name}`, r.winners)
+        const id = hook.finish(`match-${name}`, r.winners, moments.all())
         if (id) saved.push(id)
       },
       abort: () => hook.abort(),
@@ -102,7 +110,7 @@ function makePeer(net: NetFactory, name: string, key: string, mode: NetMode = 'p
     clientKey: () => key,
     netMode: () => mode,
   }
-  return { session: createSession(deps), store, lib, saved, results, auth, hook }
+  return { session: createSession(deps), store, lib, saved, results, auth, hook, moments }
 }
 
 async function untilResults(...peers: ReturnType<typeof makePeer>[]): Promise<void> {
@@ -182,6 +190,12 @@ describe('record -> replay reproduces the match', () => {
     expect(replayHash(hostReplay.state)).toBe(host.auth.get(hostReplay.tick))
     expect(replayHash(clientReplay.state)).toBe(host.auth.get(clientReplay.tick))
     expect(clientReplay.state.phase).toBe('gameOver')
+    // the moments engine on both ends names the same moments, and the replay keeps them
+    expect(host.moments.all().some((m) => m.kind === 'knockout')).toBe(true)
+    expect(client.moments.all()).toEqual(host.moments.all())
+    const saved = await loadSaved(client)
+    expect(saved.moments?.length).toBeGreaterThan(0)
+    expect(momentsOfReplaySync(saved, NET_ID)).toEqual(client.moments.all())
     host.session.leave()
     client.session.leave()
   }, 60000)
@@ -528,5 +542,23 @@ describe('viewer', () => {
     expect(v.get()).toMatchObject({ status: 'mismatch', netId: 'old-build', playing: false })
     v.play()
     expect(v.advance(1)).toBe(0)
+  })
+})
+
+describe('moments stored in a replay', () => {
+  /** Why: the results reel reads a replay's moments, and a replay is a file anyone can hand over. */
+  it('keeps the ten best; a malformed list is dropped and the replay still loads', async () => {
+    const d = recordDirect(5, 200)
+    const moment = (id: number, score: number) => ({
+      id, kind: 'knockout' as const, traits: [], round: 1, tick: 10, end: 12, from: 5, to: 15, actors: [0], victims: [1],
+      cause: 'fireball', count: 1, score, camera: { subject: 100, other: 101, x: 0, y: 0, dirX: 1, dirY: 0 }, final: true,
+    })
+    const kept = bestMoments(Array.from({ length: 14 }, (_, i) => moment(i, i)))
+    expect(kept.map((m) => m.id)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+    expect((await decodeReplay(await encodeReplay({ ...d, moments: kept })))!.moments).toEqual(kept)
+    const bad = await decodeReplay(await encodeReplay({ ...d, moments: [{ ...kept[0], actors: ['x'] }] as never }))
+    expect(bad).not.toBeNull()
+    expect(bad!.moments).toBeUndefined()
+    expect((await decodeReplay(await encodeReplay(d)))!.moments).toBeUndefined()
   })
 })

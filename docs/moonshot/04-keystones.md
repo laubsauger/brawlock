@@ -155,7 +155,7 @@ A moment is `{ kind, tick, from, to, actors, score, camera }`. Detection rules:
 
 | Kind | Rule |
 |---|---|
-| Sealing hit | For a death, the last damage event with knockback from another player within 4 s before it. Most deaths are lava burns seconds after the push; this is the moment that mattered |
+| Sealing hit | For a lava death, the last knockback hit from another player that kept the warlock in its lava stay or carried it there (within 0.5 s of the stay), at most the longest possible stay plus 2 s earlier; for other deaths, the lethal hit. Most deaths are lava burns seconds after the push. A fixed 4 s window missed 29% of measured lava deaths; the stay rule finds 91 to 99% ([specs/moments.md](specs/moments.md)) |
 | Round decider | The sealing hit of the round's last death |
 | Match decider | The round decider of the match's last round |
 | Multi-knockout | Two or more credited knockouts by one player inside the announcer's multi-kill window |
@@ -164,8 +164,8 @@ A moment is `{ kind, tick, from, to, actors, score, camera }`. Detection rules:
 | Detonation | A Lightning-detonated Fireball that seals a knockout |
 | Pillar blast | A death with cause `obstacle` |
 | Clutch | A round won by a warlock who was at some point the last of their side against two or more |
-| Close call | The announcer's rule: alive a moment after a hit left them at 8% or less |
-| Long flight | A sealing hit whose flight carried the victim more than eight tiles |
+| Close call | The announcer's hit rule (a hit leaves them at 8% or less), confirmed alive and off the lava 5 s later (the voice line still comes after 1 s) |
+| Long flight | A sealing hit whose flight carried the victim more than six tiles (about the top 7%; eight was 3 in 36 matches) |
 
 Score: a base per kind × stakes (1 for an ordinary moment, 1.5 for a round decider, 2.5 for the
 match decider) × spectacle (knockback, flight length, victims) × novelty (the same kind by the

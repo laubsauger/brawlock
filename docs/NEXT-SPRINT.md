@@ -134,6 +134,11 @@ Deployment is established by release receipts, not by implementation status here
    announcer and top bar following the schedule. Sim change: a new netcode id, so server and
    client deploy together. `arenaBase` waits for the daily. The casual queue preset is its own
    change (item 14).
+15. **Moments engine: built, not released (2026-11-01).** `src/game/moments.ts` names knockouts by
+   their sealing hit, round and match deciders, multi-knockouts, denies, clutches and close calls
+   from the confirmed stream; replays keep the ten best ([moments.md](moonshot/specs/moments.md)).
+   Nothing shows until the Final Blow and the results reel, which ship with it. No sim or net
+   change.
 
 ## Completed in this planning pass
 

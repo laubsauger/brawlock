@@ -4,6 +4,7 @@
  * (MatchRecord.id), so results and history rows find it.
  */
 import type { MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimEvent, SimState } from '../../sim/types'
+import type { Moment } from '../moments'
 import { ReplayRecorder } from './recorder'
 import { replays, type ReplayLibrary } from './store'
 
@@ -12,7 +13,7 @@ export interface ReplayHook {
   step(before: SimState, inputs: readonly PlayerInput[], patches?: readonly (readonly [PlayerId, boolean])[], slots?: readonly PlayerSlot[]): void
   observe(state: SimState, events: readonly SimEvent[]): void
   /** saves the replay (async) and returns its id, or null when nothing was recorded here */
-  finish(id: string | null, winners: readonly PlayerId[]): string | null
+  finish(id: string | null, winners: readonly PlayerId[], moments?: readonly Moment[]): string | null
   abort(): void
   /** resolves once every save started so far has finished (or failed) */
   flush(): Promise<void>
@@ -29,8 +30,8 @@ export function createReplayHook(netId: string, lib: ReplayLibrary = replays): R
     start: (info) => rec.begin(info),
     step: (before, inputs, patches, slots) => rec.step(before, inputs, patches, slots),
     observe: (state, events) => rec.observe(state, events),
-    finish: (id, winners) => {
-      const data = rec.finish(id ?? randomId(), netId, winners)
+    finish: (id, winners, moments) => {
+      const data = rec.finish(id ?? randomId(), netId, winners, Date.now(), moments)
       if (!data) return null
       saving = saving.then(() => lib.save(data)).then(
         () => {},

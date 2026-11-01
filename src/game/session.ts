@@ -40,6 +40,7 @@ import { MatchTracker, recordMatch, recordUnfinishedMatch, updateProfileNames } 
 import type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/leaderboard'
 export type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/leaderboard'
 import { createReplayHook } from './replay/hook'
+import { matchMoments, momentEvents } from './moments'
 import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
 import { useAccount } from './accountState'
@@ -123,17 +124,19 @@ function createRecorder(): MatchRecorder {
       }
       tracker = new MatchTracker({ ...info, queue: lobby.role === 'offline' ? 'offline' : lobby.ranked ? 'ranked' : lobby.quick ? 'casual' : 'custom' })
       replay.start(info)
+      matchMoments.reset()
     },
     step: (before, inputs, patches, slots) => replay.step(before, inputs, patches, slots),
     observe: (state, events) => {
       tracker?.observe(state, events)
       replay.observe(state, events)
+      momentEvents.emit(matchMoments.update(events, state))
     },
     finish: (result) => {
       const rec = tracker ? tracker.finish(result) : null
       if (rec) recordMatch(rec, getProfile().id)
       if (rec && analyticsMode && rec.outcome !== 'spectator') trackEvent('match_complete', { mode: analyticsMode, outcome: rec.outcome, rounds: rec.rounds, duration_seconds: Math.round(rec.durationSec) })
-      replay.finish(rec?.id ?? null, result.winners)
+      replay.finish(rec?.id ?? null, result.winners, matchMoments.all())
       tracker = null
       analyticsMode = null
     },
@@ -146,6 +149,7 @@ function createRecorder(): MatchRecorder {
       tracker = null
       analyticsMode = null
       replay.abort()
+      matchMoments.reset()
     },
   }
 }

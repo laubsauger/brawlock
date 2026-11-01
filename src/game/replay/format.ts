@@ -15,6 +15,7 @@
  */
 import { decodeCmd, encodeCmd, type WireCmd } from '../../net/stream'
 import { ticks, secondsOf } from '../../sim/config'
+import type { Moment } from '../moments'
 import { TICK_RATES, onTickRate, type TickRate, type InputCommand, type MatchSettings, type PlayerId, type PlayerInput, type PlayerSlot, type SimState } from '../../sim/types'
 
 export const REPLAY_FORMAT = 'brawlock-replay'
@@ -57,6 +58,26 @@ export interface ReplayData {
   /** [tick, killer | null, victim] */
   kills: [number, PlayerId | null, PlayerId][]
   winners: PlayerId[]
+  /** the match's best moments (game/moments.ts), at most REPLAY_MOMENTS; older replays have none */
+  moments?: Moment[]
+}
+
+/** moments a replay keeps: the best by score */
+export const REPLAY_MOMENTS = 10
+
+/** The best `REPLAY_MOMENTS` moments by score, in creation order. */
+export function bestMoments(all: readonly Moment[]): Moment[] {
+  return [...all].sort((a, b) => b.score - a.score || a.id - b.id).slice(0, REPLAY_MOMENTS).sort((a, b) => a.id - b.id)
+}
+
+/** a stored moment, checked field by field (a replay is a file anyone can hand over) */
+function isMoment(v: unknown): v is Moment {
+  if (!isObj(v) || typeof v.kind !== 'string' || !Array.isArray(v.traits) || !v.traits.every((t) => typeof t === 'string')) return false
+  if (![v.id, v.round, v.tick, v.end, v.from, v.to, v.count, v.score].every(isNum)) return false
+  if (!Array.isArray(v.actors) || !v.actors.every(isNum) || !Array.isArray(v.victims) || !v.victims.every(isNum)) return false
+  const c = v.camera
+  return (v.cause === null || typeof v.cause === 'string') && typeof v.final === 'boolean' &&
+    isObj(c) && [c.subject, c.x, c.y, c.dirX, c.dirY].every(isNum) && (c.other === null || isNum(c.other))
 }
 
 /** Summary for lists, readable without decompressing the replay. */
@@ -128,7 +149,7 @@ export function asReplay(v: unknown): ReplayData | null {
   if (!Array.isArray(v.steps) || !Array.isArray(v.slots) || !isObj(v.settings)) return null
   for (const s of v.steps) if (!Array.isArray(s) || !isNum(s[0]) || !Array.isArray(s[1])) return null
   const arr = (x: unknown) => (Array.isArray(x) ? x : [])
-  return {
+  const out: ReplayData = {
     ...(v as unknown as ReplayData),
     localPlayer: isNum(v.localPlayer) ? v.localPlayer : -1,
     seed: isNum(v.seed) ? v.seed : null,
@@ -138,6 +159,10 @@ export function asReplay(v: unknown): ReplayData | null {
     kills: arr(v.kills).filter((k) => Array.isArray(k) && isNum(k[0])) as [number, PlayerId | null, PlayerId][],
     winners: arr(v.winners).filter(isNum),
   }
+  // moments are optional: a malformed list is dropped, the replay still plays
+  if (Array.isArray(v.moments) && v.moments.every(isMoment)) out.moments = v.moments.slice(0, REPLAY_MOMENTS)
+  else delete out.moments
+  return out
 }
 
 // ---------------------------------------------------------------------------

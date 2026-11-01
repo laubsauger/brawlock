@@ -56,7 +56,7 @@ import { MULTI_WINDOW } from '../render/overlay/killStamps'
 import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
 import { gameWinners, scheduledRoundsOf } from '../sim/mode'
-import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
+import { TICK_HZ, type PawnState, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isDeniedEscape, slideSnapshot, type SlideSnapshot } from './teleportSave'
 
 export const ROUND_LINES = [
@@ -211,7 +211,7 @@ export const HILL_CAPTURE_LINES = ['hill_captured', 'king_of_the_ashes'] as cons
 /** occasional lines per round per credited player */
 export const OCCASIONAL_CAP = 2
 /** a hit that leaves at most this share of max HP is a close call ... */
-const CLOSE_CALL_HP = 0.08
+export const CLOSE_CALL_HP = 0.08
 /** ... once the player is still alive this long after it (s) */
 export const CLOSE_CALL_CONFIRM = 1
 /**
@@ -318,6 +318,14 @@ function scheduledCall(state: AnnouncerView, rounds: number, best: ReadonlyMap<n
     if ([...best].every(([other, v]) => other === side || v + remaining < score + 1)) return 'match_point'
   }
   return next <= ROUND_LINES.length ? ROUND_LINES[next - 1] : null
+}
+
+/**
+ * A close-call hit: another player's damage that leaves the pawn alive on at most CLOSE_CALL_HP of
+ * its max HP. One rule for the announcer and the moments engine (game/moments.ts).
+ */
+export function isCloseCallHit(e: { source: PlayerId | null; amount: number }, pawn: Pick<PawnState, 'owner' | 'alive' | 'hp' | 'maxHp'>): boolean {
+  return e.source !== null && e.source !== pawn.owner && e.amount > 0 && pawn.alive && pawn.hp <= CLOSE_CALL_HP * pawn.maxHp
 }
 
 /** One credited kill as the announcer counts it. */
@@ -480,9 +488,7 @@ export class Announcer {
           this.onDeath(e, now, local, teamOf, teamMode, alive)
           break
         case 'damage':
-          if (local !== null && localPawn && e.target === localPawn.id && e.source !== null && e.source !== local && e.amount > 0) {
-            if (!this.round.closeCallDone && localPawn.alive && localPawn.hp <= CLOSE_CALL_HP * localPawn.maxHp) this.round.closeCallAt = now
-          }
+          if (local !== null && localPawn && e.target === localPawn.id && !this.round.closeCallDone && isCloseCallHit(e, localPawn)) this.round.closeCallAt = now
           break
         case 'teleport':
           if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight' && state.settings && state.arena) {

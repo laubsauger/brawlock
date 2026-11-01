@@ -1,6 +1,7 @@
 # Moments: what mattered in a match
 
-Status: implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
+Status: engine built 2026-11-01 (see Built below); it shows nothing until the Final Blow and the
+reel. Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
 Bet 8 and [04-keystones.md](../04-keystones.md) Keystone 2 ("The moments engine"). Feeds
 [final-blow.md](final-blow.md) and [results-reel.md](results-reel.md). Ships in one release batch
 with both, on the developer's yes.
@@ -249,6 +250,30 @@ denies measured), each a small object, dropped at `reset()`.
 - First Blood, streaks, Shutdown, Revenge and Ace as moments; Swap or Alteration escapes as
   denies; an FFA clutch; a comeback moment of its own.
 - Moments on the server, Play of the Round, the coach. Timeline markers are in results-reel.md.
+
+## Built (2026-11-01)
+
+`src/game/moments.ts` (the engine, `matchMoments`, `momentEvents`), fed by the match recorder
+(`src/game/session.ts`); `src/game/replay/moments.ts` (`momentsOfReplay`, sliced, and
+`momentsOfReplaySync`); replays store the ten best (`ReplayData.moments`, dropped when malformed);
+the announcer's close-call hit rule is shared (`isCloseCallHit`). Open questions 1 to 3 took the
+recommended answers: 5 s close calls, six tiles, denies kept.
+
+One rule added to the spec: a warlock that burns up on its first lava tick never had a state in the
+lava, so its stay starts at the death tick (a near-dead warlock pushed by Scourge on a tiny arena
+was missed). Everything else is as written.
+
+Tests: `src/game/moments.test.ts` (the fifteen cases above plus the first-lava-tick case),
+`src/game/moments.match.test.ts` (three Hard–Brutal duels and a ten-bot round on Brisk's compact
+arena and 7 s ring, plus replay equivalence), and the P2P input-stream test in
+`src/game/replay/replay.test.ts`, where host and client name the same moments and the saved replay
+recomputes them. A dedicated-server variant waits for the server to run the engine. In the seeded
+matches 13 of 15 deaths were knockouts at both rates; each unsealed one was checked: pushed 4.6 to
+35 s earlier, then walked in or sunk with its tile. Cost: 0.71 µs per tick over 161,239 ticks of
+ten-bot matches (Node 24, under the 10 µs budget).
+
+Still before release: rerun the measurement table with the shipped engine and the human replays
+through `momentsOfReplay`.
 
 ## Acceptance
 

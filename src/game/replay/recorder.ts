@@ -10,7 +10,8 @@
  */
 import { cloneState, hashState } from '../../sim'
 import { TICK_HZ, type MatchSettings, type PlayerId, type PlayerInput, type PlayerSlot, type SimEvent, type SimState } from '../../sim/types'
-import { HASH_EVERY, REPLAY_FORMAT, REPLAY_VERSION, encodeInputs, type ReplayData, type ReplayStep } from './format'
+import type { Moment } from '../moments'
+import { HASH_EVERY, REPLAY_FORMAT, REPLAY_VERSION, bestMoments, encodeInputs, type ReplayData, type ReplayStep } from './format'
 
 export interface ReplayStartInfo {
   localPlayer: PlayerId
@@ -79,7 +80,7 @@ export class ReplayRecorder {
   }
 
   /** The finished replay, or null when nothing was stepped here (snapshot client, abort). */
-  finish(id: string, netId: string, winners: readonly PlayerId[], date = Date.now()): ReplayData | null {
+  finish(id: string, netId: string, winners: readonly PlayerId[], date = Date.now(), moments?: readonly Moment[]): ReplayData | null {
     const info = this.info
     const start = this.start
     this.info = null
@@ -103,6 +104,7 @@ export class ReplayRecorder {
       rounds: this.rounds,
       kills: this.kills,
       winners: [...winners],
+      ...(moments && moments.length > 0 ? { moments: bestMoments(moments) } : {}),
     }
   }
 

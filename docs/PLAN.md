@@ -249,6 +249,7 @@ A spell counts as implemented only when its sim behavior, tests and this VFX sta
 - Heavy impacts: directional spark cone along the knockback normal, ground shockwave, victim flash, camera kick toward the hit, all scaled by impulse.
 - Hit stop of 2–4 frames on big hits, scaled screen shake (setting), chromatic flash on own damage.
 - Camera: top-down tilted follow with smoothed zoom (original: 500–1500, default 1100), edge pan and peek that come back to the warlock, spectator cam on death. Settings > Gameplay > Camera: Free is the original's stock Dota camera. It stays where edge pan leaves it and holds its spot while the warlock moves. Space centers it, and holding Space keeps it on the warlock. Peek returns to the free spot, and a free camera has no aim look-ahead.
+- Moments (`src/game/moments.ts`, [moments.md](moonshot/specs/moments.md)): from the confirmed stream of ticks, the engine names each knockout's sealing hit (for a lava death, the push that kept or carried the warlock into its stay), round and match deciders, multi-knockouts, denied escapes, clutches and close calls, each scored. Replays store the ten best and can recompute them all. The Final Blow and the results reel read them; the engine shows nothing itself.
 - Post: bloom, ACES or AgX tone mapping, vignette, subtle film grain, per-object motion blur (velocity-stretched projectiles and knocked-back pawns), optional camera motion blur on Ultra, SSAO/GTAO and SMAA by tier.
 
 ### 5.5 Quality tiers
