@@ -21,7 +21,7 @@ function fixture(extra: Partial<Parameters<typeof createServerCore>[1]> = {}) {
   let state: SimState | null = null
   const pulses = new Set<(now: number) => void>()
   const core = createServerCore({ ...DEFAULT_SERVER_CONFIG, region: 'eu', build: 'dev-maintenance',
-    quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, bots: 'dummy', fill: 3, minHumans: 1, fillMs: 1, startMs: 1, nextMs: 10, settings: { ...DEFAULT_SERVER_CONFIG.quickplay.settings, shopSeconds: 0, winScore: 1 } },
+    quickplay: { ...DEFAULT_SERVER_CONFIG.quickplay, bots: 'dummy', fill: 3, minHumans: 1, fillMs: 1, startMs: 1, nextMs: 10, settings: { ...DEFAULT_SERVER_CONFIG.quickplay.settings, shopSeconds: 0, winScore: 1, scheduledRounds: 0 } },
     ranked: { ...DEFAULT_SERVER_CONFIG.ranked, bots: 'dummy', fill: 3, minHumans: 1, fillMs: 1, startMs: 1, nextMs: 10, settings: { ...DEFAULT_SERVER_CONFIG.ranked.settings, shopSeconds: 0 } },
   }, {
     defaultSettings: DEFAULT_SETTINGS,

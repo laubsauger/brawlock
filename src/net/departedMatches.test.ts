@@ -49,7 +49,8 @@ function fixture(delayRecord = false) {
     return local.record(submission)
   })
   const authority: RatingAuthority = { ...local, record }
-  const settings = { shopSeconds: 0, rankedRounds: 0 as const, winScore: 1,
+  // one round decides the match (casual's Brisk pace plays five scheduled rounds)
+  const settings = { shopSeconds: 0, rankedRounds: 0 as const, scheduledRounds: 0, winScore: 1,
     lavaDps: 0, dmgMultiplier: 0, kbMultiplier: 0, botsReplaceLeavers: false }
   const core = createServerCore({ ...DEFAULT_SERVER_CONFIG, region: 'eu', build: 'dev-departures', leaderboardMinSeconds: COUNTS_S,
     ranked: { ...DEFAULT_SERVER_CONFIG.ranked, bots: 'dummy', fill: 3, minHumans: 2, fillMs: 1, startMs: 1,
