@@ -134,6 +134,12 @@ Deployment is established by release receipts, not by implementation status here
    announcer and top bar following the schedule. Sim change: a new netcode id, so server and
    client deploy together. `arenaBase` waits for the daily. The casual queue preset is its own
    change (item 14).
+14. **Brisk casual queue: built on branch `brisk-casual-queue`, held for the playtest (2026-11-01).**
+   Casual quick play switches to five rounds, arena cap 15, a ring every 7 s and 30 gold a round
+   (the spec's Rule 8; the menu reads "5 rounds"). The spec ships it after one evening in a custom
+   room with the Brisk options. Recommended answers taken for the open questions: ranked's final
+   in casual, 20 Embers per casual match for now, King of the Hill unchanged; no one-click
+   Classic / Brisk button yet.
 
 ## Completed in this planning pass
 

@@ -429,14 +429,15 @@ describe('public rooms and quick play (M4.3)', () => {
       await owner.session.join(code)
       await until(() => owner.lobby().settings !== null, 3000, 'the custom lobby settings')
       expect(owner.screen()).toBe('lobby')
-      expect(owner.lobby().settings).toMatchObject({ startGold: 30, roundGold: 10, killGold: 1, winGold: 2 })
+      expect(owner.lobby().settings).toMatchObject({ startGold: 30, roundGold: 10, killGold: 1, winGold: 2, scheduledRounds: 0, arenaCap: 21, shrinkSeconds: 10 })
     } finally { owner.session.leave() }
   }, 10000)
 
-  it('fills a default quick game to its table with the configured bot mix and queue economy, and reuses it for a newcomer', async () => {
+  it('fills a default quick game to its table with the configured bot mix, queue economy and Brisk pace, and reuses it for a newcomer', async () => {
     const queue = DEFAULT_SERVER_CONFIG.quickplay
-    const { startGold, roundGold, killGold, winGold } = queue.settings!
-    const economy = { startGold, roundGold, killGold, winGold }
+    const { startGold, roundGold, killGold, winGold, scheduledRounds, arenaCap, shrinkSeconds } = queue.settings!
+    const economy = { startGold, roundGold, killGold, winGold, scheduledRounds, arenaCap, shrinkSeconds }
+    expect({ scheduledRounds, arenaCap, shrinkSeconds, roundGold }).toEqual({ scheduledRounds: 5, arenaCap: 15, shrinkSeconds: 7, roundGold: 30 })
     const { base, srv } = await start({ quickplay: { ...queue, fillMs: 4000, startMs: 100 } })
     const a = headlessClient(base, { key: 'full-house-a', device: 'full-house-device-a', play: false })
     const b = headlessClient(base, { key: 'full-house-b', device: 'full-house-device-b', play: false })
@@ -457,7 +458,7 @@ describe('public rooms and quick play (M4.3)', () => {
       await until(() => !!a.shown()?.scores.some((s) => s.id === a.lobby().localPlayer), 3000, 'the first confirmed player score')
       expect(a.shown()?.scores.find((s) => s.id === a.lobby().localPlayer)?.gold).toBe(startGold)
       const listed = (await a.online.browse()).find((room) => room.code === opened.code)!
-      expect(listed).toMatchObject({ phase: 'match', progress: { round: 1, phase: 'shop', final: false } })
+      expect(listed).toMatchObject({ phase: 'match', scheduledRounds: 5, progress: { round: 1, phase: 'shop', final: false } })
       expect(listed.progress!.elapsedSeconds).toBeGreaterThanOrEqual(0)
       expect(await b.online.quickPlay('test')).toEqual({ code: opened.code, created: false })
       await b.session.join(opened.code)
