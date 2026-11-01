@@ -90,6 +90,26 @@ export function setCameraFocus(p: { x: number; y: number } | null): void {
   devCamera.focus = p ? { x: p.x, y: p.y } : null
 }
 
+/** finish zoom envelope (s): in, hold, out */
+const PUNCH_IN = 0.08
+const PUNCH_HOLD = 0.12
+const PUNCH_OUT = 0.3
+/** how far the focus moves toward the punched point at full envelope */
+export const PUNCH_FOCUS = 0.35
+
+/**
+ * The finish zoom's envelope at `age` seconds (docs/moonshot/specs/final-blow.md): eases to 1 in
+ * 0.08 s, holds 0.12 s, eases back to 0 over 0.3 s. Pure.
+ */
+export function punchEnvelope(age: number): number {
+  if (!(age > 0)) return 0
+  const ease = (x: number) => x * x * (3 - 2 * x)
+  if (age < PUNCH_IN) return ease(age / PUNCH_IN)
+  if (age < PUNCH_IN + PUNCH_HOLD) return 1
+  const out = (age - PUNCH_IN - PUNCH_HOLD) / PUNCH_OUT
+  return out >= 1 ? 0 : 1 - ease(out)
+}
+
 /** Audio listener / screen-space helpers, updated every frame (game units). */
 export const cameraListener = { x: 0, y: 0, halfWidth: 1000 }
 
@@ -102,6 +122,11 @@ class CameraRig {
   private snap = true
   private shakeAmp = 0
   private shakeT = 0
+  /** finish zoom: where, how much (share of the distance), and its age (s); age < 0 = none */
+  private punchX = 0
+  private punchY = 0
+  private punchAmount = 0
+  private punchAge = -1
   // directional kick (game units), damped spring back to rest
   private kx = 0
   private ky = 0
@@ -115,6 +140,18 @@ class CameraRig {
     this.snap = true
     this.shakeAmp = 0
     this.kx = this.ky = this.kvx = this.kvy = 0
+    this.punchAge = -1
+  }
+
+  /**
+   * Finish zoom: for half a second the camera renders closer by `amount` of its distance and
+   * leans toward (x, y). The zoom level, its target and the wheel are untouched.
+   */
+  punch(x: number, y: number, amount: number): void {
+    this.punchX = x
+    this.punchY = y
+    this.punchAmount = amount
+    this.punchAge = 0
   }
 
   zoom(notches: number): void {
@@ -179,13 +216,21 @@ class CameraRig {
     this.ky += this.kvy * cdt
     sx += this.kx * shakeScale
     sy -= this.ky * shakeScale
-    const d = this.dist
+    let env = 0
+    if (this.punchAge >= 0) {
+      env = punchEnvelope(this.punchAge)
+      this.punchAge += dt
+      if (this.punchAge > PUNCH_IN + PUNCH_HOLD + PUNCH_OUT) this.punchAge = -1
+    }
+    const d = this.dist * (1 - this.punchAmount * env)
+    const fx = this.fx + (this.punchX - this.fx) * PUNCH_FOCUS * env
+    const fy = this.fy + (this.punchY - this.fy) * PUNCH_FOCUS * env
     const pitch = cameraParams.pitch * D2R
     // look slightly past the pawn so it sits a little below screen centre
     const ahead = d * frameOffset(d)
-    const tx = this.fx * S
+    const tx = fx * S
     const ty = TILE_TOP_H * S
-    const tz = -(this.fy + ahead) * S
+    const tz = -(fy + ahead) * S
     camera.position.set(tx + sx * S, ty + Math.sin(pitch) * d * S + sz * S, tz + Math.cos(pitch) * d * S + sy * S)
     this.tmp.set(tx + sx * S * 0.5, ty, tz + sy * S * 0.5)
     camera.lookAt(this.tmp)

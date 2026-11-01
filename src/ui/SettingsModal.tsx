@@ -380,6 +380,25 @@ export function SettingsDialog({ tab, onTab: setTab, capturing, onCapture: setCa
                   onBlur={() => setName(name.trim() ? chooseName(name) : s.playerName)}
                 />
               </Row>
+              <Row label="Final Blow replay" hint={(s.finalBlow ?? 'round') === 'off' ? 'Round ends go straight to the winner' : 'A beat after a round is won, the hit that decided it replays slowed down. Any key skips it'}>
+                <div data-testid="setting-final-blow" data-state={s.finalBlow ?? 'round'}>
+                  <Segmented
+                    label="Final Blow replay"
+                    value={s.finalBlow ?? 'round'}
+                    options={[
+                      { value: 'off', label: 'Off' },
+                      { value: 'match', label: 'Match point' },
+                      { value: 'round', label: 'Every round' },
+                    ]}
+                    onChange={(finalBlow) => setSettings({ finalBlow })}
+                  />
+                </div>
+              </Row>
+              <Row label="Finish zoom" hint="The camera punches in for half a second when a hit will finish the round">
+                <div data-testid="setting-finish-zoom" data-state={(s.finishZoom ?? true) ? 'on' : 'off'}>
+                  <Switch label="Finish zoom" checked={s.finishZoom ?? true} onChange={(finishZoom) => setSettings({ finishZoom })} />
+                </div>
+              </Row>
               <Row
                 label="Camera"
                 hint={

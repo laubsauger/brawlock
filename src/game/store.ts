@@ -51,6 +51,10 @@ export interface Settings {
   edgePan: boolean
   /** follow: the camera stays on your warlock; free: it stays where you pan it, Space centers (render prefs) */
   cameraMode: 'follow' | 'free'
+  /** Final Blow replay of the round's deciding hit: never, on the match-winning round only, or every round */
+  finalBlow: 'off' | 'match' | 'round'
+  /** the camera punches in on a hit that will finish the round */
+  finishZoom: boolean
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -195,6 +199,8 @@ const defaultSettings: Settings = {
   lastServerRegion: '',
   edgePan: true,
   cameraMode: 'follow',
+  finalBlow: 'round',
+  finishZoom: true,
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.65,

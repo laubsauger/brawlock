@@ -41,6 +41,8 @@ import type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/l
 export type { HistoryQueue, MatchHistoryEntry, GlobalMatchEntry } from '../net/leaderboard'
 import { createReplayHook } from './replay/hook'
 import { matchMoments, momentEvents } from './moments'
+import { resultsHold } from './finalBlow'
+import { matchRing } from './stateRing'
 import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
 import { useAccount } from './accountState'
@@ -125,12 +127,14 @@ function createRecorder(): MatchRecorder {
       tracker = new MatchTracker({ ...info, queue: lobby.role === 'offline' ? 'offline' : lobby.ranked ? 'ranked' : lobby.quick ? 'casual' : 'custom' })
       replay.start(info)
       matchMoments.reset()
+      matchRing.reset()
     },
     step: (before, inputs, patches, slots) => replay.step(before, inputs, patches, slots),
     observe: (state, events) => {
       tracker?.observe(state, events)
       replay.observe(state, events)
       momentEvents.emit(matchMoments.update(events, state))
+      matchRing.observe(state, events)
     },
     finish: (result) => {
       const rec = tracker ? tracker.finish(result) : null
@@ -150,6 +154,7 @@ function createRecorder(): MatchRecorder {
       analyticsMode = null
       replay.abort()
       matchMoments.reset()
+      matchRing.reset()
     },
   }
 }
@@ -163,7 +168,8 @@ const impl = createSession({
     screen: () => sessionScreen,
     setScreen: (s) => {
       if (s === 'lobby' || s === 'match' || s === 'results') sessionScreen = s
-      useGame.getState().setScreen(s)
+      // a match Final Blow holds the results screen for this viewer only (game/finalBlow.ts)
+      resultsHold.route(s, () => useGame.getState().setScreen(s))
     },
     setResult: (r) => useGame.getState().setResult(r),
     paused: () => useGame.getState().paused,

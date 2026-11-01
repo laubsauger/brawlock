@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three/webgpu'
 import { ARENA_MARGIN, CameraReach, EDGE_SPEED, reachFor, type ReachInput } from './cameraReach'
-import { cameraRig, frameOffset, zoomStep, ZOOM_MAX, ZOOM_ORIGINAL_MAX } from './cameraRig'
+import { cameraRig, frameOffset, punchEnvelope, zoomStep, ZOOM_MAX, ZOOM_ORIGINAL_MAX } from './cameraRig'
 
 /**
  * Camera reach is how players see and snipe across the map without a
@@ -221,5 +221,17 @@ describe('overview zoom', () => {
     }
     expect(worst).toBeLessThan(0.97)
     cameraRig.reset()
+  })
+})
+
+describe('finish zoom punch', () => {
+  it('eases in to full by 0.08 s, never overshoots, and is gone by 0.5 s', () => {
+    expect(punchEnvelope(0)).toBe(0)
+    expect(punchEnvelope(0.08)).toBe(1)
+    expect(punchEnvelope(0.15)).toBe(1)
+    expect(punchEnvelope(0.5)).toBe(0)
+    let max = 0
+    for (let t = 0; t <= 0.6; t += 0.001) max = Math.max(max, punchEnvelope(t))
+    expect(max).toBeLessThanOrEqual(1)
   })
 })

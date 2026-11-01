@@ -1,7 +1,7 @@
 import { Children, createElement, isValidElement, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../game/store'
-import { renderMarkup } from './testing/markup'
+import { renderMarkup, testId } from './testing/markup'
 
 type ModalProps = { children: ReactNode; escDisabled: boolean; onClose(): void }
 const model = vi.hoisted(() => ({
@@ -98,12 +98,14 @@ describe('tabbed settings', () => {
   })
 
   it('preserves camera, identity and online settings in Gameplay', () => {
-    model.settings = { ...model.settings, playerName: 'Ashbinder', cameraReach: 'far', edgePan: false, edgePanSpeed: 1.75, cameraMode: 'free', serverRegion: 'eu' }
+    model.settings = { ...model.settings, playerName: 'Ashbinder', cameraReach: 'far', edgePan: false, edgePanSpeed: 1.75, cameraMode: 'free', finalBlow: 'match', finishZoom: false, serverRegion: 'eu' }
     const html = render()
     for (const label of ['Player name', 'Move cancels cast', 'Camera', 'Camera reach', 'Edge pan', 'Edge pan speed', 'Game server region']) expect(html.find(`[aria-label="${label}"]`), label).toBeDefined()
     expect(render('controls').find('[aria-label="Move cancels cast"]')).toBeUndefined()
     expect(html.get('[aria-label="Player name"]').attr('value')).toBe('Ashbinder')
     expect(pressed(html, 'Camera')).toBe('Free')
+    expect(html.get(testId('setting-final-blow')).attr('data-state')).toBe('match')
+    expect(html.get(testId('setting-finish-zoom')).attr('data-state')).toBe('off')
     expect(pressed(html, 'Camera reach')).toBe('Far')
     expect(html.get('[role="switch"][aria-label="Edge pan"]').attr('aria-checked')).toBe('false')
     expect(html.get('input[aria-label="Edge pan speed"]').attr('value')).toBe('1.75')
