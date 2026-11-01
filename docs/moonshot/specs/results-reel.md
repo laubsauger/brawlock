@@ -1,6 +1,7 @@
 # The results reel, then clips that outlive a build
 
-Status: implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
+Status: the reel is built, on main, not released (2026-11-01; see Built below). Clips are not started.
+Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
 Bet 8 and [04-keystones.md](../04-keystones.md) Keystone 2 ("The reel", "Clips that outlive a
 build", "Sharing"). Needs [moments.md](moments.md) and reuses [final-blow.md](final-blow.md)'s
 playback, camera and plans. The reel ships in one release batch with both, on the developer's yes.
@@ -179,6 +180,23 @@ earlier (05 week 1).
    blurred names as an option, owner delete, reports to the feedback inbox, 90-day expiry unless
    pinned. Kill criterion (05 §5): under 2% of matches produce a clip after six weeks means the
    local reel stays and the share pipeline stops.
+
+## Built (2026-11-01)
+
+Rules 1 to 12 and the viewer: `src/game/replay/reel.ts` (selection, plans per kind, `ReelPlayer`,
+`reelSession`), `src/render/reelPlayback.ts`, the recorder's fight-start states, the replay player's
+`addKeyframe` and `restoreNearest`, `ResultsReel.tsx`, Watch highlights, the viewer's moment
+markers and Highlights button, Settings > Gameplay > Results highlights. Open questions took the
+recommended answers: full screen before the board, the watched decider left out, autoplay once.
+
+Simplified: a multi-knockout plays its first link slowed and cuts to the last when it runs long
+(the moment does not record every link's sealing hit); a clutch plays the last 4 s before its
+round's decider and then the decider. Captions are the developer's to tune.
+
+Browser check (muted headless, offline against Hard bots): three moments played on the results
+(round decider, a detonation knockout, ...), then the board with Watch highlights; in the viewer
+three markers and the same highlights. No console errors. Not measured yet: the prepare slices
+in the perf harness and the heap after leaving the results.
 
 ## Acceptance
 

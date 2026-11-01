@@ -394,6 +394,11 @@ export function SettingsDialog({ tab, onTab: setTab, capturing, onCapture: setCa
                   />
                 </div>
               </Row>
+              <Row label="Results highlights" hint="The match's best moments play on the results screen before the board. Any key skips">
+                <div data-testid="setting-results-reel" data-state={(s.resultsReel ?? true) ? 'on' : 'off'}>
+                  <Switch label="Results highlights" checked={s.resultsReel ?? true} onChange={(resultsReel) => setSettings({ resultsReel })} />
+                </div>
+              </Row>
               <Row label="Finish zoom" hint="The camera punches in for half a second when a hit will finish the round">
                 <div data-testid="setting-finish-zoom" data-state={(s.finishZoom ?? true) ? 'on' : 'off'}>
                   <Switch label="Finish zoom" checked={s.finishZoom ?? true} onChange={(finishZoom) => setSettings({ finishZoom })} />

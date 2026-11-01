@@ -29,6 +29,18 @@ export type CastMode = 'quick' | 'release' | 'normal'
 /** Graphics backend found at boot. 'fallback' = no WebGPU, three runs on WebGL2. */
 export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
 
+/** What the results screen shows of the reel (game/replay/reel.ts). */
+export interface ReelView {
+  state: 'none' | 'playing' | 'done'
+  /** the moment playing, 0-based */
+  index: number
+  count: number
+  /** between moments: the letterbox is closed while the next one is prepared */
+  closed: boolean
+  /** a reel exists for this result (Watch highlights) */
+  available: boolean
+}
+
 /** What the Final Blow plate shows: who hit whom with what, and how it played out. */
 export interface FinalBlowView {
   kind: 'round' | 'match'
@@ -66,6 +78,8 @@ export interface Settings {
   finalBlow: 'off' | 'match' | 'round'
   /** the camera punches in on a hit that will finish the round */
   finishZoom: boolean
+  /** the match's best moments play on the results screen before the board */
+  resultsReel: boolean
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -188,6 +202,8 @@ interface GameStore {
   settingsOpen: boolean
   /** the Final Blow replay on screen (game/finalBlow.ts), set when it starts and cleared when it ends */
   finalBlow: FinalBlowView | null
+  /** the results reel (game/replay/reel.ts), changed per moment */
+  reel: ReelView
   gpu: GpuSupport
 
   setScreen: (s: Screen) => void
@@ -214,6 +230,7 @@ const defaultSettings: Settings = {
   cameraMode: 'follow',
   finalBlow: 'round',
   finishZoom: true,
+  resultsReel: true,
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.65,
@@ -296,6 +313,7 @@ export const useGame = create<GameStore>((set, get) => ({
   characterOpen: false,
   paused: false,
   finalBlow: null,
+  reel: { state: 'none', index: 0, count: 0, closed: false, available: false },
   settingsOpen: false,
   gpu: 'unknown',
 

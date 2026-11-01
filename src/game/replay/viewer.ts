@@ -12,6 +12,7 @@
 import { cloneState } from '../../sim'
 import { DT, setTickRate, type PlayerId, type SimEvent, type SimState } from '../../sim/types'
 import { frame, pushEvents, pushState, resetFrame } from '../frame'
+import type { Moment } from '../moments'
 import type { ReplayData, ReplayMeta } from './format'
 import { ReplayPlayer, type Desync } from './player'
 import { replays, type ReplayLibrary } from './store'
@@ -52,6 +53,8 @@ export interface ViewerView {
   slots: ReplayData['slots']
   rounds: ReplayData['rounds']
   kills: ReplayData['kills']
+  /** the replay's stored best moments (timeline markers; empty for older replays) */
+  moments: Moment[]
   /** netcode id the replay was recorded with (shown when it does not match) */
   netId: string | null
 }
@@ -76,12 +79,14 @@ const IDLE: ViewerView = {
   slots: [],
   rounds: [],
   kills: [],
+  moments: [],
   netId: null,
 }
 
 export class ReplayViewer {
   private view: ViewerView = IDLE
   private player: ReplayPlayer | null = null
+  private loaded: ReplayData | null = null
   private readonly listeners = new Set<() => void>()
   private raf = 0
   private last = 0
@@ -127,7 +132,8 @@ export class ReplayViewer {
   openData(d: ReplayData): ViewerStatus {
     this.stop()
     const p = new ReplayPlayer(d, this.netId)
-    const base = { id: d.id, slots: d.slots, rounds: d.rounds, kills: d.kills, netId: d.netId, startTick: p.startTick, endTick: p.endTick, tick: p.tick }
+    const base = { id: d.id, slots: d.slots, rounds: d.rounds, kills: d.kills, moments: d.moments ?? [], netId: d.netId, startTick: p.startTick, endTick: p.endTick, tick: p.tick }
+    this.loaded = d
     if (!p.playable) {
       this.player = null
       this.set({ ...IDLE, ...base, status: 'mismatch' })
@@ -143,9 +149,15 @@ export class ReplayViewer {
     return 'ready'
   }
 
+  /** the replay on screen (highlights), or null */
+  data(): ReplayData | null {
+    return this.player ? this.loaded : null
+  }
+
   close(): void {
     this.stop()
     this.player = null
+    this.loaded = null
     this.sinks.cameraFocus?.(null)
     if (this.view.status !== 'idle') resetFrame()
     this.set(IDLE)

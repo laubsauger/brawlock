@@ -92,15 +92,30 @@ export class ReplayPlayer {
     return this.cur.events
   }
 
-  /** Jump to `tick` (clamped to the replay): nearest keyframe at or before it, then re-sim. */
-  seek(tick: number): void {
+  /** A known state at `tick` to seek from (the recorder's fight starts). */
+  addKeyframe(tick: number, state: SimState): void {
+    if (!this.keyframes.has(tick)) this.keyframes.set(tick, cloneState(state))
+  }
+
+  /**
+   * Restore the nearest keyframe at or before `tick` when the current state is past it or behind
+   * that keyframe, without stepping: the caller steps the rest (in budgeted slices, the reel).
+   */
+  restoreNearest(tick: number): void {
     if (!this.check.ok) return
     const target = Math.max(this.startTick, Math.min(this.endTick, Math.round(tick)))
     let best = this.startTick
     for (const k of this.keyframes.keys()) if (k <= target && k > best) best = k
+    if (this.cur.tick > target || this.cur.tick < best) this.cur = cloneState(this.keyframes.get(best)!)
+  }
+
+  /** Jump to `tick` (clamped to the replay): nearest keyframe at or before it, then re-sim. */
+  seek(tick: number): void {
+    if (!this.check.ok) return
+    const target = Math.max(this.startTick, Math.min(this.endTick, Math.round(tick)))
     // restore only when the current state is past the target or behind the best keyframe;
     // otherwise playing on from here is the shortest way
-    if (this.cur.tick > target || this.cur.tick < best) this.cur = cloneState(this.keyframes.get(best)!)
+    this.restoreNearest(target)
     while (this.cur.tick < target) this.stepOnce()
   }
 }

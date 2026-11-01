@@ -3,7 +3,7 @@ import { audio } from '../../audio'
 import { eventsSince, frame } from '../../game/frame'
 import { inspectClick } from '../../game/input'
 import { inspectStore } from '../../game/inspect'
-import { REPLAY_SPEEDS, replayViewer, type ViewerView } from '../../game/replay/viewer'
+import { BUILD_NET_ID, REPLAY_SPEEDS, replayViewer, type ViewerView } from '../../game/replay/viewer'
 import { TICK_HZ } from '../../sim'
 import { announce, Killfeed } from '../hud/Announce'
 import { FeedTally } from '../hud/killTags'
@@ -18,6 +18,11 @@ import { useTick } from '../lib/ticker'
 import { slotColor, slotGlyph, slotName } from '../lib/view'
 import { setCameraFocus, zoomCamera } from '../renderBridge'
 import { Button, Kbd } from '../widgets'
+import { useGame } from '../../game/store'
+import { reelSession } from '../../game/replay/reel'
+import { momentsOfReplay } from '../../game/replay/moments'
+import { reducedMotion } from '../lib/motion'
+import { ResultsReel, momentLabel } from './ResultsReel'
 
 /** game units the free camera moves per second while a pan key is held */
 const PAN_SPEED = 1400
@@ -48,6 +53,8 @@ function useViewer(): ViewerView {
  */
 export function Replay() {
   const v = useViewer()
+  const reel = useGame((s) => s.reel.state)
+  const [preparing, setPreparing] = useState(false)
 
   // camera + sound sinks for the viewer while this screen is up
   useEffect(() => {
@@ -186,6 +193,21 @@ export function Replay() {
     )
   }
 
+  // highlights: the replay's best moments through the Final Blow camera (stored, or worked out now)
+  const playHighlights = async () => {
+    const d = replayViewer.data()
+    if (!d || preparing) return
+    replayViewer.pause()
+    let moments = d.moments ?? []
+    if (moments.length === 0) {
+      setPreparing(true)
+      moments = (await momentsOfReplay(d, BUILD_NET_ID)) ?? []
+      setPreparing(false)
+    }
+    reelSession.playReplay(d, BUILD_NET_ID, moments, reducedMotion())
+  }
+  if (reel === 'playing') return <ResultsReel title="Highlights" />
+
   const span = Math.max(1, v.endTick - v.startTick)
   const pct = (tick: number) => `${(((tick - v.startTick) / span) * 100).toFixed(3)}%`
   const name = (id: number | null) => v.slots.find((s) => s.id === id)?.name ?? 'the lava'
@@ -237,6 +259,11 @@ export function Replay() {
               Export
             </Button>
           )}
+          {v.status === 'ready' && (
+            <Button size="sm" variant="ghost" onClick={() => void playHighlights()} disabled={preparing} data-testid="replay-highlights" title="The match's best moments">
+              {preparing ? 'Preparing…' : 'Highlights'}
+            </Button>
+          )}
         </div>
         <TopCenter />
         <div className="w-72">
@@ -276,6 +303,18 @@ export function Replay() {
               >
                 <span>{r}</span>
               </button>
+            ))}
+            {v.moments.map((m) => (
+              <button
+                key={`m${m.id}`}
+                type="button"
+                className="replay-mark-moment absolute top-[-5px] -translate-x-1/2"
+                style={{ left: pct(m.tick) }}
+                title={`${momentLabel(m)} (${clock(m.tick - v.startTick)})`}
+                aria-label={`Jump to ${momentLabel(m)}`}
+                data-testid="replay-moment"
+                onClick={() => replayViewer.seek(Math.max(v.startTick, m.from))}
+              />
             ))}
             {v.kills.map(([t, killer, victim], i) => (
               <button

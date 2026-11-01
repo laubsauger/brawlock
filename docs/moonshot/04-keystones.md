@@ -205,7 +205,9 @@ at gameplay pitch until the character upgrade (v2 Bet 8).
 
 The results screen plays the match's three best moments. The local recorder already holds the
 match's replay for every player who steps the input stream, and the replay player seeks
-quickly, so the reel is three seeks and three short plays through the same director camera.
+quickly from the fight-start states the recorder keeps, so the reel is three seeks and three
+short plays through the Final Blow's camera (`src/game/replay/reel.ts`,
+`src/render/reelPlayback.ts`, built 2026-11-01).
 
 ### Clips that outlive a build
 

@@ -43,6 +43,7 @@ import { createReplayHook } from './replay/hook'
 import { matchMoments, momentEvents } from './moments'
 import { resultsHold } from './finalBlow'
 import { matchRing } from './stateRing'
+import { reelSession } from './replay/reel'
 import { useGame } from './store'
 import { getAdmissionToken, saveAccountColor } from './account'
 import { useAccount } from './accountState'
@@ -115,6 +116,7 @@ function netMode(): NetMode {
 function createRecorder(): MatchRecorder {
   let tracker: MatchTracker | null = null
   let analyticsMode: MatchAnalyticsMode | null = null
+  let localPlayer = -1
   const replay = createReplayHook(__NET_ID__)
   return {
     start: (info) => {
@@ -128,6 +130,8 @@ function createRecorder(): MatchRecorder {
       replay.start(info)
       matchMoments.reset()
       matchRing.reset()
+      reelSession.clear()
+      localPlayer = info.localPlayer
     },
     step: (before, inputs, patches, slots) => replay.step(before, inputs, patches, slots),
     observe: (state, events) => {
@@ -141,6 +145,9 @@ function createRecorder(): MatchRecorder {
       if (rec) recordMatch(rec, getProfile().id)
       if (rec && analyticsMode && rec.outcome !== 'spectator') trackEvent('match_complete', { mode: analyticsMode, outcome: rec.outcome, rounds: rec.rounds, duration_seconds: Math.round(rec.durationSec) })
       replay.finish(rec?.id ?? null, result.winners, matchMoments.all())
+      // the results reel replays the match from memory, whatever happens to the saved copy
+      const last = replay.last()
+      if (last) reelSession.prepare({ data: last.data, keyframes: last.keyframes, moments: matchMoments.all(), local: localPlayer, netId: __NET_ID__ })
       tracker = null
       analyticsMode = null
     },
@@ -155,6 +162,7 @@ function createRecorder(): MatchRecorder {
       replay.abort()
       matchMoments.reset()
       matchRing.reset()
+      reelSession.clear()
     },
   }
 }
@@ -169,7 +177,11 @@ const impl = createSession({
     setScreen: (s) => {
       if (s === 'lobby' || s === 'match' || s === 'results') sessionScreen = s
       // a match Final Blow holds the results screen for this viewer only (game/finalBlow.ts)
-      resultsHold.route(s, () => useGame.getState().setScreen(s))
+      resultsHold.route(s, () => {
+        // leaving the results drops the reel and its in-memory replay
+        if (s !== 'results' && useGame.getState().screen === 'results') reelSession.clear()
+        useGame.getState().setScreen(s)
+      })
     },
     setResult: (r) => useGame.getState().setResult(r),
     paused: () => useGame.getState().paused,

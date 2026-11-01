@@ -11,12 +11,13 @@ import { matchMoments, type Moment } from '../game/moments'
 import { FB_DELAY, RESULTS_HOLD_MAX, planClock, planFinalBlow, resultsHold, type FinalBlowPlan } from '../game/finalBlow'
 import type { TickEvents } from '../game/frame'
 import { RING_SECONDS, matchRing } from '../game/stateRing'
+import { reelSession } from '../game/replay/reel'
 import { useGame } from '../game/store'
 import { trackEvent } from '../lib/analytics'
 import { ticks } from '../sim/config'
 import type { SimState } from '../sim/types'
 import type { CamPose } from './cinematic/cam'
-import { finalBlowPose, finalBlowYaw, pushTarget } from './finalBlowCamera'
+import { ShotFramer } from './finalBlowCamera'
 import { createPrivateSource, globalSource, writeSubTick, type RenderSource } from './source'
 
 /** What the player needs from the match world. */
@@ -31,8 +32,6 @@ export interface FinalBlowWorld {
   returnToLive(): void
 }
 
-/** the push target follows the victim with this lag rate (1/s) */
-const TARGET_RATE = 4
 /** a round Final Blow ends this long after the live state left the round end (s) */
 const LIVE_GRACE = 0.3
 
@@ -45,8 +44,7 @@ interface Playing {
   elapsed: number
   /** last recorded tick whose events were handed to the world */
   pushed: number
-  yaw: number
-  target: { x: number; y: number }
+  framer: ShotFramer
   /** back on the live stream (the match version's hero shot) */
   live: boolean
   /** seconds the live state has been out of the round end */
@@ -120,7 +118,7 @@ export class FinalBlowPlayer {
       if (!p.live) this.toLive(p)
       return
     }
-    this.end(false)
+    this.end(false, true)
   }
 
   /** Stop at once (leaving, a new match, the world going away). */
@@ -141,15 +139,14 @@ export class FinalBlowPlayer {
     source.buf.localPlayer = -1 // a neutral point of view: no hurt flash or shake from replayed hits
     const at = (s: SimState | undefined, pawn: number | null) => (pawn === null ? undefined : s?.pawns.find((q) => q.id === pawn))
     const atHit = states.find((s) => s.tick >= decider.tick) ?? states[states.length - 1]
+    const atDeath = matchRing.statesIn(decider.end, Infinity).find((s) => s.tick >= decider.end)
     const hitter = at(atHit, decider.camera.other)
-    const victim = at(atHit, decider.camera.subject)
-    const hitterP = hitter?.alive ? { x: hitter.x, y: hitter.y } : null
-    const victimP = victim ? { x: victim.x, y: victim.y } : { x: decider.camera.x, y: decider.camera.y }
-    const target = pushTarget(hitterP, victimP)
+    const victimAtDeath = at(atDeath, decider.camera.subject)
+    const framer = new ShotFramer(decider.camera, plan)
+    framer.known(hitter?.alive ? { x: hitter.x, y: hitter.y } : null, victimAtDeath ? { x: victimAtDeath.x, y: victimAtDeath.y } : null)
     this.play = {
       plan, decider, source, states, events: matchRing.eventsIn(first - 1, Infinity),
-      elapsed: 0, pushed: first, yaw: finalBlowYaw(target, decider.camera.dirX, decider.camera.dirY, hitterP, victimP),
-      target, live: false, outOfRoundEnd: 0, startedAt: performance.now(),
+      elapsed: 0, pushed: first, framer, live: false, outOfRoundEnd: 0, startedAt: performance.now(),
     }
     this.world.setSource(source, states[0])
     useGame.setState({ finalBlow: { kind: plan.kind, hitter: decider.actors[0], victim: decider.victims[0], cause: decider.cause, traits: decider.traits, partial: plan.partial } })
@@ -173,7 +170,8 @@ export class FinalBlowPlayer {
     const now = Math.floor(c.tick)
     const seg = p.plan.segments[c.segment]
     if (p.pushed < seg.from) p.pushed = seg.from
-    const ear = { x: p.target.x, y: p.target.y, halfWidth: 1800, state: s1 }
+    const pose = p.framer.pose(c, s0, s1, alpha, dtReal)
+    const ear = { x: pose.tx, y: pose.ty, halfWidth: 1800, state: s1 }
     for (const b of p.events) {
       if (b.tick <= p.pushed || b.tick > now) continue
       p.source.pushEvents(b.tick, b.events)
@@ -184,32 +182,7 @@ export class FinalBlowPlayer {
     audio.setReplay(true, c.speed > 0 && c.speed < 1)
     writeSubTick(p.source.buf, s0, s1, alpha, performance.now())
     this.world.setTimeScale(c.speed)
-    // the camera
-    const lerpP = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha })
-    const pawnNow = (id: number | null) => {
-      if (id === null) return null
-      const a = s0.pawns.find((q) => q.id === id)
-      const b = s1.pawns.find((q) => q.id === id)
-      return a && b ? lerpP(a, b) : a ?? b ?? null
-    }
-    const d = p.decider
-    const victim = pawnNow(d.camera.subject) ?? { x: d.camera.x, y: d.camera.y }
-    const hitState = p.states.find((s) => s.tick >= d.tick) ?? s1
-    const hitterPawn = d.camera.other === null ? undefined : hitState.pawns.find((q) => q.id === d.camera.other)
-    const hitter = hitterPawn?.alive ? { x: hitterPawn.x, y: hitterPawn.y } : null
-    const want = pushTarget(hitter, victim)
-    const k = 1 - Math.exp(-dtReal * Math.max(c.speed, 0.05) * TARGET_RATE)
-    p.target.x += (want.x - p.target.x) * k
-    p.target.y += (want.y - p.target.y) * k
-    const deathState = p.states.find((s) => s.tick >= d.end) ?? s1
-    const deathPawn = deathState.pawns.find((q) => q.id === d.camera.subject)
-    const slowSeg = p.plan.segments.find((s) => s.speed < 1)
-    const slow = slowSeg ? Math.max(0, Math.min(1, (c.tick - slowSeg.from) / (slowSeg.to - slowSeg.from))) : 1
-    this.world.setPose(finalBlowPose({
-      shot: seg.shot, reduced: p.plan.reduced, kind: p.plan.kind, yaw: p.yaw, slow, target: p.target, hitter, victim,
-      death: deathPawn ? { x: deathPawn.x, y: deathPawn.y } : victim,
-      hit: hitter ? { x: (hitter.x + victim.x) / 2, y: (hitter.y + victim.y) / 2 } : victim,
-    }))
+    this.world.setPose(pose)
   }
 
   private toLive(p: Playing): void {
@@ -221,7 +194,7 @@ export class FinalBlowPlayer {
     audio.setReplay(false, false)
   }
 
-  private end(skipped: boolean): void {
+  private end(skipped: boolean, completed = false): void {
     const p = this.play
     this.pending = null
     if (!p) return
@@ -230,6 +203,8 @@ export class FinalBlowPlayer {
     window.removeEventListener('pointerdown', this.onSkip, true)
     if (!p.live) this.toLive(p)
     useGame.setState({ finalBlow: null })
+    // the reel leaves out a match decider whose Final Blow was watched to the end
+    reelSession.noteFinalBlow(p.plan.kind, completed)
     resultsHold.release()
     trackEvent('final_blow', { kind: p.plan.kind, skipped, seconds: Math.round((performance.now() - p.startedAt) / 100) / 10 })
   }

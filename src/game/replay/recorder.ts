@@ -37,6 +37,8 @@ export class ReplayRecorder {
   private next = -1
   /** Latest roster for library labels; start state and patches retain their original timeline. */
   private roster: PlayerSlot[] = []
+  /** the state at every fight start, in memory only (never saved): the results reel seeks from them */
+  private roundStates: [number, SimState][] = []
 
   begin(info: ReplayStartInfo): void {
     this.info = { ...info, slots: info.slots.map((s) => ({ ...s })), settings: { ...info.settings } }
@@ -48,6 +50,12 @@ export class ReplayRecorder {
     this.kills = []
     this.next = -1
     this.roster = info.slots.map((s) => ({ ...s }))
+    this.roundStates = []
+  }
+
+  /** Fight-start states of the match being (or last) recorded: [tick, state], oldest first. */
+  get roundKeyframes(): readonly [number, SimState][] {
+    return this.roundStates
   }
 
   get recording(): boolean {
@@ -74,8 +82,10 @@ export class ReplayRecorder {
     this.roster = state.slots
     if (state.tick % HASH_EVERY === 0) this.hashes.push([state.tick, replayHash(state)])
     for (const e of events) {
-      if (e.type === 'phase' && e.phase === 'fight') this.rounds.push([state.tick, e.round])
-      else if (e.type === 'death') this.kills.push([state.tick, e.killer, e.owner])
+      if (e.type === 'phase' && e.phase === 'fight') {
+        this.rounds.push([state.tick, e.round])
+        this.roundStates.push([state.tick, cloneState({ ...state, events: [] })])
+      } else if (e.type === 'death') this.kills.push([state.tick, e.killer, e.owner])
     }
   }
 

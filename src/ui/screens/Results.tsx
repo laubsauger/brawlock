@@ -16,6 +16,8 @@ import { Collection, MatchEmbers, SiteEmbers } from './Collection'
 import { SITE_HOST, openSite } from '../../lib/site'
 import { BuildIcons } from '../BuildIcons'
 import type { InspectedKit } from '../../game/inspect'
+import { reelSession } from '../../game/replay/reel'
+import { ResultsReel } from './ResultsReel'
 
 interface Row {
   id: number
@@ -104,12 +106,21 @@ export function Results() {
   // one player's detail row open at a time (all closed at first, so the board fits at 1280x720)
   const [expanded, setExpanded] = useState<number | null>(null)
   const [collectionOpen, setCollectionOpen] = useState(false)
+  const reel = useGame((s) => s.reel)
+
+  // the highlights play once when the results first show (Settings > Gameplay > Results highlights);
+  // leaving the results drops the reel (game/session.ts)
+  useEffect(() => {
+    if (useGame.getState().settings.resultsReel !== false && reelSession.view().available && reelSession.view().state === 'none') reelSession.play(reducedMotion())
+  }, [])
 
   // Enter changes only this player's consent; it never forces the room past results.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const lobby = useGame.getState().lobby
       if (e.key !== 'Enter' || e.repeat || collectionOpen || isTypingTarget(e.target) || useGame.getState().settingsOpen || lobby.maintenance) return
+      // Enter during the highlights only skips them (the reel's own listener), never marks you Ready
+      if (useGame.getState().reel.state === 'playing') return
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       e.preventDefault()
       setReady(!useGame.getState().lobby.ready?.[useGame.getState().lobby.localPlayer])
@@ -152,6 +163,14 @@ export function Results() {
   const humans = currentSlots.filter((r) => r.kind === 'human')
   const readyCount = humans.filter((r) => ready?.[r.id]).length
   const localReady = !!ready?.[local]
+  const highlights = reel.available && (
+    <Button size="lg" onClick={() => reelSession.play(reducedMotion())} data-testid="watch-highlights">
+      Watch highlights
+    </Button>
+  )
+
+  // highlights mode: the match scene behind the title, a caption per moment, then the board
+  if (reel.state === 'playing') return <ResultsReel title={title} />
 
   return (
     // One screen, no page scroll: title, then the board beside a column of MVP / awards / Embers,
@@ -324,6 +343,7 @@ export function Results() {
                 New game
               </Button>
             )}
+            {highlights}
             {rec && replayIds.has(rec.id) && (
               <Button size="lg" onClick={() => void watchReplay(rec.id)}>
                 Watch replay
@@ -348,6 +368,7 @@ export function Results() {
         <Button size="lg" onClick={backToLobby}>
           Back to lobby
         </Button>
+        {highlights}
         {rec && replayIds.has(rec.id) && (
           <Button size="lg" onClick={() => void watchReplay(rec.id)}>
             Watch replay

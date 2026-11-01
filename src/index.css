@@ -1224,6 +1224,9 @@
   .final-blow-line { display: flex; align-items: center; gap: 0.55rem; font-size: 1.35rem; font-weight: 600; }
   .final-blow-skip { font-size: 0.8rem; color: rgba(240, 225, 205, 0.55); letter-spacing: 0.04em; }
   @media (prefers-reduced-motion: reduce) { .final-blow-bar { animation: none; } }
+  .reel-curtain { position: absolute; inset: 0; background: #050302; }
+  .reel-pip { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: rgba(240, 225, 205, 0.25); }
+  .reel-pip[data-on] { background: #ffb35c; }
   /* the round banner would sit on the replayed hit; the plate says who won */
   .hud[data-final-blow] .banner { visibility: hidden; }
 
@@ -1474,7 +1477,8 @@
   .replay-mark-round::before { content: ""; width: 2px; height: 20px; border-radius: 1px; background: rgba(190, 220, 255, 0.75); }
   .replay-mark-round span { position: absolute; top: -13px; font: 700 0.62rem var(--font-ui); color: rgba(190, 220, 255, 0.85); }
   .replay-mark-kill { width: 10px; height: 10px; border-radius: 2px; transform: translateX(-50%) rotate(45deg); background: var(--c, #ff6a55); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.7), 0 0 6px var(--c, #ff6a55); transition: transform 0.12s ease; }
-  .replay-mark-kill:hover, .replay-mark-round:hover { z-index: 1; }
+  .replay-mark-kill:hover, .replay-mark-round:hover, .replay-mark-moment:hover { z-index: 1; }
+  .replay-mark-moment { width: 9px; height: 9px; clip-path: polygon(50% 0, 63% 35%, 100% 38%, 71% 61%, 80% 100%, 50% 78%, 20% 100%, 29% 61%, 0 38%, 37% 35%); background: #ffd27a; }
   .replay-mark-kill:hover { transform: translateX(-50%) rotate(45deg) scale(1.35); }
   @media (prefers-reduced-motion: reduce) { .replay-tag i { animation: none; } }
   /* game-server region options (Settings > Online) */

@@ -20,6 +20,7 @@ import type { TierConfig } from '../quality'
 import { globalSource, type RenderSource } from '../source'
 import type { CamPose } from '../cinematic/cam'
 import { FinalBlowPlayer, type FinalBlowWorld } from '../finalBlowPlayer'
+import { ReelPlayback } from '../reelPlayback'
 import { finishZooms, type FinishZoom } from '../../game/finishZoom'
 import { Arena, SINK_DROP, SINK_SWALLOW, sinkDelay } from './Arena'
 import { ContactShadows } from './ContactShadows'
@@ -213,6 +214,8 @@ export class MatchWorld implements FinalBlowWorld {
   private pose: CamPose | null = null
   /** the Final Blow replay (match only) */
   private readonly finalBlow: FinalBlowPlayer | null
+  /** the results reel (match only) */
+  private readonly reelPlayback: ReelPlayback | null
   /** finish zooms waiting for this frame's events (game/finishZoom.ts) */
   private zoomQueue: FinishZoom[] = []
   private readonly unsubZoom: (() => void) | null
@@ -323,6 +326,7 @@ export class MatchWorld implements FinalBlowWorld {
     this.modulesOn = opts.mode === 'match'
     this.vfx = this.buildVfxCtx()
     this.finalBlow = opts.mode === 'match' ? new FinalBlowPlayer(this) : null
+    this.reelPlayback = opts.mode === 'match' ? new ReelPlayback(this) : null
     this.unsubZoom = opts.mode === 'match' ? finishZooms.subscribe((z) => this.zoomQueue.push(z)) : null
   }
 
@@ -698,6 +702,7 @@ export class MatchWorld implements FinalBlowWorld {
   update(dtReal: number, camera: THREE.PerspectiveCamera, aspect: number): void {
     // the Final Blow picks its source and clock before anything reads them
     this.finalBlow?.frame(dtReal, this.opts.mode === 'match' && isOfflinePaused())
+    this.reelPlayback?.frame(dtReal)
     // Frozen frames (hit-stop, offline pause, dev time scale 0, the Final Blow's impact
     // freeze) still run the whole update so every per-frame batch is rebuilt from scratch
     // (nothing can accumulate), but with dt = 0, the world clock held, the last
@@ -2656,6 +2661,7 @@ export class MatchWorld implements FinalBlowWorld {
   dispose(): void {
     this.unsubZoom?.()
     this.finalBlow?.abort()
+    if (this.reelPlayback?.active) this.reelPlayback.stop()
     this.endPrewarm()
     for (const m of this.inited) m.dispose?.()
     this.inited.clear()

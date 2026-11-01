@@ -150,6 +150,10 @@ Deployment is established by release receipts, not by implementation status here
    and a finishing hit punches the camera in ([final-blow.md](moonshot/specs/final-blow.md)).
    Checked in a headless browser against bots. Next: the offline playtest (do players watch or
    skip, can they say who hit whom), the WebGL2 fallback, and the results reel.
+17. **Results highlights: built, on main, not released (2026-11-01).** Up to three of the match's
+   best moments play on the results screen before the board, and again from Watch highlights or
+   the replay viewer ([results-reel.md](moonshot/specs/results-reel.md)). Client only. Clips and
+   sharing are the spec's later phase.
 
 ## Completed in this planning pass
 

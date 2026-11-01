@@ -5,6 +5,7 @@
  */
 import type { MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimEvent, SimState } from '../../sim/types'
 import type { Moment } from '../moments'
+import type { ReplayData } from './format'
 import { ReplayRecorder } from './recorder'
 import { replays, type ReplayLibrary } from './store'
 
@@ -17,6 +18,8 @@ export interface ReplayHook {
   abort(): void
   /** resolves once every save started so far has finished (or failed) */
   flush(): Promise<void>
+  /** the last finished replay with its fight-start states, in memory (the results reel), or null */
+  last(): { data: ReplayData; keyframes: readonly [number, SimState][] } | null
 }
 
 function randomId(): string {
@@ -26,20 +29,29 @@ function randomId(): string {
 export function createReplayHook(netId: string, lib: ReplayLibrary = replays): ReplayHook {
   const rec = new ReplayRecorder()
   let saving: Promise<void> = Promise.resolve()
+  let last: { data: ReplayData; keyframes: readonly [number, SimState][] } | null = null
   return {
-    start: (info) => rec.begin(info),
+    start: (info) => {
+      last = null
+      rec.begin(info)
+    },
     step: (before, inputs, patches, slots) => rec.step(before, inputs, patches, slots),
     observe: (state, events) => rec.observe(state, events),
     finish: (id, winners, moments) => {
       const data = rec.finish(id ?? randomId(), netId, winners, Date.now(), moments)
       if (!data) return null
+      last = { data, keyframes: rec.roundKeyframes }
       saving = saving.then(() => lib.save(data)).then(
         () => {},
         (e) => console.warn('[replay] could not save the replay', e),
       )
       return data.id
     },
-    abort: () => rec.abort(),
+    abort: () => {
+      last = null
+      rec.abort()
+    },
     flush: () => saving,
+    last: () => last,
   }
 }

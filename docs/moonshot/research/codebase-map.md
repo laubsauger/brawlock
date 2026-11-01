@@ -189,7 +189,7 @@ Estimate: **M** for an offline and online "replay the final blow during round en
 - Recording: `src/game/replay/recorder.ts`, fed by the session's `MatchRecorder.step` hook (`src/net/session.ts:123-135`). Only peers that step the stream record; snapshot spectators record nothing (`recorder.ts:1-9`). Dedicated servers do not record replays: their recorder (`src/net/dedicated.ts:262-270`) wires stats only, not `step`.
 - Playback: `src/game/replay/player.ts` re-simulates with keyframes for seeking; `viewer.ts` plays at 0.25x to 4x with follow or free camera (`viewer.ts:23-27`). Storage is IndexedDB, newest 20 plus pinned (`src/game/replay/store.ts:1-8`).
 - **Build lock**: a replay plays only with the netcode id that recorded it (`format.ts:11-13`), and `scripts/net-id.mjs:9-26` hashes every non-test `.ts` file in `src/sim` and `src/net` plus the cosmetics catalog. Any sim or net edit, even a comment, orphans every replay. For clips, highlights, a public replay archive or "watch the pros", choose one: keep old sim bundles loadable by netcode id (versioned sim chunks), or record render-level state for clips (positions and events per tick; larger but build-independent).
-- Small inconsistency: `KEYFRAME_EVERY = 600` (`player.ts:18`) is a tick literal documented as 10 s; at the default 30 Hz it is 20 s. Seeks are slower than intended; the project rule says to use `ticks()`.
+- Highlights (2026-11-01): the recorder keeps every fight-start state in memory (`roundKeyframes`), the reel's player adds them as keyframes (`addKeyframe`) and seeks in budgeted slices (`restoreNearest`, then `stepOnce`), and replays store their ten best moments (`ReplayData.moments`). `KEYFRAME_EVERY` is `ticks(10)` now (it was the literal 600).
 
 ### Spectating
 
