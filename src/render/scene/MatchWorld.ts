@@ -2441,7 +2441,7 @@ export class MatchWorld {
       for (const v of this.views.values()) if (v.owner === lp) local = v
     }
     if (cameraRig.recenterSeq !== this.reachSeq) {
-      // Space: back on the warlock at once, no pan left over
+      // Space: back on the warlock at once, no pan or free-camera spot left over
       this.reachSeq = cameraRig.recenterSeq
       this.reach.reset()
     }
@@ -2459,6 +2459,8 @@ export class MatchWorld {
         reach: reachFor(renderPrefs.cameraReach, arenaR),
         edgeSpeed: EDGE_SPEED * renderPrefs.edgePanSpeed,
         edgePan: renderPrefs.edgePan,
+        free: renderPrefs.cameraMode === 'free',
+        center: inputViz.center,
       })
       fx = local.x + o.x
       fy = local.y + o.y

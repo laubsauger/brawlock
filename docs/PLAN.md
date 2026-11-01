@@ -247,7 +247,7 @@ A spell counts as implemented only when its sim behavior, tests and this VFX sta
 - Stateless GPU particles: written once into ring buffers at spawn and evaluated analytically in the vertex shader (`src/render/scene/Particles.ts`); no compute pass, so the WebGL2 fallback runs the same path.
 - Heavy impacts: directional spark cone along the knockback normal, ground shockwave, victim flash, camera kick toward the hit, all scaled by impulse.
 - Hit stop of 2–4 frames on big hits, scaled screen shake (setting), chromatic flash on own damage.
-- Camera: top-down tilted follow with smoothed zoom (original: 500–1500, default 1100), optional free pan, spectator cam on death.
+- Camera: top-down tilted follow with smoothed zoom (original: 500–1500, default 1100), edge pan and peek that come back to the warlock, spectator cam on death. Settings > Gameplay > Camera: Free is the original's stock Dota camera. It stays where edge pan leaves it and holds its spot while the warlock moves. Space centers it, and holding Space keeps it on the warlock. Peek returns to the free spot, and a free camera has no aim look-ahead.
 - Post: bloom, ACES or AgX tone mapping, vignette, subtle film grain, per-object motion blur (velocity-stretched projectiles and knocked-back pawns), optional camera motion blur on Ultra, SSAO/GTAO and SMAA by tier.
 
 ### 5.5 Quality tiers
@@ -293,7 +293,7 @@ HUD: HP bar with regen tick, knockback points readout, spell bar (6 columns) wit
 
 **Shop** is a highlight of the round, not a menu: side panel that keeps your warlock practicing in view, opens automatically with the countdown (and from the knockout card while you are out), a Ready button that ends the shop early once every human is ready, big spell cards by role color, affordability states, previews with exact before and after numbers per level, hover tooltips with mechanics, purchase feedback (sound, flash, level pip animation), shows whether buying is allowed right now.
 
-Settings: quality tier and individual toggles, resolution scale, fps cap, fx intensity, screen shake, colorblind palette, master, SFX, music and UI volume, mute, keybinds (rebindable), camera zoom speed and edge pan, show perf HUD, Inspector toggle.
+Settings: quality tier and individual toggles, resolution scale, fps cap, fx intensity, screen shake, colorblind palette, master, SFX, music and UI volume, mute, keybinds (rebindable), camera mode (Follow or Free), camera reach, edge pan and its speed, show perf HUD, Inspector toggle.
 
 ### 5.7.1 Visual progression
 
@@ -319,7 +319,7 @@ Online systems now run through dedicated regions as well as explicit P2P custom 
 
 Controls must feel exactly like Dota to veteran players.
 
-- Right-click move (every click sends a move; spam is fine), `S` stop, `H` hold (same as stop), mouse wheel zoom, `Space` center camera, `Tab` scoreboard, `B` shop, `Esc` menu.
+- Right-click move (every click sends a move; spam is fine), `S` stop, `H` hold (same as stop), mouse wheel zoom, `Space` center camera (held, it keeps a free camera on the warlock), `Tab` scoreboard, `B` shop, `Esc` menu.
 - **Animation canceling, Dota semantics**: a stop, a new move or another cast during the turn or cast point cancels the cast with no cooldown spent (fake casts and baits work, and the opponent sees and hears the fizzle). After release there is no backswing lock: the next right-click moves immediately, and the backswing animation is cut visually.
 - **Cast modes** like Dota: Quick Cast (default, fires at the cursor on key press), Quick Cast on Key Release (shows range ring and aim line while held), Normal Cast (targeting reticle, left-click confirms). Global setting plus per-slot override.
 - Right-click move markers, range indicators from the sim's spell data.

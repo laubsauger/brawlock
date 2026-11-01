@@ -49,6 +49,8 @@ export interface Settings {
   lastServerRegion: string
   /** point at the screen edge to pan the camera (render prefs) */
   edgePan: boolean
+  /** follow: the camera stays on your warlock; free: it stays where you pan it, Space centers (render prefs) */
+  cameraMode: 'follow' | 'free'
   masterVolume: number
   sfxVolume: number
   musicVolume: number
@@ -192,6 +194,7 @@ const defaultSettings: Settings = {
   serverRegion: 'auto',
   lastServerRegion: '',
   edgePan: true,
+  cameraMode: 'follow',
   masterVolume: 0.8,
   sfxVolume: 1,
   musicVolume: 0.65,

@@ -9,6 +9,9 @@ import { cameraRig, frameOffset, zoomStep, ZOOM_MAX, ZOOM_ORIGINAL_MAX } from '.
  * arena, move smoothly (no jumps, no bobbing), come back to the warlock on
  * their own, and never leave the arena. The overview zoom must fit a whole
  * full-size arena while the original zoom steps stay exactly as they were.
+ * The free camera (the original's stock Dota camera) is for players who find
+ * the follow camera pushy: it must stay exactly where they put it until they
+ * center it, or it is not free.
  */
 
 const FULL_R = 2000 // layer 21, ten players
@@ -108,6 +111,77 @@ describe('camera reach', () => {
     expect(aim.x).toBeCloseTo(650, 0)
     const idle = r.step(input({ aiming: false, cursor }))
     expect(idle.x).toBeCloseTo(160, 0)
+  })
+})
+
+describe('free camera', () => {
+  const free = (over: Partial<ReachInput> = {}) => input({ free: true, ...over })
+  /** view centre in game units */
+  const centre = (pawn: { x: number; y: number }, o: { x: number; y: number }) => ({ x: pawn.x + o.x, y: pawn.y + o.y })
+
+  it('stays where edge pan leaves it and holds that spot while the warlock walks', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(free({ pointer: { x: 0.99, y: 0, inside: true } }))
+    const panned = centre({ x: 0, y: 0 }, r.step(free()))
+    expect(panned.x).toBeGreaterThan(500)
+    // the warlock walks away under a still camera, for two seconds
+    let worst = 0
+    for (let i = 1; i <= 120; i++) {
+      const pawn = { x: -i * 5, y: i * 3 }
+      const c = centre(pawn, r.step(free({ pawn })))
+      worst = Math.max(worst, Math.hypot(c.x - panned.x, c.y - panned.y))
+    }
+    expect(worst).toBeLessThan(1e-6)
+  })
+
+  it('peek looks away and comes back to the free spot, not to the warlock', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(free({ pointer: { x: -0.99, y: 0, inside: true } }))
+    const spot = r.step(free()).x
+    expect(spot).toBeLessThan(-500)
+    for (let i = 0; i < 60; i++) r.step(free({ peek: true, pointer: { x: 0, y: 0.9, inside: true } }))
+    expect(r.oy).toBeGreaterThan(1000)
+    for (let i = 0; i < 120; i++) r.step(free())
+    expect(r.ox).toBeCloseTo(spot, 0)
+    expect(Math.abs(r.oy)).toBeLessThan(1)
+  })
+
+  it('Center camera held keeps it on the warlock; released, it stays where it was', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(free({ pointer: { x: 0.99, y: 0.99, inside: true } }))
+    expect(Math.hypot(r.ox, r.oy)).toBeGreaterThan(500)
+    // held while walking (and while the cursor sits on the edge): on the warlock every frame
+    let worst = 0
+    for (let i = 1; i <= 30; i++) worst = Math.max(worst, Math.hypot(r.step(free({ center: true, pawn: { x: i * 10, y: 0 }, pointer: { x: 0.99, y: 0, inside: true } })).x, r.oy))
+    expect(worst).toBe(0)
+    // released: the camera stays at the last centred spot as the warlock walks on
+    const o = r.step(free({ pawn: { x: 400, y: 0 } }))
+    expect(400 + o.x).toBeCloseTo(300, 6)
+  })
+
+  it('never leans toward the cursor, even while aiming', () => {
+    const r = new CameraReach()
+    const cursor = { x: 2500, y: 0, valid: true }
+    expect(r.step(free({ aiming: true, cursor })).x).toBe(0)
+    expect(r.step(free({ aiming: false, cursor })).x).toBe(0)
+  })
+
+  it('keeps its spot over the arena as the arena shrinks', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60 * 3; i++) r.step(free({ pointer: { x: 0.99, y: 0, inside: true } }))
+    const small = 900
+    const c = centre({ x: 0, y: 0 }, r.step(free({ arenaR: small })))
+    expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(small + ARENA_MARGIN + 1e-6)
+    // and does not slide back out once the clamp let go of it
+    expect(r.restX).toBeCloseTo(r.ox, 6)
+  })
+
+  it('switching back to follow brings the view home to the warlock', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(free({ pointer: { x: 0.99, y: 0, inside: true } }))
+    expect(r.ox).toBeGreaterThan(500)
+    for (let i = 0; i < 120; i++) r.step(input())
+    expect(Math.abs(r.ox)).toBeLessThan(5)
   })
 })
 

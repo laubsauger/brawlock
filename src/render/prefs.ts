@@ -18,9 +18,11 @@ export interface RenderPrefs {
   edgePanSpeed: number
   /** false: the screen edge never pans (peek, aim lean and zoom still work) */
   edgePan: boolean
+  /** follow: the camera stays on the warlock; free: it stays where edge pan leaves it (see cameraReach) */
+  cameraMode: 'follow' | 'free'
 }
 
-export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1, cameraReach: 'normal', edgePanSpeed: 1, edgePan: true }
+export const renderPrefs: RenderPrefs = { shake: 1, fpsCap: 0, resolutionScale: 1, cameraReach: 'normal', edgePanSpeed: 1, edgePan: true, cameraMode: 'follow' }
 
 const listeners = new Set<() => void>()
 
@@ -60,6 +62,11 @@ export function setRenderPrefs(p: Partial<RenderPrefs>): void {
     const v = p.edgePan !== false
     changed ||= v !== renderPrefs.edgePan
     renderPrefs.edgePan = v
+  }
+  if (p.cameraMode !== undefined) {
+    const v = p.cameraMode === 'free' ? 'free' : 'follow'
+    changed ||= v !== renderPrefs.cameraMode
+    renderPrefs.cameraMode = v
   }
   if (changed) for (const l of listeners) l()
 }

@@ -118,6 +118,14 @@ Deployment is established by release receipts, not by implementation status here
    dedicated-server repro showed the rule works: the joiner's first round end and shop refund all
    of the bot's spending. The shop button now reads "Reset build · free" (takeover) or
    "Reset build · +N gold", and a takeover shows an offer above the spells until the next fight.
+12. **Free camera option: built, not released (2026-11-01).** Playtest note: the follow camera
+   feels pushy, and the original did not chase the warlock (stock Dota camera). Settings >
+   Gameplay > Camera adds Free next to Follow, which stays the default. A free camera stays where
+   edge pan leaves it, holds that ground spot while the warlock moves and has no aim look-ahead.
+   Space centers it, holding Space keeps it on the warlock, and every round start centers it.
+   The off-screen arrow for your own warlock (`PawnLocator`) covers a free camera too.
+   Open: whether Free should become the default, a hotkey to switch modes, and a middle-mouse
+   drag pan.
 
 ## Completed in this planning pass
 

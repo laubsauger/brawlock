@@ -380,7 +380,32 @@ export function SettingsDialog({ tab, onTab: setTab, capturing, onCapture: setCa
                   onBlur={() => setName(name.trim() ? chooseName(name) : s.playerName)}
                 />
               </Row>
-              <Row label="Camera reach" hint="How far edge pan and camera peek (hold A or the middle mouse button) can look away from your warlock">
+              <Row
+                label="Camera"
+                hint={
+                  (s.cameraMode ?? 'follow') === 'free'
+                    ? 'Stays where you pan it, like the original. Space centers it on your warlock; hold Space to keep it there'
+                    : 'Stays on your warlock and comes back after edge pan or peek'
+                }
+              >
+                <Segmented
+                  label="Camera"
+                  value={s.cameraMode ?? 'follow'}
+                  options={[
+                    { value: 'follow', label: 'Follow' },
+                    { value: 'free', label: 'Free' },
+                  ]}
+                  onChange={(cameraMode) => setSettings({ cameraMode })}
+                />
+              </Row>
+              <Row
+                label="Camera reach"
+                hint={
+                  (s.cameraMode ?? 'follow') === 'free'
+                    ? 'How far camera peek (hold A or the middle mouse button) can look away. A free camera pans anywhere over the arena'
+                    : 'How far edge pan and camera peek (hold A or the middle mouse button) can look away from your warlock'
+                }
+              >
                 <Segmented
                   label="Camera reach"
                   value={s.cameraReach ?? 'normal'}

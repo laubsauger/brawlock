@@ -79,7 +79,7 @@ describe('Move cancels cast, on (default, as in the original): unchanged', () =>
   })
 })
 
-describe('camera peek: held while the key or the middle button is down, never stuck', () => {
+describe('held camera keys (peek, Center camera): held while the key or the middle button is down, never stuck', () => {
   // a minimal DOM for attach(): window / element event targets, no real browser needed
   const win = new EventTarget() as EventTarget & Record<string, unknown>
   win.setInterval = setInterval
@@ -128,6 +128,18 @@ describe('camera peek: held while the key or the middle button is down, never st
     fire(el, 'pointerdown', { button: 1 })
     useGame.getState().toggle('paused', true)
     expect(inputViz.peek).toBe(false)
+  })
+
+  // a free camera follows the warlock only while Center camera is held
+  it('holds Center camera while Space is down, through key repeat, and lets go on release or blur', () => {
+    fire(win, 'keydown', { code: 'Space' })
+    fire(win, 'keydown', { code: 'Space', repeat: true })
+    expect(inputViz.center).toBe(true)
+    fire(win, 'keyup', { code: 'Space' })
+    expect(inputViz.center).toBe(false)
+    fire(win, 'keydown', { code: 'Space' })
+    fire(win, 'blur', {})
+    expect(inputViz.center).toBe(false)
   })
 })
 

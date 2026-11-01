@@ -20,7 +20,7 @@
  *   sent; the latest held move goes out the moment the windup ends (fired or
  *   cancelled). Client-side only: the sim and the protocol are unchanged, and
  *   both net modes read the same queue.
- * - recenter (Space), scoreboard (hold), shop, character sheet, Esc menu
+ * - recenter (Space; held, it keeps a free camera on the warlock), scoreboard (hold), shop, character sheet, Esc menu
  * - camera peek (A in every preset, or hold the middle mouse button): inputViz.peek
  * - left click on a warlock or its nameplate (outside normal-cast targeting, which
  *   casts with that click): inspect its loadout; on empty ground: close the card.
@@ -65,12 +65,15 @@ export interface InputViz {
   move: { x: number; y: number; at: number; seq: number }
   /** camera peek held (peek key or middle mouse); false on blur, menus and while typing. Render reads it every frame. */
   peek: boolean
+  /** Center camera held: the camera stays on the warlock (matters for the free camera); false on blur */
+  center: boolean
   aim: { slot: number; spell: string; range: number; mode: 'release' | 'normal' } | null
 }
 
 export const inputViz: InputViz = {
   move: { x: 0, y: 0, at: -1, seq: 0 },
   peek: false,
+  center: false,
   aim: null,
 }
 
@@ -279,10 +282,11 @@ export const input: InputApi = {
     /** peek sources: the key and the middle button (peek holds while either is down) */
     let peekKey = false
     let peekMouse = false
-    const releasePeek = () => {
+    const releaseCameraKeys = () => {
       peekKey = false
       peekMouse = false
       inputViz.peek = false
+      inputViz.center = false
     }
 
     const setAim = (slot: number, mode: 'release' | 'normal') => {
@@ -375,7 +379,7 @@ export const input: InputApi = {
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (isTypingTarget(e.target)) {
         // typing: never peek
-        releasePeek()
+        releaseCameraKeys()
         return
       }
       const store = useGame.getState()
@@ -416,6 +420,7 @@ export const input: InputApi = {
         inputViz.peek = true
         return
       }
+      if (action === 'recenter') inputViz.center = true
       e.preventDefault()
       if (e.repeat) return
 
@@ -471,6 +476,7 @@ export const input: InputApi = {
         inputViz.peek = peekMouse
         return
       }
+      if (actionForCode(currentBinds(), e.code) === 'recenter') inputViz.center = false
       if (releaseCode && e.code === releaseCode) {
         const slot = inputViz.aim?.slot
         clearAim()
@@ -483,7 +489,7 @@ export const input: InputApi = {
     const onBlur = () => {
       stopHold()
       clearAim()
-      releasePeek()
+      releaseCameraKeys()
       useGame.getState().toggle('scoreboardOpen', false)
     }
 
@@ -495,7 +501,7 @@ export const input: InputApi = {
 
     // a menu or the settings opening ends a peek (its key-up may never reach us)
     const unsubMenus = useGame.subscribe((s, prev) => {
-      if ((s.paused && !prev.paused) || (s.settingsOpen && !prev.settingsOpen)) releasePeek()
+      if ((s.paused && !prev.paused) || (s.settingsOpen && !prev.settingsOpen)) releaseCameraKeys()
     })
 
     el.addEventListener('contextmenu', onContextMenu)
@@ -509,7 +515,7 @@ export const input: InputApi = {
     return () => {
       stopHold()
       clearAim()
-      releasePeek()
+      releaseCameraKeys()
       inspectStore.reset()
       unsubMenus()
       heldMove = null

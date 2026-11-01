@@ -76,7 +76,7 @@ export const BIND_GROUPS: { title: string; actions: { id: BindAction; label: str
       { id: 'shopReady', label: 'Ready (shop done)' },
       { id: 'character', label: 'Character stats' },
       { id: 'scoreboard', label: 'Scoreboard (hold)' },
-      { id: 'recenter', label: 'Center camera' },
+      { id: 'recenter', label: 'Center camera (hold to keep it there)' },
       { id: 'peek', label: 'Camera peek (hold; also middle mouse)' },
       { id: 'mute', label: 'Mute' },
     ],
