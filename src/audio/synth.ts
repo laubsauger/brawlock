@@ -572,6 +572,25 @@ const killConfirm: Recipe = (v) => {
   tail(v, 0.08, 0.27, 200, 0.13)
 }
 
+/** Finish zoom: a short rising rush into a bright, dry hit (UI bus, over the dipped effects). */
+const finishStinger: Recipe = (v) => {
+  whoosh(v, 0, 0.16, 500, 3400, 0.6, 0.12, 'pink')
+  click(v, 0.15, 0.4, 2600)
+  thump(v, 0.15, 160, 60, 0.25, 0.22, v.drive(v.out, 2.2, 0.5), 'triangle')
+  ring(v, 0.16, 1567.98, [1, 2.76], [0.09, 0.05], 0.18)
+  tail(v, 0.16, 0.3, 240, 0.12)
+}
+
+/** Final Blow: the replayed hit lands, a heavy slam with a low brass swell under it. */
+const finalBlowImpact: Recipe = (v) => {
+  const body = v.drive(v.out, 2.8, 0.55)
+  click(v, 0, 0.5, 1900, body)
+  thump(v, 0, 120, 38, 0.9, 0.7, body, 'triangle')
+  burst(v, { noise: 'brown', type: 'lowpass', freq: 900, to: 160, q: 0.7, attack: 0.001, decay: 0.45, gain: 1.4 })
+  brass(v, 0.02, [65.41, 98], 0.7, 0.4, [[0, 240], [0.05, 700], [0.7, 200]])
+  tail(v, 0.03, 1.1, 200, 0.2)
+}
+
 /** A pillar breaking: stone cracking, chunks clacking down, a thud. */
 const obstacleBreak: Recipe = (v) => {
   burst(v, { noise: 'crackle', freq: 1200, q: 0.9, attack: 0.001, decay: 0.2, gain: 2.8 })
@@ -1395,6 +1414,8 @@ const uiCountdown: Recipe = (v, p) => {
 }
 
 export const RECIPES = {
+  finishStinger,
+  finalBlowImpact,
   fireballCast,
   fireballTravel,
   explosion,

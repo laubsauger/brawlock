@@ -29,6 +29,17 @@ export type CastMode = 'quick' | 'release' | 'normal'
 /** Graphics backend found at boot. 'fallback' = no WebGPU, three runs on WebGL2. */
 export type GpuSupport = 'unknown' | 'webgpu' | 'fallback'
 
+/** What the Final Blow plate shows: who hit whom with what, and how it played out. */
+export interface FinalBlowView {
+  kind: 'round' | 'match'
+  hitter: PlayerId
+  victim: PlayerId
+  cause: string | null
+  traits: readonly string[]
+  /** the ring did not reach the hit: only the death is shown */
+  partial: boolean
+}
+
 export interface Settings {
   quality: Quality
   /** 0..1, scales flashes and post fx (screen shake is screenShake only) */
@@ -175,6 +186,8 @@ interface GameStore {
   paused: boolean
   /** settings modal, reachable from menu and the in-match menu */
   settingsOpen: boolean
+  /** the Final Blow replay on screen (game/finalBlow.ts), set when it starts and cleared when it ends */
+  finalBlow: FinalBlowView | null
   gpu: GpuSupport
 
   setScreen: (s: Screen) => void
@@ -282,6 +295,7 @@ export const useGame = create<GameStore>((set, get) => ({
   scoreboardOpen: false,
   characterOpen: false,
   paused: false,
+  finalBlow: null,
   settingsOpen: false,
   gpu: 'unknown',
 

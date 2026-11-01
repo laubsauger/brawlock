@@ -509,6 +509,16 @@ export class CC0Warlock implements WarlockHandle {
     if (this.death.beginRound(round)) this.revive()
   }
 
+  /**
+   * Back to standing, as before this round's death and victory (a Final Blow replays the round's
+   * last seconds on the same characters).
+   */
+  rewind(): void {
+    this.revive()
+    this.victory = false
+    this.victoryAge = 0
+  }
+
   celebrate(facing: number, style: VictoryStyle = 'summon'): void {
     if (this.dead) return
     this.victory = true

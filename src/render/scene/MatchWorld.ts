@@ -17,7 +17,10 @@ import { createWarlock, warlockParams, warlockReady, type CastArm } from '../cha
 import { LAVA_H, PROJECTILE_H, S, TILE_TOP_H } from '../coords'
 import { WorldOverlay, type PlateInput } from '../overlay/WorldOverlay'
 import type { TierConfig } from '../quality'
-import type { RenderSource } from '../source'
+import { globalSource, type RenderSource } from '../source'
+import type { CamPose } from '../cinematic/cam'
+import { FinalBlowPlayer, type FinalBlowWorld } from '../finalBlowPlayer'
+import { finishZooms, type FinishZoom } from '../../game/finishZoom'
 import { Arena, SINK_DROP, SINK_SWALLOW, sinkDelay } from './Arena'
 import { ContactShadows } from './ContactShadows'
 import { Billboards } from './Billboards'
@@ -152,7 +155,7 @@ const TELEPORT_COLOR = [0.55, 0.9, 2.6] as const
  * Everything the match (or menu) scene draws, driven imperatively once per
  * frame from the render source. Owns all three objects it creates.
  */
-export class MatchWorld {
+export class MatchWorld implements FinalBlowWorld {
   readonly root = new THREE.Group()
   readonly ctx: WorldCtx
   readonly arena: Arena
@@ -204,6 +207,15 @@ export class MatchWorld {
   private bv1 = new THREE.Vector3()
   /** world clock (s): stops during hit-stop so every effect freezes together */
   private clock = 0
+  /** world clock speed: a Final Blow slows it down, 0 freezes it */
+  private timeScale = 1
+  /** a cinematic camera pose (game units) that replaces the gameplay camera while set */
+  private pose: CamPose | null = null
+  /** the Final Blow replay (match only) */
+  private readonly finalBlow: FinalBlowPlayer | null
+  /** finish zooms waiting for this frame's events (game/finishZoom.ts) */
+  private zoomQueue: FinishZoom[] = []
+  private readonly unsubZoom: (() => void) | null
   private hitStop = 0
   private lastEventTick = -1
   private lastStateTick = -1
@@ -310,6 +322,62 @@ export class MatchWorld {
     if (opts.mode === 'match') cameraRig.reset()
     this.modulesOn = opts.mode === 'match'
     this.vfx = this.buildVfxCtx()
+    this.finalBlow = opts.mode === 'match' ? new FinalBlowPlayer(this) : null
+    this.unsubZoom = opts.mode === 'match' ? finishZooms.subscribe((z) => this.zoomQueue.push(z)) : null
+  }
+
+  // ---------------------------------------------------------------- Final Blow seams
+
+  /**
+   * Draw from another source (the Final Blow's replay, then live again). Nothing is rebuilt:
+   * pawns alive in `rewindTo` forget their death and victory, per-pawn trails and the round-end
+   * camera are dropped, and the next frame takes the first-frame path (tiles and pillars snap).
+   */
+  setSource(src: RenderSource, rewindTo: SimState | null): void {
+    if (src === this.opts.source) return
+    this.opts.source = src
+    if (rewindTo) {
+      for (const p of rewindTo.pawns) if (p.alive) this.views.get(p.id)?.rewind()
+    }
+    this.lingers.clear()
+    this.sinkFxN = 0
+    this.deathFocus = null
+    this.held.curr = null
+    this.held.prev = null
+    this.victoryShot = null
+    this.lastEventTick = -1
+    this.lastStateTick = -1
+  }
+
+  setTimeScale(k: number): void {
+    this.timeScale = Math.max(0, k)
+  }
+
+  setPose(p: CamPose | null): void {
+    this.pose = p
+  }
+
+  /** After a replay: the live round end resumes with its winners celebrating and the hero shot. */
+  returnToLive(): void {
+    const curr = this.opts.source.buf.curr
+    if (!curr) return
+    // live events until now happened off screen (a round end has no combat)
+    this.lastEventTick = curr.tick
+    if (curr.phase !== 'roundEnd' && curr.phase !== 'gameOver') return
+    const living = curr.pawns.filter((p) => p.alive && this.views.has(p.id))
+    const cam = this.lastCamera
+    if (!cam) return
+    const facingTo = (x: number, y: number) => Math.atan2(-cam.position.z / S - y, cam.position.x / S - x)
+    // the match version ends after the live game is over: the hero shot plays there too
+    if (living.length === 1) {
+      const p = living[0]
+      const v = this.views.get(p.id)!
+      this.victoryShot = { pawn: p.id, round: curr.round, at: this.clock, facing: facingTo(p.x, p.y) + 0.18, x: p.x, y: p.y, floorH: v.floorH, releasedAt: null }
+    }
+    for (const p of living) {
+      const v = this.views.get(p.id)!
+      v.celebrate(this.victoryShot?.facing ?? facingTo(p.x, p.y), victoryStyle(curr.round, p.owner, this.slotOf(curr, p.owner)?.cosmetics?.victory))
+    }
   }
 
   // ---------------------------------------------------------------- uploads
@@ -628,9 +696,11 @@ export class MatchWorld {
   }
 
   update(dtReal: number, camera: THREE.PerspectiveCamera, aspect: number): void {
-    // Frozen frames (hit-stop, offline pause, dev time scale 0) still run the
-    // whole update so every per-frame batch is rebuilt from scratch (nothing
-    // can accumulate), but with dt = 0, the world clock held, the last
+    // the Final Blow picks its source and clock before anything reads them
+    this.finalBlow?.frame(dtReal, this.opts.mode === 'match' && isOfflinePaused())
+    // Frozen frames (hit-stop, offline pause, dev time scale 0, the Final Blow's impact
+    // freeze) still run the whole update so every per-frame batch is rebuilt from scratch
+    // (nothing can accumulate), but with dt = 0, the world clock held, the last
     // snapshot/interpolation held and sim events deferred until unfreeze.
     let frozen = false
     if (this.hitStop > 0) {
@@ -638,7 +708,8 @@ export class MatchWorld {
       frozen = true
     }
     if (this.opts.mode === 'match' && isOfflinePaused()) frozen = true
-    const dt = frozen ? 0 : dtReal
+    if (this.timeScale === 0) frozen = true
+    const dt = frozen ? 0 : dtReal * this.timeScale
     // per-frame event lists start empty: frozen frames defer events, so the
     // warlocks must not see the previous frame's events again
     this.frameEvents.length = 0
@@ -1079,6 +1150,13 @@ export class MatchWorld {
       this.currentTickEvents = []
       if (b.tick > this.lastEventTick) this.lastEventTick = b.tick
     }
+    // finish zooms land with the hits they came from; never on a replay, still under reduced motion
+    if (this.zoomQueue.length > 0) {
+      if (this.opts.source === globalSource && !this.reducedMotion.matches) {
+        for (const z of this.zoomQueue) cameraRig.punch(z.x, z.y, z.kind === 'match' ? 0.24 : 0.16)
+      }
+      this.zoomQueue.length = 0
+    }
   }
 
   private viewOfPawn(id: number): PawnView | undefined {
@@ -1281,6 +1359,8 @@ export class MatchWorld {
       case 'roundWin':
       case 'gameOver': {
         const winners = e.type === 'roundWin' ? e.players : e.winners
+        // the round's deciding hit replays a beat later (render/finalBlowPlayer.ts)
+        if (match && e.type === 'roundWin' && this.opts.source === globalSource) this.finalBlow?.onRoundWin(curr.round, curr.tick)
         if (claimed) break
         const living = [...this.views.entries()].filter(([, v]) => winners.includes(v.owner) && v.alive && !v.dead)
         if (match && e.type === 'roundWin' && living.length === 1 && this.lastCamera) {
@@ -2515,6 +2595,22 @@ export class MatchWorld {
     }
     // screen shake and kick scale with the screen-shake setting only (not fx intensity)
     cameraRig.update(camera, fx, fy, dt, aspect, renderPrefs.shake)
+    if (this.pose) {
+      // a Final Blow shot: the camera takes the pose (cuts, no blend); the shadow frustum and
+      // the audio listener follow its target
+      const p = this.pose
+      camera.position.set(p.x * S, p.h * S, -p.y * S)
+      camera.lookAt(p.tx * S, p.th * S, -p.ty * S)
+      if (Math.abs(camera.fov - p.fov) > 0.01) {
+        camera.fov = p.fov
+        camera.updateProjectionMatrix()
+      }
+      cameraRig.fx = p.tx
+      cameraRig.fy = p.ty
+      camera.updateMatrixWorld()
+      this.locator?.update(camera, 0, 0, 0, '#fff', false)
+      return
+    }
     if (shot && curr && !devCamera.focus && !this.reducedMotion.matches) {
       const weight = victoryCameraWeight(t - shot.at, shot.releasedAt === null ? null : t - shot.releasedAt)
       const offset = victoryCameraOffset(shot.facing, aspect)
@@ -2558,6 +2654,8 @@ export class MatchWorld {
   }
 
   dispose(): void {
+    this.unsubZoom?.()
+    this.finalBlow?.abort()
     this.endPrewarm()
     for (const m of this.inited) m.dispose?.()
     this.inited.clear()

@@ -175,16 +175,17 @@ of re-deriving them.
 
 ### The Final Blow
 
-- **State ring.** The client keeps the last 6 s of render-ready states (what the frame buffer
-  already receives every tick, about 180 entries at 30 Hz). Spectators on snapshots keep the
-  snapshots.
+- **State ring.** The client keeps the last 8 s of confirmed states (at most 30 a second,
+  cloned on the way in; `src/game/stateRing.ts`). Spectators on snapshots keep the snapshots.
 - **Playback.** On `roundWin`, the moments engine names the round decider. The world swaps to a
-  private `RenderSource` that plays the window from 0.4 s before the hit to 0.8 s after it at
-  0.6 speed (2 s), with a camera from the showcase director (`src/render/showcase/director.ts`,
-  `camRig.ts`) promoted into shipping code. A plate names the killer, the spell and the victim.
-- **Time budget.** Rounds have 3 s of round end (`ROUND_END_SECONDS`); the replay fits. The
-  match decider gets a longer version, and the client holds the results until it ends (today
-  `GAME_OVER_LINGER_MS` is 600 ms in `src/net/session.ts`). Nothing changes in the sim's timing.
+  private `RenderSource` fed from the ring: the hit at half speed (0.8 s of game time), then the
+  death joined or cut to, at most 2.2 s (`src/game/finalBlow.ts`, `src/render/finalBlowPlayer.ts`),
+  framed side-on by the camera math promoted from the showcase (`src/render/cinematic/cam.ts`).
+  A plate names the hitter, the spell and the victim.
+- **Time budget.** Rounds have 3 s of round end (`ROUND_END_SECONDS`); the replay fits with 0.5 s
+  to spare. The match decider gets a longer version (at most 6 s, a freeze on impact, the hero
+  shot), and the UI port holds the results screen for that viewer until it ends, at most 6.5 s
+  after the round win; `GAME_OVER_LINGER_MS` and the sim's timing are unchanged.
 - **Control.** Any key or click skips. A setting chooses off, match only or every round.
   Reduced motion plays it at normal speed without camera moves.
 

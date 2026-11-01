@@ -1213,6 +1213,20 @@
   /* a soft dark pool behind every banner, so the halo is not the only thing between the digits and bright lava */
   .banner { background: radial-gradient(closest-side, rgba(8, 4, 2, 0.5), rgba(8, 4, 2, 0.28) 55%, transparent); }
 
+  /* Final Blow replay: letterbox bars, a kicker and a lower third (no panel) */
+  .final-blow { position: absolute; inset: 0; pointer-events: none; z-index: 25; }
+  .final-blow-bar { position: absolute; left: 0; right: 0; height: 7vh; background: rgba(4, 2, 1, 0.9); animation: fb-bar 0.25s cubic-bezier(.2, .9, .3, 1) both; }
+  .final-blow-top { top: 0; --fb-from: -100%; }
+  .final-blow-bottom { bottom: 0; --fb-from: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 2.2vw; }
+  @keyframes fb-bar { from { transform: translateY(var(--fb-from)); } to { transform: none; } }
+  .final-blow-lower { display: flex; flex-direction: column; gap: 0.1rem; }
+  .final-blow-kicker { font-size: 0.72rem; letter-spacing: 0.22em; text-transform: uppercase; color: #ffb35c; font-weight: 700; }
+  .final-blow-line { display: flex; align-items: center; gap: 0.55rem; font-size: 1.35rem; font-weight: 600; }
+  .final-blow-skip { font-size: 0.8rem; color: rgba(240, 225, 205, 0.55); letter-spacing: 0.04em; }
+  @media (prefers-reduced-motion: reduce) { .final-blow-bar { animation: none; } }
+  /* the round banner would sit on the replayed hit; the plate says who won */
+  .hud[data-final-blow] .banner { visibility: hidden; }
+
   /* Killfeed */
   .feed-row {
     display: flex; align-items: center; gap: 0.45rem;

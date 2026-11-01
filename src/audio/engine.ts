@@ -47,7 +47,8 @@ function baseUrl(): string {
 const SAMPLE_LOAD_DELAY = 1.2
 import { flightPath, newCueMemory, planEvents, type ListenerLike, type SoundCue } from './events'
 import { createSynth, RECIPES, Voice, type SfxId, type Synth } from './synth'
-import type { SimEvent } from '../sim/types'
+import type { SimEvent, SimState } from '../sim/types'
+import { finishZooms, matchFinishZoom } from '../game/finishZoom'
 
 interface VoiceSpec {
   /** concurrent voices of this sound */
@@ -63,6 +64,8 @@ interface VoiceSpec {
 }
 
 export const VOICES: Record<SfxId, VoiceSpec> = {
+  finishStinger: { max: 1, level: 0.8, bus: 'ui', minGap: 0.4 },
+  finalBlowImpact: { max: 1, level: 1, bus: 'sfx', minGap: 0.5 },
   fireballCast: { max: 4, level: 0.75, bus: 'sfx' },
   fireballTravel: { max: 6, level: 0.36, bus: 'sfx' },
   explosion: { max: 5, level: 1.0, bus: 'sfx' },
@@ -182,6 +185,11 @@ export const AMB_LEVEL = 0.11
 export const ANNOUNCER_LEVEL = 1.25
 /** effects dip under an announcer line: -4 dB for about 0.6 s */
 const DUCK_GAIN = 0.63
+/** live effects under a finish zoom and under a Final Blow */
+const FINISH_DIP = 0.4
+const FINAL_BLOW_DIP = 0.35
+/** the replay bus is muffled this much during slow motion (Hz) */
+const REPLAY_LOWPASS = 3000
 const DUCK_HOLD = 0.6
 const SFX_REVERB_SEND = 0.16
 const MUSIC_REVERB_SEND = 0.3
@@ -225,6 +233,11 @@ export interface Graph {
   announcer: GainNode
   /** effects duck under an announcer line (between sfx and the master) */
   duck: GainNode
+  /** effects dip for a finish zoom or a Final Blow (after the duck, so the two never fight over one gain) */
+  moment: GainNode
+  /** replayed Final Blow effects, with a low-pass for the slow parts */
+  replay: GainNode
+  replayFilter: BiquadFilterNode
   /** the last node before the destination (level meters tap it) */
   output: AudioNode
 }
@@ -284,12 +297,21 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   reverb.connect(master)
   const sfx = ctx.createGain()
   const duck = ctx.createGain()
+  const moment = ctx.createGain()
   sfx.connect(duck)
-  duck.connect(master)
+  duck.connect(moment)
+  moment.connect(master)
   const sfxSend = ctx.createGain()
   sfxSend.gain.value = SFX_REVERB_SEND
-  duck.connect(sfxSend)
+  moment.connect(sfxSend)
   sfxSend.connect(reverb)
+  const replay = ctx.createGain()
+  const replayFilter = ctx.createBiquadFilter()
+  replayFilter.type = 'lowpass'
+  replayFilter.frequency.value = 20000
+  replay.connect(replayFilter)
+  replayFilter.connect(master)
+  replayFilter.connect(sfxSend)
   const announcer = ctx.createGain()
   announcer.connect(master)
   const amb = ctx.createGain()
@@ -303,7 +325,7 @@ export function buildGraph(ctx: BaseAudioContext): Graph {
   musicSend.gain.value = MUSIC_REVERB_SEND
   music.connect(musicSend)
   musicSend.connect(reverb)
-  return { ctx, synth, master, sfx, ui, music, amb, announcer, duck, output: clip }
+  return { ctx, synth, master, sfx, ui, music, amb, announcer, duck, moment, replay, replayFilter, output: clip }
 }
 
 export class AudioEngine {
@@ -472,10 +494,70 @@ export class AudioEngine {
         this.current?.setIntensity(this.shrinks / 8)
       }
     }
+    // the finish zoom rides the displayed stream too (game/finishZoom.ts)
+    if (listener.state && events.length > 0 && 'slots' in listener.state) {
+      for (const z of matchFinishZoom.update(events, listener.state as SimState, listener.localPlayer ?? -1)) {
+        finishZooms.emit(z)
+        this.finishZoom()
+      }
+    }
     if (!this.ready) return
     if (events.length > 0) for (const c of planEvents(events, listener, this.memory)) this.play(c)
     this.followLoops(listener)
     this.followEdge(listener)
+  }
+
+  /** A finish zoom: effects dip under a stinger for a moment. */
+  private finishZoom(): void {
+    const g = this.g
+    if (!g || g.ctx.state !== 'running') return
+    const now = g.ctx.currentTime
+    const m = g.moment.gain
+    m.cancelScheduledValues(now)
+    m.setValueAtTime(m.value, now)
+    m.setTargetAtTime(FINISH_DIP, now, 0.03 / 3)
+    m.setTargetAtTime(this.replaying ? FINAL_BLOW_DIP : 1, now + 0.35, 0.12)
+    this.play({ id: 'finishStinger', gain: 1, pan: 0 })
+  }
+
+  private replaying = false
+  private readonly replayMemory = newCueMemory()
+
+  /**
+   * A Final Blow plays (`on`): live effects dip, replayed ones go through their own bus, muffled
+   * while `slow`. Off: back to normal.
+   */
+  setReplay(on: boolean, slow: boolean): void {
+    const g = this.g
+    if (on !== this.replaying && g) {
+      const now = g.ctx.currentTime
+      const m = g.moment.gain
+      m.cancelScheduledValues(now)
+      m.setValueAtTime(m.value, now)
+      m.setTargetAtTime(on ? FINAL_BLOW_DIP : 1, now, 0.08)
+    }
+    if (!on && this.replaying) this.replayMemory.projectiles.clear()
+    this.replaying = on
+    if (g) g.replayFilter.frequency.setTargetAtTime(on && slow ? REPLAY_LOWPASS : 20000, g.ctx.currentTime, 0.05)
+  }
+
+  /**
+   * Replayed events of a Final Blow: one-shot effects heard from the camera target. No announcer,
+   * no UI cues, no music, no travel loops.
+   */
+  playReplayEvents(events: readonly SimEvent[], listener: ListenerLike): void {
+    const g = this.g
+    if (!this.ready || !g || events.length === 0) return
+    for (const c of planEvents(events, listener, this.replayMemory)) {
+      if (c.id === null || c.key || c.path || VOICES[c.id].bus === 'ui') continue
+      this.play(c, g.replay)
+    }
+  }
+
+  /** The replayed decisive hit lands. */
+  finalBlowImpact(): void {
+    const g = this.g
+    if (g) this.play({ id: 'finalBlowImpact', gain: 1, pan: 0 }, g.replay)
   }
 
   /** A line the announcer chose: to the HUD banner, and the voice when audio runs. */
@@ -586,7 +668,7 @@ export class AudioEngine {
     this.play({ id: 'explosion', gain: 1, pan: 0.4, param: 1, delay: 0.75 })
   }
 
-  play(c: SoundCue): void {
+  play(c: SoundCue, dest?: AudioNode): void {
     const g = this.g
     if (!g) return
     if (g.ctx.state !== 'running') {
@@ -631,7 +713,7 @@ export class AudioEngine {
       out.connect(panner)
       tail = panner
     }
-    tail.connect(spec.bus === 'ui' ? g.ui : g.sfx)
+    tail.connect(dest ?? (spec.bus === 'ui' ? g.ui : g.sfx))
     const param = id === 'uiCountdown' ? this.countdownStep(now) : (c.param ?? 0)
     const synthMul = hybridOn ? (hyb!.synth ?? 1) : 1
     let recipeOut: AudioNode = out

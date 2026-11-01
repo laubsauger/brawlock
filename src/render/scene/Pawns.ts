@@ -710,6 +710,21 @@ export class PawnView {
     return this.deathAt >= 0 && this.ctx.uTime.value - this.deathAt > DEATH_DUR
   }
 
+  /**
+   * Forget this round's death and victory and snap on the next update: a Final Blow replays the
+   * round's last seconds through the same views, then hands back to live play the same way.
+   */
+  rewind(): void {
+    this.deathConfirmed = false
+    this.deathAt = -1
+    this.spin = 0
+    this.cause = ''
+    this.customDeath = false
+    this.edgeOverride = false
+    this.placed = false
+    this.warlock?.rewind()
+  }
+
   /** Must run before this frame's death events, so a new-round death is never cleared. */
   beginRound(round: number): void {
     if (this.roundEpoch.advance(round)) {

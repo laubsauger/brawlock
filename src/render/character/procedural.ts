@@ -100,6 +100,9 @@ export class ProceduralWarlock implements WarlockHandle {
   /** The procedural diagnostic model has no cloth. */
   setOutfit(): void {}
   beginRound(): void {}
+  rewind(): void {
+    this.deathAt = -1
+  }
   hitFlash(): void {}
   setDetail(): void {}
   levelUp(): void {

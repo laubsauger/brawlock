@@ -11,7 +11,7 @@ the real sim and bots; the harnesses live in [../research/](../research/).
 | [faster-casual.md](faster-casual.md) | settings built 2026-11-01; queue preset waits for the playtest | Brisk casual: five scheduled rounds, arena capped at layer 15, a ring every 7 s, 30 gold a round; about 9 minutes a match instead of 28, builds as large as today |
 | [bot-motion.md](bot-motion.md) | shipped in alpha.17 (2026-10-29) | Bots stop dancing: reversals from 1.2 to 0.3 a second, no shared think clock, inside the human band |
 | [moments.md](moments.md) | engine built 2026-11-01; shows with the Final Blow and the reel | The moments engine: knockouts and the hit that caused them, deciders, multi-knockouts, denies, reflections, close calls, long flights |
-| [final-blow.md](final-blow.md) | implementation spec | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
+| [final-blow.md](final-blow.md) | built 2026-11-01 (branch `final-blow`); needs the offline playtest | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
 | [results-reel.md](results-reel.md) | implementation spec | The match's best moments on the results screen; clips and sharing as the later phase |
 | [daily.md](daily.md) | design draft, format and rewards answered | The daily Gauntlet: five seeded waves, the day's named champion and omen, server-verified board, 15 Embers a day and 75 on every seventh day of a streak |
 | [wild.md](wild.md) | design draft, picked | Wild with an omen over every round, spell reactions, Wild Hours in casual |

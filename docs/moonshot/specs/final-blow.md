@@ -1,6 +1,6 @@
 # The Final Blow and the finish zoom
 
-Status: implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
+Status: built 2026-11-01 on branch `final-blow` (see Built below). Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
 Bet 8 and [04-keystones.md](../04-keystones.md) Keystone 2 ("The Final Blow", "The finish zoom").
 Needs [moments.md](moments.md). Ships in one release batch with it and
 [results-reel.md](results-reel.md), on the developer's yes.
@@ -236,6 +236,32 @@ only on deciding hits (about one per round, at most 120 iterations at 30 Hz).
 - Post effects (desaturation, radial blur, red background), relighting, new VFX.
 - A close-up finish zoom (after the character upgrade, 03 Bet 8), the Director and the crowd.
 - Final Blows in the replay viewer, deathmatch and hill ticket ends; Final Blow clips (results-reel.md).
+
+## Built (2026-11-01)
+
+Everything in Rules 1 to 21 except the camera's pillar guard (a pillar between camera and target
+does not flip the side yet) and the per-frame perf-harness numbers for entering and leaving.
+Open questions took the recommended answers: every round by default, the hero-shot overlap kept,
+the 38-degree replay camera (it held up on the current warlock in the browser check), the freeze,
+onlookers' zoom on any round-ending hit, Esc skips.
+
+One change from Rule 6: the round banner ("Round lost", "Ash takes round 1") hides while the
+replay plays. It sat on the replayed hit in every screenshot, and the plate already says who won.
+The announcer's lines still show.
+
+Files: `src/game/stateRing.ts`, `src/game/finalBlow.ts` (planner, plan clock, results hold),
+`src/game/finishZoom.ts`, `src/render/finalBlowPlayer.ts`, `src/render/finalBlowCamera.ts`,
+`src/render/cinematic/cam.ts` (moved from the showcase, which re-exports it), the MatchWorld seams
+(`setSource`, `setTimeScale`, `setPose`, `returnToLive`), `PawnView.rewind`, `cameraRig.punch`,
+the audio engine's `moment` gain, replay bus and cues (`finishStinger`, `finalBlowImpact`, synth
+only), `src/ui/hud/FinalBlowPlate.tsx`.
+
+Browser check (muted headless Chrome, WebGPU, offline matches against Hard bots): a round Final
+Blow with the full plan (side-on push shot at half speed, cut, back to live), a death-only one (an
+idle warlock burned about 10 s after the push, past the 8 s ring), and a match Final Blow of about
+5.5 s with the results held until it ended and the hero shot on the winner. A match finish zoom
+fired from the audio feed. No console errors. Not checked: the WebGL2 fallback, the 4 ms
+enter/leave budget, a live P2P or dedicated room.
 
 ## Acceptance
 

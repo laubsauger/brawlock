@@ -52,8 +52,9 @@ describe('Final Blow plans', () => {
   it('reduced motion: real time, no freeze, static cameras', () => {
     for (const kind of ['round', 'match'] as const) {
       const plan = planFinalBlow(decider(2.6), -Infinity, kind, true)!
-      expect(plan.segments.every((s) => s.speed === 1 && s.shot === 'static')).toBe(true)
+      expect(plan.segments.every((s) => s.speed === 1)).toBe(true)
       expect(plan.freeze).toBeNull()
+      expect(plan.reduced).toBe(true)
     }
   })
 

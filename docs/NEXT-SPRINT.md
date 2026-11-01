@@ -139,6 +139,11 @@ Deployment is established by release receipts, not by implementation status here
    from the confirmed stream; replays keep the ten best ([moments.md](moonshot/specs/moments.md)).
    Nothing shows until the Final Blow and the results reel, which ship with it. No sim or net
    change.
+16. **Final Blow and finish zoom: built on branch `final-blow`, not released (2026-11-01).** The
+   round's deciding hit replays slowed down at round end (the match version holds the results),
+   and a finishing hit punches the camera in ([final-blow.md](moonshot/specs/final-blow.md)).
+   Checked in a headless browser against bots. Next: the offline playtest (do players watch or
+   skip, can they say who hit whom), the WebGL2 fallback, and the results reel.
 
 ## Completed in this planning pass
 

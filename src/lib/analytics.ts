@@ -27,6 +27,7 @@ interface Events {
   match_start: { mode: MatchAnalyticsMode; transport: 'server' | 'p2p' | 'offline'; players: number; bots: number }
   match_complete: { mode: MatchAnalyticsMode; outcome: 'win' | 'loss'; rounds: number; duration_seconds: number }
   match_exit: { mode: MatchAnalyticsMode }
+  final_blow: { kind: 'round' | 'match'; skipped: boolean; seconds: number }
 }
 
 /** Only marketing parameters leave the app. Invite codes, auth callbacks and hashes never do. */

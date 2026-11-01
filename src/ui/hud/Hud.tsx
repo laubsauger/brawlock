@@ -25,6 +25,7 @@ import { bindLabel, slotKeyLabel, useBinds } from '../lib/keys'
 import { ANNOUNCER_TEXT, defeatLine, matchWinLine, roundCall, roundWinLine } from '../../game/announcer'
 import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
+import { FinalBlowPlate } from './FinalBlowPlate'
 
 /**
  * Turns phase changes and sim events into banners, sounds, music, auto shop
@@ -331,11 +332,14 @@ export function Hud() {
   useDirector()
   const hudLayout = useGame((s) => s.settings.hudLayout ?? 'center')
   const showHints = useGame((s) => s.settings.showHints ?? true)
+  // a Final Blow replay hides the action bar, vitals, kill feed, spectate chip, shrink warning and death recap
+  const replay = useGame((s) => s.finalBlow !== null)
   return (
-    <div className="hud select-none">
+    <div className="hud select-none" data-final-blow={replay || undefined}>
       <StatusLayer />
-      <DeathFeedback />
+      {!replay && <DeathFeedback />}
       <SessionNotice />
+      <FinalBlowPlate />
 
       <div className="absolute top-0 right-0 left-0 flex justify-center">
         <div className="hud-scale flex origin-top flex-col items-center">
@@ -343,11 +347,13 @@ export function Hud() {
           <FinalBrawlStatus />
           <HillStatus />
           {/* at most one row under the clock: the shrink warning and your KO callout share it */}
-          <div className="mt-0.5 flex items-center justify-center gap-2">
-            <SpectateChip />
-            <ShrinkWarning />
-            <KillCallout />
-          </div>
+          {!replay && (
+            <div className="mt-0.5 flex items-center justify-center gap-2">
+              <SpectateChip />
+              <ShrinkWarning />
+              <KillCallout />
+            </div>
+          )}
         </div>
       </div>
 
@@ -358,7 +364,7 @@ export function Hud() {
       {/* top-right corner: fullscreen toggle, kill feed under it */}
       <div className="hud-scale absolute top-2 right-3 flex flex-col items-end gap-1.5">
         <FullscreenButton />
-        <Killfeed />
+        {!replay && <Killfeed />}
       </div>
 
       <Banner />
@@ -367,20 +373,22 @@ export function Hud() {
       <InspectCard />
 
       {/* One row of abilities and items, centered or in the bottom-right corner. */}
-      <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
-        <div className="hud-scale relative">
-          <ProtectChip />
-          <Vitals compact />
-          <div className="hud-plate hud-bottom" data-layout={hudLayout}>
-            <InnateRow />
-            <SpellRow />
-            <ItemRow />
-            <div className="hotbar-gold">
-              <Gold />
+      {!replay && (
+        <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
+          <div className="hud-scale relative">
+            <ProtectChip />
+            <Vitals compact />
+            <div className="hud-plate hud-bottom" data-layout={hudLayout}>
+              <InnateRow />
+              <SpellRow />
+              <ItemRow />
+              <div className="hotbar-gold">
+                <Gold />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {showHints && (
         <div className="hud-scale absolute bottom-2 left-3 hidden xl:block">

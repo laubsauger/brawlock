@@ -46,6 +46,7 @@ function useAudioSettings() {
       try {
         audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume, ambience: s.ambienceVolume, announcer: s.announcerVolume ?? 0.8, muted: s.muted || forcedMute })
         audio.setAnnouncerVoice(s.announcerVoice ?? 'maverick')
+        audio.setFinishZoom(s.finishZoom ?? true)
         // sound style: saved choice, unless ?audio=synth forces synthesis for this session
         const want = forcedSynth ? 'synth' : (s.soundStyle ?? 'hybrid')
         if (want !== mode && want !== audio.getMode()) audio.setMode(want)

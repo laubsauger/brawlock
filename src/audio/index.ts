@@ -23,6 +23,7 @@
  * Levels (default settings, offline-measured): menu / shop music about -19 LUFS, a busy
  * fight about -15 to -16 LUFS with peaks held near -3.5 dBFS by the master limiter.
  */
+import { matchFinishZoom } from '../game/finishZoom'
 import type { PlayerId, SimEvent, SimState } from '../sim/types'
 import { AudioEngine } from './engine'
 import type { SfxId } from './synth'
@@ -54,6 +55,14 @@ export interface AudioApi {
   setVolumes(v: { master: number; sfx: number; music: number; ambience?: number; announcer?: number; muted: boolean }): void
   /** Play SFX for sim events from one tick. */
   playEvents(events: SimEvent[], listener: Listener): void
+  /** A Final Blow plays: live effects dip, replayed ones are muffled while `slow` (game/finalBlow.ts). */
+  setReplay(on: boolean, slow: boolean): void
+  /** Replayed Final Blow events, heard from the camera target. */
+  playReplayEvents(events: SimEvent[], listener: Listener): void
+  /** The replayed decisive hit lands. */
+  finalBlowImpact(): void
+  /** Settings > Gameplay > Finish zoom */
+  setFinishZoom(on: boolean): void
   ui(sound: UiSound): void
   music(track: 'menu' | 'shop' | 'fight' | 'none'): void
   /**
@@ -104,6 +113,18 @@ export const audio: AudioApi = {
   },
   playEvents(events, listener) {
     engine.playEvents(events, listener)
+  },
+  setReplay(on, slow) {
+    engine.setReplay(on, slow)
+  },
+  playReplayEvents(events, listener) {
+    engine.playReplayEvents(events, listener)
+  },
+  finalBlowImpact() {
+    engine.finalBlowImpact()
+  },
+  setFinishZoom(on) {
+    matchFinishZoom.enabled = on
   },
   ui(sound) {
     engine.ui(UI_SFX[sound])

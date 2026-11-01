@@ -57,6 +57,8 @@ export interface WarlockHandle {
   update(pawn: PawnState, prev: PawnState | null, alpha: number, dt: number, events: readonly SimEvent[]): void
   /** Synchronize life before applying events, including a new-round keyframe that skipped shop. */
   beginRound(round: number): void
+  /** standing again, as before this round's death and victory (Final Blow replay) */
+  rewind(): void
   /** World position spells originate from (casting palm, or staff crystal). */
   castOrigin(out: THREE.Vector3): THREE.Vector3
   /** Casting arm chain in world space this frame (for halo rings travelling down the arm); `hand` picks one of two casting hands. */

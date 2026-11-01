@@ -152,7 +152,7 @@ They cannot affect the fight. The seam for "ghost" mechanics (curses, lava geyse
 ### Hit-stop and slow motion today
 
 - Hit-stop: 2 to 4 frames when the local pawn takes a big hit (`MatchWorld.ts:1182`), requestable by VFX modules but capped at 4/60 s (`494-495`). While frozen the world clock stops, the last snapshot is held and events wait (`MatchWorld.ts:630-690`).
-- Slow motion: only `devTime.scale` (`src/render/stats.ts:46-47`) in dev labs and the showcase director. In a live match it would slow effects but not positions, because interpolation follows wall time and the sim keeps stepping.
+- Slow motion: `devTime.scale` (`src/render/stats.ts:46-47`) in dev labs and the showcase director, and since the Final Blow (2026-11-01) `MatchWorld.setTimeScale`, which scales the world clock while a replay source drives positions (0 freezes it the way hit-stop does). Live play never slows: interpolation follows wall time and the sim keeps stepping.
 
 ### What a "cinematic final blow" needs
 

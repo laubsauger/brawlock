@@ -21,8 +21,8 @@ export const MATCH_HERO_SECONDS = 1.2
 export const MATCH_FREEZE_SECONDS = 0.15
 
 export type FinalBlowKind = 'round' | 'match'
-/** which camera a segment uses: side-on push, the death after a cut, or a static gameplay pose */
-export type FinalBlowShot = 'push' | 'death' | 'static'
+/** which camera a segment uses: side-on on the push, or on the death after a cut */
+export type FinalBlowShot = 'push' | 'death'
 
 export interface FinalBlowSegment {
   /** ticks of the recorded stream, from < to */
@@ -44,6 +44,8 @@ export interface FinalBlowPlan {
   seconds: number
   /** the ring did not reach back to the hit: the plan shows the death only */
   partial: boolean
+  /** reduced motion: real time and static gameplay-angle cameras */
+  reduced: boolean
   /** the decider: hit tick and death tick */
   hit: number
   death: number
@@ -65,7 +67,7 @@ export function planFinalBlow(decider: Moment | null, ringOldest: number, kind: 
   const t = (s: number) => ticks(s)
   const segments: FinalBlowSegment[] = []
   const push = (from: number, to: number, speed: number, shot: FinalBlowShot) => {
-    if (to > from) segments.push({ from, to, speed: reducedMotion ? 1 : speed, shot: reducedMotion ? 'static' : shot })
+    if (to > from) segments.push({ from, to, speed: reducedMotion ? 1 : speed, shot })
   }
   let freeze: FinalBlowPlan['freeze'] = null
   if (kind === 'round') {
@@ -90,7 +92,7 @@ export function planFinalBlow(decider: Moment | null, ringOldest: number, kind: 
   }
   const hero = kind === 'match' ? MATCH_HERO_SECONDS : 0
   const seconds = segments.reduce((n, s) => n + segSeconds(s), 0) + (freeze?.seconds ?? 0) + hero
-  return { kind, segments, freeze, hero, seconds, partial, hit: H, death: D }
+  return { kind, segments, freeze, hero, seconds, partial, reduced: reducedMotion, hit: H, death: D }
 }
 
 /**
