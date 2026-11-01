@@ -5,6 +5,7 @@
 import { DT } from './types'
 import type { EntityId, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
 import {
+  ARENA_BASE_LAYER,
   ARENA_CAP_MIN,
   ARENA_MAX_LAYER,
   ARENA_SHOP_LAYER,
@@ -121,6 +122,7 @@ function sanitizeSettings(input: MatchSettings): MatchSettings {
   // that switched modes still starts
   if (!Number.isInteger(out.scheduledRounds) || out.scheduledRounds! > SCHEDULED_ROUNDS_MAX) out.scheduledRounds = 0
   if (!Number.isInteger(out.arenaCap) || out.arenaCap! < ARENA_CAP_MIN || out.arenaCap! > ARENA_MAX_LAYER) out.arenaCap = ARENA_MAX_LAYER
+  if (!Number.isInteger(out.arenaBase) || out.arenaBase! < 1 || out.arenaBase! > ARENA_MAX_LAYER) out.arenaBase = ARENA_BASE_LAYER
   if (out.shrinkSeconds! < SHRINK_SECONDS_MIN || out.shrinkSeconds! > SHRINK_SECONDS_MAX) out.shrinkSeconds = SHRINK_PERIOD
   return out
 }

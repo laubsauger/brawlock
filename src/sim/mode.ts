@@ -101,10 +101,11 @@ export function scheduledRoundsOf(settings: Partial<Pick<MatchSettings, 'rankedR
   return settings.gameMode === 'rounds' && settings.teamMode === 'ffa' ? settings.scheduledRounds ?? 0 : 0
 }
 
-/** Fight arena: 13 + players layers (at most 21); Rounds mode outside ranked stops at arenaCap. */
+/** Fight arena: 13 + players layers (at most 21); Rounds mode outside ranked uses arenaBase and stops at arenaCap. */
 function fightLayer(state: SimState, players: number): number {
-  const layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
-  return state.settings.gameMode === 'rounds' && !state.settings.rankedRounds ? Math.min(layer, state.settings.arenaCap ?? ARENA_MAX_LAYER) : layer
+  const own = state.settings.gameMode === 'rounds' && !state.settings.rankedRounds
+  const layer = clampLayer((own ? state.settings.arenaBase ?? ARENA_BASE_LAYER : ARENA_BASE_LAYER) + ARENA_LAYER_PER_PLAYER * players)
+  return own ? Math.min(layer, state.settings.arenaCap ?? ARENA_MAX_LAYER) : layer
 }
 
 /** The arena sinks no further than this (respawn-style hill keeps ground around the hill). */

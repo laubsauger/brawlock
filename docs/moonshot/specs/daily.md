@@ -1,7 +1,7 @@
 # Daily: a named day, five waves, one board
 
-Status: design draft, 2026-10-28; the format and the rewards answered 2026-10-29 (the Gauntlet,
-Embers with a seven-day streak). The other choices (end of file) keep their recommendations until
+Status: built 2026-11-01, on main, not released (see Built below). Design draft, 2026-10-28; the
+format and the rewards answered 2026-10-29 (the Gauntlet, Embers with a seven-day streak). The other choices (end of file) keep their recommendations until
 answered. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bets 3, 4 and 6 and
 [04-keystones.md](../04-keystones.md) Keystone 3.
 
@@ -248,6 +248,36 @@ The developer, 2026-10-29: "daily reward sounds good, with a little carrot to co
   Flags show in a Daily tab of the operations dashboard, where the operator can hide a row.
 - **Not stopped**: a bot or script playing through a real client in real time, the netcode's open
   cheat everywhere. Detection is Keystone 3 Part B's job; its detector reads tapes like matches.
+
+## Built (2026-11-01)
+
+The Gauntlet as specified, with the recommended answers to the open questions (unlimited attempts
+with Best and First try, accounts-only board, a salt per attempt, the seven champions with a Brutal
+Sunday, verifier bundles per build, the arena keys). Files: `src/game/daily/` (`calendar`, `run`,
+`tape`, `verify`, the pure modules under a purity lint; `client`, `play`), `server/daily.mjs`,
+`server/daily-verifier.mjs`, `scripts/daily-id.mjs`, `src/ui/screens/Daily.tsx`,
+`src/ui/hud/DailyHud.tsx`, the menu entry, the `arenaBase` match setting.
+
+Changes from the spec:
+- The shop uses Shop Ready (alpha.17) instead of "1 s after Ready": everyone ready cuts it to 3 s,
+  never before 6 s, as in every match.
+- A bounty knockout is the moments engine's knockout (the sealing hit), not "the last knockback hit
+  within 4 s".
+- The day's Embers come with the first verified run that has 30 s of fighting and five casts; a
+  short or idle run earns nothing but does not use the day up. Progression keeps policy 1 (region
+  receipts stay `rulesVersion: 1`); the rule lives in `server/daily.mjs`.
+- The verifier travels inside the account bundle and is written into
+  `AUTH_DATA_DIR/daily-verifiers/` at start (the app folder is not writable by the service). Its
+  hash then moves the account bundle's hash, so a release redeploys the service whenever runs
+  would verify differently.
+- Unsubmitted runs wait in `localStorage` (at most five) instead of IndexedDB.
+- Launch day: Monday 2026-11-02 is Daily #1 (`LAUNCH_DAY`).
+
+Not built yet: Watch (the board's top ten and your own run as replays), the champion turning on
+the wardrobe stage, the Operations tab for flags and hiding rows, a library replay of each run,
+the Sign-in claim flow in a browser (the route is tested), the dashboard numbers. Checked in a muted
+headless browser offline (menu entry, the Daily screen, a run with its HUD, the result); the
+account-service routes are covered by `src/net/daily.test.ts`, including a real verifier in a worker.
 
 ## Design
 

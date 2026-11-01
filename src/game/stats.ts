@@ -23,6 +23,7 @@ import { KillTally } from './announcer'
 import { isTeleportSave, slideDecay, writeSlide } from './teleportSave'
 import { randomId, safeLocalStorage, type KV } from './profile'
 import type { MatchResult } from './store'
+import { FLIGHT_START_SPEED, FLIGHT_STOP_SPEED } from './flight'
 
 // ---------------------------------------------------------------------------
 // Types (read API for the UI)
@@ -338,10 +339,7 @@ export function hasProfileIdentity(p: Pick<Participant, 'profileId' | 'kind'>): 
   return !!p.profileId && (p.kind === 'bot' || !p.profileId.startsWith('anon:'))
 }
 
-/** a knockback flight starts above this knockback speed (u/s) ... */
-export const FLIGHT_START_SPEED = 200
-/** ... and ends once it decays below this one */
-export const FLIGHT_STOP_SPEED = 20
+export { FLIGHT_START_SPEED, FLIGHT_STOP_SPEED } from './flight'
 /** spells whose hits are counted for accuracy (they deal damage) */
 const DAMAGING = new Set([
   'fireball', 'scourge', 'boomerang', 'lightning', 'homing', 'twin', 'thrust', 'cluster', 'drain',

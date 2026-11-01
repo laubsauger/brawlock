@@ -14,6 +14,10 @@ The reward is **20 completion + up to 5 for round wins + 5 for a match win**. Ea
 
 One `BEGIN IMMEDIATE` transaction records the entire receipt and all eligible account credits. Unknown accounts reject the entire receipt. A receipt that awards nothing is still remembered, so a later retry cannot turn a previously ineligible result into a reward. Retries return the original result without another credit.
 
+## The daily's reward
+
+Unreleased (built 2026-11-01): the daily Gauntlet ([moonshot/specs/daily.md](moonshot/specs/daily.md)) pays **15 Embers** for an account's first verified run of a UTC day with at least 30 seconds of fighting and five casts, and **75** on every seventh day of a streak (consecutive days with a verified run, one missed day forgiven per seven, days the service issued no attempt to anyone never break it). A short or idle run earns nothing and does not use the day up. `createProgression(db).recordDaily(accountId, day, base)` writes the receipt `daily:<day>:<accountId>` in queue `daily` with that base and no performance or win part; it is idempotent (a second call returns the stored reward), and a different amount for the same day is refused. The rule lives in `server/daily.mjs`; region receipts keep `rulesVersion: 1`. Guests earn nothing; signing in claims today's run.
+
 ## Selection and purchases
 
 The explicit catalog is in `src/game/progressionCatalog.ts`, in six slots: **head** (horns, antlers, hats, a crescent, a candle crown, a party hat, a crow, an angler lure), **back** (antlers, twin crescents, a spine fan, bat wings), **robe** (torn and Emberveil cuts), **emblem** (single-colour prints on the cape's back), **staff** (gnarled, iron ring, bone; held in the left hand, spells visually leave from its crystal, no gameplay change) and **victory** (poses). The bare hood, nothing on the back, the original robe, a plain cape back, bare hands and the original celebration mix stay free.

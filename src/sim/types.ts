@@ -84,6 +84,8 @@ export interface MatchSettings {
    * Ignored in other modes and with rankedRounds (docs/moonshot/specs/faster-casual.md).
    */
   scheduledRounds?: number
+  /** Rounds mode outside ranked and finals: the fight arena is arenaBase + players layers (default 13, the original) */
+  arenaBase?: number
   /** Rounds mode outside ranked and finals: the fight arena has at most this many layers (9..21) */
   arenaCap?: number
   /** Rounds mode outside ranked and finals: seconds between arena rings (3..30) */

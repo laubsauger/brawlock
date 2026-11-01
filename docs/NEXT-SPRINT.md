@@ -154,6 +154,13 @@ Deployment is established by release receipts, not by implementation status here
    best moments play on the results screen before the board, and again from Watch highlights or
    the replay viewer ([results-reel.md](moonshot/specs/results-reel.md)). Client only. Clips and
    sharing are the spec's later phase.
+18. **Daily Gauntlet: built, on main, not released (2026-11-01).** A named day, five waves of bots
+   with the day's champion last, two lives, one board; the account service verifies each run's
+   tape and pays 15 Embers a day, 75 on every seventh day of a streak
+   ([daily.md](moonshot/specs/daily.md)). Ships with the account service, both regions and the
+   client together (the `arenaBase` setting moves the netcode id); nginx needs the
+   `/api/daily/submit` location (`deploy/web.nginx.conf`) and the account service 256 MB
+   (`deploy/accounts.config.cjs`). Not built yet: Watch, the ops tab, the wardrobe stage.
 
 ## Completed in this planning pass
 

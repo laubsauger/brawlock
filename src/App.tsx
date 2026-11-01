@@ -15,6 +15,7 @@ import { Replay } from './ui/screens/Replay'
 import { SettingsModal } from './ui/SettingsModal'
 import { PerfHud } from './ui/PerfHud'
 import { MatchLayer } from './ui/MatchLayer'
+import { Daily } from './ui/screens/Daily'
 import { NetGraph } from './ui/NetGraph'
 import { startNetMonitor } from './ui/lib/netmonitor'
 import { startClientPerformance } from './ui/lib/clientPerformance'
@@ -35,7 +36,7 @@ import { ReleaseNotesDialog } from './ui/ReleaseNotes'
 import { FeedbackDialog } from './ui/Feedback'
 
 /** One persistent backdrop behind every non-match screen, so swaps never flash to black. */
-const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits'])
+const BACKDROP: ReadonlySet<Screen> = new Set(['boot', 'unsupported', 'menu', 'lobby', 'results', 'credits', 'daily'])
 
 /** Keep the audio mixer in step with settings (also covers the M hotkey). */
 function useAudioSettings() {
@@ -231,7 +232,7 @@ export default function App() {
 
   // menu music everywhere outside a match; the HUD drives shop / fight music
   useEffect(() => {
-    if (screen === 'menu' || screen === 'lobby' || screen === 'credits' || screen === 'results') music('menu')
+    if (screen === 'menu' || screen === 'lobby' || screen === 'credits' || screen === 'results' || screen === 'daily') music('menu')
     else if (screen === 'replay') music('none')
   }, [screen])
 
@@ -254,6 +255,7 @@ export default function App() {
           {screen === 'match' && <Match />}
           {screen === 'results' && <Results />}
           {screen === 'credits' && <Credits />}
+          {screen === 'daily' && <Daily />}
           {screen === 'replay' && <Replay />}
         </main>
         {settingsOpen && <SettingsModal />}

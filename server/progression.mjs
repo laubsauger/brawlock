@@ -187,6 +187,31 @@ export function createProgression(db, { now = Date.now } = {}) {
       return { duplicate: false, rewards: rewardsForMatch.all(receipt.matchId) }
     })
   }
+  /**
+   * The daily Gauntlet's reward (docs/moonshot/specs/daily.md): `base` Embers (15, or 75 on every
+   * seventh day of a streak) for the account's first verified attempt of UTC day `day`, as the
+   * receipt `daily:<day>:<accountId>` in queue 'daily'. Idempotent: a second call for the same
+   * day returns the stored reward and credits nothing; a different amount is refused.
+   */
+  function recordDaily(id, day, base) {
+    requireUser(id)
+    if (!int(day, 1_000_000) || !int(base, 1000)) fail(400, 'Invalid daily reward.')
+    const matchId = `daily:${day}:${id}`
+    if (!key(matchId)) fail(400, 'Invalid daily reward.')
+    const fingerprint = createHash('sha256').update(JSON.stringify([matchId, base])).digest('hex')
+    return transaction(() => {
+      const previous = priorMatch.get(matchId)
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) fail(409, 'A different reward already owns this day.')
+        return { duplicate: true, reward: rewardsForMatch.all(matchId)[0] ?? null }
+      }
+      addMatch.run(matchId, fingerprint, 'daily', now(), PROGRESSION_POLICY)
+      ensure.run(id)
+      credit.run(base, id)
+      addReward.run(id, matchId, base, 0, 0, wallet.get(id).balance)
+      return { duplicate: false, reward: rewardsForMatch.all(matchId)[0] ?? null }
+    })
+  }
   function purchase(id, request) {
     requireUser(id)
     if (!only(request, ['itemId', 'offerId', 'requestId']) || !key(request.requestId) || typeof request.offerId !== 'string' || request.offerId.length > 64) fail(400, 'Invalid purchase request.')
@@ -219,5 +244,5 @@ export function createProgression(db, { now = Date.now } = {}) {
     })
     return snapshot(id)
   }
-  return { snapshot, recordMatch, purchase, equip, equipment: getEquipment }
+  return { snapshot, recordMatch, recordDaily, purchase, equip, equipment: getEquipment }
 }

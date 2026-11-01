@@ -8,15 +8,27 @@ import { createServerPerf } from './perf.mjs'
 import { createMachineMonitor } from './machine-monitor.mjs'
 // Private loopback service. nginx serves the game and proxies /api/auth + /api/account.
 import http from 'node:http'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { toNodeHandler } from 'better-auth/node'
 import { openAccounts } from './accounts.mjs'
 import { openFeedback } from './feedback.mjs'
 import { openChat } from './chat.mjs'
+import { openDaily } from './daily.mjs'
+import { createVerifierPool } from './daily-verifier.mjs'
 
 process.umask(0o077)
+
+/** Write this build's daily verifier (and keep the newest ten). */
+function installVerifier(dir) {
+  if (typeof __DAILY_BUNDLE__ === 'undefined') return
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const file = join(dir, `${__DAILY_BUNDLE__.id}.mjs`)
+  try { statSync(file) } catch { writeFileSync(file, __DAILY_BUNDLE__.code, { mode: 0o600 }) }
+  const all = readdirSync(dir).filter((f) => /^[0-9a-f]{12}\.mjs$/.test(f)).map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs })).sort((a, b) => b.at - a.at)
+  for (const { f } of all.slice(10)) unlinkSync(join(dir, f))
+}
 
 const required = (name) => {
   const value = process.env[name]
@@ -57,6 +69,12 @@ if (process.argv.includes('--migrate')) {
     },
   })
   const chat = openChat(join(dataDir, 'chat.sqlite'), { origin, secret, embeds, feedback, speaker: accounts.speaker })
+  // the daily Gauntlet: one verifier per client build. This build's comes inside the bundle and is
+  // written beside the earlier ones, so runs played on the previous build still verify mid-day.
+  const verifierDir = process.env.DAILY_VERIFIER_DIR ?? join(dataDir, 'daily-verifiers')
+  installVerifier(verifierDir)
+  const daily = openDaily(join(dataDir, 'daily.sqlite'), { origin, embeds, speaker: accounts.speaker, names: accounts.profileNames, reward: accounts.dailyReward,
+    verifier: createVerifierPool(verifierDir) })
   const mail = openFeedbackMail({ origin, feedback,
     apiKey: process.env.RESEND_API_KEY ?? '', from: process.env.FEEDBACK_MAIL_FROM ?? '' })
   const perf = createServerPerf()
@@ -70,6 +88,7 @@ if (process.argv.includes('--migrate')) {
     const path = new URL(request.url).pathname
     if (path.startsWith('/api/admin/')) return admin(request)
     if (path === '/api/chat' || path === '/api/chat/report') return chat.handler(request)
+    if (path === '/api/daily' || path.startsWith('/api/daily/')) return daily.handler(request)
     return path === '/api/feedback' || path === '/internal/feedback' || path.startsWith('/internal/feedback/')
       ? feedback.handler(request) : accounts.handler(request)
   })
@@ -80,7 +99,9 @@ if (process.argv.includes('--migrate')) {
     // Better Auth has its own parser; bound the stream before handing it over.
     const chunks = []
     let bytes = 0
-    const limit = req.url?.split('?')[0] === '/api/feedback' ? 512 * 1024 : 32 * 1024
+    const route = req.url?.split('?')[0]
+    // a daily run's tape is at most 96 KiB compressed (base64 in JSON)
+    const limit = route === '/api/feedback' ? 512 * 1024 : route === '/api/daily/submit' ? 160 * 1024 : 32 * 1024
     try {
       for await (const chunk of req.iterator({ destroyOnReturn: false })) {
         bytes += chunk.length
@@ -109,7 +130,7 @@ if (process.argv.includes('--migrate')) {
   const stop = () => {
     if (stopping) return
     stopping = true
-    server.close(async () => { await collector.close(); await mail.close(); machine.close(); perf.close(); store.close(); chat.close(); feedback.close(); accounts.close(); process.exit(0) })
+    server.close(async () => { await collector.close(); await mail.close(); machine.close(); perf.close(); store.close(); chat.close(); daily.close(); feedback.close(); accounts.close(); process.exit(0) })
   }
   process.on('SIGTERM', stop)
   process.on('SIGINT', stop)

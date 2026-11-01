@@ -371,7 +371,9 @@ export async function openAccounts({ file, origin, secret, providers, regionsTok
       const session = await auth.api.getSession({ headers: request.headers })
       return session ? { id: session.user.id, profile: getProfile.get(session.user.id) ?? null } : null
     }
-    return { auth, handler, admin, activityReport, profileNames, speaker, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
+    // The daily Gauntlet (daily.mjs) pays its reward through progression, in this database.
+    const dailyReward = (id, day, base) => progression.recordDaily(id, day, base)
+    return { auth, handler, admin, activityReport, profileNames, speaker, dailyReward, presence: () => presence.snapshot(), close: () => { analytics.close(); db.close() } }
   } catch (error) {
     analytics?.close()
     db.close()

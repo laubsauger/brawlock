@@ -111,7 +111,7 @@ export interface FeedbackContext {
   release: string
   build: string
   netcode: string
-  screen: 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits' | 'replay'
+  screen: 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits' | 'replay' | 'daily'
   panel: string | null
   device: FeedbackDevice
   settings: FeedbackSettings
@@ -146,7 +146,7 @@ const shape = (checks: Record<string, Check>, required = Object.keys(checks)): C
 const timestamp = integer(0, 9_000_000_000_000)
 const dimension = integer(1, 32_768)
 const ratio = number(0, 1)
-const screen = oneOf('boot', 'unsupported', 'menu', 'lobby', 'match', 'results', 'credits', 'replay')
+const screen = oneOf('boot', 'unsupported', 'menu', 'lobby', 'match', 'results', 'credits', 'replay', 'daily')
 const settings = shape({
   quality: oneOf('low', 'medium', 'high', 'ultra'), fxIntensity: ratio, screenShake: ratio,
   fpsCap: oneOf(0, 30, 60, 120, 144), resolutionScale: number(0.25, 2), uiScale: number(0.5, 2),

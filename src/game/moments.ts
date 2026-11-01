@@ -18,7 +18,7 @@ import { gameWinners } from '../sim/mode'
 import { isRoundParticipant } from '../sim/teams'
 import { TICK_HZ, type EntityId, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { KillTally, isCloseCallHit } from './announcer'
-import { FLIGHT_START_SPEED, FLIGHT_STOP_SPEED } from './stats'
+import { FLIGHT_START_SPEED, FLIGHT_STOP_SPEED } from './flight'
 import { isDeniedEscape, writeSlide, type SlideSnapshot } from './teleportSave'
 
 /** a slide that stops at the edge and tips in a moment later is still the push (s) */

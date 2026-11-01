@@ -37,7 +37,7 @@ export function createPresence({ now = Date.now, maxDevices = 5000, perIp = 32 }
     beat(body, accountId, ip) {
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['device', 'region', 'build', 'net', 'screen'].includes(key))
         || ['build', 'net'].some((key) => body[key] !== undefined && (typeof body[key] !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(body[key])))
-        || (body.screen !== undefined && !['boot', 'unsupported', 'menu', 'lobby', 'match', 'results', 'credits', 'replay'].includes(body.screen))
+        || (body.screen !== undefined && !['boot', 'unsupported', 'menu', 'lobby', 'match', 'results', 'credits', 'replay', 'daily'].includes(body.screen))
         || typeof body.device !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.device) || !PRESENCE_REGIONS.includes(body.region)) return { status: 400, error: 'Invalid online presence.' }
       sweep()
       const current = devices.get(body.device)

@@ -23,7 +23,8 @@ module.exports = {
       // FEEDBACK_MAIL_FROM: 'Brawlock <feedback@brawlock.osc.link>',
       TRUST_PROXY: '1',
     },
-    max_memory_restart: '180M',
+    // the daily verifier runs in a worker thread (about 60 MB while it works)
+    max_memory_restart: '256M',
     kill_timeout: 10000,
     time: true,
     merge_logs: true,

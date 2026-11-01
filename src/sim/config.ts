@@ -221,6 +221,7 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   hillRespawn: false,
   // Rounds mode pace (classic values; casual quick play plays five rounds on a compact arena)
   scheduledRounds: 0,
+  arenaBase: ARENA_BASE_LAYER,
   arenaCap: ARENA_MAX_LAYER,
   shrinkSeconds: SHRINK_PERIOD,
 }

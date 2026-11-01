@@ -45,6 +45,7 @@ interface Database {
 export function createProgression(db: Database, options?: { now?: () => number }): {
   snapshot(userId: string): ProgressionSnapshot
   recordMatch(receipt: ProgressionReceipt): { duplicate: boolean; rewards: { accountId: string; base: number; performance: number; win: number; balance: number }[] }
+  recordDaily(accountId: string, day: number, base: number): { duplicate: boolean; reward: { accountId: string; base: number; performance: number; win: number; balance: number } | null }
   purchase(userId: string, request: ProgressionPurchase): ProgressionSnapshot
   equip(userId: string, request: ProgressionEquip): ProgressionSnapshot
   equipment(userId: string): CosmeticEquipment

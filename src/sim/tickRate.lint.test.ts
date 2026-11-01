@@ -72,6 +72,7 @@ describe('rate-derived module constants', () => {
     const allowed: [string, string, string][] = [
       ['/src/game/replay/viewer.ts', 'const MAX_TICKS_PER_FRAME = 12', 'a cap on work per animation frame, counted in ticks at any rate'],
       ['/src/sim/types.ts', 'export const DEFAULT_TICK_HZ: TickRate = 30', 'the rate itself'],
+      ['/src/game/daily/run.ts', 'export const DAILY_HZ: TickRate = 30', 'the daily runs at a fixed rate, so every verifier gets the same ticks'],
       ['/src/net/predict.ts', 'static readonly MAX_MARGIN_TICKS = 8', 'the lead margin grows a whole tick per late input; its cap is 133 ms at 60 Hz, 267 ms at 30 Hz'],
     ]
     const code = { ...sources, ...serverAndScripts }

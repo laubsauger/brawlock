@@ -6,6 +6,7 @@ import { CharacterSheet, EscMenu, Scoreboard } from '../hud/Overlays'
 import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
 import { usePractice } from '../../game/practiceState'
 import { PracticeHud } from '../hud/PracticeHud'
+import { DailyHud } from '../hud/DailyHud'
 
 /**
  * Match screen: the HUD and panels float above the match scene. The scene
@@ -39,6 +40,7 @@ export function Match() {
   return (
     <div className="fade-in pointer-events-none relative h-full overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
       {practice ? <PracticeHud /> : <Hud />}
+      <DailyHud />
       {shopOpen && (!practice || practiceStep === 'shop') && <Shop guidedSpell={practice ? 'teleport' : undefined} />}
       {characterOpen && !shopOpen && <CharacterSheet />}
       {scoreboardOpen && <Scoreboard />}

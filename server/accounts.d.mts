@@ -18,6 +18,7 @@ export function openAccounts(opts: AccountConfig): Promise<{
   activityReport(days: number): unknown
   profileNames(accountIds: string[]): Map<string, string | null>
   speaker(request: Request): Promise<{ id: string; profile: { name: string; color: number | null } | null } | null>
+  dailyReward(accountId: string, day: number, base: number): { duplicate: boolean; reward: { accountId: string; base: number; performance: number; win: number; balance: number } | null }
   presence(): { total: number; regions: Record<string, number> }
   close(): void
 }>

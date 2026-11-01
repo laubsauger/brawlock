@@ -34,9 +34,43 @@ import { loadProgression } from '../../game/progression'
 import { MenuPlayerCard, type MenuRatingState } from './MenuPlayerCard'
 import { accountReturn } from '../../game/accountReturn'
 import { ReleaseStamp } from '../ReleaseStamp'
+import { DAY_MS, dayOf, defineDay } from '../../game/daily/calendar'
+import { dailyOnline, fetchDaily, type DailySummary } from '../../game/daily/client'
+import { browserId } from '../../game/profile'
 
 const Account = lazy(() => import('./Account').then((module) => ({ default: module.Account })))
 const Collection = lazy(() => import('./Collection').then((module) => ({ default: module.Collection })))
+
+/** The day's Gauntlet: its number, name, the reset, and the streak to keep (docs/moonshot/specs/daily.md). */
+function DailyEntry({ disabled }: { disabled: boolean }) {
+  const [summary, setSummary] = useState<DailySummary | null>(null)
+  useEffect(() => {
+    let live = true
+    void fetchDaily(browserId()).then((s) => live && setSummary(s))
+    return () => { live = false }
+  }, [])
+  const offset = summary ? summary.serverNow - Date.now() : 0
+  const today = summary?.day ?? dayOf(Date.now())
+  const day = defineDay(today)
+  const left = Math.max(0, (today + 1) * DAY_MS - (Date.now() + offset)) / 3_600_000
+  const you = summary?.you
+  const badge = !dailyOnline ? 'Offline' : !you ? undefined
+    : you.attempts > 0 && you.best ? `Best: Wave ${you.best.waves}`
+    : you.streak.count > 0 ? `Play today to keep your ${you.streak.count}-day streak`
+    : undefined
+  return (
+    <MenuEntry
+      title={`Daily #${day.number}`}
+      sub={<span className="font-semibold text-[#ffe1a6]">{day.name}</span>}
+      note={`5 waves · 2 lives · new day in ${Math.floor(left)} h ${Math.floor((left % 1) * 60)} min`}
+      badge={badge}
+      disabled={disabled}
+      hint={disabled ? PLAY_REQUIREMENT : 'Everyone plays the same day: five waves of bots, the day’s champion last, one board'}
+      onClick={() => useGame.getState().setScreen('daily')}
+      testId="daily-entry"
+    />
+  )
+}
 
 function MenuEntry({
   title,
@@ -471,6 +505,7 @@ export function MainMenu() {
 
         <nav ref={navRef} className="menu-navigation flex flex-col" aria-label="Main menu">
           {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
+          <DailyEntry disabled={!playSupported} />
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
             <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
             {online.configured && <BrowseEntry rooms={openGames} onClick={() => setBrowseOpen(true)} />}

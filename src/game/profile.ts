@@ -86,6 +86,11 @@ function save(kv: KV | null, p: StoredProfile): void {
   }
 }
 
+/** This browser's own id, signed in or not (the daily's guest identity and its claim). */
+export function browserId(kv: KV | null = safeLocalStorage()): string {
+  return load(kv).id
+}
+
 /** The local profile. Creates and persists the id on first use. */
 export function getProfile(kv: KV | null = safeLocalStorage()): Profile {
   const account = useAccount.getState().player

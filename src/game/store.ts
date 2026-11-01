@@ -8,7 +8,7 @@ import type { BotDifficulty, MatchSettings, PlayerId, PlayerScore, PlayerSlot, S
  * src/game/frame.ts from its own rAF and writes DOM directly.
  */
 
-export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits' | 'replay'
+export type Screen = 'boot' | 'unsupported' | 'menu' | 'lobby' | 'match' | 'results' | 'credits' | 'replay' | 'daily'
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra'
 
