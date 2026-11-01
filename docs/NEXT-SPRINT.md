@@ -134,12 +134,18 @@ Deployment is established by release receipts, not by implementation status here
    announcer and top bar following the schedule. Sim change: a new netcode id, so server and
    client deploy together. `arenaBase` waits for the daily. The casual queue preset is its own
    change (item 14).
+14. **Brisk casual queue: built, on main, not released (2026-11-01).**
+   Casual quick play switches to five rounds, arena cap 15, a ring every 7 s and 30 gold a round
+   (the spec's Rule 8; the menu reads "5 rounds"). The developer brought it in without the
+   custom-room playtest the spec asked for (2026-11-01). Recommended answers taken for the open questions: ranked's final
+   in casual, 20 Embers per casual match for now, King of the Hill unchanged; no one-click
+   Classic / Brisk button yet.
 15. **Moments engine: built, not released (2026-11-01).** `src/game/moments.ts` names knockouts by
    their sealing hit, round and match deciders, multi-knockouts, denies, clutches and close calls
    from the confirmed stream; replays keep the ten best ([moments.md](moonshot/specs/moments.md)).
    Nothing shows until the Final Blow and the results reel, which ship with it. No sim or net
    change.
-16. **Final Blow and finish zoom: built on branch `final-blow`, not released (2026-11-01).** The
+16. **Final Blow and finish zoom: built, on main, not released (2026-11-01).** The
    round's deciding hit replays slowed down at round end (the match version holds the results),
    and a finishing hit punches the camera in ([final-blow.md](moonshot/specs/final-blow.md)).
    Checked in a headless browser against bots. Next: the offline playtest (do players watch or
