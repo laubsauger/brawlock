@@ -69,8 +69,8 @@ export function createPawn(state: SimState, owner: PlayerId): PawnState {
  *   angle  = 2pi / activeTeams * activeTeamIndex + 0.2 * (indexInTeam - (teamSize - 1) / 2)
  *   radius = (13 + players) * 100 - 600, players = ACTIVE players,
  *            capped to SPAWN_EDGE_MARGIN inside the current platform (floor SPAWN_MIN_RADIUS).
- * The cap only bites in the shop phase with 4+ players (layer-14 platform); fight spawns are the
- * original formula exactly.
+ * The cap bites in the shop phase with 4+ players (layer-14 platform) and on a fight arena held
+ * small by arenaCap; classic fight spawns are the original formula exactly.
  */
 export function spawnPosition(state: SimState, player: PlayerId): Vec2 & { angle: number } {
   const ids = activePlayers(state)

@@ -33,6 +33,7 @@ import type { Bot } from '../bots'
 import type { BotDifficulty, MatchSettings, PlayerId, PlayerInput, PlayerSlot, SimState } from '../sim/types'
 import type { StartClock } from './clock'
 import { MAX_PLAYERS, createSession, type MatchRecorder, type SessionDebug } from './session'
+import { scheduledRoundsOf } from '../sim/mode'
 import { ServerMatchTracker, type FinishedMatch } from './leaderboard'
 import type { NetStatsView } from './netstats'
 import type { HostEndpoint, Transport } from './transport'
@@ -115,6 +116,8 @@ export interface RoomSummary {
   winScore: number
   /** Scheduled ranked rounds before any tied-leader final; absent for score-race matches. */
   rankedRounds?: number
+  /** Scheduled casual or custom rounds before any tied-leader final; absent for score races and ranked. */
+  scheduledRounds?: number
   /** Rating availability and minimum duration; never exposes device identities. */
   elo?: { enabled: boolean; minSeconds: number }
 }
@@ -490,7 +493,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         teamMode: st.teamMode,
         gameMode: st.gameMode,
         winScore: st.winScore,
-        ...(st.rankedRounds ? { rankedRounds: st.rankedRounds } : {}),
+        ...(st.rankedRounds ? { rankedRounds: st.rankedRounds } : scheduledRoundsOf(st) ? { scheduledRounds: scheduledRoundsOf(st) } : {}),
         ...(opts.elo ? { elo: { ...opts.elo } } : {}),
       }
     },

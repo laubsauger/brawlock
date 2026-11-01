@@ -27,6 +27,7 @@
  */
 import type { MatchResult } from '../game/store'
 import { MatchTracker, mergeMatchStats, type PlayerMatchStats, type RecordedProfileCoverage, type RecordedProfileDetail } from '../game/stats'
+import { scheduledRoundsOf } from '../sim/mode'
 import { hashString } from '../sim/snapshot'
 import { RECORD_HZ, recordSeconds } from '../shared/recordTime'
 import { TICK_HZ, type GameMode, type MatchSettings, type PlayerId, type PlayerSlot, type SimEvent, type SimState, type TeamMode } from '../sim/types'
@@ -387,7 +388,7 @@ export class ServerMatchTracker implements MatchRecorder {
     if (Number.isSafeInteger(state.round)) this.round = state.round
     // The final roster is selected during round 5's ending. That scoring round still
     // belongs to everyone; membership applies only once the extra fight has started.
-    this.roundParticipants = state.rankedFinal && state.round > (this.settings?.rankedRounds ?? 0)
+    this.roundParticipants = state.rankedFinal && state.round > scheduledRoundsOf(this.settings ?? {})
       ? new Set(state.rankedFinal.contenders)
       : null
     const elapsed = Math.max(0, state.tick - this.lastTick)

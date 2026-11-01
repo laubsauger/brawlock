@@ -11,6 +11,7 @@
  */
 import { parseRoomCode } from './code'
 import { sanitizeName } from './protocol'
+import { SCHEDULED_ROUNDS_MAX } from '../sim/config'
 import type { GameMode, TeamMode } from '../sim/types'
 import type { RoomProgress } from './roomProgress'
 
@@ -34,6 +35,8 @@ export interface ListingInfo {
   teamMode: TeamMode
   gameMode: GameMode
   winScore: number
+  /** scheduled rounds before any tied-leader final; absent for score races */
+  scheduledRounds?: number
 }
 
 /** A listing as Browse games sees it (GET /rooms?public=1, `listings`). */
@@ -100,6 +103,11 @@ export function parseListing(v: unknown, maxSeats: number, partial = false): Par
     const seats = int(o.joinable, 0, maxSeats)
     if (seats === null) return 'bad joinable'
     out.joinable = seats
+  }
+  if (o.scheduledRounds !== undefined) {
+    const rounds = int(o.scheduledRounds, 0, SCHEDULED_ROUNDS_MAX)
+    if (rounds === null) return 'bad scheduledRounds'
+    out.scheduledRounds = rounds
   }
   if (o.progress !== undefined) {
     if (o.progress === null) out.progress = null
@@ -205,6 +213,7 @@ export class ListingDirectory {
       teamMode: l.teamMode,
       gameMode: l.gameMode,
       winScore: l.winScore,
+      ...(l.scheduledRounds ? { scheduledRounds: l.scheduledRounds } : {}),
     }))
   }
 

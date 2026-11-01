@@ -15,6 +15,7 @@ import { leaveToMenu } from '../flow'
 import { Button, Kbd, KeyCaps, PingBars } from '../widgets'
 import { useLinks } from '../lib/netmonitor'
 import { Loadout } from './Inspect'
+import { roundGoal } from './TopBar'
 import { canInspect, isSpectating, pickPlayer } from '../../game/inspect'
 import { sfx } from '../lib/sound'
 import type { AbilityStatContext } from '../data/abilityStats'
@@ -269,7 +270,6 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
   const links = useLinks()
   const state = frame.curr
   const teamMode = state?.settings.teamMode
-  const winScore = state?.settings.winScore
   const local = frame.localPlayer
   const spectating = isSpectating(state, local)
   const ping = (r: BoardRow) => {
@@ -285,8 +285,7 @@ export function Scoreboard({ onWatch }: { onWatch?: (player: number) => void } =
           <h2 className="display text-3xl leading-none text-[#ffd890]">Scoreboard</h2>
           {state && (
             <span className="text-[0.98rem] text-ash">
-              Round {Math.max(1, state.round)}
-              {winScore ? `, first to ${winScore}${state.settings.gameMode === 'hill' ? ' tickets' : ''}` : ''}
+              Round {Math.max(1, state.round)}, {roundGoal(state)}
             </span>
           )}
         </div>

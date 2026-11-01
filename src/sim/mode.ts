@@ -5,12 +5,14 @@
  * - shop: settings.shopSeconds, combat off (no damage), players move/cast to practice,
  *   arena at layer 14, everyone respawned.
  * - fight: round += 1, re-team, temp actors (projectiles, Rockpillars) removed, respawn all
- *   active players with 2 s invulnerability, arena at 13 + active players (clamped 1..21),
- *   one layer removed every 10 s.
+ *   active players with 2 s invulnerability, arena at 13 + active players (clamped 1..21, and to
+ *   settings.arenaCap outside ranked), one layer removed every settings.shrinkSeconds (10 s).
  * - roundEnd: entered the moment one team (or none) is left alive; +1 score to every member of
  *   the winning team at once; after 3 s round gold to everyone, then win check.
- * - rankedRounds=5: scheduled scoring rounds, early clinch, then one tied-leader final if needed.
- *   The final awards the championship and win gold without changing scheduled-round scores.
+ * - Scheduled rounds (rankedRounds=5, or scheduledRounds in free-for-all casual and custom games,
+ *   scheduledRoundsOf): scheduled scoring rounds, early clinch, then one tied-leader final if
+ *   needed. The final awards the championship and win gold without changing scheduled-round
+ *   scores. Ranked's own rules (no Fresh start, no new seats, the 8 s shrink) stay on rankedRounds.
  *
  * Deathmatch (ModeDeathmatch, §7.3): one shop phase before round 1, then back-to-back 60 s
  * 'fight' rounds (phaseTicksLeft counts down). Every round start re-teams and rebuilds the
@@ -30,6 +32,7 @@ import { hillStartLayer, hillTick, newHill, respawnsInFight } from './hill'
 import {
   ARENA_BASE_LAYER,
   ARENA_LAYER_PER_PLAYER,
+  ARENA_MAX_LAYER,
   ARENA_SHOP_LAYER,
   DM_RESPAWN_SECONDS,
   DM_ROUND_SECONDS,
@@ -62,7 +65,7 @@ import { randomInt, randomRange } from './rng'
 import { readyCut, shopLength } from './shop'
 import { respawnPawn } from './spawn'
 import { activePlayers, assignTeams, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
-import type { PawnState, PlayerId, SimState } from './types'
+import type { MatchSettings, PawnState, PlayerId, SimState } from './types'
 
 /** Damage is only dealt while combat is on (original GAME.combat). */
 export function isCombat(state: SimState): boolean {
@@ -84,8 +87,24 @@ function hillFight(state: SimState): boolean {
 
 function shrinkPeriod(state: SimState): number {
   if (hillFight(state)) return HILL_ARENA_SHRINK_PERIOD
-  return state.rankedFinal ? RANKED_FINAL_SHRINK_PERIOD :
-    state.settings.rankedRounds ? RANKED_SHRINK_PERIOD : SHRINK_PERIOD
+  if (state.rankedFinal) return RANKED_FINAL_SHRINK_PERIOD
+  if (state.settings.rankedRounds) return RANKED_SHRINK_PERIOD
+  return state.settings.gameMode === 'rounds' ? state.settings.shrinkSeconds ?? SHRINK_PERIOD : SHRINK_PERIOD
+}
+
+/**
+ * Scheduled scoring rounds of this match: ranked's five, else the scheduledRounds option in
+ * free-for-all Rounds mode, else 0 (first to winScore).
+ */
+export function scheduledRoundsOf(settings: Partial<Pick<MatchSettings, 'rankedRounds' | 'scheduledRounds' | 'gameMode' | 'teamMode'>>): number {
+  if (settings.rankedRounds) return settings.rankedRounds
+  return settings.gameMode === 'rounds' && settings.teamMode === 'ffa' ? settings.scheduledRounds ?? 0 : 0
+}
+
+/** Fight arena: 13 + players layers (at most 21); Rounds mode outside ranked stops at arenaCap. */
+function fightLayer(state: SimState, players: number): number {
+  const layer = clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
+  return state.settings.gameMode === 'rounds' && !state.settings.rankedRounds ? Math.min(layer, state.settings.arenaCap ?? ARENA_MAX_LAYER) : layer
 }
 
 /** The arena sinks no further than this (respawn-style hill keeps ground around the hill). */
@@ -220,8 +239,7 @@ export function startRound(state: SimState): void {
   for (const sc of state.scores) sc.damageThisRound = 0
   // the fight platform exists before anyone spawns on it (spawn radius is capped to it; the
   // original respawned first, which made no difference there because it never capped)
-  state.arena.layer = state.rankedFinal ? finalLayer(state) :
-    clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
+  state.arena.layer = state.rankedFinal ? finalLayer(state) : fightLayer(state, players)
   state.arena.nextShrinkTick = state.tick + ticks(shrinkPeriod(state))
   for (const pawn of state.pawns) {
     if (!isRoundParticipant(state, pawn.owner)) {
@@ -234,7 +252,7 @@ export function startRound(state: SimState): void {
   if (isHill(state)) state.hill = newHill(state)
   emitPhase(state)
   // Nobody needs to die to trigger resolution when finalists left during the preparation shop.
-  if (state.settings.rankedRounds) {
+  if (scheduledRoundsOf(state.settings)) {
     const teams = aliveTeams(state)
     if (teams.length <= 1) roundWon(state, teams[0] ?? null)
   }
@@ -311,10 +329,11 @@ export function gameWinners(state: SimState): PlayerId[] | null {
   if (state.rankedFinal) return state.rankedFinal.winners ?? null
   let top = -Infinity
   for (const sc of state.scores) if (sc.score > top) top = sc.score
-  if (state.settings.rankedRounds) {
+  const scheduled = scheduledRoundsOf(state.settings)
+  if (scheduled) {
     const leaders = state.scores.filter((sc) => sc.score === top).map((sc) => sc.id)
     if (leaders.length !== 1) return null
-    const remaining = Math.max(0, state.settings.rankedRounds - state.round)
+    const remaining = Math.max(0, scheduled - state.round)
     // A sole leader wins once nobody can catch their score in the scheduled rounds remaining.
     return state.scores.every((sc) => sc.id === leaders[0] || sc.score + remaining < top) ? leaders : null
   }
@@ -352,7 +371,8 @@ export function endRound(state: SimState): void {
     finishMatch(state, winners)
     return
   }
-  if (state.settings.rankedRounds && !state.rankedFinal && state.round >= state.settings.rankedRounds) {
+  const scheduled = scheduledRoundsOf(state.settings)
+  if (scheduled && !state.rankedFinal && state.round >= scheduled) {
     const top = Math.max(...state.scores.map((sc) => sc.score))
     state.rankedFinal = { contenders: state.scores.filter((sc) => sc.score === top).map((sc) => sc.id) }
   }

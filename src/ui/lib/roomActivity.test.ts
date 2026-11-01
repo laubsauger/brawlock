@@ -5,6 +5,8 @@ describe('browser match activity', () => {
   it('shows the current round, activity and total elapsed match time', () => {
     expect(roomActivity({ phase: 'match', rankedRounds: 5, progress: { round: 3, elapsedSeconds: 245, phase: 'shop', final: false } })).toEqual({ label: 'Shopping', detail: 'Round 3/5 · 4:05 elapsed' })
     expect(roomActivity({ phase: 'match', progress: { round: 7, elapsedSeconds: 3602, phase: 'fight', final: false } })).toEqual({ label: 'Fighting', detail: 'Round 7 · 60:02 elapsed' })
+    // Brisk casual counts its five rounds like ranked
+    expect(roomActivity({ phase: 'match', scheduledRounds: 5, progress: { round: 2, elapsedSeconds: 200, phase: 'fight', final: false } }).detail).toBe('Round 2/5 · 3:20 elapsed')
     expect(roomActivity({ phase: 'match', progress: { round: 2, elapsedSeconds: 90, phase: 'roundEnd', final: false } }).label).toBe('Between rounds')
   })
 

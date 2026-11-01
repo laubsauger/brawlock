@@ -1,5 +1,7 @@
 // Research experiment for docs/moonshot/specs/faster-casual.md. Drives the real sim and bots
-// from outside (no repo change). Run from the repo root:
+// from outside. Scenarios A to V edit the state (written before the pace settings existed);
+// W and X play O and S through the real settings (scheduledRounds, arenaCap, shrinkSeconds).
+// Run from the repo root:
 //   npx vite-node <this file> -- <scenario names comma-separated|all> <matches> <firstSeed>
 // Prints one JSON line per scenario with raw per-match data for aggregation.
 import { BotController } from '../../../src/bots'
@@ -20,6 +22,7 @@ type Scn = {
 }
 const FT3 = { winScore: 3 }
 const SCHED = { rankedRounds: 5 as const }
+const BRISK = { scheduledRounds: 5, arenaCap: 15, shrinkSeconds: 7 }
 const ALL: Scn[] = [
   { name: 'A ft3 L21 10s shop25', settings: FT3, layer: null, period: null, shop: null },
   { name: 'B sched5 L21 8s shop25', settings: SCHED, layer: null, period: null, shop: null },
@@ -44,6 +47,9 @@ const ALL: Scn[] = [
   { name: 'T sched5 L15 7s shop12 start80 round22', settings: { ...SCHED, startGold: 80, roundGold: 22 }, layer: 15, period: 7, shop: 12 },
   { name: 'U sched5 L17 7s shop12 round30', settings: { ...SCHED, roundGold: 30 }, layer: 17, period: 7, shop: 12 },
   { name: 'V sched5 L15 6s shop12 round30', settings: { ...SCHED, roundGold: 30 }, layer: 15, period: 6, shop: 12 },
+  // the built settings (2026-11-01): O and S without state edits
+  { name: 'W settings O', settings: BRISK, layer: null, period: null, shop: null },
+  { name: 'X settings S', settings: { ...BRISK, roundGold: 30 }, layer: null, period: null, shop: 12 },
 ]
 const args = process.argv.slice(2).filter((a) => a !== '--')
 const pick = args[0] ?? 'all'

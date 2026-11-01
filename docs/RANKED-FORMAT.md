@@ -2,7 +2,7 @@
 
 This format shipped in release `a03358d76509` on 2026-10-19. See the [release record](../deploy/releases/2026-10-19.md) for the matching client/server rollout.
 
-Ranked uses one locked preset: eight seats, Brutal bots filling spare seats, at least two distinct human identities, and a60-second lobby once the second human joins. Additional humans replace lobby bots; new ranked admission closes when the match starts. Casual Quick Play remains ten players, and custom games retain their existing configurable first-to rules.
+Ranked uses one locked preset: eight seats, Brutal bots filling spare seats, at least two distinct human identities, and a60-second lobby once the second human joins. Additional humans replace lobby bots; new ranked admission closes when the match starts. Casual Quick Play remains ten players. Custom games play first to N by default and can choose Fixed rounds, which uses this format's rounds, early clinch and final without the ranked-only rules (Elo, no Fresh start, no new seats, the 8-second ring).
 
 Economy tuning prepared after that release: both Ranked and Quick Play now use **50 starting gold, 15 gold per completed round, 2 per kill, and 3 per round win** (the round's gold reaches a knocked-out warlock at the knockout, so it can shop while out; win gold comes with the win) in the server defaults (previous queue settings: 40/12/2/3). The larger shared budget gives the opening build another useful option and lets everyone progress between rounds without increasing winner-only rewards. For example, Teleport, Shield, Lightning and one Fireball upgrade cost 42 gold; maxing Teleport alone costs 63. Custom/offline defaults and prices are unchanged. This tuning requires a server rollout and applies to newly created queue rooms; it does not rewrite running matches.
 
@@ -22,7 +22,7 @@ A ranked match counts (results, Elo) with at least two distinct humans who share
 
 ## Duration and arena
 
-The target is roughly15–20minutes; dominant wins and fast rounds can finish earlier. Normal ranked rounds collapse a layer every8seconds, reaching zero safe floor after160seconds from the full eight-player arena. Custom/casual retains10seconds per layer. The final starts at layer `min(15, 9 + finalistCount)` and collapses every6seconds, with60–84seconds until zero floor depending on its size.
+The target is roughly15–20minutes; dominant wins and fast rounds can finish earlier. Normal ranked rounds collapse a layer every8seconds, reaching zero safe floor after160seconds from the full eight-player arena. Custom and casual games default to 10 seconds per layer (custom games can set 3 to 30). The final starts at layer `min(15, 9 + finalistCount)` and collapses every6seconds, with60–84seconds until zero floor depending on its size.
 
 Existing lava damage resolves survivors naturally. No extra chase timer, survivor award or arbitrary fight deadline was introduced. A conservative max-build sustain analysis gives24.1375HP/s versus100lava damage/s, with actual maximal Shield/Rush/Drain/Pact/lifesteal scenarios verified to end after full collapse. Match times remain a target rather than a forced minimum.
 

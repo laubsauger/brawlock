@@ -55,6 +55,23 @@ describe('listing directory (server)', () => {
     expect(dir.create('ip', { ...INFO, joinable: -1 })).toMatchObject({ ok: false, error: 'bad joinable' })
     expect(dir.create('ip', { ...INFO, joinable: 11 })).toMatchObject({ ok: false, error: 'bad joinable' })
   })
+
+  it('a room playing fixed rounds says so in the browser; score races list as before', () => {
+    // Why: a custom room on Brisk pace plays five rounds; showing "first to 5" would misdescribe it.
+    const input = {
+      listed: { code: INFO.code, region: 'eu' }, code: INFO.code, role: 'host', status: 'open', public: true, screen: 'lobby',
+      transport: 'p2p' as const, slots: [{ kind: 'human' as const }], host: INFO.host, max: 10, joinable: 9,
+    }
+    const brisk = p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, scheduledRounds: 5 } })!
+    expect(brisk.info.scheduledRounds).toBe(5)
+    const { dir } = directory()
+    if (!dir.create('ip', brisk.info).ok) throw new Error('not listed')
+    expect(dir.list()[0].scheduledRounds).toBe(5)
+    // teams ignore the option, so the listing does too
+    expect(p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, teamMode: 'teams', scheduledRounds: 5 } })!.info.scheduledRounds).toBeUndefined()
+    expect(p2pListingTarget({ ...input, settings: DEFAULT_SETTINGS })!.info.scheduledRounds).toBeUndefined()
+    for (const bad of [-1, 2.5, 16]) expect(directory().dir.create('ip', { ...INFO, scheduledRounds: bad })).toMatchObject({ ok: false, error: 'bad scheduledRounds' })
+  })
   /** Why: the browser must only show rooms whose host is still there: a host that stops sending heartbeats drops off within the TTL. */
   it('create, heartbeat, expire, delete', () => {
     const { dir, advance } = directory()

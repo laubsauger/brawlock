@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { DEFAULT_SETTINGS, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
+import { ARENA_COMPACT_LAYER, ARENA_MAX_LAYER, DEFAULT_SETTINGS, SCHEDULED_ROUNDS_MAX, SHRINK_PERIOD, SHRINK_SECONDS_MAX, SHRINK_SECONDS_MIN, scheduledRoundsOf, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
 import { session } from '../../game/session'
 import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
@@ -34,6 +34,18 @@ const TEAM_HINT: Record<TeamMode, string> = {
   ffa: 'Everyone for themselves',
   teams: 'Teams as set in the player list',
 }
+
+const MATCH_LENGTHS: { value: 'first-to' | 'scheduled'; label: string }[] = [
+  { value: 'first-to', label: 'First to' },
+  { value: 'scheduled', label: 'Fixed rounds' },
+]
+/** what Fixed rounds starts at: casual quick play's five */
+const DEFAULT_SCHEDULED_ROUNDS = 5
+
+const ARENA_SIZES: { value: 'classic' | 'compact'; label: string }[] = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'compact', label: 'Compact' },
+]
 
 const MODE_HINT: Record<GameMode, string> = {
   rounds: 'Last team standing scores the round',
@@ -76,6 +88,9 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
     <NumberField label={LOBBY_VOTE_SETTINGS[key].label} value={settings[key]} min={0} max={9999} disabled={ro || activeVote?.setting === key} onCommit={(value) => set({ [key]: value })} />
   </div>
   const isDefault = (Object.keys(DEFAULT_SETTINGS) as (keyof MatchSettings)[]).every((k) => settings[k] === DEFAULT_SETTINGS[k])
+  const rounds = settings.gameMode === 'rounds'
+  const scheduled = scheduledRoundsOf(settings)
+  const compact = (settings.arenaCap ?? ARENA_MAX_LAYER) < ARENA_MAX_LAYER
 
   return (
     <div>
@@ -104,10 +119,32 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
           <span className="text-right font-semibold text-bone">{settings.rankedRounds} rounds · final if tied</span>
         </Row> : settings.gameMode === 'hill' ? <Row label="Tickets to win" hint="Tickets needed to take the match (one per second held)">
           <NumberField label="Tickets to win" value={settings.winScore} min={1} max={999} disabled={ro} onCommit={(winScore) => set({ winScore })} />
-        </Row> : <Row label="Score to win" hint={settings.gameMode === 'rounds' ? 'Round wins needed to take the match' : 'Kills needed to take the match'}>
-          <NumberField label="Score to win" value={settings.winScore} min={1} max={99} disabled={ro} onCommit={(winScore) => set({ winScore })} />
-        </Row>}
+        </Row> : <>
+          {rounds && <Row label="Match length" hint={settings.teamMode !== 'ffa' ? 'Fixed rounds are for free for all' : scheduled ? 'Most round wins after the last round takes it; tied leaders fight one final brawl' : 'The first to enough round wins takes it'}>
+            <div data-testid="match-length" data-state={scheduled ? 'scheduled' : 'first-to'} data-rounds={scheduled || undefined}>
+              <Segmented label="Match length" value={scheduled ? 'scheduled' : 'first-to'} options={MATCH_LENGTHS} disabled={ro || settings.teamMode !== 'ffa'} onChange={(v) => set({ scheduledRounds: v === 'scheduled' ? DEFAULT_SCHEDULED_ROUNDS : 0 })} />
+            </div>
+          </Row>}
+          {scheduled ? <Row label="Rounds" hint="Scoring rounds before any final brawl">
+            <NumberField label="Rounds" value={scheduled} min={1} max={SCHEDULED_ROUNDS_MAX} disabled={ro} onCommit={(scheduledRounds) => set({ scheduledRounds })} />
+          </Row> : <Row label="Score to win" hint={rounds ? 'Round wins needed to take the match' : 'Kills needed to take the match'}>
+            <NumberField label="Score to win" value={settings.winScore} min={1} max={99} disabled={ro} onCommit={(winScore) => set({ winScore })} />
+          </Row>}
+        </>}
       </Group>
+
+      {!settings.rankedRounds && <Group title="Arena">
+        <Row label="Arena size" hint={!rounds ? 'Rounds mode only' : compact ? `Stops at ${ARENA_COMPACT_LAYER} rings however many play: shorter rounds` : 'Grows with the players, up to 21 rings'}>
+          <div data-testid="arena-size" data-state={compact ? 'compact' : 'classic'}>
+            <Segmented label="Arena size" value={compact ? 'compact' : 'classic'} options={ARENA_SIZES} disabled={ro || !rounds} onChange={(v) => set({ arenaCap: v === 'compact' ? ARENA_COMPACT_LAYER : ARENA_MAX_LAYER })} />
+          </div>
+        </Row>
+        <Row label="Shrink every" hint={rounds ? `Seconds between rings sinking into the lava (${SHRINK_PERIOD} is classic)` : 'Rounds mode only'}>
+          <div data-testid="shrink-seconds" data-value={settings.shrinkSeconds ?? SHRINK_PERIOD}>
+            <NumberField label="Shrink every, seconds" value={settings.shrinkSeconds ?? SHRINK_PERIOD} min={SHRINK_SECONDS_MIN} max={SHRINK_SECONDS_MAX} disabled={ro || !rounds} onCommit={(shrinkSeconds) => set({ shrinkSeconds })} />
+          </div>
+        </Row>
+      </Group>}
 
       <Group title="Gold">
         <Row label="Spectator betting" hint="Rounds: knocked-out players can wager 1 gold, and correct bets split the pot of all bets; bets close when two warlocks remain">

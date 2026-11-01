@@ -303,6 +303,19 @@ describe('announcer: final round vs match point', () => {
     expect(roundCall(ranked([2, 2, 1], 5, { rankedFinal: { contenders: [0, 1] } }))).toBe('final_round')
   })
 
+  it('Brisk casual follows the same schedule, never its unused winScore', () => {
+    // Why: a scheduled match keeps whatever winScore its options carry; with first to 2, one
+    // early win would be called Match Point although four rounds remain.
+    const brisk = (scores: number[], round: number) => {
+      const v = scored(scores, { round })
+      v.settings = { ...DEFAULT_SETTINGS, winScore: 2, scheduledRounds: 5 }
+      return v
+    }
+    expect(roundCall(brisk([1, 0, 0], 1))).toBe('round_two')
+    expect(roundCall(brisk([3, 0, 0], 3))).toBe('match_point')
+    expect(roundCall(brisk([2, 1, 1], 4))).toBe('final_round')
+  })
+
   it('above round nine only Fight! (no Round N), deathmatch has no match point', () => {
     expect(roundCall(scored([2, 2], { round: 9 }))).toBeNull()
     const dm = scored([4, 0], { round: 0 })

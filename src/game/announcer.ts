@@ -55,7 +55,7 @@
 import { MULTI_WINDOW } from '../render/overlay/killStamps'
 import { tileCount } from '../sim/arena'
 import { TEAM_DRAW } from '../sim/config'
-import { gameWinners } from '../sim/mode'
+import { gameWinners, scheduledRoundsOf } from '../sim/mode'
 import { TICK_HZ, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isDeniedEscape, slideSnapshot, type SlideSnapshot } from './teleportSave'
 
@@ -296,7 +296,8 @@ export function roundCall(state: AnnouncerView): AnnouncerLine | null {
       const side = settings.teamMode === 'teams' ? (state.slots?.find((s) => s.id === sc.id)?.team ?? sc.id) : sc.id
       best.set(side, Math.max(best.get(side) ?? 0, sc.score))
     }
-    if (settings.rankedRounds) return scheduledCall(state, settings.rankedRounds, best)
+    const scheduled = scheduledRoundsOf(settings)
+    if (scheduled) return scheduledCall(state, scheduled, best)
     const atPoint = [...best.values()].filter((v) => v >= settings.winScore - 1).length
     if (atPoint > 0) return atPoint === best.size ? 'final_round' : 'match_point'
   }
@@ -305,7 +306,7 @@ export function roundCall(state: AnnouncerView): AnnouncerLine | null {
 }
 
 /**
- * Scheduled rounds (ranked) end by the schedule, not by winScore: the last scheduled round and the
+ * Scheduled rounds (ranked, and the casual and custom option) end by the schedule, not by winScore: the last scheduled round and the
  * leaders' final are the Final Round; before that it is Match Point when one more round win would
  * let somebody clinch early (the rule in sim/mode.ts gameWinners).
  */

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { countTo, reducedMotion } from '../lib/motion'
 import { useGame, type MatchResult } from '../../game/store'
 import type { MatchRecord } from '../../game/stats'
-import { TICK_HZ } from '../../sim'
+import { TICK_HZ, scheduledRoundsOf } from '../../sim'
 import { Button, Crown, GuestMark, Kbd, PingBars } from '../widgets'
 import { backToLobby, leaveToMenu, newGame, setReady } from '../flow'
 import { AutoStart } from './Lobby'
@@ -177,7 +177,7 @@ export function Results() {
           <thead>
             <tr className="text-sm whitespace-nowrap text-ash">
               <th className="pb-1.5 font-semibold">Warlock</th>
-              <th className="pb-1.5 text-right font-semibold" title={roundsMode ? rec?.settings.rankedRounds ? 'Scoring round wins' : 'Rounds won' : rec?.gameMode === 'hill' ? 'Hill tickets' : 'Score'}>{roundsMode ? 'Wins' : rec?.gameMode === 'hill' ? 'Tickets' : 'Score'}</th>
+              <th className="pb-1.5 text-right font-semibold" title={roundsMode ? rec && scheduledRoundsOf(rec.settings) ? 'Scoring round wins' : 'Rounds won' : rec?.gameMode === 'hill' ? 'Hill tickets' : 'Score'}>{roundsMode ? 'Wins' : rec?.gameMode === 'hill' ? 'Tickets' : 'Score'}</th>
               <th className="pb-1.5 pl-3 text-right font-semibold">Kills</th>
               <th className="pb-1.5 pl-3 text-right font-semibold">Deaths</th>
               <th className="pb-1.5 pl-3 text-right font-semibold">Damage</th>

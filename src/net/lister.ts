@@ -8,6 +8,7 @@
  */
 import type { ListingInfo } from './listings'
 import { ServerError, type Online } from './online'
+import { scheduledRoundsOf } from '../sim/mode'
 import type { MatchSettings, PlayerSlot } from '../sim/types'
 import type { RoomProgress } from './roomProgress'
 
@@ -62,6 +63,7 @@ export function p2pListingTarget(input: {
       phase: input.screen === 'match' ? 'match' : input.screen === 'results' ? 'results' : 'lobby',
       progress: input.screen === 'match' || input.screen === 'results' ? input.progress ?? null : null,
       teamMode: input.settings.teamMode, gameMode: input.settings.gameMode, winScore: input.settings.winScore,
+      ...(scheduledRoundsOf(input.settings) ? { scheduledRounds: scheduledRoundsOf(input.settings) } : {}),
     },
   }
 }

@@ -78,6 +78,16 @@ export interface MatchSettings {
   hillRespawn?: boolean
   /** Dedicated ranked format: five scheduled scoring rounds, then at most one leaders-only final. */
   rankedRounds?: 0 | 5
+  /**
+   * Rounds mode, free for all: that many scheduled scoring rounds (1..15), then at most one
+   * tied-leaders' final, as in ranked but without ranked's own rules; 0 = first to winScore.
+   * Ignored in other modes and with rankedRounds (docs/moonshot/specs/faster-casual.md).
+   */
+  scheduledRounds?: number
+  /** Rounds mode outside ranked and finals: the fight arena has at most this many layers (9..21) */
+  arenaCap?: number
+  /** Rounds mode outside ranked and finals: seconds between arena rings (3..30) */
+  shrinkSeconds?: number
   startGold: number
   roundGold: number
   killGold: number

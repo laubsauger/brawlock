@@ -70,6 +70,13 @@ export const SHRINK_PERIOD = 10
 export const RANKED_SHRINK_PERIOD = 8
 export const RANKED_FINAL_SHRINK_PERIOD = 6
 export const RANKED_FINAL_SHOP_SECONDS = 15
+/** match setting bounds (sanitizeSettings): scheduledRounds, arenaCap, shrinkSeconds */
+export const SCHEDULED_ROUNDS_MAX = 15
+export const ARENA_CAP_MIN = 9
+/** the compact arena of casual quick play and the lobby's Compact size (layer 15, radius 1400) */
+export const ARENA_COMPACT_LAYER = 15
+export const SHRINK_SECONDS_MIN = 3
+export const SHRINK_SECONDS_MAX = 30
 export const LAVA_DAMAGE_PERIOD = 0.25
 export const LAVA_KB_POINT_FACTOR = 0.5
 
@@ -212,6 +219,10 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   // King of the Hill only (listed so the lobby and its stored options accept them)
   hillLayer: HILL_DEFAULT_LAYER,
   hillRespawn: false,
+  // Rounds mode pace (classic values; casual quick play plays five rounds on a compact arena)
+  scheduledRounds: 0,
+  arenaCap: ARENA_MAX_LAYER,
+  shrinkSeconds: SHRINK_PERIOD,
 }
 
 /** Seconds to whole sim ticks (rounded to nearest). */

@@ -4,7 +4,18 @@
  */
 import { DT } from './types'
 import type { EntityId, InputCommand, MatchSettings, PlayerId, PlayerInput, PlayerSlot, ProjectileState, SimState } from './types'
-import { ARENA_SHOP_LAYER, DEFAULT_SETTINGS, PAWN_DP_REGEN, frictionPerTick } from './config'
+import {
+  ARENA_CAP_MIN,
+  ARENA_MAX_LAYER,
+  ARENA_SHOP_LAYER,
+  DEFAULT_SETTINGS,
+  PAWN_DP_REGEN,
+  SCHEDULED_ROUNDS_MAX,
+  SHRINK_PERIOD,
+  SHRINK_SECONDS_MAX,
+  SHRINK_SECONDS_MIN,
+  frictionPerTick,
+} from './config'
 import { killPawn } from './combat'
 import { hillField, hillSealed } from './hill'
 import { deliverBettingCredits } from './bets'
@@ -34,7 +45,11 @@ export {
   PAWN_MOVE_SPEED,
   GAME_ARENA_RADIUS,
   ARENA_MAX_LAYER,
+  ARENA_COMPACT_LAYER,
   SHRINK_PERIOD,
+  SCHEDULED_ROUNDS_MAX,
+  SHRINK_SECONDS_MIN,
+  SHRINK_SECONDS_MAX,
   SHOP_RULE,
   SHOP_READY_SECONDS,
   SPAWN_OBSTACLES,
@@ -82,7 +97,7 @@ export { canBuy, freshStartRefund, shopOpen, shopReadyView, type ShopReadyView }
 export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
-export { gameWinners } from './mode'
+export { gameWinners, scheduledRoundsOf } from './mode'
 export { isRoundParticipant } from './teams'
 export { alliance, isEnemy, pawnOf, scoreOf, slotOf, teamOf, ALLIANCE_SELF, ALLIANCE_ALLY, ALLIANCE_ENEMY } from './teams'
 export { cloneState, hashState } from './snapshot'
@@ -102,6 +117,11 @@ function sanitizeSettings(input: MatchSettings): MatchSettings {
     const v = out[key]
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) (out as Record<string, unknown>)[key] = d
   }
+  // pace options out of range fall back to the classic value instead of throwing, so a lobby
+  // that switched modes still starts
+  if (!Number.isInteger(out.scheduledRounds) || out.scheduledRounds! > SCHEDULED_ROUNDS_MAX) out.scheduledRounds = 0
+  if (!Number.isInteger(out.arenaCap) || out.arenaCap! < ARENA_CAP_MIN || out.arenaCap! > ARENA_MAX_LAYER) out.arenaCap = ARENA_MAX_LAYER
+  if (out.shrinkSeconds! < SHRINK_SECONDS_MIN || out.shrinkSeconds! > SHRINK_SECONDS_MAX) out.shrinkSeconds = SHRINK_PERIOD
   return out
 }
 

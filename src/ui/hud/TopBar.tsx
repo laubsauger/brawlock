@@ -3,6 +3,7 @@ import { frame } from '../../game/frame'
 import { isSpectating, pickPlayer } from '../../game/inspect'
 import type { Phase, PlayerSlot, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
+import { scheduledRoundsOf } from '../../sim/mode'
 import { usePolled, useTick } from '../lib/ticker'
 import { playerColor, playerGlyph, teamColor, teamName } from '../lib/view'
 import { colorblindPalette } from '../../game/playerPalette'
@@ -24,16 +25,18 @@ export function displayRound(s: SimState): number {
 }
 
 
-/** Scheduled ranked matches count rounds rather than racing to a win score. */
+/** Scheduled matches (ranked, Brisk casual) count rounds rather than racing to a win score. */
 export function roundLabel(state: SimState): string {
   if (state.rankedFinal) return 'Final brawl'
   const number = displayRound(state)
-  return state.settings.rankedRounds ? `Round ${number}/${state.settings.rankedRounds}` : `Round ${number}`
+  const scheduled = scheduledRoundsOf(state.settings)
+  return scheduled ? `Round ${number}/${scheduled}` : `Round ${number}`
 }
 
 export function roundGoal(state: SimState): string {
   if (state.rankedFinal) return 'Match decider'
-  if (state.settings.rankedRounds) return `${state.settings.rankedRounds} scheduled rounds`
+  const scheduled = scheduledRoundsOf(state.settings)
+  if (scheduled) return `${scheduled} scheduled rounds`
   return state.settings.gameMode === 'hill' ? `first to ${state.settings.winScore} tickets` : `first to ${state.settings.winScore}`
 }
 

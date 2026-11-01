@@ -1,7 +1,8 @@
 # Faster casual: five rounds on a compact arena
 
-Status: implementation spec, 2026-10-28; the numbers answered 2026-10-29 ("a bit more
-explorative": a ring every 7 s and 30 gold a round, finding 9). From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
+Status: the three settings and their lobby rows are built (2026-11-01, see Built below); the casual
+queue preset waits for the playtest. Implementation spec, 2026-10-28; the numbers answered
+2026-10-29 ("a bit more explorative": a ring every 7 s and 30 gold a round, finding 9). From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
 [04-keystones.md](../04-keystones.md) Keystone 1 ("Brisk casual"). Ships in one release batch with
 [shop-ready.md](shop-ready.md), on the developer's yes.
 
@@ -209,6 +210,31 @@ without the new keys read as the defaults.
 - The pace instrumentation (Keystone 1, test 1). It should land first or with this release, to
   compare matches finished and abandoned before and after.
 - A one-click "Classic / Brisk pace" preset in custom lobbies (open question 4).
+
+## Built (2026-11-01)
+
+The settings `scheduledRounds`, `arenaCap` and `shrinkSeconds` with the lobby rows, the room
+listing, records, the announcer and the HUD, as designed above; `arenaBase` waits for the daily.
+Shop Ready (finding 9's "with Ready") shipped first, in alpha.17. The casual queue preset (Rule 8)
+is a separate change, held until the playtest.
+
+The harness now has W and X, which play O and S through the real settings instead of editing the
+state. Same seeds (100-131), 32 matches each, at the alpha.17 bots:
+
+| | First KO p50/p90 | Round p50/p90 | Match p50/p90 | Rounds p50 (max) | Final | Gold spent per warlock |
+|---|---|---|---|---|---|---|
+| A, today | 64 / 93 s | 172 / 183 s | 30.0 / 39.0 min | 9 (13) | | 190 |
+| O, state edits | 37 / 50 | 86 / 93 | 9.7 / 11.1 | 5 (6) | 13 / 32 | 132 |
+| **W, O through the settings** | 37 / 50 | 86 / 93 | 9.7 / 11.1 | 5 (6) | 13 / 32 | 132 |
+| S, state edits | 38 / 50 | 87 / 93 | 9.3 / 9.9 | 6 (6) | 16 / 32 | 206 |
+| **X, S through the settings** | 38 / 50 | 87 / 93 | 9.3 / 9.9 | 6 (6) | 16 / 32 | 206 |
+
+W and X match O and S exactly, match for match, so the built settings play what was measured. Every
+pass condition holds: first knockout p50 at most 45 s, round p50 at most 95 s, O's match p50 under
+10 minutes with full shops, and S spends at least 170 gold per warlock. Against the 2026-10-28
+table A runs 8% longer (30.0 against 27.7 minutes) and every scenario spends more gold. Both
+follow from alpha.17: calmer bot motion, and the round's gold paid at the knockout, which bots
+spend while out.
 
 ## Acceptance
 

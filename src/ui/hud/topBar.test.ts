@@ -68,6 +68,16 @@ describe('ranked round presentation', () => {
     expect(finalBrawlInfo(s, 1)?.names).toBe('Ash · Renamed Moss')
   })
 
+  it('counts Brisk casual rounds the same way, and teams keep their score race', () => {
+    const s = state()
+    s.settings.rankedRounds = 0; s.settings.scheduledRounds = 5; s.settings.winScore = 3
+    s.round = 2; s.phase = 'fight'
+    expect(roundLabel(s)).toBe('Round 2/5')
+    expect(roundGoal(s)).toBe('5 scheduled rounds')
+    s.settings.teamMode = 'teams'
+    expect(roundGoal(s)).toBe('first to 3')
+  })
+
   it('preserves custom score races without a ranked schedule', () => {
     const s = state()
     s.settings.rankedRounds = 0; s.settings.winScore = 7

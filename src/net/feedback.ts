@@ -65,6 +65,9 @@ export interface FeedbackRules {
   gameMode?: 'rounds' | 'deathmatch' | 'hill'
   winScore?: number
   rankedRounds?: number
+  scheduledRounds?: number
+  arenaCap?: number
+  shrinkSeconds?: number
   startGold?: number
   roundGold?: number
   killGold?: number
@@ -165,7 +168,7 @@ const render = shape({ backend: oneOf('webgpu', 'webgl2', 'unknown'), fps: numbe
   textures: integer(0, 1_000_000), width: dimension, height: dimension }, ['backend'])
 const rules = shape({
   teamMode: oneOf('ffa', 'teams', 'shuffle'), gameMode: oneOf('rounds', 'deathmatch', 'hill'), winScore: integer(1, 1000),
-  rankedRounds: integer(0, 1000), startGold: number(0, 1_000_000), roundGold: number(0, 1_000_000),
+  rankedRounds: integer(0, 1000), scheduledRounds: integer(0, 1000), arenaCap: integer(0, 1000), shrinkSeconds: number(0, 3600), startGold: number(0, 1_000_000), roundGold: number(0, 1_000_000),
   killGold: number(0, 1_000_000), winGold: number(0, 1_000_000), lavaDps: number(0, 1_000_000),
   kbMultiplier: number(0, 100), dmgMultiplier: number(0, 100), friction: ratio, shopSeconds: number(0, 3600),
   botsReplaceLeavers: boolean, spectatorBets: boolean, bounties: boolean,

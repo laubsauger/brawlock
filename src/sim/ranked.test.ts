@@ -12,8 +12,18 @@ import { clampLayer } from './arena'
 import { cmd, grant, newMatch, of, pawn, place, run, runUntil } from './testkit'
 import type { SimState } from './types'
 
+/** Ranked's five rounds, and the same format as a casual option (faster-casual.md): one set of rules. */
+const FORMATS = [
+  ['dedicated ranked', { rankedRounds: 5 }],
+  ['casual scheduled', { scheduledRounds: 5 }],
+] as const
+
+function scheduledMatch(format: (typeof FORMATS)[number][1], n = 8, botsReplaceLeavers = true): SimState {
+  return newMatch({ ...format, shopSeconds: 0, startGold: 40, roundGold: 12, winGold: 3, botsReplaceLeavers }, n)
+}
+
 function ranked(n = 8, botsReplaceLeavers = true): SimState {
-  return newMatch({ rankedRounds: 5, shopSeconds: 0, startGold: 40, roundGold: 12, winGold: 3, botsReplaceLeavers }, n)
+  return scheduledMatch(FORMATS[0][1], n, botsReplaceLeavers)
 }
 
 /** Resolve actual knockouts, then let the normal three-second round-end timer run. */
@@ -28,14 +38,15 @@ function winRound(state: SimState, winner: number): void {
 /** The fight platform a regular round gives this many players: a final's is smaller (RANKED-FORMAT.md). */
 const regularLayer = (players: number) => clampLayer(ARENA_BASE_LAYER + ARENA_LAYER_PER_PLAYER * players)
 
-function tiedFinal(): SimState {
-  const state = ranked()
-  for (const winner of [0, 1, 0, 1, 2]) winRound(state, winner)
-  expect(state.rankedFinal?.contenders).toEqual([0, 1])
-  return state
-}
+describe.each(FORMATS)('%s rounds', (_name, format) => {
+  const ranked = (n = 8, botsReplaceLeavers = true) => scheduledMatch(format, n, botsReplaceLeavers)
+  function tiedFinal(): SimState {
+    const state = ranked()
+    for (const winner of [0, 1, 0, 1, 2]) winRound(state, winner)
+    expect(state.rankedFinal?.contenders).toEqual([0, 1])
+    return state
+  }
 
-describe('dedicated ranked scheduled rounds', () => {
   test('five distinct winners reach a single five-leader final, then stop after round six', () => {
     const state = ranked()
     for (let winner = 0; winner < 5; winner++) {
@@ -187,6 +198,9 @@ describe('dedicated ranked scheduled rounds', () => {
     expect(draws.round).toBe(6)
   })
 
+})
+
+describe('dedicated ranked scheduled rounds', () => {
   test.each(['shield', 'rush'])('ranked collapse reaches zero safe floor while max passive health and %s still burn', (defense) => {
     const state = ranked(2)
     startRound(state)

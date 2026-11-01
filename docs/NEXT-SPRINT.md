@@ -126,6 +126,14 @@ Deployment is established by release receipts, not by implementation status here
    The off-screen arrow for your own warlock (`PawnLocator`) covers a free camera too.
    Open: whether Free should become the default, a hotkey to switch modes, and a middle-mouse
    drag pan.
+13. **Brisk casual pace options: built, not released (2026-11-01).** The match settings of
+   [faster-casual.md](moonshot/specs/faster-casual.md): `scheduledRounds` (Fixed rounds in free for
+   all, ranked's format without its ranked-only rules; the original's default "up to N rounds"
+   win condition, PLAN §2), `arenaCap` and `shrinkSeconds`, with lobby rows (Match length, Arena
+   size, Shrink every), classic defaults, listings and records that show the rounds, and the
+   announcer and top bar following the schedule. Sim change: a new netcode id, so server and
+   client deploy together. `arenaBase` waits for the daily. The casual queue preset is its own
+   change (item 14).
 
 ## Completed in this planning pass
 

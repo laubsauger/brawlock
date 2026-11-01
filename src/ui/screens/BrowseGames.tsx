@@ -22,10 +22,11 @@ const STATUS_TONE: Record<string, string> = {
 
 const MODE: Record<string, string> = { ffa: 'Free for all', teams: 'Teams', shuffle: 'Shuffled teams' }
 
-/** "Free for all · first to 5" */
-export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore' | 'rankedRounds'>): string {
+/** "Free for all · first to 5", "Free for all · 5 rounds · final if tied" */
+export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore' | 'rankedRounds' | 'scheduledRounds'>): string {
   const mode = MODE[r.teamMode] ?? r.teamMode
-  if (r.rankedRounds) return `${mode} · ${r.rankedRounds} rounds · final if tied`
+  const rounds = r.rankedRounds || r.scheduledRounds
+  if (rounds) return `${mode} · ${rounds} rounds · final if tied`
   return r.gameMode === 'rounds' || !r.gameMode ? `${mode} · first to ${r.winScore}` : `${mode} · ${r.gameMode}`
 }
 
