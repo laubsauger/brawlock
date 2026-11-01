@@ -54,7 +54,7 @@ Deliberate deviations, all fixes of mod-era bugs or Dota dependencies (full list
 | Hero choice effectively random, 7 Dota heroes | Lobby cosmetic picker: warlock archetypes with team-color trim |
 | Bot difficulty = think interval only, console command only | Full difficulty system, lobby UI (§7) |
 | Chat-line announcements | Proper UI announcements, killfeed, round banners |
-| No selling: a player who joins a running game takes over a bot's seat and is stuck with its build | Added 2026-10-21: outside ranked, **Fresh start** in the shop resets the build to the starting kit. Since 2026-10-25 any seat may use it before the next fight (or while waiting to respawn in respawn modes) for 75% of the gold paid on the build; a seat just taken over from a bot gets all of it back in that shop |
+| No selling: a player who joins a running game takes over a bot's seat and is stuck with its build | Added 2026-10-21: outside ranked, **Fresh start** in the shop resets the build to the starting kit. Since 2026-10-25 any seat may use it before the next fight (or while waiting to respawn in respawn modes) for 75% of the gold paid on the build; a seat just taken over from a bot gets all of it back in that shop. Since 2026-10-29 the shop button reads **Reset build** ("· free" after a takeover, else "· +N gold"), and a takeover also shows an offer above the spells: the old "Fresh start · worth N gold" label went unnoticed in a playtest |
 
 Original assets cannot ship: the source repo has no license and almost every asset is Valve-owned (see `assets.md`). We re-implement mechanics and constants only and make all art, audio and text new.
 

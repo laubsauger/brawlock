@@ -29,7 +29,7 @@ import { CharacterBody } from './Overlays'
 import { roundLabel } from './TopBar'
 import { slotDragProps, slotDropProps } from '../lib/slotDnd'
 import { itemOffer, masteryAllOffer, masteryOffer, spellOffer, type Offer, type OfferState } from './shopOffers'
-import { readShop } from './shopView'
+import { readShop, type ShopView } from './shopView'
 
 /**
  * The shop: two docked panels at the screen edges so the arena center (your
@@ -145,6 +145,41 @@ const NO_READY: ShopReadyView = { shown: false, can: false, mine: false, ready: 
 function readReady(): ShopReadyView {
   const s = frame.curr
   return s ? shopReadyView(s, frame.localPlayer) : NO_READY
+}
+
+/**
+ * Reset build (Fresh start, sim/shop.ts): sells the whole build back to the starting kit while a
+ * reset is allowed, for part of what it cost. The free reset of a seat just taken over from a bot
+ * is the TakeoverOffer instead, so the header never shows the same button twice.
+ */
+export function ResetBuildButton({ view, onOpen }: { view: Pick<ShopView, 'refund' | 'spent'>; onOpen: () => void }) {
+  if (view.refund <= 0 || view.refund >= view.spent) return null
+  return (
+    <Button
+      size="sm"
+      data-testid="reset-build"
+      data-state="paid"
+      data-refund={view.refund}
+      title="Sell your whole build back to Fireball and Scourge and spend the gold your way."
+      onClick={onOpen}
+    >
+      {`Reset build · +${view.refund} gold`}
+    </Button>
+  )
+}
+
+/** Above the spells after a bot takeover: the build you inherited can go back for all it cost. */
+export function TakeoverOffer({ view, onOpen }: { view: Pick<ShopView, 'refund' | 'spent'>; onOpen: () => void }) {
+  if (view.refund <= 0 || view.refund < view.spent) return null
+  return (
+    <div data-testid="takeover-offer" className="mx-4 mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-gold/50 bg-gold/10 px-3 py-2" role="status">
+      <p className="min-w-0 flex-1 text-[0.98rem] text-bone">
+        <strong className="text-gold">You took over a bot&apos;s build.</strong>{' '}
+        Reset it for free: all {view.spent} gold comes back, so you pick your own spells and items. Free until the next fight starts.
+      </p>
+      <Button size="sm" variant="primary" data-testid="reset-build" data-state="free" data-refund={view.refund} onClick={onOpen}>Reset build · free</Button>
+    </div>
+  )
 }
 
 /**
@@ -432,21 +467,14 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
           <header className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 pt-3.5 pb-2">
             <h2 className="display text-[2.4rem] leading-none">Shop</h2>
             <GoldCounter gold={v.gold} />
-            {v.refund > 0 && !guidedSpell && (
-              <Button
-                size="sm"
-                title="Sell your whole build and spend the gold your way. Gold on hand plus gold spent."
-                onClick={() => setConfirmFresh(true)}
-              >
-                {`Fresh start · worth ${v.gold + v.spent} gold`}
-              </Button>
-            )}
+            {!guidedSpell && <ResetBuildButton view={v} onOpen={() => setConfirmFresh(true)} />}
             {guidedSpell ? <span className="text-sm text-gold">Practice · no timer</span> : <ShopClock />}
             {!guidedSpell && <ShopReady />}
             <Button size="sm" variant="ghost" sound={null} className="ml-auto" onClick={close}>
               Close <KeyCaps label={bindLabel(binds, 'shop')} />
             </Button>
           </header>
+          {!guidedSpell && <TakeoverOffer view={v} onOpen={() => setConfirmFresh(true)} />}
           {guidedSpell && <p className="mx-4 mb-2 rounded border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-bone">Buy <strong>Teleport</strong> in Transport. Other purchases are disabled for this lesson.</p>}
           {!v.open && (
             <p className="mx-4 mb-2 rounded-md bg-[rgba(255,140,60,0.1)] px-3 py-2 text-[0.98rem] font-semibold text-[#ffcf9a] ring-1 ring-[rgba(255,150,70,0.3)]" role="status">
@@ -510,10 +538,10 @@ export function Shop({ guidedSpell }: { guidedSpell?: 'teleport' }) {
         </div>
       </section>
       {confirmFresh && createPortal(
-        <Modal title="Fresh start?" onClose={() => setConfirmFresh(false)} width="max-w-md" help={false} footer={
+        <Modal title="Reset build?" onClose={() => setConfirmFresh(false)} width="max-w-md" help={false} footer={
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" sound="back" onClick={() => setConfirmFresh(false)}>Keep build</Button>
-            <Button variant="primary" sound="buy" onClick={() => { input.issue({ kind: 'freshStart' }); setConfirmFresh(false) }}>{`Sell · +${v.refund} gold`}</Button>
+            <Button variant="primary" sound="buy" onClick={() => { input.issue({ kind: 'freshStart' }); setConfirmFresh(false) }}>{v.refund >= v.spent ? `Reset · all ${v.refund} gold back` : `Reset · +${v.refund} gold`}</Button>
           </div>
         }>
           <p className="text-bone">Sells every spell, item and mastery. You keep Fireball and Scourge at level 1.</p>

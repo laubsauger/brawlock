@@ -113,6 +113,11 @@ Deployment is established by release receipts, not by implementation status here
    P2P hosts, the menu backdrop) and on dedicated servers, so client and server both carry it.
    Still to do: the playtest evening against Hard and Brutal (do they feel as dangerous, do they
    look like players). Spec and measurements: [moonshot/specs/bot-motion.md](moonshot/specs/bot-motion.md).
+11. **Reset build, easier to find: built, not released (2026-10-29).** After alpha.17 a player took
+   over a bot's seat and never saw the free reset (Fresh start, live since alpha.10/15). A local
+   dedicated-server repro showed the rule works: the joiner's first round end and shop refund all
+   of the bot's spending. The shop button now reads "Reset build · free" (takeover) or
+   "Reset build · +N gold", and a takeover shows an offer above the spells until the next fight.
 
 ## Completed in this planning pass
 
