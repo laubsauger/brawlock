@@ -4,7 +4,8 @@ import { useGame } from '../../game/store'
 import { hostGame, hostOnServer, playOffline } from '../flow'
 import { pickRegion, regionProblem, useRegionChoice, useRegions } from '../lib/servers'
 import { RegionPing } from '../RegionPing'
-import { Button, Modal } from '../widgets'
+import { Button, Modal, Segmented } from '../widgets'
+import { rememberRoomOptions, savedRoomOptions } from '../../game/roomOptions'
 
 /** A single setup entry for solo play and hosting. Opening it never creates a room. */
 export function PlaySetup({ onClose }: { onClose: () => void }) {
@@ -14,6 +15,8 @@ export function PlaySetup({ onClose }: { onClose: () => void }) {
   const choice = useRegionChoice()
   const setSettings = useGame((s) => s.setSettings)
   const region = pickRegion(regions, choice)
+  // the room opens with the rules last chosen for custom rooms; Wild is one of them
+  const [wild, setWild] = useState(() => savedRoomOptions().wild === true)
   const problem = location === 'server' ? regionProblem(region) : null
   const create = (multiplayer: boolean) => {
     if (multiplayer && problem) return
@@ -24,6 +27,13 @@ export function PlaySetup({ onClose }: { onClose: () => void }) {
   }
   return <Modal title="Custom game" onClose={onClose} width="max-w-lg" help={false}>
     <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2" data-testid="custom-rules" data-state={wild ? 'wild' : 'classic'}>
+        <Segmented label="Rules" value={wild ? 'wild' : 'classic'} options={[{ value: 'classic', label: 'Classic' }, { value: 'wild', label: 'Wild' }]} onChange={(v) => {
+          setWild(v === 'wild')
+          rememberRoomOptions({ wild: v === 'wild' })
+        }} />
+        <p className="text-sm leading-snug text-ash">{wild ? 'Wild: from the second round an omen changes one rule each round, and some spells react to each other.' : 'Classic: the original rules.'} The lobby has every option.</p>
+      </div>
       <div className="grid grid-cols-2 gap-3" role="group" aria-label="Players">
         <Button onClick={() => create(false)} className="min-h-16 flex-col gap-1" data-testid="custom-solo">
           Solo <span className="font-ui text-sm font-normal text-ash">Practice with bots</span>

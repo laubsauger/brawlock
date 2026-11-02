@@ -62,10 +62,10 @@ function DailyEntry({ disabled }: { disabled: boolean }) {
     <MenuEntry
       title={`Daily #${day.number}`}
       sub={<span className="font-semibold text-[#ffe1a6]">{day.name}</span>}
-      note={`5 waves · 2 lives · new day in ${Math.floor(left)} h ${Math.floor((left % 1) * 60)} min`}
+      note={`${day.waves.length} waves · ${day.lives} lives · new day in ${Math.floor(left)} h ${Math.floor((left % 1) * 60)} min`}
       badge={badge}
       disabled={disabled}
-      hint={disabled ? PLAY_REQUIREMENT : 'Everyone plays the same day: five waves of bots, the day’s champion last, one board'}
+      hint={disabled ? PLAY_REQUIREMENT : 'Everyone plays the same day: waves of bots, the day’s champion last, one board'}
       onClick={() => useGame.getState().setScreen('daily')}
       testId="daily-entry"
     />
@@ -111,7 +111,7 @@ function MenuEntry({
       data-ready={ready || undefined}
     >
       <span className="flex w-full min-w-0 flex-col items-start gap-0.5 leading-tight">
-        <span className="flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className={`menu-entry-badge font-ui flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium tracking-normal ${ready ? 'border-[#ffbf94]/50 bg-[#8c3227]/35 text-[#ffe4c9]' : 'border-white/15 bg-black/20 text-[#d4cbdc]'}`}>{ready ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#ffcd9f]" /> : <MenuGlyph kind="profile" size={13} />}{badge}</span>}</span>
+        <span className="menu-entry-head flex w-full items-center justify-between gap-3"><span className={`btn-label max-w-full whitespace-nowrap tracking-[0.06em] ${primary ? 'text-[1.65rem]' : 'text-[1.12rem] max-[480px]:text-base'}`}>{title}</span>{badge && <span className={`menu-entry-badge font-ui flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium tracking-normal ${ready ? 'border-[#ffbf94]/50 bg-[#8c3227]/35 text-[#ffe4c9]' : 'border-white/15 bg-black/20 text-[#d4cbdc]'}`}>{ready ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#ffcd9f]" /> : <MenuGlyph kind="profile" size={13} />}{badge}</span>}</span>
         <span className={`menu-entry-sub font-ui font-medium tracking-normal ${ranked ? 'text-[0.95rem] text-[#f1c1bc]' : primary ? 'text-[0.95rem] text-[#f3c58c]' : 'text-[0.86rem] text-[#a8927c]'}`}>{sub}</span>
         {note && <span className="menu-entry-note font-ui flex flex-col gap-0.5 text-[0.76rem] font-medium tracking-normal text-[#b7a28e]">{note}</span>}
       </span>
@@ -181,6 +181,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
       testId="quick-play"
     />
+    <div className="menu-pair grid grid-cols-2">
     <MenuEntry
       title="King of the Hill"
       sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.hill ?? 'Checking open games…'}</span>}
@@ -203,6 +204,7 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       onClick={() => !accountsEnabled && SITE_URL ? openSite() : isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
+    </div>
   </div>
 }
 
@@ -507,16 +509,15 @@ export function MainMenu() {
           {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
           <DailyEntry disabled={!playSupported} />
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
-            <MenuEntry primary={!online.configured} title="Custom game" sub="Choose rules · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
+            <MenuEntry primary={!online.configured} title="Custom game" sub="Classic or Wild · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
             {online.configured && <BrowseEntry rooms={openGames} onClick={() => setBrowseOpen(true)} />}
           </div>
-          {/* cosmetics are earned and kept by an account; a build without accounts anywhere keeps the try-on */}
-          <MenuEntry title="Wardrobe" sub="Horns, hats, wings and cape emblems · try anything on" testId="open-wardrobe"
-            badge={accountsEnabled ? !accountLoaded ? 'Checking account' : !account ? 'Sign in required' : undefined : SITE_URL ? 'Opens our site' : undefined}
-            disabled={accountsEnabled && !accountLoaded}
-            hint={accountsEnabled ? !account ? 'Sign in to earn Embers, unlock pieces and wear them in games.' : undefined : SITE_URL ? `The wardrobe needs a Brawlock account. Sign in on ${SITE_HOST} (opens in a new tab).` : undefined}
-            onClick={() => accountsEnabled && !account ? openAccount() : !accountsEnabled && SITE_URL ? openSite() : setCollectionOpen(true)} />
-          <div className="menu-access flex flex-wrap items-center justify-between gap-3">
+          <div className="menu-access grid grid-cols-2 gap-x-3 gap-y-1 [&>button]:justify-start">
+            {/* cosmetics are earned and kept by an account; a build without accounts anywhere keeps the try-on */}
+            <Button variant="ghost" size="sm" className="gap-2 text-[#f0c2e6] hover:text-[#ffe0f6]" data-testid="open-wardrobe"
+              disabled={accountsEnabled && !accountLoaded}
+              title={accountsEnabled ? !accountLoaded ? 'Checking your account' : !account ? 'Horns, hats, wings and cape emblems. Sign in to earn Embers, unlock pieces and wear them in games.' : 'Horns, hats, wings and cape emblems · try anything on' : SITE_URL ? `The wardrobe needs a Brawlock account. Sign in on ${SITE_HOST} (opens in a new tab).` : 'Horns, hats, wings and cape emblems · try anything on'}
+              onClick={() => accountsEnabled && !account ? openAccount() : !accountsEnabled && SITE_URL ? openSite() : setCollectionOpen(true)}><MenuGlyph kind="edit" size={16} /> Wardrobe</Button>
             <Button variant="ghost" size="sm" className="text-ash" disabled={!playSupported} title={!playSupported ? PLAY_REQUIREMENT : undefined} aria-expanded={joinOpen} onClick={() => { if (isPlaySupported()) setJoinOpen((o) => !o) }}>Join by code</Button>
             <Button className="gap-2 text-[#a5d6ce] hover:text-[#c3f3e5]" size="sm" variant="ghost" onClick={tutorial.open} data-testid="how-to-play"><MenuGlyph kind="guide" size={16} /> How to play</Button>
             <Button className="gap-2 text-[#e8c79a] hover:text-[#ffe3b8]" size="sm" variant="ghost" onClick={() => spellLibrary.open('menu')} data-testid="spell-library"><MenuGlyph kind="spells" size={16} /> Spell library</Button>

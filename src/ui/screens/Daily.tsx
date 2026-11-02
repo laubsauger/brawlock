@@ -3,7 +3,7 @@ import { accountsEnabled } from '../../game/account'
 import { dayOf, defineDay, DAY_MS, type DailyBot, type DailyDay } from '../../game/daily/calendar'
 import { claimRun, dailyOnline, fetchDaily, fetchRun, type DailyBoardRow, type DailySummary, type DailyVerified } from '../../game/daily/client'
 import { playDaily, retryPending, useDaily, type DailyOutcome } from '../../game/daily/play'
-import { BOUNTY_MAX, BOUNTY_SECONDS, CHAMPION_COLOR, DAILY_HZ, DAILY_LIVES, dayBuild } from '../../game/daily/run'
+import { BOUNTY_MAX, BOUNTY_SECONDS, BOUNTY_TOUCH_SECONDS, CHAMPION_COLOR, DAILY_HZ, dayBuild } from '../../game/daily/run'
 import { browserId, getProfile } from '../../game/profile'
 import { dailyReplay } from '../../game/daily/watch'
 import { BUILD_NET_ID } from '../../game/replay/viewer'
@@ -26,7 +26,16 @@ export function dailyTime(ticks: number): string {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
-const bot = (b: DailyBot) => `${b.name} (${cap(b.tier)})`
+export const dailyBot = (b: DailyBot) => `${b.name} (${cap(b.tier)})`
+const bot = dailyBot
+
+/** How the day's bounty pays, as its rules say. */
+export function bountyRule(day: DailyDay): string {
+  const spell = displayName(day.bounty)
+  return day.rules >= 2
+    ? `Each warlock your ${spell} touches that goes down within ${BOUNTY_TOUCH_SECONDS} s, lava included, takes ${BOUNTY_SECONDS} s off your time (${BOUNTY_MAX} at most).`
+    : `Each knockout your ${spell} causes takes ${BOUNTY_SECONDS} s off your time (${BOUNTY_MAX} at most).`
+}
 
 /** "Brawlock Daily #12 · Blood Moon over Rook / ■■■■□ Wave 4 · 3:12.6 · 4th of 11 / site" */
 export function shareText(day: DailyDay, waves: number, time: number, verified: DailyVerified | undefined): string {
@@ -203,14 +212,14 @@ export function Daily() {
               <div className="min-w-0">
                 <h2 className="section-title">The champion</h2>
                 <p className="text-xl font-semibold text-[#e7b5ff]">{day.champion.name}</p>
-                <p className="text-ash">{day.champion.line} · {cap(day.champion.tier)} · {cap(day.waves[4][0].build)} build</p>
+                <p className="text-ash">{day.champion.line} · {cap(day.champion.tier)} · {cap(day.waves[day.waves.length - 1][0].build)} build</p>
                 <div className="mt-2 flex flex-wrap gap-1" aria-label="Champion spells">
                   {champSpells.map((id) => <span key={id} title={displayName(id)}><Sigil id={id} size={28} /></span>)}
                 </div>
               </div>
             </div>
             <div>
-              <h2 className="section-title">Five waves · {DAILY_LIVES} lives</h2>
+              <h2 className="section-title">{day.waves.length} waves · {day.lives} lives</h2>
               <ol className="text-[0.98rem] leading-relaxed" data-testid="daily-waves">
                 {day.waves.map((w, i) => (
                   <li key={i}>
@@ -222,7 +231,7 @@ export function Daily() {
             <div className="flex items-center gap-3">
               <Sigil id={day.bounty} size={40} />
               <p>
-                <b>Bounty: {displayName(day.bounty)}.</b> Each knockout it causes takes {BOUNTY_SECONDS} s off your time ({BOUNTY_MAX} at most).
+                <b>Bounty: {displayName(day.bounty)}.</b> {bountyRule(day)}
               </p>
             </div>
             {you && <Week you={you} />}

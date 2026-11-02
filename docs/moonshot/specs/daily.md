@@ -273,6 +273,23 @@ Changes from the spec:
 - Unsubmitted runs wait in `localStorage` (at most five) instead of IndexedDB.
 - Launch day: Monday 2026-11-02 is Daily #1 (`LAUNCH_DAY`).
 
+Day rules 2 (2026-11-02, from Daily #3 on 2026-11-04, `RULES_V2_FROM`; the developer's playtest of
+Daily #1: two Mediums straight into the Hard champion was "pretty tough", and a Snowball push into
+the lava never paid the bounty):
+- Six fights: Easy; two Easy; Medium and Easy; two Medium; a plain **Hard**; then the champion.
+- The champion brings **40** gold instead of 80 (waves that sit out bank their round gold too, so
+  the champion still lands with the biggest build), and the run has **3 lives** instead of 2.
+- **Bounty**: any team-1 warlock that goes down, lava included, within 4 s of your bounty spell
+  touching it (a hit from it, or a Snowball's chill) counts. Rules 1 needed the spell to deal the
+  sealing hit, which a Snowball's drag never is.
+- Days before `RULES_V2_FROM` keep rules 1, so a day stays the same for every build that plays it
+  (the 21-day golden table changed from Daily #3 on, before that day started).
+- In a run, hovering (or focusing) the daily card opens the day's briefing: the omen, every wave
+  with the current one marked, the champion and how the bounty pays.
+- Bot stand-ins (`ramp.ts`, a Hard bot as the player, 42 runs per rules) cannot judge this: they
+  lose most one-against-two fights (a Medium stand-in clears wave 2 in 19% of runs), so the human
+  playtest decides.
+
 Added 2026-11-02:
 - **Watch**: on your result ("Watch your run", from the run's own tape) and on the board's top ten
   (the service hands out the tape; a run from another build says so instead of playing wrong).

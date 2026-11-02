@@ -1,13 +1,15 @@
 /**
  * One daily Gauntlet run (docs/moonshot/specs/daily.md): the human (seat 0, team 0) against the
- * day's five waves (team 1) on a small arena, two lives, a shop between waves. Only the current
+ * day's waves (team 1) on a small arena, two lives, a shop between waves. Only the current
  * wave's bots are seated; every bot thinks every tick, seated or not, so its dice never depend on
  * seating. A lost or drawn round costs a life and the same wave fights again. Pure and
  * deterministic in (day, salt, the human's commands): the server re-runs it to verify a score.
  *
  * Score: waves cleared, then fight time from the first fight's start to the round win that cleared
  * the last cleared wave (lost fights included, shops and round ends not), minus 3 s for each
- * knockout the day's bounty spell sealed by then (at most five).
+ * bounty knockout by then (at most five). Rules 1: the day's bounty spell sealed the knockout.
+ * Rules 2: it touched the warlock (a hit, or a Snowball's chill) in the BOUNTY_TOUCH_SECONDS before
+ * it went down, however it went down (a Snowball rolling someone into the lava counts).
  */
 import { BotController } from '../../bots/controller'
 import { drawBuild, type Build } from '../../bots/plan'
@@ -22,12 +24,11 @@ import type { DailyBot, DailyDay } from './calendar'
 
 /** the daily always runs at this rate, whatever the last room ran (the score is in its ticks) */
 export const DAILY_HZ: TickRate = 30
-export const DAILY_LIVES = 2
 /** seconds off per bounty knockout, and how many count */
 export const BOUNTY_SECONDS = 3
 export const BOUNTY_MAX = 5
-/** extra gold for the champion when it is seated */
-export const CHAMPION_GOLD = 80
+/** rules 2: a bounty touch counts for a knockout this long after it */
+export const BOUNTY_TOUCH_SECONDS = 4
 /** a run is at most this much sim time (s) */
 export const DAILY_MAX_SECONDS = 600
 export const DAILY_SHOP_SECONDS = 15
@@ -86,13 +87,15 @@ export class DailyRun {
   readonly state: SimState
   /** the wave fighting or next (0..4); 5 once cleared */
   wave = 0
-  lives = DAILY_LIVES
+  lives: number
   ended: DailyEnd | null = null
   private readonly bots: BotController[]
   private readonly moments = new MomentsEngine()
   private fightTicks = 0
   private scoredTicks = 0
   private bounty = 0
+  /** rules 2: pawn id → tick the bounty spell last touched it */
+  private readonly touched = new Map<number, number>()
   private bountyAtClear = 0
   private seated = new Set<number>()
 
@@ -114,6 +117,7 @@ export class DailyRun {
       bot.build = dayBuild(day, b)
       return bot
     })
+    this.lives = day.lives
     this.seat(0)
   }
 
@@ -135,6 +139,8 @@ export class DailyRun {
     if (s.phase === 'fight') this.fightTicks++
     this.moments.update(events, s)
     for (const e of events) {
+      if (e.type === 'damage' && e.source === 0 && e.cause === this.day.bounty) this.touched.set(e.target, s.tick)
+      else if (e.type === 'modifier' && e.on && e.source === 0 && e.id === this.day.bounty) this.touched.set(e.pawn, s.tick)
       if (e.type === 'death') this.countBounty(e)
       if (e.type !== 'roundWin') continue
       if (e.team === 0 && e.players.includes(0)) {
@@ -170,9 +176,15 @@ export class DailyRun {
     return this.bounty
   }
 
-  /** a team-1 warlock went down: its sealing hit by the human with the bounty spell counts */
+  /** a team-1 warlock went down: rules 1, its sealing hit by the human with the bounty spell counts; rules 2, a bounty touch in the last few seconds */
   private countBounty(e: Extract<SimState['events'][number], { type: 'death' }>): void {
     if (e.owner === 0 || e.cause === 'disconnect') return
+    if (this.day.rules >= 2) {
+      const at = this.touched.get(e.pawn)
+      if (at !== undefined && this.state.tick - at <= ticks(BOUNTY_TOUCH_SECONDS)) this.bounty++
+      this.touched.delete(e.pawn)
+      return
+    }
     const ko = this.moments.all().find((m) => m.kind === 'knockout' && m.end === this.state.tick && m.victims.includes(e.owner))
     if (ko && ko.actors[0] === 0 && ko.cause === this.day.bounty) this.bounty++
   }
@@ -187,7 +199,7 @@ export class DailyRun {
         if (pawn) pawn.alive = false
       } else if (b.champion && !this.seated.has(b.seat)) {
         const sc = this.state.scores.find((x) => x.id === b.seat)
-        if (sc) sc.gold += CHAMPION_GOLD
+        if (sc) sc.gold += this.day.championGold
       }
       if (on.has(b.seat)) this.seated.add(b.seat)
     }

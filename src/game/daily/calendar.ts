@@ -60,7 +60,7 @@ export interface Omen {
 
 /** The nine omens. Names match Wild's deck (wild.md). */
 export const OMENS: readonly Omen[] = [
-  { id: 'clear', name: 'Clear Skies', dayName: (c) => `${cap(c)} under Clear Skies`, flavour: 'No omen today. Just you, the lava and five waves.', settings: {} },
+  { id: 'clear', name: 'Clear Skies', dayName: (c) => `${cap(c)} under Clear Skies`, flavour: 'No omen today. Just you, the lava and the waves.', settings: {} },
   { id: 'bloodMoon', name: 'Blood Moon', dayName: (c) => `Blood Moon over ${c}`, flavour: 'The moon is red and every push lands harder, yours and theirs.', settings: { kbMultiplier: 1.5 } },
   { id: 'slickStone', name: 'Slick Stone', dayName: (c) => `${cap(c)} on Slick Stone`, flavour: 'The tiles sweat. Every slide runs long.', settings: { friction: 0.975 } },
   { id: 'hungryLava', name: 'Hungry Lava', dayName: (c) => `${cap(c)} and the Hungry Lava`, flavour: 'The lava bites half again as hard. Don’t linger.', settings: { lavaDps: 150 } },
@@ -81,8 +81,26 @@ export const BOUNTY_SPELLS: readonly SpellId[] = ['lightning', 'homing', 'boomer
 /** Names for the wave bots. */
 export const BOT_NAMES: readonly string[] = ['Ashling', 'Cinderkin', 'Soot', 'Wick', 'Clinker', 'Slag', 'Brand', 'Tallow']
 
-/** The waves' tiers: the champion is the fifth. */
-const WAVE_TIERS: readonly BotDifficulty[][] = [['easy'], ['easy', 'easy'], ['medium', 'easy'], ['medium', 'medium']]
+/**
+ * Day rules. Tables only grow and a change takes effect from a day (a day is the same for every
+ * build that plays it). 2 (playtest 2026-11-02: two Mediums to the Hard champion with its gold was
+ * a cliff, and a Snowball push into the lava never paid the bounty): a plain Hard wave before the
+ * champion, half the champion's gold, a third life for the longer run, and a bounty for any
+ * warlock your bounty spell touched in the 4 s before it went down. (Waves sitting out bank their
+ * round gold, so the last ones come with bigger builds.)
+ */
+export type DailyRules = 1 | 2
+export const RULES_V2_FROM = LAUNCH_DAY + 2
+export const rulesOf = (day: number): DailyRules => (day >= RULES_V2_FROM ? 2 : 1)
+
+/** The waves' tiers before the champion, per rules. */
+const WAVE_TIERS: Record<DailyRules, readonly BotDifficulty[][]> = {
+  1: [['easy'], ['easy', 'easy'], ['medium', 'easy'], ['medium', 'medium']],
+  2: [['easy'], ['easy', 'easy'], ['medium', 'easy'], ['medium', 'medium'], ['hard']],
+}
+/** gold the champion brings to its fight (a bigger build), per rules */
+const CHAMPION_GOLD: Record<DailyRules, number> = { 1: 80, 2: 40 }
+const LIVES: Record<DailyRules, number> = { 1: 2, 2: 3 }
 
 export interface DailyBot {
   /** seat id in the run's match */
@@ -102,8 +120,13 @@ export interface DailyDay {
   champion: Champion
   omen: Omen
   bounty: SpellId
-  /** waves[0..4]: the bots of each wave (the champion alone in the last) */
+  /** the waves' bots in order, the champion alone in the last */
   waves: DailyBot[][]
+  rules: DailyRules
+  /** gold the champion brings to its fight */
+  championGold: number
+  /** lost fights the run survives */
+  lives: number
   /** "Blood Moon over Rook" */
   name: string
 }
@@ -155,11 +178,12 @@ export function defineDay(day: number): DailyDay {
   }
   let seat = 1
   const buildFor = (s: number) => BUILD_IDS[hashString(`${seed}:${s}`) % BUILD_IDS.length]
-  const waves: DailyBot[][] = WAVE_TIERS.map((tiers) => tiers.map((tier) => {
+  const rules = rulesOf(day)
+  const waves: DailyBot[][] = WAVE_TIERS[rules].map((tiers) => tiers.map((tier) => {
     const s = seat++
     return { seat: s, name: names[(s - 1) % names.length], tier, build: buildFor(s), champion: false }
   }))
   const c = seat++
   waves.push([{ seat: c, name: champion.name, tier: champion.tier, build: champion.build ?? buildFor(c), champion: true, cosmetics: champion.cosmetics }])
-  return { day, number: dailyNumber(day), seed, weekday, champion, omen, bounty: bountyOf(day), waves, name: omen.dayName(champion.short) }
+  return { day, number: dailyNumber(day), seed, weekday, champion, omen, bounty: bountyOf(day), waves, rules, championGold: CHAMPION_GOLD[rules], lives: LIVES[rules], name: omen.dayName(champion.short) }
 }

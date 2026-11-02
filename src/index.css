@@ -626,6 +626,9 @@
   .menu-item-primary { min-height: 96px; }
   .menu-pair { gap: 0.85rem; }
   .menu-pair .menu-item { height: 100%; padding: 0.85rem 1rem; }
+  /* half-width entries keep their title and status; the long notes stay with the full-width ones */
+  .menu-pair .menu-entry-note { display: none !important; }
+  .menu-pair .menu-entry-head { flex-wrap: wrap; row-gap: 0.3rem; }
   /* Browse games: open games are listed right now */
   .browse-live-dot { box-shadow: 0 0 6px #ffb070; animation: browse-live 1.8s ease-in-out infinite; }
   @keyframes browse-live { 50% { opacity: 0.35; } }
@@ -1259,6 +1262,10 @@
   @media (prefers-reduced-motion: reduce) { .final-blow-bar { animation: none; } }
   .reel-curtain { position: absolute; inset: 0; background: #050302; }
   /* daily Gauntlet: wave pips, lives, the week strip */
+  /* the daily HUD's briefing: shown while the card is hovered or focused */
+  .daily-hud-card { position: relative; outline: none; }
+  .daily-briefing { position: absolute; top: calc(100% + 6px); left: 0; width: 22rem; padding: 0.6rem 0.75rem; border-radius: 6px; background: rgba(14, 9, 7, 0.95); box-shadow: inset 0 0 0 1px rgba(255, 170, 100, 0.18), 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 0.8rem; line-height: 1.35; color: #e6d3b8; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.12s, transform 0.12s, visibility 0s 0.12s; pointer-events: none; }
+  .daily-hud-card:hover .daily-briefing, .daily-hud-card:focus-visible .daily-briefing { opacity: 1; visibility: visible; transform: none; transition: opacity 0.12s, transform 0.12s; }
   .daily-pip { width: 0.7rem; height: 0.7rem; border-radius: 2px; transform: rotate(45deg); background: rgba(240, 225, 205, 0.18); }
   .daily-pip[data-state="cleared"] { background: #ffb35c; }
   .daily-pip[data-state="current"] { background: transparent; box-shadow: inset 0 0 0 2px #ffb35c; }

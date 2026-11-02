@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BotController } from '../../bots/controller'
 import { ticks } from '../../sim/config'
 import { setTickRate, TICK_HZ, type SimEvent, type TickRate } from '../../sim/types'
-import { LAUNCH_DAY, defineDay } from './calendar'
+import { LAUNCH_DAY, RULES_V2_FROM, defineDay } from './calendar'
 import { DAILY_HZ, DailyRun } from './run'
 import { TapeRecorder } from './tape'
 import { verify } from './verify'
@@ -93,6 +93,43 @@ describe('daily run', () => {
       tick(run, [{ type: 'death', pawn: v.id, owner: bot, killer: 0, cause: 'lava', x: v.x, y: v.y }])
       expect(run.bountyKos, later ? 'replaced' : 'counted').toBe(later ? 0 : 1)
     }
+  })
+})
+
+/**
+ * Why: under rules 1 the bounty needed the sealing hit, so a Snowball rolling a warlock into the lava
+ * (a drag, no hit) never paid (playtest 2026-11-02). Rules 2: the bounty spell touched it, by a hit
+ * or a Snowball's chill, in the 4 s before it went down, however it went down.
+ */
+describe('daily bounty, rules 2', () => {
+  const snowDay = { ...defineDay(RULES_V2_FROM + 2), bounty: 'snowball' }
+  const down = (run: DailyRun, owner: number, pawn: number) => tick(run, [{ type: 'death', pawn, owner, killer: null, cause: 'lava', x: 0, y: 0 }])
+
+  it('a Snowball chill, then the lava within 4 s, pays the bounty; after 4 s, or from someone else, it does not', () => {
+    for (const [wait, source, pays] of [[3, 0, true], [5, 0, false], [3, 1, false]] as const) {
+      const run = new DailyRun(snowDay, 7, PLAYER)
+      toFight(run)
+      const bot = snowDay.waves[0][0].seat
+      const v = pawnOf(run, bot)
+      tick(run, [{ type: 'modifier', pawn: v.id, id: 'snowball', on: true, source }])
+      for (let i = 0; i < ticks(wait); i++) tick(run)
+      down(run, bot, v.id)
+      expect(run.bountyKos, `${wait} s, source ${source}`).toBe(pays ? 1 : 0)
+    }
+  })
+
+  it('a bounty hit still counts when another spell pushes it in afterwards', () => {
+    const run = new DailyRun({ ...snowDay, bounty: 'homing' }, 7, PLAYER)
+    toFight(run)
+    const bot = snowDay.waves[0][0].seat
+    const v = pawnOf(run, bot)
+    const hit = (cause: string): SimEvent => ({ type: 'damage', target: v.id, amount: 30, source: 0, x: 0, y: 0, kb: 700, cause })
+    tick(run, [hit('homing')])
+    for (let i = 0; i < ticks(1); i++) tick(run)
+    tick(run, [hit('fireball')])
+    for (let i = 0; i < ticks(1); i++) tick(run)
+    down(run, bot, v.id)
+    expect(run.bountyKos).toBe(1)
   })
 })
 
