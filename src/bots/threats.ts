@@ -4,16 +4,18 @@
  * - an enemy Meteor: lands on its target point (data tx, ty, radius) after hover + fall;
  * - an enemy Gravity orb: damages within its dps radius (and pulls within 550), now;
  * - Wild's Pillar Storm: a warned spot, where a pillar bursts out and shoves off whoever stands
- *   there (Meteor Shower's meteors are neutral, an enemy to everyone: the Meteor case above).
+ *   there (Meteor Shower's meteors are neutral, an enemy to everyone: the Meteor case above);
+ * - Wild's Cursed Bomb: whoever holds it (they pass it by touch), and its whole blast in the
+ *   fuse's last seconds.
  * All of it is visible state: pawn.cast, projectile data, the omen's schedule.
  */
 import { hypot } from '../sim/math'
 import { TICK_HZ } from '../sim/types'
 import type { PlayerId, SimState, Vec2 } from '../sim/types'
-import { PILLAR_RADIUS, attr, isEnemy, spellDef } from '../sim'
+import { BOMB_RADIUS, BOMB_TOUCH, PILLAR_RADIUS, attr, bombHolder, isEnemy, spellDef } from '../sim'
 
 export interface ThreatZone {
-  kind: 'scourge' | 'meteor' | 'gravity' | 'pillar'
+  kind: 'scourge' | 'meteor' | 'gravity' | 'pillar' | 'bomb'
   x: number
   y: number
   /** radius to clear: the hit radius plus our own body */
@@ -27,6 +29,9 @@ export interface ThreatZone {
 export const PAWN_RADIUS = 30
 /** Gravity orb position lead (s): where the orb will be when we react. */
 const GRAVITY_LEAD = 0.3
+/** Cursed Bomb: room kept from its holder, and when its blast becomes the thing to clear (s) */
+const BOMB_ROOM = 90
+const BOMB_FLEE_SECONDS = 2
 
 export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
   const zones: ThreatZone[] = []
@@ -54,6 +59,13 @@ export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
   }
   for (const w of state.omenClock?.pillars ?? []) {
     zones.push({ kind: 'pillar', x: w.x, y: w.y, r: PILLAR_RADIUS + PAWN_RADIUS, fireIn: Math.max(0, w.left) / TICK_HZ })
+  }
+  const holder = bombHolder(state)
+  const bomb = state.omenClock?.bomb
+  const h = holder !== null && holder !== player ? state.pawns.find((p) => p.owner === holder && p.alive) : undefined
+  if (h && bomb) {
+    const fireIn = Math.max(0, bomb.fuse) / TICK_HZ
+    zones.push({ kind: 'bomb', x: h.x, y: h.y, r: fireIn <= BOMB_FLEE_SECONDS ? BOMB_RADIUS + PAWN_RADIUS : BOMB_TOUCH + BOMB_ROOM, fireIn })
   }
   return zones
 }

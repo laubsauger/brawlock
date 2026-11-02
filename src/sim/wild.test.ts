@@ -4,9 +4,11 @@ import { ROUND_END_SECONDS, ticks } from './config'
 import { cloneState, hashState, knockbackSpeed } from './index'
 import { endRound, startRound } from './mode'
 import { spawnProjectile } from './projectiles'
-import { castNow, fight, grant, newMatch, of, pawn, place, run } from './testkit'
+import { castNow, cmd, fight, grant, newMatch, of, pawn, place, run } from './testkit'
+import { step } from './index'
 import type { SimState } from './types'
-import { ALL_OMENS, OMEN_IDS, PILLAR_WARN, WILD_FRICTION, frictionOf, kbMultiplierOf, type OmenId } from './wild'
+import { ALL_OMENS, BOMB_FUSE, BOMB_RADIUS, CATACLYSM_OMENS, GALE_DRIFT, OMEN_IDS, PILLAR_WARN, SHUFFLE_WARN, WILD_FRICTION, drawOmen, frictionOf, kbMultiplierOf, type OmenId } from './wild'
+import { SPIRIT_RISE, spiritBand } from './spirits'
 import { MOD_SPAWN_INVULNERABLE, addModifier, removeModifiers } from './modifiers'
 import { NEUTRAL_OWNER } from './teams'
 import { MOD_ALTERATION } from './spells/alteration'
@@ -25,7 +27,13 @@ function nextShop(s: SimState): void {
 /** a fight under a given omen */
 function underOmen(omen: OmenId, n = 2): SimState {
   const s = fight(n, undefined, { wild: true })
-  s.omen = omen
+  s.omens = [omen]
+  return s
+}
+/** the same, with nobody's spawn shield up */
+function exposed(omen: OmenId, n = 2): SimState {
+  const s = underOmen(omen, n)
+  for (const q of s.pawns) removeModifiers(s, q, MOD_SPAWN_INVULNERABLE)
   return s
 }
 
@@ -34,28 +42,48 @@ describe('Wild omens', () => {
     const a = newMatch({ shopSeconds: 1 }, 3, 7)
     const b = newMatch({ shopSeconds: 1, wild: false }, 3, 7)
     for (const s of [a, b]) for (let r = 0; r < 3; r++) nextShop(s)
-    expect(a.omen).toBeUndefined()
+    expect(a.omens).toBeUndefined()
     expect(hashState({ ...cloneState(a), events: [] })).toBe(hashState({ ...cloneState(b), events: [] }))
   })
 
-  it('no omen in the first round; then one per round from the deck, never the same twice running', () => {
+  it('no omen in the first round; one in the second and third, two from the fourth, none of the last round\'s', () => {
     const s = newMatch({ shopSeconds: 1, wild: true, winScore: 99 }, 3, 3)
-    expect(s.omen).toBeUndefined()
-    const seen: OmenId[] = []
+    expect(s.omens).toBeUndefined()
+    const rounds: OmenId[][] = []
     for (let r = 0; r < 30; r++) {
       nextShop(s)
-      expect(s.omen).toBeDefined()
-      seen.push(s.omen!)
+      rounds.push([...s.omens!])
     }
-    for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1])
-    expect(new Set(seen).size).toBe(OMEN_IDS.length)
+    // the shop of round r + 2 drew rounds[r]
+    expect(rounds.map((o) => o.length)).toEqual(rounds.map((_, r) => (r + 2 >= 4 ? 2 : 1)))
+    for (let i = 1; i < rounds.length; i++) expect(rounds[i].filter((o) => rounds[i - 1].includes(o))).toEqual([])
+    expect(new Set(rounds.flat()).size).toBe(OMEN_IDS.length)
     // the lobby's deck limits the draw
     const two = newMatch({ shopSeconds: 1, wild: true, winScore: 99, wildOmens: 0b000011 }, 3, 3)
     for (let r = 0; r < 6; r++) {
       nextShop(two)
-      expect(['bloodMoon', 'slickStone']).toContain(two.omen)
+      for (const o of two.omens!) expect(['bloodMoon', 'slickStone']).toContain(o)
     }
-    expect(newMatch({ wildOmens: 999 }).settings.wildOmens).toBe(ALL_OMENS)
+    expect(newMatch({ wildOmens: ALL_OMENS + 1 }).settings.wildOmens).toBe(ALL_OMENS)
+  })
+
+  /** Why: a round that can win the match should feel like the finale (Cataclysm). */
+  it('a round that can decide the match gets three omens at once', () => {
+    const first = newMatch({ shopSeconds: 1, wild: true, winScore: 3 }, 3, 5)
+    drawOmen(first, 2)
+    expect(first.omens).toHaveLength(1)
+    first.scores[1].score = 2
+    drawOmen(first, 3)
+    expect(first.omens).toHaveLength(CATACLYSM_OMENS)
+    // five scheduled rounds: the last one always, an earlier one once a win there clinches it
+    const sched = newMatch({ shopSeconds: 1, wild: true, winScore: 99, scheduledRounds: 5 }, 4, 5)
+    drawOmen(sched, 4)
+    expect(sched.omens).toHaveLength(2)
+    drawOmen(sched, 5)
+    expect(sched.omens).toHaveLength(CATACLYSM_OMENS)
+    sched.scores[0].score = 3
+    drawOmen(sched, 4)
+    expect(sched.omens).toHaveLength(CATACLYSM_OMENS)
   })
 
   it('only in classic Rounds outside ranked', () => {
@@ -65,7 +93,7 @@ describe('Wild omens', () => {
         if (s.phase === 'shop') startRound(s)
         endRound(s)
       }
-      expect(s.omen).toBeUndefined()
+      expect(s.omens).toBeUndefined()
     }
   })
 
@@ -75,7 +103,7 @@ describe('Wild omens', () => {
     expect(frictionOf(underOmen('slickStone'))).toBe(WILD_FRICTION)
     const slide = (omen: OmenId | null) => {
       const s = fight(2, undefined, { wild: true })
-      if (omen) s.omen = omen
+      if (omen) s.omens = [omen]
       const p = pawn(s, 0)
       place(p, 0, 0)
       p.vx = 1200
@@ -89,7 +117,7 @@ describe('Wild omens', () => {
     run(s, ticks(2))
     expect(p.cooldowns[0]).toBe(0)
     const c = newMatch({ shopSeconds: 1, wild: true }, 2)
-    c.omen = 'suddenCollapse'
+    c.omens = ['suddenCollapse']
     startRound(c)
     expect(c.arena.nextShrinkTick - c.tick).toBe(ticks(4))
   })
@@ -147,12 +175,35 @@ describe('Wild reactions', () => {
     place(pawn(s, 0), -800, 0)
     place(pawn(s, 1), 120, 0)
     place(pawn(s, 2), 0, 800)
-    const orb = spawnProjectile(s, 0, 'gravity', 0, 0, 0, 0, 25, { level: 3, lifetime: 3, data: { strength: 0, dps: 0, pawnRadius: 0, projRadius: 600, projPull: 1650, dpsRadius: 0, dpsPeriod: 6, dpsTimer: 6 } })
-    spawnProjectile(s, 0, 'fireball', 40, 0, 0, 0, 30, { level: 3, lifetime: 3, data: { damage: 60 } })
-    const events = run(s, 2)
+    const orb = spawnProjectile(s, 0, 'gravity', 0, 0, 0, 0, 25, { level: 3, lifetime: 3, data: { strength: 0, dps: 0, pawnRadius: 0, projRadius: 600, projPull: 1650, dpsRadius: 250, dpsPeriod: 6, dpsTimer: 6 } })
+    // cast right beside the orb, inside its ring: no nova until it has left the ring
+    const inside = spawnProjectile(s, 0, 'fireball', -60, 30, 0, 0, 30, { level: 3, lifetime: 3, data: { damage: 60 } })
+    expect(of(run(s, 1), 'reaction')).toEqual([])
+    inside.data.dead = 1
+    // from outside the burning ring in (the ring is 250, a warlock 60 across: an easy target)
+    spawnProjectile(s, 0, 'fireball', -330, 0, 900, 0, 30, { level: 3, lifetime: 3, data: { damage: 60 } })
+    const events = run(s, 6)
     expect(of(events, 'reaction')).toMatchObject([{ reaction: 'nova', owner: 0 }])
     expect(orb.data.nova).toBe(1)
     expect(of(events, 'damage').some((e) => e.target === pawn(s, 1).id && e.kb > 0)).toBe(true)
+  })
+
+  /** Why: the reactions were too rare to see (playtest 2026-11-02); every warlock has Fireball, so bolts that meet must pay off. */
+  it('Clash: two enemy bolts that meet blow up between them; off, they just cancel', () => {
+    for (const wild of [true, false]) {
+      const s = fight(3, undefined, { wild })
+      for (const q of s.pawns) removeModifiers(s, q, MOD_SPAWN_INVULNERABLE)
+      place(pawn(s, 0), -900, 0)
+      place(pawn(s, 1), 900, 0)
+      place(pawn(s, 2), 0, 110)
+      spawnProjectile(s, 0, 'fireball', -120, 0, 1000, 0, 25, { level: 3, lifetime: 2, data: { damage: 80, kb: 1 } })
+      spawnProjectile(s, 1, 'fireball', 120, 0, -1000, 0, 25, { level: 3, lifetime: 2, data: { damage: 80, kb: 1 } })
+      const events = run(s, ticks(0.3))
+      expect(of(events, 'reaction').map((e) => e.reaction), String(wild)).toEqual(wild ? ['clash'] : [])
+      const bystander = of(events, 'damage').filter((e) => e.target === pawn(s, 2).id)
+      expect(bystander.length > 0, String(wild)).toBe(wild)
+      if (wild) expect(bystander[0]).toMatchObject({ cause: 'clash', source: null })
+    }
   })
 
   it('Fork: Lightning stopped by an enemy Shield splits back into two beams from the shield holder', () => {
@@ -178,3 +229,131 @@ describe('Wild reactions', () => {
     expect(of(altered, 'reaction')).toEqual([])
   })
 })
+
+describe('Wild party omens', () => {
+  /** Why: the hot potato (playtest 2026-11-02): pass it with any hit or a touch, or be thrown by it. */
+  it('Cursed Bomb: arms on a warlock, passes by a hit or a touch (not straight back), and throws its holder at zero', () => {
+    const s = exposed('cursedBomb', 3)
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), 600, 0)
+    place(pawn(s, 2), -600, 0)
+    const armed = of(run(s, ticks(3) + 1), 'bomb')
+    expect(armed).toMatchObject([{ action: 'arm', fuse: ticks(BOMB_FUSE) }])
+    const bomb = s.omenClock!.bomb!
+    // a hit passes it on
+    bomb.holder = 0
+    bomb.lock = 0
+    const full = bomb.fuse
+    spawnProjectile(s, 0, 'fireball', 480, 0, 1000, 0, 25, { level: 1, lifetime: 1, data: { damage: 40, kb: 1 } })
+    const passed = of(run(s, ticks(0.3)), 'bomb')
+    expect(passed).toMatchObject([{ action: 'pass', from: 0, holder: 1 }])
+    expect(bomb.holder).toBe(1)
+    // the fuse runs on through a pass
+    expect(bomb.fuse).toBeLessThan(full - ticks(0.25))
+    // a touch passes it too, but not within the lock
+    bomb.lock = 0
+    place(pawn(s, 1), 0, 300)
+    place(pawn(s, 0), 0, 300 + 64)
+    run(s, 1)
+    expect(bomb.holder).toBe(0)
+    place(pawn(s, 0), 0, 300 + 64)
+    place(pawn(s, 1), 0, 300)
+    run(s, 2)
+    expect(bomb.holder, 'locked right after a pass').toBe(0)
+    // at zero: the holder is thrown, a warlock in the blast is pushed away from it
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), 200, 0)
+    place(pawn(s, 2), -900, 0)
+    bomb.fuse = 1
+    const blast = run(s, 1)
+    expect(of(blast, 'bomb').map((e) => e.action)).toEqual(['blast'])
+    const hits = of(blast, 'damage').filter((e) => e.cause === 'bomb')
+    expect(hits.map((e) => e.target).sort()).toEqual([pawn(s, 0).id, pawn(s, 1).id].sort())
+    expect(hits.find((e) => e.target === pawn(s, 0).id)!.kb).toBeGreaterThan(1500)
+    expect(pawn(s, 1).vx).toBeGreaterThan(0)
+    expect(200).toBeLessThan(BOMB_RADIUS)
+    // the next one arms after the gap, on a shorter fuse
+    const next = of(run(s, ticks(3)), 'bomb').filter((e) => e.action === 'arm')
+    expect(next).toHaveLength(1)
+    expect(next[0].fuse).toBe(ticks(BOMB_FUSE - 1))
+  })
+
+  it('Gale: a warlock left alone drifts downwind; a Fireball curves with the wind', () => {
+    const s = underOmen('gale')
+    place(pawn(s, 0), 0, 0)
+    place(pawn(s, 1), 0, 900)
+    run(s, ticks(4))
+    const g = s.omenClock!.gale!
+    const p = pawn(s, 0)
+    const speed = Math.hypot(p.vx, p.vy)
+    expect(speed).toBeGreaterThan(GALE_DRIFT * 0.5)
+    expect(speed).toBeLessThan(GALE_DRIFT * 1.5)
+    // along the wind
+    expect((p.vx * Math.cos(g.angle) + p.vy * Math.sin(g.angle)) / speed).toBeGreaterThan(0.9)
+    // a bolt across the wind ends up well off its straight line
+    const fb = spawnProjectile(s, 0, 'fireball', 0, -500, -Math.sin(g.angle) * 1000, Math.cos(g.angle) * 1000, 25, { level: 1, lifetime: 2, data: { damage: 1, kb: 1 } })
+    const x0 = fb.x
+    const y0 = fb.y
+    run(s, ticks(0.8))
+    const side = (fb.x - x0) * Math.cos(g.angle) + (fb.y - y0) * Math.sin(g.angle)
+    expect(side).toBeGreaterThan(60)
+  })
+
+  it('Shuffle: after a warning, the warlocks trade places in pairs, a slide staying with its spot', () => {
+    const s = underOmen('shuffle')
+    place(pawn(s, 0), -500, 0)
+    place(pawn(s, 1), 500, 0)
+    const events = run(s, ticks(5) - 1)
+    const warn = of(events, 'omenWarning')
+    expect(warn).toMatchObject([{ omen: 'shuffle', ticks: ticks(SHUFFLE_WARN) }])
+    // 1 is flying out over the east edge, pushed by 0
+    const flying = pawn(s, 1)
+    flying.vx = 1400
+    flying.lastHitter = 0
+    const x1 = flying.x
+    const swap = run(s, 1)
+    expect(of(swap, 'swap')).toHaveLength(1)
+    expect(pawn(s, 0).x).toBeGreaterThan(x1)
+    expect(pawn(s, 0).vx).toBeGreaterThan(1000)
+    expect(pawn(s, 0).lastHitter).toBe(0)
+    expect(pawn(s, 1).x).toBeCloseTo(-500, -1)
+    expect(Math.abs(pawn(s, 1).vx)).toBeLessThan(50)
+  })
+
+  /** Why: in a full lobby most of a round is spent knocked out; a spirit keeps the fallen playing. */
+  it('Vengeful Spirits: the fallen rise over the lava, drift only there, and their bolts hit the living for them', () => {
+    const s = exposed('spirits', 3)
+    place(pawn(s, 0), 900, 0)
+    place(pawn(s, 2), 0, 700)
+    const ghost = pawn(s, 1)
+    place(ghost, 3000, 0)
+    ghost.hp = 1
+    run(s, 1)
+    expect(ghost.alive).toBe(false)
+    expect(ghost.spirit?.rise).toBeGreaterThan(0)
+    const rose = run(s, ticks(SPIRIT_RISE))
+    expect(of(rose, 'spirit')).toMatchObject([{ owner: 1 }])
+    const [inner, outer] = spiritBand(s)
+    const r = () => Math.hypot(ghost.spirit!.x, ghost.spirit!.y)
+    expect(r()).toBeGreaterThanOrEqual(inner - 1e-6)
+    expect(r()).toBeLessThanOrEqual(outer + 1e-6)
+    // a move onto the floor stops at the band's inner edge
+    step(s, [cmd(1, { kind: 'move', x: 0, y: 0 })])
+    run(s, ticks(4))
+    expect(r()).toBeCloseTo(inner, 0)
+    // any spell key: a bolt at the living, credited to the spirit
+    const target = pawn(s, 0)
+    step(s, [cmd(1, { kind: 'cast', slot: 3, x: target.x, y: target.y })])
+    expect(s.projectiles.filter((q) => q.kind === 'spiritBolt')).toHaveLength(1)
+    step(s, [cmd(1, { kind: 'cast', slot: 0, x: target.x, y: target.y })])
+    expect(s.projectiles.filter((q) => q.kind === 'spiritBolt'), 'one bolt per cooldown').toHaveLength(1)
+    const hit = of(run(s, ticks(2)), 'damage').filter((e) => e.target === target.id)
+    expect(hit[0]).toMatchObject({ cause: 'spirit', source: 1 })
+    // gone at the next shop
+    for (const q of s.pawns) if (q.owner !== 0 && q.alive) killPawn(s, q, null, 'lava')
+    run(s, ticks(ROUND_END_SECONDS) + 1)
+    expect(s.phase).toBe('shop')
+    expect(s.pawns.some((q) => q.spirit)).toBe(false)
+  })
+})
+

@@ -149,7 +149,7 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
       </Group>}
 
       {!settings.rankedRounds && <Group title="Wild">
-        <Row label="Wild" hint={rounds ? 'From the second round, an omen changes one rule for each round; spells can react' : 'Rounds mode only'}>
+        <Row label="Wild" hint={rounds ? 'From the second round, omens change the rules of each round (more of them late in the match); spells can react' : 'Rounds mode only'}>
           <div data-testid="wild" data-state={wildOn(settings) ? 'on' : 'off'}>
             <Switch label="Wild" checked={settings.wild === true} disabled={ro || !rounds} onChange={(wild) => set({ wild })} />
           </div>

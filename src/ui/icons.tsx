@@ -229,7 +229,7 @@ export function Sigil({ id, size = 40, hue, dim = false }: { id: string | null; 
 
 function Glyph({ id, size, hue, dim }: { id: string | null; size: number; hue?: string; dim: boolean }) {
   const color = hue ?? (id === 'duration' || id === 'range' || id === 'lifesteal' || id === 'all' ? MASTERY_HUE : hueFor(id))
-  const glyph = (id && G[id]) ?? G.empty
+  const glyph = (id && (G[id] ?? CAUSE_GLYPHS[id])) ?? G.empty
   const gid = `sg-${id ?? 'empty'}`
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden style={{ color, display: 'block', opacity: dim ? 0.5 : 1 }}>
@@ -247,6 +247,13 @@ function Glyph({ id, size, hue, dim }: { id: string | null; size: number; hue?: 
   )
 }
 
+/** Wild's knockout causes that are not spells (the kill feed, the death recap) */
+const CAUSE_GLYPHS: Record<string, ReactNode> = {
+  bomb: <><circle cx="10.5" cy="14" r="6.5" /><path d="m15 9.5 2.2-2.2M17.2 7.3c.3-1.7 1.6-2.8 3.3-2.8" /></>,
+  clash: <path d="m12 2 1.8 6.2L20 6l-3.6 5 5.1 3.3-6.3.4.6 6.3L12 16.4 8.2 21l.6-6.3-6.3-.4L7.6 11 4 6l6.2 2.2Z" />,
+  spirit: <path d="M6 21V11a6 6 0 0 1 12 0v10l-2-1.6-2 1.6-2-1.6-2 1.6-2-1.6ZM10 11v.5M14 11v.5" />,
+}
+
 const OMEN_GLYPHS: Record<string, ReactNode> = {
   bloodMoon: <><circle cx="12" cy="10.5" r="7" fill="currentColor" fillOpacity=".3" /><path d="M12 17.5v3M9.5 17.1v1.6M14.5 17.1v1.2" /></>,
   slickStone: <><path d="M12 3s-5 6-5 9.5a5 5 0 0 0 10 0C17 9 12 3 12 3Z" /><path d="M3 21h6M15 21h6" /></>,
@@ -254,6 +261,11 @@ const OMEN_GLYPHS: Record<string, ReactNode> = {
   suddenCollapse: <><circle cx="12" cy="12" r="3" /><path d="M12 4a8 8 0 0 1 8 8M4 12a8 8 0 0 1 4-6.9M16 18.9A8 8 0 0 1 4.6 15" /></>,
   meteorShower: <><circle cx="15.5" cy="15.5" r="4" fill="currentColor" fillOpacity=".3" /><path d="M12.6 12.6 4 4M11 16 6 11M16 11l-5-5" /></>,
   pillarStorm: <><path d="M8 20V8.5l4-4.5 4 4.5V20M5 20h14" /><path d="m10 12.5 2-1.5 2 1.5M10.5 16l1.5-1 1.5 1" /></>,
+  cursedBomb: <><circle cx="10.5" cy="14" r="6.5" fill="currentColor" fillOpacity=".3" /><path d="m15 9.5 2.2-2.2M17.2 7.3c.3-1.7 1.6-2.8 3.3-2.8M20.5 2v1.2M22 4.5h-1.2" /></>,
+  gale: <path d="M3 8h10.5a2.75 2.75 0 1 0-2.75-2.75M3 12h15.5a2.75 2.75 0 1 1-2.75 2.75M3 16h7.5" />,
+  shuffle: <path d="M3 7h3.5l11 10H21M3 17h3.5l11-10H21M18.5 4.5 21 7l-2.5 2.5M18.5 14.5 21 17l-2.5 2.5" />,
+  spirits: <><path d="M6 21V11a6 6 0 0 1 12 0v10l-2-1.6-2 1.6-2-1.6-2 1.6-2-1.6Z" fill="currentColor" fillOpacity=".25" /><path d="M10 11v.5M14 11v.5" /></>,
+  cataclysm: <><path d="M12 2.5 14.2 9l6.8.2-5.4 4.1 2 6.6L12 16l-5.6 3.9 2-6.6L3 9.2 9.8 9Z" fill="currentColor" fillOpacity=".25" /><path d="M12 7.5v4.5" /></>,
 }
 
 /** A Wild omen's sigil, in its accent colour. */

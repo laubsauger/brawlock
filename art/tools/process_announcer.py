@@ -26,6 +26,7 @@ PACKS = {
   8: ['not_today', 'cheated_death'],
   9: ['hill_captured', 'king_of_the_ashes', 'hill_lost', 'hill_shrinks'],
   10: ['blood_moon', 'slick_stone', 'overcharge', 'sudden_collapse', 'meteor_shower', 'pillar_storm'],
+  11: ['cursed_bomb', 'gale', 'shuffle', 'vengeful_spirits', 'cataclysm'],
 }
 ASSETS_TS = os.path.join(ROOT, 'src/audio/assets.ts')
 # every announcer line shares the ElevenLabs credit entry

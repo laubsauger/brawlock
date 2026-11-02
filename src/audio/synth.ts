@@ -583,10 +583,11 @@ const finishStinger: Recipe = (v) => {
 
 /**
  * Wild's omen, under the announcer's call at the countdown: a low struck plate shared by all, then
- * the omen's own colour. p = omen index in sim/wild.ts OMEN_IDS order (0 Blood Moon .. 5 Pillar Storm)
+ * the omen's own colour. p = omen index in sim/wild.ts OMEN_IDS order (0 Blood Moon .. 9 Vengeful
+ * Spirits), 10 = Cataclysm (three omens at once)
  */
 const omenSting: Recipe = (v, p) => {
-  const omen = clamp(Math.round(p), 0, 5)
+  const omen = clamp(Math.round(p), 0, 10)
   thump(v, 0, 92, 40, 0.5, 0.32, v.drive(v.out, 2, 0.5))
   tail(v, 0.02, 0.8, 160, 0.1)
   switch (omen) {
@@ -621,14 +622,77 @@ const omenSting: Recipe = (v, p) => {
       thump(v, 0.75, 80, 30, 0.6, 0.42, v.drive(v.out, 2.2, 0.5))
       tail(v, 0.76, 0.9, 200, 0.16)
       break
-    default: {
+    case 5: {
       // Pillar Storm: a grinding rise, then the stone bursts through
       const grind = tremolo(v, 0, 0.6, 19, 0.7, v.out)
       v.noise('pink', 0, 0.6, v.filter('bandpass', 700, 2, v.gain(0.55, grind)))
       thump(v, 0.6, 140, 50, 0.3, 0.42, v.drive(v.out, 2, 0.5))
       burst(v, { at: 0.6, noise: 'crackle', freq: 1100, q: 1, attack: 0.001, decay: 0.25, gain: 1.7 })
+      break
     }
+    case 6:
+      // Cursed Bomb: a fuse catching, three quick ticks, a muffled thud
+      burst(v, { noise: 'crackle', freq: 3200, q: 0.8, attack: 0.02, decay: 0.55, gain: 1.4 })
+      for (const at of [0.2, 0.36, 0.5]) click(v, at, 0.5, 2600)
+      thump(v, 0.68, 90, 36, 0.4, 0.4, v.drive(v.out, 2.2, 0.5))
+      break
+    case 7:
+      // Gale: a howl that rises and turns
+      whoosh(v, 0, 1.1, 300, 1800, 3.5, 0.18, 'pink')
+      whoosh(v, 0.25, 0.9, 500, 2600, 5, 0.1, 'white')
+      break
+    case 8:
+      // Shuffle: a shimmer up and a card riffle
+      ;[659.25, 783.99, 987.77, 1318.51].forEach((f, i) => fmBell(v, i * 0.07, f, 2, 0.6, 0.3, 0.1))
+      for (let i = 0; i < 6; i++) click(v, 0.32 + i * 0.035, 0.3, 4200)
+      break
+    case 9:
+      // Vengeful Spirits: a hollow wail over a low drone
+      brass(v, 0, [73.42, 110], 1.1, 0.18, [[0, 180], [0.5, 520], [1.1, 160]])
+      whoosh(v, 0.05, 1, 900, 1500, 9, 0.12, 'white')
+      ring(v, 0.3, 587.33, [1, 1.5], [0.8, 0.6], 0.07)
+      break
+    default:
+      // Cataclysm: everything at once, a slammed plate and a long dark swell
+      thump(v, 0, 70, 28, 0.9, 0.5, v.drive(v.out, 2.6, 0.55))
+      brass(v, 0.05, [41.2, 61.74, 82.41, 98], 1.5, 0.32, [[0, 160], [0.6, 1300], [1.5, 220]])
+      burst(v, { at: 0.02, noise: 'crackle', freq: 1500, q: 0.9, attack: 0.002, decay: 0.6, gain: 1.6 })
+      tail(v, 0.04, 1.4, 180, 0.18)
   }
+}
+
+/** Cursed Bomb: the fuse catches on its first holder. */
+const bombArm: Recipe = (v) => {
+  burst(v, { noise: 'crackle', freq: 2800, q: 0.7, attack: 0.01, decay: 0.45, gain: 1.6 })
+  whoosh(v, 0, 0.3, 1200, 4200, 1.2, 0.08, 'white')
+  click(v, 0.02, 0.45, 2000)
+}
+
+/** Cursed Bomb: it jumps to a new holder, a quick swish and a dull clunk. */
+const bombPass: Recipe = (v) => {
+  whoosh(v, 0, 0.16, 700, 3200, 1, 0.12, 'pink')
+  thump(v, 0.12, 240, 110, 0.12, 0.32, v.drive(v.out, 1.8, 0.5), 'triangle')
+  click(v, 0.12, 0.4, 2400)
+}
+
+/** Cursed Bomb's fuse: one tick; p = urgency 0..1 (higher and brighter as it runs out). */
+const bombTick: Recipe = (v, p) => {
+  const u = clamp(p, 0, 1)
+  click(v, 0, 0.35 + 0.35 * u, 2200 + 2400 * u)
+  thump(v, 0, 900 + 700 * u, 600 + 500 * u, 0.04, 0.08 + 0.08 * u, v.out, 'square')
+}
+
+/** Vengeful Spirits: a fallen warlock rises over the lava. */
+const spiritRise: Recipe = (v) => {
+  whoosh(v, 0, 0.8, 400, 1400, 7, 0.12, 'white')
+  ring(v, 0.1, 440, [1, 1.5, 2], [0.7, 0.5, 0.3], 0.06)
+  tail(v, 0.05, 0.6, 220, 0.06)
+}
+
+/** Shuffle: the glow before the warlocks trade places. */
+const shuffleWarn: Recipe = (v) => {
+  ;[523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((f, i) => fmBell(v, i * 0.12, f, 2, 0.5, 0.35, 0.07))
+  whoosh(v, 0, 1.1, 600, 3600, 2, 0.06, 'white')
 }
 
 /** Final Blow: the replayed hit lands, a heavy slam with a low brass swell under it. */
@@ -1466,6 +1530,11 @@ const uiCountdown: Recipe = (v, p) => {
 export const RECIPES = {
   finishStinger,
   omenSting,
+  bombArm,
+  bombPass,
+  bombTick,
+  spiritRise,
+  shuffleWarn,
   finalBlowImpact,
   fireballCast,
   fireballTravel,
@@ -1592,7 +1661,8 @@ export const RECIPE_PARAMS: Partial<Record<SfxId, RecipeParam>> = {
   scourgeWindup: { label: 'windup s', min: 0.2, max: 2, step: 0.05, value: 0.9, seconds: true },
   scourgeBlast: { label: 'level', min: 1, max: 3, step: 1, value: 1 },
   roundWin: { label: 'won 1 / draw 0', min: 0, max: 1, step: 1, value: 1 },
-  omenSting: { label: 'omen', min: 0, max: 5, step: 1, value: 0 },
+  omenSting: { label: 'omen', min: 0, max: 10, step: 1, value: 0 },
+  bombTick: { label: 'urgency', min: 0, max: 1, step: 0.05, value: 0.5 },
   castInhale: { label: 'cast point s', min: 0.08, max: 0.6, step: 0.02, value: 0.2, seconds: true },
   reflect: { label: 'stolen', min: 0, max: 1, step: 1, value: 0 },
   swapWarp: { label: 'alteration', min: 0, max: 1, step: 1, value: 0 },

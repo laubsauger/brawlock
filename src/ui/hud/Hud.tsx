@@ -26,7 +26,7 @@ import { ANNOUNCER_TEXT, defeatLine, matchWinLine, roundCall, roundWinLine } fro
 import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
 import { FinalBlowPlate } from './FinalBlowPlate'
-import { OmenBadge, ReactionCard, reactionCard } from './OmenHud'
+import { BombAlert, OmenBadge, ReactionCard, SpiritHud, reactionCard } from './OmenHud'
 import { RemapTip, slotsMoved } from './RemapTip'
 
 /**
@@ -404,6 +404,8 @@ export function Hud() {
       <Banner />
       <StreakCallout />
       {!replay && <ReactionCard />}
+      {!replay && <BombAlert />}
+      {!replay && <SpiritHud />}
       <AimHint />
       <InspectCard />
 

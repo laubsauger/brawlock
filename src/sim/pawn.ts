@@ -22,6 +22,7 @@ import { cancelCast, stopPawn } from './orders'
 import { buyItem, buyMastery, buySpell, freshStart, setShopReady } from './shop'
 import { SPELLS, SPELL_BEHAVIORS, cooldownSeconds } from './spells'
 import type { CastContext } from './spells/types'
+import { spiritCommand } from './spirits'
 import { cooldownRateOf } from './wild'
 
 /** Turn toward `desired` by at most TURN_PER_TICK. Returns the remaining |difference|. */
@@ -84,15 +85,16 @@ function startCast(state: SimState, pawn: PawnState, slot: number, x: number, y:
 export function applyCommand(state: SimState, player: PlayerId, pawn: PawnState, cmd: InputCommand): void {
   switch (cmd.kind) {
     case 'move':
-      if (!pawn.alive) return
+      if (!pawn.alive) return spiritCommand(state, pawn, cmd)
       cancelCast(state, pawn)
       pawn.moveTarget = { x: cmd.x, y: cmd.y }
       return
     case 'stop':
+      if (!pawn.alive) return spiritCommand(state, pawn, cmd)
       stopPawn(state, pawn)
       return
     case 'cast':
-      if (!pawn.alive) return
+      if (!pawn.alive) return spiritCommand(state, pawn, cmd)
       if (!Number.isInteger(cmd.slot) || cmd.slot < 0 || cmd.slot >= SLOT_COUNT) return
       startCast(state, pawn, cmd.slot, cmd.x, cmd.y)
       return

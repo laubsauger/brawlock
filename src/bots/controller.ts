@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, isEnemy, onHill, spellDef, ticks, wildOn } from '../sim'
+import { GALE_BEND, ITEM_SLOT_START, SPIRIT_BOLT_SPEED, attr, bombHolder, canBuy, cooldownSeconds, galeOf, hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, intoBand, isEnemy, onHill, spellDef, ticks, wildOn } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -85,6 +85,11 @@ onTickRate(() => { UNSTICK_TICKS = ticks(0.1) })
 /** Extra clearance beyond an area threat's radius, units. */
 const THREAT_MARGIN = 30
 /** Directions tried when leaving an area threat (radians off straight away). */
+/** Wild's Gale bends these spells' bolts (sim/wild.ts GALE_KINDS) */
+const GALE_SPELLS = new Set<SpellId>(['fireball', 'homing', 'bouncer', 'snowball', 'drain', 'recharge', 'cluster', 'splitter'])
+/** Vengeful Spirits: a spirit bot shoots at warlocks this close, and stops drifting this near its spot */
+const SPIRIT_REACH = 1250
+const SPIRIT_SETTLE = 80
 const FLEE_ANGLES = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75, 2.2, -2.2, Math.PI]
 const FIREBALL_DETONATE_RADIUS = 225
 /** Wild's Shatter: how far along the beam its shards reach (650 u/s for 0.55 s) */
@@ -196,6 +201,9 @@ export type BotAction =
   | 'blink'
   | 'reposition'
   | 'shield'
+  /** Wild: passing the Cursed Bomb, haunting as a Vengeful Spirit */
+  | 'bomb'
+  | 'spirit'
 
 const dist = (a: Vec2, b: Vec2) => hypot(a.x - b.x, a.y - b.y)
 
@@ -544,6 +552,7 @@ export class BotController implements Bot {
       }
     }
 
+    if (me && !me.alive && me.spirit && me.spirit.rise <= 0 && state.phase === 'fight') return this.act('spirit', this.haunt(state, me))
     if (!me || !me.alive) return this.act('idle', [])
 
     const layer = state.arena.layer
@@ -617,6 +626,16 @@ export class BotController implements Bot {
       if (flee) {
         this.urgent = true
         return this.act('flee', flee)
+      }
+    }
+
+    // 2c. Wild's Cursed Bomb in our hands: hit anyone with what is ready, else run into the
+    // nearest one to pass it by touch (never onto lava for it)
+    if (bombHolder(state) === this.player && closest) {
+      const pass = this.passBomb(state, me, closest, safety)
+      if (pass) {
+        this.urgent = true
+        return this.act('bomb', pass)
       }
     }
 
@@ -1830,11 +1849,74 @@ export class BotController implements Bot {
         : leadPoint(me, target, { x: target.vx, y: target.vy }, info.speed, windup)
     }
     if ((p.rangeCheck || info?.hitscan) && info?.range && dist(me, point) > info.range) return null
+    // Wild's Gale bends the bolt downwind on its way: aim upwind of the point, by half the
+    // bend over the flight (bots that lead, lead the wind too)
+    const wind = state && info?.speed && GALE_SPELLS.has(spell) ? galeOf(state) : null
+    if (wind && this.rng.chance(p.leadChance)) {
+      const t = dist(me, point) / info!.speed!
+      const off = 0.5 * GALE_BEND * wind.strength * t * t
+      point = { x: point.x - wind.x * off, y: point.y - wind.y * off }
+    }
     if (p.aimErrorRad > 0) {
       // triangular in [-err, err]: mostly close, occasionally at the limit
       point = rotateAround(me, point, (this.rng.next() + this.rng.next() - 1) * p.aimErrorRad)
     }
     return point
+  }
+
+  /**
+   * Wild's Cursed Bomb, held: a ready bolt at the nearest warlock (any hit passes it), else a run
+   * at them (a touch passes it), as long as the ground there is safe.
+   */
+  private passBomb(state: SimState, me: PawnState, near: PawnState, safety: number): InputCommand[] | null {
+    if (!me.cast) {
+      const slots = this.slotsWithRole(me, 'projectile').filter((s) => castable(me, s))
+      if (slots.length > 0) {
+        const slot = this.rng.pick(slots)
+        const aim = this.aimAt(me, near, me.slots[slot]!, state)
+        if (aim) {
+          this.spellEndTick = state.tick + ticks(CAST_LOCK_SECONDS)
+          return [{ kind: 'cast', slot, x: aim.x, y: aim.y }]
+        }
+      }
+    }
+    if (me.cast || !isSafe(safety, near.x, near.y)) return null
+    // where they will be by the time we close in, a little past them
+    const t = Math.min(1, dist(me, near) / Math.max(1, me.moveSpeed))
+    const goal = { x: near.x + near.vx * t, y: near.y + near.vy * t }
+    if (!isSafe(safety, goal.x, goal.y)) return null
+    const via = this.route(state, me, goal, state.arena.layer)
+    return this.order(me, { kind: 'move', x: via.x, y: via.y }, true)
+  }
+
+  /**
+   * Wild's Vengeful Spirits: a dead bot haunts the nearest living enemy, drifting to the lava
+   * beside them and hurling its bolt (led like a Fireball) whenever it is ready.
+   */
+  private haunt(state: SimState, me: PawnState): InputCommand[] {
+    const sp = me.spirit!
+    let near: PawnState | null = null
+    let best = Infinity
+    for (const o of state.pawns) {
+      if (!o.alive || !areEnemies(state, this.player, o.owner)) continue
+      const d = hypot(o.x - sp.x, o.y - sp.y)
+      if (d < best) {
+        best = d
+        near = o
+      }
+    }
+    if (!near) return []
+    const out: InputCommand[] = []
+    if (sp.cd <= 0 && best < SPIRIT_REACH && this.rng.chance(this.params.castChance)) {
+      let aim: Vec2 = { x: near.x, y: near.y }
+      if (this.rng.chance(this.params.leadChance)) aim = leadPoint(sp, near, { x: near.vx, y: near.vy }, SPIRIT_BOLT_SPEED, this.params.reactionDelay)
+      if (this.params.aimErrorRad > 0) aim = rotateAround(sp, aim, (this.rng.next() + this.rng.next() - 1) * this.params.aimErrorRad)
+      out.push({ kind: 'cast', slot: 0, x: aim.x, y: aim.y })
+    }
+    // hover in the lava off their side of the floor
+    const goal = intoBand(state, near.x, near.y)
+    if (hypot(goal.x - sp.x, goal.y - sp.y) > SPIRIT_SETTLE) out.push({ kind: 'move', x: goal.x, y: goal.y })
+    return out
   }
 
   /** Lightning at our own Fireball when it is about to pass an enemy within the blast radius. */
@@ -1887,7 +1969,8 @@ export class BotController implements Bot {
       for (const pr of state.projectiles) {
         if (pr.owner !== this.player || pr.spell !== 'gravity' || pr.data.nova) continue
         const far = hypot(pr.x - me.x, pr.y - me.y)
-        if (far > (fb.range ?? 1000) * 0.9) continue
+        // Nova needs the Fireball to come into the burning ring from outside it
+        if (far > (fb.range ?? 1000) * 0.9 || far < (pr.data.dpsRadius || 250) + 60) continue
         // where the orb will be when our Fireball gets there
         const t = fb.castPoint + this.params.reactionDelay + far / (fb.speed ?? 1000)
         const ox = pr.x + pr.vx * t

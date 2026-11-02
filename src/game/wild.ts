@@ -23,12 +23,20 @@ export const OMEN_INFO: Record<OmenId, OmenInfo> = {
   suddenCollapse: { name: 'Sudden Collapse', rule: `The floor gives way every ${WILD_SHRINK_SECONDS} seconds`, color: '#ffb347' },
   meteorShower: { name: 'Meteor Shower', rule: 'Meteors fall near warlocks, faster as the round goes on', color: '#ff8a3d' },
   pillarStorm: { name: 'Pillar Storm', rule: 'Pillars burst from glowing cracks, and explode when broken', color: '#e2cf9f' },
+  cursedBomb: { name: 'Cursed Bomb', rule: 'Hit or touch a warlock to pass the bomb before it blows', color: '#ff4f7a' },
+  gale: { name: 'Gale', rule: 'A turning wind pushes warlocks and bends every bolt', color: '#9fe6d0' },
+  shuffle: { name: 'Shuffle', rule: 'When the warlocks glow, they trade places, and slides', color: '#ffd45e' },
+  spirits: { name: 'Vengeful Spirits', rule: 'The fallen haunt the lava and hurl bolts at the living', color: '#8fb8ff' },
 }
+
+/** three omens at once: the round can decide the match */
+export const CATACLYSM_INFO = { name: 'Cataclysm', rule: 'This round can win the match: three omens at once', color: '#ff7b3a' } as const
 
 export const REACTION_INFO: Record<ReactionId, { name: string; rule: string; spells: readonly [SpellId, SpellId] }> = {
   shatter: { name: 'Shatter', rule: 'Lightning breaks a Snowball into four shards', spells: ['lightning', 'snowball'] },
-  nova: { name: 'Nova', rule: 'A Fireball pulled into a Gravity orb goes off as a ring blast', spells: ['fireball', 'gravity'] },
+  nova: { name: 'Nova', rule: 'A Fireball pulled into a Gravity orb’s burning ring goes off as a ring blast', spells: ['fireball', 'gravity'] },
   fork: { name: 'Fork', rule: 'Lightning stopped by a Shield splits back into two beams', spells: ['lightning', 'shield'] },
+  clash: { name: 'Clash', rule: 'Two enemy bolts that meet blow up between them', spells: ['fireball', 'fireball'] },
 }
 export const REACTION_IDS = Object.keys(REACTION_INFO) as ReactionId[]
 

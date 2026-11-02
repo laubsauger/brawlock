@@ -2,7 +2,7 @@
 
 Status: design draft, 2026-10-28; picked for the build list 2026-10-29; the four choices answered
 (README Q34–37); first deck built 2026-11-01, voice, library and bot combos 2026-11-02, shipped
-in alpha.18 on 2026-11-02 (see Built). From
+in alpha.18 on 2026-11-02 (see Built); Wild 2 built the same day (see Wild 2). From
 [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even
@@ -77,6 +77,75 @@ Not built yet: Wild Hours (after the playtest), the moments engine naming each o
 Checked in a muted headless browser: the lobby deck, the card above the shop in the countdown, the
 badge, Meteor Shower and Pillar Storm in a match against bots, the results' omens, and each omen's
 scene effect in the render preview.
+
+## Wild 2 (2026-11-02)
+
+The developer after the first deck: "the few combos there are okay but not interesting enough,
+there needs to be more stuff going on", and Nova's core (70 units, barely a warlock across) was
+hard to hit. Of the ideas proposed then, the Cursed Bomb was the favourite ("could almost be a
+game on its own"), with "stuff like this, let's go".
+
+Built:
+- **More omens a round.** One in the second and third rounds, two from the fourth, and three in a
+  round that can decide the match: a **Cataclysm** (`omenCount`, `canDecide` in `src/sim/wild.ts`;
+  first to N: a player one win away; scheduled rounds: the last one, or one a sole winner would
+  clinch). None of the last round's omens when the deck has enough others. The state holds
+  `omens` (deck order) instead of one `omen`; every rule reads `hasOmen`. The card shows two or
+  three faces, under a Cataclysm banner for three; the badges list them all; the announcer calls
+  each omen, or "Cataclysm!" alone for three; the results group a round's omens.
+- **Cursed Bomb.** 3 s into the fight a bomb arms on a random warlock with a 12 s fuse (1 s
+  shorter per bomb, never under 7). Any damage its holder deals to another warlock, or touching
+  one (bodies within 68), passes it on; not again within 0.4 s; the fuse never resets. At zero,
+  or when its holder falls, it goes off: the holder takes 180 and is thrown hard in a random
+  direction (knockback factor 1.5), everyone within 340 takes 40 to 120 and is pushed out
+  (factor 0.7 to 1.4 by distance). Neutral: a knockout credits the last warlock who hit, usually
+  whoever passed it. A new bomb 2.5 s later. The holder's HUD burns at the edges with the fuse;
+  everyone else sees who has it; the fuse ticks (`audio.fuseTick`). An iron bomb with a cursed
+  rim hovers over the holder; its reach rings the floor in the last 3.5 s.
+- **Gale.** A wind with a random heading turns 0.06 rad/s and gusts ±35% over 6 s: a warlock left
+  alone drifts at 55 u/s downwind (the push is scaled by the round's friction so the drift is the
+  same at any friction), and plain flying bolts bend at 300 u/s² (Fireball, Cluster, Homing,
+  Bouncer, Snowball, Splitter's bolts, Drain, Recharge, spirit bolts). Streaks and dust race
+  downwind.
+- **Shuffle.** 5 s in and every 7 s, after a 1.2 s golden glow, the living warlocks trade places
+  in random pairs. A slide stays with its spot, and so does the hit that started it: whoever lands
+  where a pushed warlock was flies on in their place, credited to the pusher. Trading only places
+  saved the pushed (bots: first knockout 102 s against 88 in classic, Brutal seats winning 70%);
+  with the slides, 94 s and 53%.
+- **Vengeful Spirits.** A warlock knocked out in the fight rises 1.5 s later as a spirit in a band
+  of lava (70 to 720 off the floor's edge; it follows the shrink). Right-click drifts it (280 u/s,
+  never onto the floor), any spell key hurls a bolt (a weak Fireball: 24 damage, knockback 1,
+  900 u/s, 1400 range, 3 s cooldown) whose knockouts are the spirit's. Spirits cannot be hurt and
+  are gone at the next shop. The camera rides the local spirit; arrows and 1 to 9 pan and cast
+  instead of picking who to watch; the knockout card says the spirit is rising. A pale hooded
+  wisp in the player's colour (`src/sim/spirits.ts`).
+- **Clash** (reaction). An enemy bolt that destroys another goes off between them, once per pair:
+  a neutral blast of 150 to 260 by the two bolts' damage, 0.6 of their damage, knockback 1.1.
+- **Nova** fires when a Fireball enters the orb's burning ring (250, drawn on the floor) from
+  outside it; a Fireball cast inside the ring right after the orb has to leave it first, so the
+  combo still takes aim.
+- Bots: a holder shoots whatever is ready at the nearest warlock, else runs into them (never onto
+  lava for it); everyone else keeps 90 clear of the holder and clears the whole blast in the
+  fuse's last 2 s. Leading bots lead the wind too. A dead bot under Vengeful Spirits hovers in
+  the lava beside the nearest enemy and fires when ready. Their Nova combo keeps out of the ring.
+- Voice pack 11 (Cursed Bomb!, Gale!, Shuffle!, Vengeful Spirits!, Cataclysm!) and stings 6 to 10.
+
+Bot-only runs (`npm run bots:wild -- 60`, six bots, omens forced; classic for reference):
+
+| Condition | First knockout (median s) | Round (median s) | Deaths in the first half | Brutal seats win | Per round |
+|---|---|---|---|---|---|
+| Classic | 88 | 158 | 10% | 53% | – |
+| Cursed Bomb | 42 | 105 | 20% | 50% | 7.9 passes, 9.1 blasts |
+| Gale | 55 | 154 | 23% | 50% | – |
+| Shuffle (with slides, 80 rounds) | 94 | 154 | 6% | 53% | – |
+| Vengeful Spirits | 79 | 155 | 11% | 52% | 0.8 spirit knockouts |
+| Cursed Bomb + Gale + Spirits (80 rounds) | 36 | 96 | 21% | 65% | 8 passes, 1.3 spirit knockouts |
+
+Clash came 3 to 6 times a round under every Wild condition, Nova 0.3 to 0.5. Shuffle alone does
+not bring knockouts earlier; it stays for the chaos, the playtest decides. Bots pass the bomb less
+than once per bomb (most go off on their first holder); people should pass far more.
+
+Not built: Wild Hours, the moments engine naming omens' best plays, a spirit's name over its wisp.
 
 ## The idea in one paragraph
 

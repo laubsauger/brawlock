@@ -59,7 +59,7 @@ import { TEAM_DRAW } from '../sim/config'
 import { gameWinners, scheduledRoundsOf } from '../sim/mode'
 import { TICK_HZ, type PawnState, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isDeniedEscape, slideSnapshot, type SlideSnapshot } from './teleportSave'
-import type { OmenId } from '../sim/wild'
+import { CATACLYSM_OMENS, type OmenId } from '../sim/wild'
 
 export const ROUND_LINES = [
   'round_one',
@@ -82,6 +82,10 @@ export const OMEN_LINES = {
   suddenCollapse: 'sudden_collapse',
   meteorShower: 'meteor_shower',
   pillarStorm: 'pillar_storm',
+  cursedBomb: 'cursed_bomb',
+  gale: 'gale',
+  shuffle: 'shuffle',
+  spirits: 'vengeful_spirits',
 } as const satisfies Record<OmenId, string>
 export type OmenLine = (typeof OMEN_LINES)[OmenId]
 
@@ -135,6 +139,7 @@ export type AnnouncerLine =
   | 'close_call'
   | 'ace'
   | OmenLine
+  | 'cataclysm'
 
 /** What the voice says, word for word (the banner shows the same). */
 export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
@@ -200,6 +205,11 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   sudden_collapse: 'Sudden Collapse!',
   meteor_shower: 'Meteor Shower!',
   pillar_storm: 'Pillar Storm!',
+  cursed_bomb: 'Cursed Bomb!',
+  gale: 'Gale!',
+  shuffle: 'Shuffle!',
+  vengeful_spirits: 'Vengeful Spirits!',
+  cataclysm: 'Cataclysm!',
 }
 
 const MULTI_LADDER: readonly AnnouncerLine[] = ['double_kill', 'triple_kill', 'multi_kill', 'mega_kill', 'ultra_kill', 'monster_kill']
@@ -272,7 +282,7 @@ export interface Announcement {
 }
 
 /** The parts of the sim state the announcer reads (all optional: partial states are fine). */
-export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena' | 'rankedFinal' | 'omen'>>
+export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena' | 'rankedFinal' | 'omens'>>
 
 /**
  * The round-win call for `local`, voice and HUD banner alike. The sim adds the round's point
@@ -512,7 +522,7 @@ export class Announcer {
           break
         case 'teleport':
           if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight' && state.settings && state.arena) {
-            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, { settings: state.settings, arena: state.arena, omen: state.omen })) {
+            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, { settings: state.settings, arena: state.arena, omens: state.omens })) {
               this.deniedAt = now
               this.occasional(DENIED_LINES[this.deniedCount++ % DENIED_LINES.length], local, now)
             }
@@ -579,8 +589,11 @@ export class Announcer {
         this.calledRound = upcoming
         const call = roundCall(state)
         if (call) this.flow(call, local ?? -1, now)
-        // Wild: the round's omen, after the round (its card turns over with the countdown)
-        if (state.omen) this.flow(OMEN_LINES[state.omen], local ?? -1, now)
+        // Wild: the round's omens, after the round (their cards turn over with the countdown); three
+        // at once is a Cataclysm, called by that name alone
+        const omens = state.omens ?? []
+        if (omens.length >= CATACLYSM_OMENS) this.flow('cataclysm', local ?? -1, now)
+        else for (const omen of omens) this.flow(OMEN_LINES[omen], local ?? -1, now)
       }
       // a close call holds once the player is still standing a moment later
       const at = this.round.closeCallAt

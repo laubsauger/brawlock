@@ -106,12 +106,13 @@ export function ownerOfPawn(state: SimState | null, pawnId: number): number {
   return -1
 }
 
-/** The local player is watching, not playing: no warlock of their own, or it is down. */
+/** The local player is watching, not playing: no warlock of their own, or it is down (and not a risen Wild spirit). */
 export function isSpectating(state: SimState | null, local: number): boolean {
   if (!state) return false
   if (local < 0) return true
   const me = state.pawns.find((p) => p.owner === local)
-  return !me || !me.alive
+  // Wild's Vengeful Spirits: a risen spirit is still playing (it steers, the camera rides it)
+  return !me || (!me.alive && !(me.spirit && me.spirit.rise <= 0))
 }
 
 /** Living players in slot order (spectate cycling, 1-9 keys). */

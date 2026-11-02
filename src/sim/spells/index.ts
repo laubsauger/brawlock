@@ -12,6 +12,7 @@ import { boomerangProjectile, boomerangSpell } from './boomerang'
 import { bouncerProjectile, bouncerSpell } from './bouncer'
 import { clusterSpell } from './cluster'
 import { MOD_DRAIN_HASTE, MOD_DRAIN_SLOW, drainHasteModifier, drainHealProjectile, drainProjectile, drainSlowModifier, drainSpell } from './drain'
+import { spiritBoltProjectile } from '../spirits'
 import { fireballProjectile, fireballSpell, simpleProjectile } from './fireball'
 import { gravityProjectile, gravitySpell } from './gravity'
 import { MOD_GRIP, gripModifier, gripProjectile, gripSpell } from './grip'
@@ -91,6 +92,8 @@ export const PROJECTILE_BEHAVIORS: Readonly<Record<string, ProjectileBehavior>> 
   warpzone: warpzoneProjectile,
   magnetize: magnetizeProjectile,
   link: linkProjectile,
+  // Wild's Vengeful Spirits (sim/spirits.ts)
+  spiritBolt: spiritBoltProjectile,
 }
 
 registerModifiers({

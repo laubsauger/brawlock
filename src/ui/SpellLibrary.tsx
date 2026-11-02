@@ -146,7 +146,7 @@ function Reactions() {
         <span className="font-display font-bold tracking-[0.05em] text-[#c9a2ff]">Reactions</span>
         <span className="truncate text-[0.78rem] text-ash">Wild only: two spells meet. {seen.size} of {REACTION_IDS.length} seen</span>
       </h3>
-      <ul className="grid gap-2 sm:grid-cols-3">
+      <ul className="grid gap-2 sm:grid-cols-2">
         {REACTION_IDS.map((id) => {
           const r = REACTION_INFO[id]
           const known = seen.has(id)

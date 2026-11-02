@@ -6,8 +6,8 @@
  *   600: v += 1650 (1.5 - d^2/600^2) unit(orb - proj) dt / proj time scale
  * - every 0.2 s real time: damage x 0.2 to ENEMY pawns within 250 (no knockback, but DP)
  * Shield / Alteration / Lightning / projectiles ignore it; Warpzone slows it.
- * Wild (sim/wild.ts): a Fireball pulled into the orb's core goes nova, once per orb: a ring blast
- * from the orb that grows with both spells' levels (Nova).
+ * Wild (sim/wild.ts): a Fireball pulled into the orb's burning ring from outside it goes nova, once
+ * per orb: a ring blast from the orb that grows with both spells' levels (Nova).
  */
 import { GRAVITY_CC } from '../collision'
 import { damageArea, receiveDamage } from '../combat'
@@ -43,8 +43,9 @@ export const gravitySpell: SpellBehavior = {
   },
 }
 
-/** Wild's Nova: the core a Fireball must reach, and the blast at levels 1 + 1 and 7 + 7 */
+/** Wild's Nova: the core a Fireball must reach from outside it (the burning ring when the orb has one), and the blast at levels 1 + 1 and 7 + 7 */
 const NOVA_CORE = 70
+const novaRing = (d: Record<string, number>) => Math.max(NOVA_CORE, d.dpsRadius ?? 0)
 const NOVA_RADIUS = [200, 320]
 const NOVA_KB = [0.9, 1.5]
 
@@ -94,9 +95,13 @@ export const gravityProjectile: ProjectileBehavior = {
       const d2 = dx * dx + dy * dy
       if (d2 > qr2 || d2 === 0) continue
       const dist = Math.sqrt(d2)
-      if (wild && !d.nova && dist <= NOVA_CORE && kindOf(q) === 'fireball') {
-        nova(state, p, q)
-        continue
+      if (wild && !d.nova && kindOf(q) === 'fireball') {
+        // from outside in: a Fireball cast inside the ring (right after the orb) has to leave it first
+        if (dist > novaRing(d)) q.data.novaFrom = p.id
+        else if (q.data.novaFrom === p.id) {
+          nova(state, p, q)
+          continue
+        }
       }
       const f = (d.projPull * (1.5 - d2 / qr2) * dt) / timeScale(q)
       q.vx += (dx / dist) * f

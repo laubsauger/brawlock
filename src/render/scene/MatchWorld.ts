@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu'
 import { fog, rangeFogFactor, uniform, vec3 } from 'three/tsl'
 import { HILL_MIN_LAYER, ticks } from '../../sim/config'
 import { hillLayerNow, hillLayerOn, hillSealed, hillStartLayer } from '../../sim/hill'
-import type { PawnState, PlayerSlot, SimEvent, SimState } from '../../sim/types'
+import type { PawnState, PlayerSlot, ProjectileState, SimEvent, SimState } from '../../sim/types'
 import { TICK_HZ } from '../../sim/types'
 import { TILE_SIZE, isLocationSafe, layerRadius } from '../arenaGeom'
 import { inputViz } from '../../game/input'
@@ -1444,7 +1444,7 @@ export class MatchWorld implements FinalBlowWorld {
 
   private builtinProjectileShadows(prev: SimState | null, curr: SimState, alpha: number): void {
     for (const p of curr.projectiles) {
-      if (this.modulesOn && claimedProjectile(p.spell)) continue
+      if (this.modulesOn && claimedProjectile(p)) continue
       let x = p.x
       let y = p.y
       if (prev) {
@@ -1463,7 +1463,7 @@ export class MatchWorld implements FinalBlowWorld {
   /** Route claimed projectiles and pawn modifiers to their VFX modules. */
   private drawModules(prev: SimState | null, curr: SimState, alpha: number): void {
     for (const p of curr.projectiles) {
-      const m = vfxForSpell(p.spell)
+      const m = projectileVfx(p)
       if (!m || !m.drawProjectile) continue
       let x = p.x
       let y = p.y
@@ -2533,8 +2533,11 @@ export class MatchWorld implements FinalBlowWorld {
       this.reachSeq = cameraRig.recenterSeq
       this.reach.reset()
     }
-    if (local && local.alive && !local.dead) {
-      this.deathFocus = null
+    // Wild's Vengeful Spirits: a risen spirit is the local player's to steer, so the camera rides it
+    const spirit = curr && lp >= 0 && local && !local.alive ? curr.pawns.find((p) => p.owner === lp)?.spirit : undefined
+    const steered = local && local.alive && !local.dead ? local : spirit && spirit.rise <= 0 ? spirit : null
+    if (steered) {
+      if (steered === local) this.deathFocus = null
       const arenaR = curr ? layerRadius(curr.arena.layer) : 1500
       const o = this.reach.step({
         dt,
@@ -2544,7 +2547,7 @@ export class MatchWorld implements FinalBlowWorld {
         peek: (inputViz as { peek?: boolean }).peek === true,
         aiming: !!inputViz.aim,
         cursor: this.opts.source.buf.cursor,
-        pawn: local,
+        pawn: steered,
         arenaR,
         reach: reachFor(renderPrefs.cameraReach, arenaR),
         edgeSpeed: EDGE_SPEED * renderPrefs.edgePanSpeed,
@@ -2552,8 +2555,8 @@ export class MatchWorld implements FinalBlowWorld {
         free: renderPrefs.cameraMode === 'free',
         center: inputViz.center,
       })
-      fx = local.x + o.x
-      fy = local.y + o.y
+      fx = steered.x + o.x
+      fy = steered.y + o.y
     } else if (this.deathFocus && t - this.deathFocus.at < 1.6) {
       fx = this.deathFocus.x
       fy = this.deathFocus.y
@@ -2726,4 +2729,6 @@ export class MatchWorld implements FinalBlowWorld {
   }
 }
 
-const claimedProjectile = (spell: string): boolean => !!vfxForSpell(spell)?.drawProjectile
+/** the module drawing a projectile: its kind's first (Wild's spirit bolt is a 'fireball'), else its spell's */
+const projectileVfx = (p: ProjectileState) => (p.kind && vfxForSpell(p.kind)?.drawProjectile ? vfxForSpell(p.kind) : vfxForSpell(p.spell))
+const claimedProjectile = (p: ProjectileState): boolean => !!projectileVfx(p)?.drawProjectile

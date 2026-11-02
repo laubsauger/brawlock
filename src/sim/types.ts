@@ -243,6 +243,11 @@ export interface PawnState {
   lavaTicks: number
   /** deathmatch: ticks until this dead pawn respawns (absent / 0 = not scheduled) */
   respawnTicks?: number
+  /**
+   * Wild's Vengeful Spirits (sim/spirits.ts): this knocked-out warlock's spirit over the lava.
+   * rise = ticks until it can act; cd = bolt cooldown ticks; target = where it drifts.
+   */
+  spirit?: { x: number; y: number; target: Vec2 | null; cd: number; rise: number; facing: number }
 }
 
 export interface ProjectileState {
@@ -438,10 +443,14 @@ export type SimEvent =
   | { type: 'arenaShrink'; layer: number }
   /** Wild: the omen of the coming round, drawn at its shop */
   | { type: 'omen'; omen: import('./wild').OmenId; round: number }
-  /** Wild: a pillar will burst out of the floor here in `ticks` */
+  /** Wild: a pillar will burst out of the floor here in `ticks` (Pillar Storm), or the warlocks trade places in `ticks` (Shuffle, at 0, 0) */
   | { type: 'omenWarning'; omen: import('./wild').OmenId; x: number; y: number; ticks: number }
-  /** Wild: two spells reacted (Shatter, Nova, Fork) */
-  | { type: 'reaction'; reaction: 'shatter' | 'nova' | 'fork'; x: number; y: number; owner: PlayerId }
+  /** Wild: two spells reacted (Shatter, Nova, Fork, Clash) */
+  | { type: 'reaction'; reaction: 'shatter' | 'nova' | 'fork' | 'clash'; x: number; y: number; owner: PlayerId }
+  /** Wild's Vengeful Spirits: a knocked-out warlock rose as a spirit at (x, y) */
+  | { type: 'spirit'; pawn: EntityId; owner: PlayerId; x: number; y: number }
+  /** Wild's Cursed Bomb: armed on `holder`, passed from `from` to `holder`, or gone off on `holder` at (x, y); fuse ticks left */
+  | { type: 'bomb'; action: 'arm' | 'pass' | 'blast'; holder: PlayerId; from: PlayerId | null; x: number; y: number; fuse: number }
   | { type: 'phase'; phase: Phase; round: number }
   | { type: 'roundWin'; team: number; players: PlayerId[] }
   | { type: 'gameOver'; winners: PlayerId[] }
@@ -516,10 +525,23 @@ export interface SimState {
   round: number
   /** Present from final preparation onward. Winners persist after the final resolves, including shared draws. */
   rankedFinal?: { contenders: PlayerId[]; winners?: PlayerId[] }
-  /** Wild: this round's omen (sim/wild.ts) */
-  omen?: import('./wild').OmenId
-  /** Wild: the omen's schedule this fight (next event in ticks, events so far, warned pillars) */
-  omenClock?: { next: number; count: number; pillars: { x: number; y: number; left: number }[] }
+  /** Wild: this round's omens in deck order (sim/wild.ts); absent without one */
+  omens?: import('./wild').OmenId[]
+  /** Wild: the omens' state this fight (ticks to their next event, warned pillars, the bomb, the wind) */
+  omenClock?: {
+    /** Meteor Shower: ticks to the next meteor, meteors so far */
+    meteorNext?: number
+    meteors?: number
+    /** Pillar Storm: ticks to the next warning; warned spots and ticks until each bursts */
+    pillarNext?: number
+    pillars: { x: number; y: number; left: number }[]
+    /** Cursed Bomb: who holds it (null: the next one arms in `next` ticks), fuse ticks left of `full`, pass lock, who passed it */
+    bomb?: { holder: PlayerId | null; fuse: number; full: number; lock: number; from: PlayerId | null; next: number; count: number }
+    /** Gale: heading (radians), turn (rad/s), seconds blown, gust strength (1 = nominal) */
+    gale?: { angle: number; turn: number; t: number; strength: number }
+    /** Shuffle: ticks to the next swap (the warning glows for the last SHUFFLE_WARN) */
+    shuffleNext?: number
+  }
   arena: ArenaState
   /** King of the Hill only, present from the first fight */
   hill?: HillState

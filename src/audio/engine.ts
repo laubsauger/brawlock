@@ -64,13 +64,18 @@ interface VoiceSpec {
   minGap?: number
 }
 
-/** Wild's omen calls and their sting's variant (sim/wild.ts OMEN_IDS order) */
-const OMEN_STINGS = new Map<AnnouncerLine, number>(OMEN_IDS.map((id, i) => [OMEN_LINES[id], i]))
+/** Wild's omen calls and their sting's variant (sim/wild.ts OMEN_IDS order; Cataclysm after them) */
+const OMEN_STINGS = new Map<AnnouncerLine, number>([...OMEN_IDS.map((id, i) => [OMEN_LINES[id], i] as const), ['cataclysm', OMEN_IDS.length]])
 
 export const VOICES: Record<SfxId, VoiceSpec> = {
   finishStinger: { max: 1, level: 0.8, bus: 'ui', minGap: 0.4 },
   // Wild: under the omen's call, on the UI bus so the line's duck leaves it audible
-  omenSting: { max: 1, level: 0.8, bus: 'ui', minGap: 1 },
+  omenSting: { max: 1, level: 0.8, bus: 'ui', minGap: 0.5 },
+  bombArm: { max: 1, level: 0.8, bus: 'sfx', minGap: 0.3 },
+  bombPass: { max: 2, level: 0.85, bus: 'sfx', minGap: 0.05 },
+  bombTick: { max: 2, level: 0.55, bus: 'sfx', minGap: 0.06 },
+  spiritRise: { max: 3, level: 0.7, bus: 'sfx' },
+  shuffleWarn: { max: 1, level: 0.7, bus: 'sfx', minGap: 0.5 },
   finalBlowImpact: { max: 1, level: 1, bus: 'sfx', minGap: 0.5 },
   fireballCast: { max: 4, level: 0.75, bus: 'sfx' },
   fireballTravel: { max: 6, level: 0.36, bus: 'sfx' },
@@ -558,6 +563,11 @@ export class AudioEngine {
       if (c.id === null || c.key || c.path || VOICES[c.id].bus === 'ui') continue
       this.play(c, g.replay)
     }
+  }
+
+  /** Wild's Cursed Bomb: one tick of the fuse; the holder hears it up close, everyone else faintly. */
+  fuseTick(urgency: number, mine: boolean): void {
+    if (this.g) this.play({ id: 'bombTick', gain: mine ? 1 : 0.35, pan: 0, param: urgency })
   }
 
   /** The replayed decisive hit lands. */

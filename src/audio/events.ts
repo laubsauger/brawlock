@@ -107,6 +107,8 @@ export const PROJECTILE_SOUNDS: Record<string, ProjectileSounds> = {
   recharge: { travel: 'rechargeTravel', hit: 'zapHit', expire: 'fizzle' },
   rechargeRefresh: { travel: 'orbTravel', hit: null, expire: null }, // cooldownReset plays the refresh
   meteor: { travel: 'meteorFall', hit: null, expire: null }, // the explosion event is the landing
+  // Wild's Vengeful Spirits: a hollow hum, a dull knock
+  spiritBolt: { travel: 'orbTravel', hit: 'impact', expire: 'fizzle' },
   splitter: { travel: 'splitterTravel', hit: 'zapHit', expire: null },
   splitterSpawner: { travel: 'splitterTravel', hit: null, expire: null },
   splitterChild: { travel: 'childZip', hit: 'impact', hitParam: 0.6, expire: null },
@@ -210,7 +212,7 @@ const MODIFIER_FRAGMENTS: ({ match: string } & ModSound)[] = [
 export const IGNORED_EVENTS: Partial<Record<SimEvent['type'], string>> = {
   heal: 'lifesteal heals on every hit and would double each impact; heals show as numbers',
   allReady: 'the HUD plays the ready cue with its toast (Hud.tsx), as it does for the lobby Ready',
-  omen: 'Wild: drawn at the shop; its card turns over with the countdown cue (no voice lines for omens yet)',
+  omen: 'Wild: drawn at the shop; the announcer calls it at the countdown over its sting (audio/engine.ts announce)',
   reaction: 'Wild: a reaction sounds through its own blasts, shards and beams',
 }
 
@@ -447,8 +449,16 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   // Wild: a warned pillar groans where it will burst
   omen: null,
-  omenWarning: (e, c) => [cue('shrinkRumble', c.at(e.x, e.y), 0.45)],
+  // Shuffle's warning is everyone's (at 0, 0): a shimmer from the middle of the screen
+  omenWarning: (e, c) => (e.omen === 'shuffle' ? [cue('shuffleWarn', CENTRE)] : [cue('shrinkRumble', c.at(e.x, e.y), 0.45)]),
   reaction: null,
+  // Wild's Cursed Bomb: the fuse catches, then jumps; the blast is its explosion event. Taking it is loud.
+  bomb: (e, c) => {
+    if (e.action === 'blast') return []
+    const mine = e.holder === c.listener.localPlayer
+    return [cue(e.action === 'arm' ? 'bombArm' : 'bombPass', mine ? CENTRE : c.at(e.x, e.y), mine ? 1.15 : 0.8)]
+  },
+  spirit: (e, c) => [cue('spiritRise', e.owner === c.listener.localPlayer ? CENTRE : c.at(e.x, e.y))],
   // King of the Hill: a rising tick when your side takes the hill, a soft tick per ticket you earn,
   // a coin when your stay on the hill pays gold
   hill: (e, c) => {

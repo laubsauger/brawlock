@@ -95,6 +95,12 @@ export const LINES = [
   ['sudden_collapse', 'Sudden Collapse!', 10],
   ['meteor_shower', 'Meteor Shower!', 10],
   ['pillar_storm', 'Pillar Storm!', 10],
+  // pack 11: Wild's party omens and the Cataclysm (three omens in a round that can win the match)
+  ['cursed_bomb', 'Cursed Bomb!', 11],
+  ['gale', 'Gale!', 11],
+  ['shuffle', 'Shuffle!', 11],
+  ['vengeful_spirits', 'Vengeful Spirits!', 11],
+  ['cataclysm', 'Cataclysm!', 11],
 ]
 
 function apiKey() {

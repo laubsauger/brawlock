@@ -66,7 +66,7 @@ import { readyCut, shopLength } from './shop'
 import { respawnPawn } from './spawn'
 import { activePlayers, assignTeams, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
 import type { MatchSettings, PawnState, PlayerId, SimState } from './types'
-import { WILD_SHRINK_SECONDS, drawOmen, omenTick } from './wild'
+import { WILD_SHRINK_SECONDS, drawOmen, hasOmen, omenTick } from './wild'
 
 /** Damage is only dealt while combat is on (original GAME.combat). */
 export function isCombat(state: SimState): boolean {
@@ -90,7 +90,7 @@ function shrinkPeriod(state: SimState): number {
   if (hillFight(state)) return HILL_ARENA_SHRINK_PERIOD
   if (state.rankedFinal) return RANKED_FINAL_SHRINK_PERIOD
   if (state.settings.rankedRounds) return RANKED_SHRINK_PERIOD
-  if (state.omen === 'suddenCollapse') return WILD_SHRINK_SECONDS
+  if (hasOmen(state, 'suddenCollapse')) return WILD_SHRINK_SECONDS
   return state.settings.gameMode === 'rounds' ? state.settings.shrinkSeconds ?? SHRINK_PERIOD : SHRINK_PERIOD
 }
 

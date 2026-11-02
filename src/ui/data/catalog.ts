@@ -162,9 +162,12 @@ export function statsSummary(id: SpellId, level: number): string {
 }
 
 /** Display name for any spell or item id. */
+/** Wild's knockout causes that are not spells */
+const CAUSE_NAMES: Record<string, string> = { bomb: 'the Cursed Bomb', clash: 'a Clash', spirit: 'a Spirit Bolt' }
+
 export function displayName(id: SpellId | null | undefined): string {
   if (!id) return ''
-  return simSpell(id)?.name ?? PASSIVE_ITEMS[id]?.name ?? id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  return simSpell(id)?.name ?? PASSIVE_ITEMS[id]?.name ?? CAUSE_NAMES[id] ?? id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 /** Full cooldown in seconds at a level, for HUD sweeps before the first observed cast. */

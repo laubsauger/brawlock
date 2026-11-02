@@ -392,20 +392,27 @@ export function Results() {
   )
 }
 
-/** Wild: each round's omen and who took the round under it. */
+/** Wild: each round's omens (two or three late in a match) and who took the round under them. */
 function OmenRounds({ omens, slots, teamMode }: { omens: NonNullable<MatchRecord['omens']>; slots: MatchResult['slots']; teamMode: MatchRecord['teamMode'] }) {
+  const rounds = [...new Set(omens.map((o) => o.round))]
   return (
     <div className="mt-3 border-t border-[rgba(255,170,100,0.1)] pt-2" data-testid="results-omens">
       <h3 className="section-title mb-1">Omens</h3>
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {omens.map((o) => {
-          const info = OMEN_INFO[o.omen]
-          const who = winnersText(slots, o.winners, teamMode)
+        {rounds.map((round) => {
+          const of = omens.filter((o) => o.round === round)
+          const who = winnersText(slots, of[0].winners, teamMode)
           return (
-            <li key={o.round} className="flex items-center gap-1.5" data-omen={o.omen} data-round={o.round}>
-              <OmenGlyph id={o.omen} size={16} color={info.color} />
-              <span className="text-ash">R{o.round}</span>
-              <span className="font-semibold" style={{ color: info.color }}>{info.name}</span>
+            <li key={round} className="flex items-center gap-1.5" data-omen={of.map((o) => o.omen).join(' ')} data-round={round}>
+              <span className="text-ash">R{round}</span>
+              {of.map((o, i) => {
+                const info = OMEN_INFO[o.omen]
+                return <span key={o.omen} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-ash">+</span>}
+                  <OmenGlyph id={o.omen} size={16} color={info.color} />
+                  <span className="font-semibold" style={{ color: info.color }}>{info.name}</span>
+                </span>
+              })}
               <span className="text-[#e6d3b8]">{who ? who.text : 'Draw'}</span>
             </li>
           )

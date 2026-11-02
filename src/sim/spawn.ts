@@ -110,4 +110,5 @@ export function respawnPawn(state: SimState, pawn: PawnState): void {
   pawn.cooldowns.fill(0)
   pawn.lastHitter = null
   pawn.lavaTicks = 0
+  delete pawn.spirit
 }

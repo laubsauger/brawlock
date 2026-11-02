@@ -61,6 +61,8 @@ export interface AudioApi {
   playReplayEvents(events: SimEvent[], listener: Listener): void
   /** The replayed decisive hit lands. */
   finalBlowImpact(): void
+  /** Wild's Cursed Bomb: one tick of the fuse (urgency 0..1), louder for its holder (ui/hud/OmenHud.tsx) */
+  fuseTick(urgency: number, mine: boolean): void
   /** Settings > Gameplay > Finish zoom */
   setFinishZoom(on: boolean): void
   ui(sound: UiSound): void
@@ -122,6 +124,9 @@ export const audio: AudioApi = {
   },
   finalBlowImpact() {
     engine.finalBlowImpact()
+  },
+  fuseTick(urgency, mine) {
+    engine.fuseTick(urgency, mine)
   },
   setFinishZoom(on) {
     matchFinishZoom.enabled = on

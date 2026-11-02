@@ -524,8 +524,8 @@ export class MatchTracker {
           break
         case 'roundWin': {
           for (const p of pawns) if (p.alive) this.acc(p.owner).roundsSurvived++
-          const omen = this.omens.at(-1)
-          if (omen && omen.round === n(state.round)) omen.winners = [...e.players]
+          // every omen of the round (two or three late in a Wild match)
+          for (const omen of this.omens) if (omen.round === n(state.round)) omen.winners = [...e.players]
           break
         }
         case 'omen':

@@ -226,7 +226,7 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   shrinkSeconds: SHRINK_PERIOD,
   // Wild: off by default; every omen of the deck on (a bit per omen, sim/wild.ts OMEN_IDS)
   wild: false,
-  wildOmens: 0b111111,
+  wildOmens: 0b1111111111,
 }
 
 /** Seconds to whole sim ticks (rounded to nearest). */

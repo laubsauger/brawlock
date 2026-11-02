@@ -30,6 +30,7 @@ import type { CollisionHit } from './collision'
 import type { ProjectileBehavior } from './spells/types'
 import { rangeFactor } from './stats'
 import { pawnOf } from './teams'
+import { clash } from './wild'
 
 export interface SpawnProjectileOptions {
   /** lifetime in seconds before range mastery; null = no timer (ends through its own logic) */
@@ -132,8 +133,11 @@ export function bounceOff(state: SimState, p: ProjectileState, hit: CollisionHit
 export function damageHitBody(state: SimState, proj: ProjectileState, hit: CollisionHit, info: Omit<DamageInfo, 'cause'>): void {
   const o = hit.other
   if (o.kind === 'pawn') receiveDamage(state, o.pawn, { ...info, cause: proj.spell })
-  else if (o.kind === 'projectile') damageProjectile(state, o.proj, proj.id)
-  else damageObstacle(state, o.obstacle, info.amount, proj.owner)
+  else if (o.kind === 'projectile') {
+    // Wild's Clash: two enemy bolts that meet go off between them
+    if (!behaviorOf(o.proj)?.ignoresDamage) clash(state, proj, o.proj, hit.x, hit.y)
+    damageProjectile(state, o.proj, proj.id)
+  } else damageObstacle(state, o.obstacle, info.amount, proj.owner)
 }
 
 // Behavior registry lookup, installed by spells/index.ts (avoids an import cycle).

@@ -12,8 +12,11 @@ export function deathRecap(death: DeathEvent, killerName: string | null): string
   return killerName ? `Taken down by ${killerName}` : 'Knocked out'
 }
 
-export function deathNextStep(mode: GameMode, phase: Phase, respawnTicks: number): string {
+export function deathNextStep(mode: GameMode, phase: Phase, respawnTicks: number, spirit?: 'rising' | 'risen'): string {
   if (phase === 'roundEnd') return 'Next round shortly'
+  // Wild's Vengeful Spirits: still in the round, over the lava
+  if (spirit === 'rising') return 'Rising as a vengeful spirit…'
+  if (spirit === 'risen') return 'Haunting the living as a spirit'
   if (mode === 'deathmatch' || respawnTicks > 0) return respawnTicks > 0 ? `Respawning in ${Math.ceil(respawnTicks / TICK_HZ)}s` : 'Waiting to respawn'
   return 'Watching the rest of the round'
 }

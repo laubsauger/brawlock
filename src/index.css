@@ -1164,7 +1164,26 @@
 
   /* Wild's omen card: turns over in the countdown, under the numbers and above the docks (z 20); flies up into the badge at Fight! */
   .omen-card { position: absolute; left: 50%; top: 58%; z-index: 21; width: min(25rem, calc(100vw - 32px)); transform: translateX(-50%); perspective: 900px; pointer-events: none; opacity: 0; }
+  .omen-card[data-count="2"] { width: min(42rem, calc(100vw - 32px)); }
+  .omen-card[data-count="3"] { width: min(60rem, calc(100vw - 32px)); }
   .omen-card[data-state="reveal"] { opacity: 1; }
+  .omen-card-row { display: flex; gap: 0.75rem; justify-content: center; }
+  .omen-card-row > .omen-card-face { flex: 1 1 0; min-width: 0; }
+  .omen-card:not([data-count="1"]) .omen-card-name { font-size: clamp(1.5rem, 2.8vw, 2.2rem); }
+  .omen-card:not([data-count="1"]) .omen-card-rule { font-size: 0.86rem; }
+  /* Cataclysm: the round can decide the match, three omens at once */
+  .omen-card-banner {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem;
+    font-family: var(--font-title); font-size: clamp(1.8rem, 3.6vw, 2.6rem); line-height: 1; color: #ffe0c2;
+    text-shadow: 0 2px 0 #3b0a02, 0 0 22px #ff6a2a;
+  }
+  .omen-card-banner small { flex-basis: 100%; text-align: center; font-family: var(--font-ui); font-size: 0.9rem; font-weight: 600; color: #ffc89a; text-shadow: 0 1px 2px #000; }
+  .omen-card[data-state="reveal"] .omen-card-banner { animation: cataclysm-in 0.9s cubic-bezier(.2, .9, .3, 1.2) both; }
+  @keyframes cataclysm-in {
+    0% { opacity: 0; transform: scale(1.6); filter: blur(6px); }
+    60% { opacity: 1; filter: none; }
+    100% { opacity: 1; transform: scale(1); }
+  }
   .omen-card-face {
     display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
     padding: 1rem 1.4rem 1.1rem; border-radius: 10px; text-align: center;
@@ -1187,7 +1206,44 @@
   .omen-card-name { font-family: var(--font-title); font-size: clamp(2rem, 4.4vw, 3rem); line-height: 1; color: #fff2d6; text-shadow: 0 2px 0 #3b0a02, 0 0 18px var(--omen); }
   .omen-card-rule { font-size: 0.98rem; font-weight: 600; color: #f0d9b8; }
   @media (prefers-reduced-motion: reduce) {
-    .omen-card[data-state="reveal"] .omen-card-face, .omen-card[data-state="leave"] { animation-duration: 1ms; }
+    .omen-card[data-state="reveal"] .omen-card-face, .omen-card[data-state="leave"], .omen-card[data-state="reveal"] .omen-card-banner { animation-duration: 1ms; }
+  }
+  /* Cursed Bomb (OmenHud BombAlert): a chip under the clock; the holder's is loud and the screen's edge burns as the fuse runs (--fuse 1..0) */
+  .bomb-alert { position: absolute; inset: 0; z-index: 19; pointer-events: none; --fuse: 1; }
+  .bomb-alert[data-state="off"] { display: none; }
+  .bomb-alert-edge { position: absolute; inset: 0; opacity: 0; box-shadow: inset 0 0 calc(60px + 140px * (1 - var(--fuse))) rgba(255, 40, 80, calc(0.25 + 0.5 * (1 - var(--fuse)))); }
+  .bomb-alert[data-state="mine"] .bomb-alert-edge { opacity: 1; animation: bomb-pulse calc(0.25s + 0.75s * var(--fuse)) ease-in-out infinite; }
+  @keyframes bomb-pulse { 50% { opacity: 0.45; } }
+  .bomb-alert-chip {
+    position: absolute; left: 50%; top: calc(118px * var(--ui-scale, 1)); transform: translateX(-50%);
+    display: flex; align-items: center; gap: 0.45rem; padding: 0.2rem 0.65rem; border-radius: 6px;
+    font-size: 0.8rem; color: #ffd2dc; white-space: nowrap;
+  }
+  .bomb-alert-fuse { min-width: 2.2ch; font-weight: 800; color: #ff8fa8; }
+  .bomb-alert-hint { display: none; color: #ffb3c4; }
+  .bomb-alert[data-state="mine"] .bomb-alert-chip {
+    padding: 0.4rem 0.9rem; font-size: 1.05rem; color: #fff0f3;
+    background: linear-gradient(180deg, rgba(120, 10, 40, 0.92), rgba(60, 4, 20, 0.92));
+    box-shadow: 0 0 0 1px rgba(255, 110, 150, 0.6), 0 0 26px rgba(255, 40, 90, 0.55);
+    animation: bomb-chip calc(0.25s + 0.75s * var(--fuse)) ease-in-out infinite;
+  }
+  .bomb-alert[data-state="mine"] .bomb-alert-fuse { font-size: 1.35rem; color: #fff; }
+  .bomb-alert[data-state="mine"] .bomb-alert-hint { display: inline; }
+  @keyframes bomb-chip { 50% { transform: translateX(-50%) scale(1.05); } }
+  /* Vengeful Spirits (OmenHud SpiritHud): the dead player's controls, over the action bar and the betting panel */
+  .spirit-hud {
+    position: absolute; left: 50%; bottom: calc((var(--hud-bottom-h) + 205px) * var(--ui-scale, 1)); transform: translateX(-50%); z-index: 18;
+    display: flex; align-items: center; gap: 0.55rem; padding: 0.35rem 0.8rem; border-radius: 6px;
+    font-size: 0.82rem; color: #dbe6ff; white-space: nowrap; pointer-events: none;
+    box-shadow: 0 0 0 1px rgba(143, 184, 255, 0.35), 0 0 20px rgba(110, 150, 255, 0.3);
+  }
+  .spirit-hud[data-state="off"] { display: none; }
+  /* while the knockout card holds the centre (it says the spirit is rising), the betting panel sits here */
+  .hud:not([data-death-docked]) .spirit-hud { display: none; }
+  .spirit-hud-ready { min-width: 8ch; font-weight: 700; color: #9fb8e8; }
+  .spirit-hud[data-ready="true"] .spirit-hud-ready { color: #e4f0ff; text-shadow: 0 0 8px #8fb8ff; }
+  @media (prefers-reduced-motion: reduce) {
+    .bomb-alert[data-state="mine"] .bomb-alert-edge, .bomb-alert[data-state="mine"] .bomb-alert-chip { animation: none; }
   }
   .reaction-card { position: absolute; top: 34%; left: 12px; max-width: 17rem; border-left: 3px solid #ffb347; animation: reaction-in 0.35s cubic-bezier(.2, .9, .3, 1) both; }
   @keyframes reaction-in {

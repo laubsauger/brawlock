@@ -113,7 +113,8 @@ export function DeathFeedback() {
       return
     }
     const pawn = state.pawns.find((p) => p.owner === local)
-    const text = deathNextStep(state.settings.gameMode, state.phase, pawn?.respawnTicks ?? 0)
+    const spirit = pawn && !pawn.alive && pawn.spirit ? (pawn.spirit.rise > 0 ? 'rising' : 'risen') : undefined
+    const text = deathNextStep(state.settings.gameMode, state.phase, pawn?.respawnTicks ?? 0, spirit)
     if (next.current.textContent !== text) next.current.textContent = text
   })
 

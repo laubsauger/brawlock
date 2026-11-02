@@ -73,6 +73,7 @@ describe('custom lobby Wild options', () => {
     expect(html.get(testId('wild')).attr('data-state')).toBe('on')
     expect(omens(html)).toEqual([
       ['bloodMoon', 'on'], ['slickStone', 'off'], ['overcharge', 'off'], ['suddenCollapse', 'off'], ['meteorShower', 'off'], ['pillarStorm', 'on'],
+      ['cursedBomb', 'off'], ['gale', 'off'], ['shuffle', 'off'], ['spirits', 'off'],
     ])
     expect(html.findAll(`${testId('wild-omen')} button`).every((el) => el.attr('disabled') === undefined)).toBe(true)
   })

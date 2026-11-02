@@ -32,7 +32,7 @@ export function PlaySetup({ onClose }: { onClose: () => void }) {
           setWild(v === 'wild')
           rememberRoomOptions({ wild: v === 'wild' })
         }} />
-        <p className="text-sm leading-snug text-ash">{wild ? 'Wild: from the second round an omen changes one rule each round, and some spells react to each other.' : 'Classic: the original rules.'} The lobby has every option.</p>
+        <p className="text-sm leading-snug text-ash">{wild ? 'Wild: from the second round omens change the rules of each round (more of them late in the match), and some spells react to each other.' : 'Classic: the original rules.'} The lobby has every option.</p>
       </div>
       <div className="grid grid-cols-2 gap-3" role="group" aria-label="Players">
         <Button onClick={() => create(false)} className="min-h-16 flex-col gap-1" data-testid="custom-solo">
