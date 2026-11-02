@@ -39,6 +39,8 @@ export interface DailyOutcome {
   /** why it was not ranked or verified */
   code?: string
   attempt?: string
+  /** what Watch replays: the run's salt and tape */
+  watch?: { salt: number; tape: DailyTape }
 }
 
 export const useDaily = create<{ run: DailyRunView | null; outcome: DailyOutcome | null }>(() => ({ run: null, outcome: null }))
@@ -114,7 +116,7 @@ export async function playDaily(serverOffset = 0): Promise<void> {
     if (abandoned) run.abandon()
     const recorded = tape.finish(run.state.tick, run.ended === 'abandoned')
     const result = run.result()
-    useDaily.setState({ run: null, outcome: { day: def, result, state: ranked ? 'pending' : token.code === 'offline' ? 'offline' : 'unranked', code: ranked ? undefined : token.code, attempt: ranked ? token.attempt : undefined } })
+    useDaily.setState({ run: null, outcome: { day: def, result, state: ranked ? 'pending' : token.code === 'offline' ? 'offline' : 'unranked', code: ranked ? undefined : token.code, attempt: ranked ? token.attempt : undefined, watch: { salt, tape: recorded } } })
     input.drain()
     if (useGame.getState().screen === 'match') useGame.getState().setScreen('daily')
     resetFrame()

@@ -273,11 +273,22 @@ Changes from the spec:
 - Unsubmitted runs wait in `localStorage` (at most five) instead of IndexedDB.
 - Launch day: Monday 2026-11-02 is Daily #1 (`LAUNCH_DAY`).
 
-Not built yet: Watch (the board's top ten and your own run as replays), the champion turning on
-the wardrobe stage, the Operations tab for flags and hiding rows, a library replay of each run,
-the Sign-in claim flow in a browser (the route is tested), the dashboard numbers. Checked in a muted
-headless browser offline (menu entry, the Daily screen, a run with its HUD, the result); the
-account-service routes are covered by `src/net/daily.test.ts`, including a real verifier in a worker.
+Added 2026-11-02:
+- **Watch**: on your result ("Watch your run", from the run's own tape) and on the board's top ten
+  (the service hands out the tape; a run from another build says so instead of playing wrong).
+  `src/game/daily/watch.ts` re-simulates the tape into a replay for the viewer; the director's
+  wave seating between steps travels as replay resyncs.
+- The champion turns on the wardrobe stage on the Daily screen, with its build's spells.
+- **Operations › Daily**: flagged and hidden runs of the last 14 days with Hide and Show (a hidden
+  run leaves the boards and Watch), and per-day numbers: players, attempts per player, finish
+  share, back the next day and within 7 days (the keep-or-cut measure).
+- The top bar no longer lists the waves still sitting out.
+
+Not built yet: a library replay of each run, the Sign-in claim flow in a browser (the route is
+tested; a headless browser cannot sign in with Google). Checked in a muted headless browser offline
+(menu entry, the Daily screen with the champion stage, a run with its HUD, the result, Watch your
+run in the viewer); the account-service routes, Watch's tape route and the operator's Daily view
+are covered by `src/net/daily.test.ts`, including a real verifier in a worker.
 
 ## Design
 

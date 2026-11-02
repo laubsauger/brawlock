@@ -23,6 +23,8 @@ export const DAILY_EMBERS: number
 export const DAILY_STREAK_EMBERS: number
 export function streakOf(played: Set<number>, outage: (day: number) => boolean, today: number, from?: number): { count: number; smoulder: boolean }
 export function openDaily(file: string, options: DailyOptions): {
+  /** Operations › Daily (the caller has checked the operator): GET flagged or hidden runs and per-day numbers; POST { action: 'hide' | 'show', attempt } */
+  admin(request: Request): Promise<Response>
   handler(request: Request): Promise<Response>
   close(): void
 }

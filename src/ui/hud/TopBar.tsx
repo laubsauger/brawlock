@@ -156,15 +156,18 @@ interface StripPlayer {
 }
 
 /** In team modes every player wears the team colour (same as the banners and the arena), in FFA their own. */
-function readPlayers(): StripPlayer[] {
+export function readPlayers(): StripPlayer[] {
   const s = frame.curr
   if (!s) return []
   const mode = s.settings.teamMode
   const cb = colorblindPalette()
+  const away = (id: number) => s.scores.find((x) => x.id === id)?.connected === false
   return [...s.slots]
+    // a bot sitting out (the daily's waves not yet called) is not in this fight; a human who left still is
+    .filter((p) => !(p.kind === 'bot' && away(p.id)))
     .sort((a: PlayerSlot, b: PlayerSlot) => a.team - b.team || a.id - b.id)
     .map((p) => ({ id: p.id, name: p.name, color: playerColor(p, mode), glyph: playerGlyph(p, mode, cb), team: p.team,
-      bot: p.kind === 'bot' || s.scores.find((x) => x.id === p.id)?.connected === false }))
+      bot: p.kind === 'bot' || away(p.id) }))
 }
 
 /**

@@ -10,7 +10,7 @@
  * knockout the day's bounty spell sealed by then (at most five).
  */
 import { BotController } from '../../bots/controller'
-import { drawBuild } from '../../bots/plan'
+import { drawBuild, type Build } from '../../bots/plan'
 import { Rng } from '../../bots/prng'
 import { DEFAULT_SETTINGS, createMatch, setPlayerConnected, step } from '../../sim'
 import { hashString } from '../../sim/snapshot'
@@ -18,7 +18,7 @@ import { TICK_HZ, type PlayerInput, type InputCommand, type MatchSettings, type 
 import { ticks } from '../../sim/config'
 import { MomentsEngine } from '../moments'
 import type { CosmeticEquipment } from '../progressionCatalog'
-import type { DailyDay } from './calendar'
+import type { DailyBot, DailyDay } from './calendar'
 
 /** the daily always runs at this rate, whatever the last room ran (the score is in its ticks) */
 export const DAILY_HZ: TickRate = 30
@@ -67,6 +67,15 @@ export function dailySettings(day: DailyDay): MatchSettings {
   }
 }
 
+/** the champion's robe; the other wave bots wear blue */
+export const CHAMPION_COLOR = 0xd23cff
+const WAVE_COLOR = 0x2e7bff
+
+/** A wave bot's build for the day: the same for everyone (the Daily screen shows the champion's). */
+export function dayBuild(day: DailyDay, bot: DailyBot): Build {
+  return drawBuild(new Rng(hashString(`build:${day.seed}:${bot.seat}`)), bot.build)
+}
+
 export interface DailyPlayer {
   name: string
   color: number
@@ -95,26 +104,27 @@ export class DailyRun {
     if (TICK_HZ !== DAILY_HZ) throw new Error(`The daily runs at ${DAILY_HZ} Hz (setTickRate first)`)
     const slots: PlayerSlot[] = [{ id: 0, name: player.name, color: player.color, team: 0, kind: 'human', ...(player.cosmetics ? { cosmetics: player.cosmetics } : {}) }]
     for (const wave of day.waves) {
-      for (const b of wave) slots.push({ id: b.seat, name: b.name, color: b.champion ? 0xd23cff : 0x2e7bff, team: 1, kind: 'bot', difficulty: b.tier, ...(b.cosmetics ? { cosmetics: b.cosmetics } : {}) })
+      for (const b of wave) slots.push({ id: b.seat, name: b.name, color: b.champion ? CHAMPION_COLOR : WAVE_COLOR, team: 1, kind: 'bot', difficulty: b.tier, ...(b.cosmetics ? { cosmetics: b.cosmetics } : {}) })
     }
     this.state = createMatch(dailySettings(day), slots, day.seed)
     const dice = (day.seed ^ salt) >>> 0
     this.bots = day.waves.flat().map((b) => {
       const bot = new BotController(b.seat, b.tier, dice)
       // the day's build for this seat, the same for everyone
-      bot.build = drawBuild(new Rng(hashString(`build:${day.seed}:${b.seat}`)), b.build)
+      bot.build = dayBuild(day, b)
       return bot
     })
     this.seat(0)
   }
 
-  /** One tick with the human's commands. */
-  tick(cmds: readonly InputCommand[]): void {
+  /** One tick with the human's commands. `stepping` sees every seat's inputs before the step (Watch records them). */
+  tick(cmds: readonly InputCommand[], stepping?: (inputs: readonly PlayerInput[]) => void): void {
     if (this.ended) return
     const s = this.state
     const mine = cmds.filter((c) => c.kind !== 'spectateBet')
     const inputs: PlayerInput[] = [{ player: 0, tick: s.tick, cmds: mine }]
     for (const b of this.bots) inputs.push({ player: b.player, tick: s.tick, cmds: b.think(s) })
+    stepping?.(inputs)
     step(s, inputs)
     this.observe(s.events)
   }

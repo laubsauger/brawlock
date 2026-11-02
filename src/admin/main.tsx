@@ -136,6 +136,43 @@ function ChatModeration() {
     {data?.mutes.length ? <ul>{data.mutes.map((m) => <li key={m.sender}><b>{m.name}</b> muted {muteSpan(m.until)} <button disabled={busy} onClick={() => void act({ action: 'unmute', sender: m.sender })}>Unmute</button></li>)}</ul> : <p>Nobody is muted.</p>}
   </section>
 }
+interface DailyRun { attempt: string; day: number; name: string | null; guest: boolean; ordinal: number; submittedAt: number; waves: number; time: number; bounty: number; casts: number; seconds: number; flags: string[]; hidden: boolean }
+interface DailyDay { day: number; players: number; attemptsPerPlayer: number; finishShare: number; back1: number | null; back7: number | null }
+const pct = (v: number | null) => v === null ? '–' : `${Math.round(v * 100)}%`
+const dayDate = (day: number) => new Date(day * 86_400_000).toISOString().slice(0, 10)
+const FLAG_TEXT: Record<string, string> = { 'claim differs': 'claimed score differs', orders: 'over 8 orders a second', late: 'posted 15+ min late' }
+function DailyOps() {
+  const [data, setData] = useState<{ today: number; runs: DailyRun[]; days: DailyDay[] } | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const load = (signal?: AbortSignal) => api<{ today: number; runs: DailyRun[]; days: DailyDay[] }>('/api/admin/daily', signal).then((value) => { setData(value); setError('') }).catch((e) => { if (!signal?.aborted) setError(e.message) })
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal); const timer = setInterval(() => { if (!document.hidden) void load(controller.signal) }, 60_000)
+    return () => { clearInterval(timer); controller.abort() }
+  }, [])
+  const act = async (action: 'hide' | 'show', attempt: string) => {
+    setBusy(true)
+    try {
+      const response = await fetch('/api/admin/daily', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, attempt }), signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) throw new Error((await response.json()).error)
+      await load()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+  }
+  const clock = (ticks: number) => { const sec = ticks / 30; const m = Math.floor(sec / 60); return `${m}:${(sec - m * 60).toFixed(1).padStart(4, '0')}` }
+  return <section className="card"><header><h2>Daily</h2><button onClick={() => void load()}>Refresh</button></header>
+    <p>The last 14 days. A return counts a player who played again the next day, or within 7 days, once that window has passed. The spec keeps the daily if 30% of finishers come back within a week after four weeks.</p>
+    {error && <p className="error">{error}</p>}
+    {!data ? <p>Loading…</p> : <>
+      <div className="table-wrap"><table className="players"><thead><tr><th>Day</th><th>Players</th><th>Attempts each</th><th>Finished</th><th>Back next day</th><th>Back within 7 days</th></tr></thead>
+        <tbody>{data.days.map((d) => <tr key={d.day}><td>{dayDate(d.day)}{d.day === data.today ? ' (today)' : ''}</td><td>{d.players}</td><td>{d.attemptsPerPlayer.toFixed(1)}</td><td>{pct(d.finishShare)}</td><td>{pct(d.back1)}</td><td>{pct(d.back7)}</td></tr>)}</tbody></table></div>
+      <h3>Flagged and hidden runs</h3>
+      <p>Flags never reject a run. Hide takes a run off the boards and Watch; Show puts it back.</p>
+      {!data.runs.length ? <p>Nothing flagged.</p> : <div className="table-wrap"><table className="players"><thead><tr><th>Day</th><th>Player</th><th>Result</th><th>Run</th><th>Flags</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{data.runs.map((r) => <tr key={r.attempt}><td>{dayDate(r.day)}</td><td><b>{r.name ?? 'Guest'}</b>{r.guest ? ' · guest' : ''} · try {r.ordinal}</td><td>Wave {r.waves} · {clock(r.time)}{r.bounty ? ` · ${r.bounty} bounty` : ''}</td>
+          <td>{Math.round(r.seconds)} s · {r.casts} casts</td><td>{r.flags.map((f) => FLAG_TEXT[f] ?? f).join(', ') || '–'}</td><td>{r.hidden ? 'Hidden' : 'Listed'}</td>
+          <td className="players-actions">{r.hidden ? <button disabled={busy} onClick={() => void act('show', r.attempt)}>Show</button> : <button disabled={busy} onClick={() => void act('hide', r.attempt)}>Hide</button>}</td></tr>)}</tbody></table></div>}
+    </>}
+  </section>
+}
 function Dashboard() {
   const [email, setEmail] = useState<string | null>(null), [authState, setAuthState] = useState('checking'), [error, setError] = useState('')
   const [hours, setHours] = useState(1), [region, setRegion] = useState('all'), [tab, setTab] = useState(location.hash === '#feedback' ? 'feedback' : 'fleet')
@@ -155,9 +192,9 @@ function Dashboard() {
   }, [authState, hours])
   return <main><header className="masthead"><div><a className="wordmark" href="/">BRAWLOCK</a><h1>Operations</h1><p>Fleet health, player connections and activity.</p></div><div className="account">{email && <span>{email}</span>}<a href="/">Back to game</a>{authState === 'ready' || authState === 'denied' ? <button onClick={() => void auth.signOut().then(() => location.reload())}>Sign out</button> : null}</div></header>
     {authState !== 'ready' ? <section className="card login"><h2>{authState === 'checking' ? 'Checking access…' : authState === 'denied' ? 'Administrator access required' : 'Sign in to operations'}</h2><p>{error || 'This dashboard is private.'}</p>{authState === 'login' && <button className="primary" onClick={() => { setError(''); void auth.signIn.social({ provider: 'google', callbackURL: `${location.origin}/admin.html` }).then((result) => { if (result.error) setError(result.error.message ?? 'Google sign-in failed.') }).catch(() => setError('Google sign-in could not start.')) }}>Continue with Google</button>}</section> : <>
-      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback'], ['chat', 'Global chat']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
+      <nav className="tabs" aria-label="Operations views">{[['fleet', 'Live fleet'], ['players', 'Players'], ['activity', 'Player activity'], ['feedback', 'Bugs & feedback'], ['chat', 'Global chat'], ['daily', 'Daily']].map(([id, name]) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{name}</button>)}</nav>
       {error && <p className="error" role="alert">{error} The displayed data may be stale.</p>}
-      {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : tab === 'chat' ? <ChatModeration /> : !view ? <p>Waiting for fleet data…</p> : <>
+      {tab === 'players' ? <Players /> : tab === 'activity' ? <><p>Activity is collected directly from the account service and both regions when opened. Refresh this view for a new snapshot.</p><iframe className="activity-frame" src="/api/admin/activity" title="Private player activity explorer" /></> : tab === 'feedback' ? <Inbox /> : tab === 'chat' ? <ChatModeration /> : tab === 'daily' ? <DailyOps /> : !view ? <p>Waiting for fleet data…</p> : <>
         <div className="toolbar"><div className="live-label"><i />Automatic collection · 10s samples · last check {requestAt ? age(requestAt) : 'pending'}</div><div><label>Region <select value={region} onChange={(e) => setRegion(e.target.value)}><option value="all">All regions</option>{view.regions.map((r) => <option value={r.id} key={r.id}>{r.label}</option>)}</select></label><label>History <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); setHovered(null) }}><option value={0.25}>Last 15 minutes</option><option value={1}>Last hour</option><option value={24}>24 hours</option><option value={168}>7 days</option><option value={720}>30 days</option></select></label></div></div>
         <div className="deployment"><span><b>Website</b> {view.website?.ok ? `${view.website.version} · ${view.website.build?.slice(0, 8)} · ${view.website.releaseDate}` : 'Version unavailable'}</span><span>History retained {view.retentionDays} days · collected even when this page is closed</span></div>
         {view.website?.ok && view.regions.some((r) => { const release = view.latest[r.id]?.sample?.release; return release?.commit && release.commit !== view.website?.build }) && <p className="error">Deployment versions differ across the website and game servers. A rollout may still be in progress.</p>}

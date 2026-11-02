@@ -160,7 +160,8 @@ Deployment is established by release receipts, not by implementation status here
    ([daily.md](moonshot/specs/daily.md)). Ships with the account service, both regions and the
    client together (the `arenaBase` setting moves the netcode id); nginx needs the
    `/api/daily/submit` location (`deploy/web.nginx.conf`) and the account service 256 MB
-   (`deploy/accounts.config.cjs`). Not built yet: Watch, the ops tab, the wardrobe stage.
+   (`deploy/accounts.config.cjs`). Watch, the champion stage and the Operations › Daily tab
+   followed on 2026-11-02.
 19. **Wild: first deck built, on main, not released (2026-11-01).** A custom-lobby switch: an omen
    over every round from the second (Blood Moon, Slick Stone, Overcharge, Sudden Collapse, Meteor
    Shower, Pillar Storm, each toggleable), the card in the countdown, a badge under the clock,

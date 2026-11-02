@@ -99,7 +99,7 @@ function measureTop(warlock: WarlockHandle, outfit: Outfit, p: PawnState): numbe
   return box.isEmpty() ? 0 : box.max.y
 }
 
-function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs }: { color: number; outfit: Outfit; view: WardrobeView; pose: StagePose; victory: VictoryStyle | null; controls?: MutableRefObject<StageControls | null>; onThumbs?: (pics: Record<string, string>) => void; thumbs?: ThumbRequest[] }) {
+function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs, autoTurn = 0 }: { color: number; outfit: Outfit; view: WardrobeView; pose: StagePose; victory: VictoryStyle | null; controls?: MutableRefObject<StageControls | null>; onThumbs?: (pics: Record<string, string>) => void; thumbs?: ThumbRequest[]; autoTurn?: number }) {
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl) as unknown as THREE.WebGPURenderer
@@ -247,6 +247,8 @@ function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs 
   useFrame((_, dt) => {
     if (!warlock) return
     const s = spin.current
+    // a showcase turns slowly on its own (the daily's champion); a drag takes over
+    if (autoTurn && !s.drag) s.target += autoTurn * dt
     if (!s.drag) s.yaw += (s.target - s.yaw) * Math.min(1, dt * 10)
     // the back view moves the camera behind; the warlock keeps facing front
     const p = pawn.current
@@ -301,11 +303,11 @@ function Scene({ color, outfit, view, pose, victory, controls, onThumbs, thumbs 
   </>
 }
 
-export function WardrobeStage(props: { color: number; outfit: Outfit; view: WardrobeView; pose?: StagePose; victory?: VictoryStyle | null; controls?: MutableRefObject<StageControls | null>; className?: string; onThumbs?: (pics: Record<string, string>) => void; thumbs?: ThumbRequest[] }) {
+export function WardrobeStage(props: { color: number; outfit: Outfit; view: WardrobeView; pose?: StagePose; victory?: VictoryStyle | null; controls?: MutableRefObject<StageControls | null>; className?: string; onThumbs?: (pics: Record<string, string>) => void; thumbs?: ThumbRequest[]; autoTurn?: number }) {
   const quality = useGame((s) => s.settings.quality)
   return <GpuCanvas quality={quality} className={props.className} style={{ touchAction: 'none', cursor: 'grab' }}>
     <color attach="background" args={[0x0d0a0a]} />
-    <Scene color={props.color} outfit={props.outfit} view={props.view} pose={props.pose ?? 'idle'} victory={props.victory ?? null} controls={props.controls} onThumbs={props.onThumbs} thumbs={props.thumbs} />
+    <Scene color={props.color} outfit={props.outfit} view={props.view} pose={props.pose ?? 'idle'} victory={props.victory ?? null} controls={props.controls} onThumbs={props.onThumbs} thumbs={props.thumbs} autoTurn={props.autoTurn} />
   </GpuCanvas>
 }
 

@@ -107,6 +107,10 @@ export function openDaily(file, { origin, embeds = [], speaker, names, reward, v
     const serviceDays = db.prepare('SELECT DISTINCT day FROM daily_attempt WHERE day>=?')
     const dropTapes = db.prepare('UPDATE daily_attempt SET tape=NULL WHERE day<? AND tape IS NOT NULL')
     const dropRows = db.prepare('DELETE FROM daily_attempt WHERE day<?')
+    // Operations › Daily: flagged or hidden verified runs, and per-day numbers
+    const reviewRows = db.prepare("SELECT id, day, account_id, device, ordinal, submitted_at, waves, time_ticks, bounty, casts, end_tick, flags, hidden FROM daily_attempt WHERE day>=? AND status='verified' AND (flags IS NOT NULL OR hidden=1) ORDER BY day DESC, submitted_at DESC LIMIT 200")
+    const setHidden = db.prepare("UPDATE daily_attempt SET hidden=? WHERE id=? AND status='verified'")
+    const dayPlayers = db.prepare("SELECT day, COALESCE(account_id, 'device:' || device) AS who, COUNT(*) AS attempts, MAX(CASE WHEN status='verified' THEN waves ELSE 0 END) AS best FROM daily_attempt WHERE day>=? GROUP BY day, who")
     const tokensByPlayer = new KeyedLimiter(1, 1 / 20)
     const tokensByIp = new KeyedLimiter(60, 60 / 3600)
     const reads = new KeyedLimiter(60, 1)
@@ -329,7 +333,55 @@ export function openDaily(file, { origin, embeds = [], speaker, names, reward, v
       return json(200, { day: r.day, dailyId: r.daily_id, salt: r.salt, tape: Buffer.from(r.tape).toString('base64') }, cors)
     }
 
+    /** per day: players, attempts per player, finish share, and how many came back the next day / within a week */
+    function numbers(today, days) {
+      const byDay = new Map()
+      for (const r of dayPlayers.all(today - days - 7)) {
+        let d = byDay.get(r.day)
+        if (!d) byDay.set(r.day, (d = new Map()))
+        d.set(r.who, { attempts: r.attempts, best: r.best })
+      }
+      const waves = (day) => defineDay(day).waves.length
+      const out = []
+      for (let day = today; day > today - days; day--) {
+        const players = byDay.get(day) ?? new Map()
+        let attempts = 0, finishers = 0, back1 = 0, back7 = 0
+        for (const [who, p] of players) {
+          attempts += p.attempts
+          if (p.best >= waves(day)) finishers++
+          if (byDay.get(day + 1)?.has(who)) back1++
+          for (let k = 1; k <= 7; k++) if (byDay.get(day + k)?.has(who)) { back7++; break }
+        }
+        const n = players.size
+        out.push({ day, players: n, attemptsPerPlayer: n ? attempts / n : 0, finishShare: n ? finishers / n : 0,
+          // a return can only be counted once its window has passed
+          back1: day + 1 < today && n ? back1 / n : null, back7: day + 7 < today && n ? back7 / n : null })
+      }
+      return out
+    }
+
     return {
+      /** Operations › Daily; the caller has checked the operator. */
+      async admin(request) {
+        const today = dayOf(now())
+        if (request.method === 'GET') {
+          const rows = reviewRows.all(today - TAPE_DAYS)
+          const named = names([...new Set(rows.flatMap((r) => (r.account_id ? [r.account_id] : [])))])
+          return json(200, {
+            today,
+            runs: rows.map((r) => ({ attempt: r.id, day: r.day, name: (r.account_id && named.get(r.account_id)) || null, guest: !r.account_id, ordinal: r.ordinal, submittedAt: r.submitted_at,
+              waves: r.waves, time: r.time_ticks, bounty: r.bounty, casts: r.casts, seconds: r.end_tick / HZ, flags: r.flags ? r.flags.split(',') : [], hidden: r.hidden === 1 })),
+            days: numbers(today, 14),
+          })
+        }
+        if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
+        if (!isJson(request)) return json(415, { error: 'Expected JSON.' })
+        const body = await readBody(request)
+        if (!body || !['hide', 'show'].includes(body.action) || !attemptId(body.attempt)) return json(400, { error: 'Choose hide or show for a run.' })
+        if (!setHidden.run(body.action === 'hide' ? 1 : 0, body.attempt).changes) return json(404, { error: 'Run not found.' })
+        return json(200, { ok: true })
+      },
+
       async handler(request) {
         const url = new URL(request.url)
         const from = request.headers.get('origin')

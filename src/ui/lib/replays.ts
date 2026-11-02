@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useGame, type Screen } from '../../game/store'
-import { REPLAY_EXT } from '../../game/replay/format'
+import { REPLAY_EXT, type ReplayData } from '../../game/replay/format'
 import { replays } from '../../game/replay/store'
 import { replayViewer } from '../../game/replay/viewer'
 import { toast } from './toast'
@@ -44,6 +44,19 @@ export async function watchReplay(id: string): Promise<void> {
   if (status === 'missing') toast('That replay is no longer stored.', 'warn')
   // "Watch replay" means watch: start playing right away (Space pauses)
   if (status === 'ready') replayViewer.play()
+}
+
+/** Open the viewer on a replay made here (a daily run re-simulated from its tape), back to this screen after. */
+export function watchReplayData(d: ReplayData): void {
+  if (session.isActive()) {
+    toast('Leave your current room before watching a replay.', 'warn')
+    return
+  }
+  const g = useGame.getState()
+  if (g.screen !== 'replay') returnTo = g.screen
+  g.setScreen('replay')
+  if (replayViewer.openData(d) === 'ready') replayViewer.play()
+  else toast('That run cannot be replayed on this build.', 'warn')
 }
 
 /** Leave the viewer. */

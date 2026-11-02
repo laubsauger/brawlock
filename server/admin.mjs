@@ -4,7 +4,7 @@ import { renderAnalytics } from '../scripts/analytics-report.mjs'
 const json = (status, body) => Response.json(body, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
 
 /** Every private route independently verifies the existing Google-backed cookie. */
-export function createAdmin({ accounts, store, collector, regions, token, origin, feedback, chat, css, mail, now = Date.now, fetcher = fetch }) {
+export function createAdmin({ accounts, store, collector, regions, token, origin, feedback, chat, daily, css, mail, now = Date.now, fetcher = fetch }) {
   let activity = null, activityAt = -Infinity, loading = null
   return async (request) => {
     const url = new URL(request.url)
@@ -17,6 +17,7 @@ export function createAdmin({ accounts, store, collector, regions, token, origin
       return mail.handler(request)
     }
     if (url.pathname === '/api/admin/chat') return chat ? chat.admin(request) : json(503, { error: 'Global chat is not running.' })
+    if (url.pathname === '/api/admin/daily') return daily ? daily.admin(request) : json(503, { error: 'The daily is not running.' })
     if (request.method !== 'GET') return json(405, { error: 'Method not allowed.' })
     if (url.pathname === '/api/admin/session') return json(200, admin)
     if (url.pathname === '/api/admin/monitoring') {

@@ -83,7 +83,7 @@ if (process.argv.includes('--migrate')) {
   const collector = startMonitoring({ store, regions: fleet.regions, token: regionsToken, appOrigin: origin,
     localSample: () => ({ version: 1, ...machine.snapshot(), online: accounts.presence(), uptimeSec: process.uptime(),
       release: { version: releasePackage.version, releaseDate: releasePackage.releaseDate, commit: typeof __RELEASE_COMMIT__ === 'undefined' ? null : __RELEASE_COMMIT__ } }) })
-  const admin = createAdmin({ accounts, store, collector, regions: fleet.regions, token: regionsToken, origin, feedback, chat, css: analyticsCSS, mail })
+  const admin = createAdmin({ accounts, store, collector, regions: fleet.regions, token: regionsToken, origin, feedback, chat, daily, css: analyticsCSS, mail })
   const handle = toNodeHandler(async (request) => {
     const path = new URL(request.url).pathname
     if (path.startsWith('/api/admin/')) return admin(request)

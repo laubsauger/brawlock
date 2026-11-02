@@ -76,6 +76,14 @@ export class ReplayRecorder {
     this.steps.push(entry)
   }
 
+  /**
+   * The state changed outside a step (the daily seats its next wave): the player restores it at
+   * its tick instead of stepping into it.
+   */
+  resync(state: SimState): void {
+    if (this.info && this.start) this.resyncs.push([state.tick, cloneState({ ...state, events: [] })])
+  }
+
   /** The state after a step (and that step's events): checkpoints and timeline markers. */
   observe(state: SimState, events: readonly SimEvent[]): void {
     if (!this.info || !this.start) return

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { splitSides, roundLabel, roundGoal, finalBrawlInfo } from './TopBar'
-import { createMatch, DEFAULT_SETTINGS } from '../../sim'
+import { splitSides, roundLabel, roundGoal, finalBrawlInfo, readPlayers } from './TopBar'
+import { createMatch, DEFAULT_SETTINGS, setPlayerConnected } from '../../sim'
+import { frame } from '../../game/frame'
 
 const p = (id: number, team = id) => ({ id, team })
 const ids = (xs: { id: number }[]) => xs.map((x) => x.id)
@@ -36,6 +37,23 @@ describe('top row: pills split around the clock', () => {
   })
 })
 
+
+/** Why: the daily seats its later waves as benched bots; the top row is for who is in this fight, while a human who left stays listed. */
+describe('top row: who is listed', () => {
+  it('leaves out a bot sitting out, keeps a human who left (shown as away)', () => {
+    const slots = [0, 1, 2].map((id) => ({ id, name: `P${id}`, color: 0, team: id, kind: (id === 2 ? 'bot' : 'human') as 'bot' | 'human' }))
+    const s = createMatch(DEFAULT_SETTINGS, slots, 1)
+    setPlayerConnected(s, 1, false)
+    setPlayerConnected(s, 2, false)
+    const before = frame.curr
+    frame.curr = s
+    try {
+      expect(readPlayers().map((x) => [x.id, x.bot])).toEqual([[0, false], [1, true]])
+    } finally {
+      frame.curr = before
+    }
+  })
+})
 
 describe('ranked round presentation', () => {
   const state = () => createMatch({ ...DEFAULT_SETTINGS, rankedRounds: 5 }, [

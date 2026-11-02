@@ -7,6 +7,8 @@ import { DAY_MS, LAUNCH_DAY, defineDay } from '../game/daily/calendar'
 import { DAILY_HZ, DailyRun } from '../game/daily/run'
 import { TapeRecorder } from '../game/daily/tape'
 import { verify } from '../game/daily/verify'
+import { dailyReplay } from '../game/daily/watch'
+import { ReplayPlayer } from '../game/replay/player'
 import { ticks } from '../sim/config'
 import { setTickRate, TICK_HZ, type TickRate } from '../sim/types'
 
@@ -97,6 +99,49 @@ describe('daily board on the account service', () => {
     expect(again.body.waves).toBe(submit!.body.waves)
     const other = play(d.today(), 1, 5)
     expect((await d.call('POST', '/api/daily/submit', { attempt: attempt.body.attempt, tape: other.b64, device: 'device-ash-0001' }, 'ash')).status).toBe(409)
+  })
+
+  /** Why: Watch on the board replays a top-ten run from the tape the service hands out, with the client's own daily code. */
+  it('hands out a top-ten run to Watch, which replays to its board score; other runs stay private', async () => {
+    const d = setup()
+    const { attempt, submit, run } = await attemptAndSubmit(d, 'device-ash-0003', 'ash', 60)
+    expect(submit!.status).toBe(200)
+    const got = await d.call('GET', `/api/daily/run/${attempt.body.attempt}`)
+    expect(got.status).toBe(200)
+    expect(got.body).toMatchObject({ day: d.today(), dailyId: 'test', salt: attempt.body.salt })
+    const replay = dailyReplay({ day: got.body.day, salt: got.body.salt, tape: JSON.parse(gunzipBase64(got.body.tape)), id: attempt.body.attempt, date: 0, netId: 'n', player: { name: 'Ash', color: 0 } })!
+    const p = new ReplayPlayer(replay, 'n')
+    while (!p.done) p.stepOnce()
+    expect(p.desync).toBeNull()
+    expect(p.state.tick).toBe(run!.result.endTick)
+    expect((await d.call('GET', '/api/daily/run/nope')).status).toBe(400)
+    expect((await d.call('GET', `/api/daily/run/${'a'.repeat(attempt.body.attempt.length)}`)).status).toBe(404)
+  })
+
+  /** Why: flags never reject a run, so the operator reviews them; a hidden run leaves the boards and Watch. The numbers are the spec's keep-or-cut measure. */
+  it('lists flagged runs for the operator, hides and shows them, and counts the day', async () => {
+    const d = setup()
+    const a = await d.call('POST', '/api/daily/attempt', { day: d.today(), dailyId: 'test', device: 'device-flag-001' }, 'ash')
+    const run = play(d.today(), a.body.salt, 40)
+    d.advance(Math.ceil(run.seconds * 1000) + 500)
+    // a claimed score that differs is flagged, never refused
+    const submit = await d.call('POST', '/api/daily/submit', { attempt: a.body.attempt, tape: run.b64, device: 'device-flag-001', claimed: { waves: 5, time: 1 } }, 'ash')
+    expect(submit.status).toBe(200)
+    const admin = async (method: string, body?: unknown) => {
+      const res = await d.daily.admin(new Request(ORIGIN + '/api/admin/daily', { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }))
+      return { status: res.status, body: await res.json() as Record<string, any> }
+    }
+    const list = await admin('GET')
+    expect(list.body.runs).toMatchObject([{ attempt: a.body.attempt, name: 'Ash', flags: ['claim differs'], hidden: false }])
+    expect(list.body.days[0]).toMatchObject({ day: d.today(), players: 1, attemptsPerPlayer: 1, back1: null })
+    expect((await admin('POST', { action: 'hide', attempt: a.body.attempt })).status).toBe(200)
+    expect((await d.call('GET', '/api/daily?device=device-flag-001')).body.board.rows).toEqual([])
+    expect((await d.call('GET', `/api/daily/run/${a.body.attempt}`)).status).toBe(404)
+    expect((await admin('GET')).body.runs[0].hidden).toBe(true)
+    expect((await admin('POST', { action: 'show', attempt: a.body.attempt })).status).toBe(200)
+    expect((await d.call('GET', '/api/daily?device=device-flag-001')).body.board.rows).toHaveLength(1)
+    expect((await admin('POST', { action: 'hide', attempt: 'f'.repeat(32) })).status).toBe(404)
+    expect((await admin('POST', { action: 'delete', attempt: a.body.attempt })).status).toBe(400)
   })
 
   it('caps ranked attempts per day, limits the token rate, and refuses an unknown build', async () => {

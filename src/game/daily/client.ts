@@ -97,6 +97,30 @@ async function gzipBase64(text: string): Promise<string> {
   return btoa(bin)
 }
 
+async function gunzipBase64(b64: string): Promise<string> {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+  return new Response(stream).text()
+}
+
+export type RunOutcome = { status: 'ok'; day: number; salt: number; tape: unknown } | { status: 'build'; dailyId: string } | { status: 'missing' }
+
+/** A top-ten run of today or yesterday, to Watch; 'build' when another build recorded it (it would play differently). */
+export async function fetchRun(attempt: string): Promise<RunOutcome> {
+  if (!dailyOnline) return { status: 'missing' }
+  try {
+    const res = await fetch(siteApi(`/api/daily/run/${encodeURIComponent(attempt)}`), { credentials: siteCredentials, cache: 'no-store' })
+    if (!res.ok) return { status: 'missing' }
+    const body = (await res.json()) as { day: number; dailyId: string; salt: number; tape: string }
+    if (body.dailyId !== DAILY_ID) return { status: 'build', dailyId: body.dailyId }
+    return { status: 'ok', day: body.day, salt: body.salt, tape: JSON.parse(await gunzipBase64(body.tape)) }
+  } catch {
+    return { status: 'missing' }
+  }
+}
+
 export type SubmitOutcome = DailyVerified | { status: 'rejected'; code: string } | { status: 'retry' }
 
 /** Post a finished run. 'retry': the service is busy or unreachable, try again later. */
