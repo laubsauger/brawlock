@@ -587,6 +587,13 @@ describe('LeadClock', () => {
     c.feedLate(2, 7000)
     expect(c.marginTicks).toBe(2)
   })
+
+  /** Why: the margin adds input latency; it was 8 ticks, 133 ms at 60 Hz but 267 ms at 30 Hz. */
+  it('caps the late-frame margin at the same time at any rate', () => {
+    const c = new LeadClock()
+    for (let i = 1; i <= 40; i++) c.feedLate(i, i * 300)
+    expect(c.marginTicks * (1000 / TICK_HZ)).toBeCloseTo(8000 / 60, 3)
+  })
 })
 
 describe('net grades', () => {

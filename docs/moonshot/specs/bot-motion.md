@@ -450,3 +450,15 @@ still to come.
 the built bots in 10–20% (today 5–6%, because "stay" was a walk back). Idle is not gated. If the
 playtest finds the standing bots stiff, the next step is to turn holding into small strafes.
 
+Measured 2026-11-02 (4-player FFA, the gated test's four ten-minute matches): the motor tiers'
+pawns stand still in 42–44% of alive fight ticks. Holding ("stay means stop") is 12–15%, waiting
+at a reached goal for the commitment to run out 12–20%, cast points 4–7%, the rest 7–9%. A settle
+shift was tried: once the bot has stood at its committed goal or hold for 0.3–0.9 s, a step of
+60–220 units onward (never back the way it came, later also curving one way). It cut idle to
+0.04–0.06 for Hard, Brutal and Uber (Medium 0.18), but it fails the gated motion test: Hard and
+Uber dither 0.093–0.102 (gate 0.09), Brutal reversals 0.37 (gate 0.35) and free reversals 0.13
+(gate 0.12). The extra turns come from the next goal pulling the bot back once the commitment
+ends. Waiting 0.6–1.2 s before the shift keeps the gates but leaves idle where it was. Not
+shipped. The playtest decides first: if standing reads as stiff, the fix belongs in the pickers
+(prefer goals onward of the current walk), not in a shift on top of them.
+

@@ -370,7 +370,7 @@ export function openDaily(file, { origin, embeds = [], speaker, names, reward, v
           return json(200, {
             today,
             runs: rows.map((r) => ({ attempt: r.id, day: r.day, name: (r.account_id && named.get(r.account_id)) || null, guest: !r.account_id, ordinal: r.ordinal, submittedAt: r.submitted_at,
-              waves: r.waves, time: r.time_ticks, bounty: r.bounty, casts: r.casts, seconds: r.end_tick / HZ, flags: r.flags ? r.flags.split(',') : [], hidden: r.hidden === 1 })),
+              waves: r.waves, timeSeconds: (r.time_ticks ?? 0) / HZ, bounty: r.bounty, casts: r.casts, seconds: r.end_tick / HZ, flags: r.flags ? r.flags.split(',') : [], hidden: r.hidden === 1 })),
             days: numbers(today, 14),
           })
         }

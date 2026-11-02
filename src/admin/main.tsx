@@ -136,7 +136,7 @@ function ChatModeration() {
     {data?.mutes.length ? <ul>{data.mutes.map((m) => <li key={m.sender}><b>{m.name}</b> muted {muteSpan(m.until)} <button disabled={busy} onClick={() => void act({ action: 'unmute', sender: m.sender })}>Unmute</button></li>)}</ul> : <p>Nobody is muted.</p>}
   </section>
 }
-interface DailyRun { attempt: string; day: number; name: string | null; guest: boolean; ordinal: number; submittedAt: number; waves: number; time: number; bounty: number; casts: number; seconds: number; flags: string[]; hidden: boolean }
+interface DailyRun { attempt: string; day: number; name: string | null; guest: boolean; ordinal: number; submittedAt: number; waves: number; timeSeconds: number; bounty: number; casts: number; seconds: number; flags: string[]; hidden: boolean }
 interface DailyDay { day: number; players: number; attemptsPerPlayer: number; finishShare: number; back1: number | null; back7: number | null }
 const pct = (v: number | null) => v === null ? '–' : `${Math.round(v * 100)}%`
 const dayDate = (day: number) => new Date(day * 86_400_000).toISOString().slice(0, 10)
@@ -157,7 +157,7 @@ function DailyOps() {
       await load()
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
-  const clock = (ticks: number) => { const sec = ticks / 30; const m = Math.floor(sec / 60); return `${m}:${(sec - m * 60).toFixed(1).padStart(4, '0')}` }
+  const clock = (sec: number) => { const m = Math.floor(sec / 60); return `${m}:${(sec - m * 60).toFixed(1).padStart(4, '0')}` }
   return <section className="card"><header><h2>Daily</h2><button onClick={() => void load()}>Refresh</button></header>
     <p>The last 14 days. A return counts a player who played again the next day, or within 7 days, once that window has passed. The spec keeps the daily if 30% of finishers come back within a week after four weeks.</p>
     {error && <p className="error">{error}</p>}
@@ -167,7 +167,7 @@ function DailyOps() {
       <h3>Flagged and hidden runs</h3>
       <p>Flags never reject a run. Hide takes a run off the boards and Watch; Show puts it back.</p>
       {!data.runs.length ? <p>Nothing flagged.</p> : <div className="table-wrap"><table className="players"><thead><tr><th>Day</th><th>Player</th><th>Result</th><th>Run</th><th>Flags</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>{data.runs.map((r) => <tr key={r.attempt}><td>{dayDate(r.day)}</td><td><b>{r.name ?? 'Guest'}</b>{r.guest ? ' · guest' : ''} · try {r.ordinal}</td><td>Wave {r.waves} · {clock(r.time)}{r.bounty ? ` · ${r.bounty} bounty` : ''}</td>
+        <tbody>{data.runs.map((r) => <tr key={r.attempt}><td>{dayDate(r.day)}</td><td><b>{r.name ?? 'Guest'}</b>{r.guest ? ' · guest' : ''} · try {r.ordinal}</td><td>Wave {r.waves} · {clock(r.timeSeconds)}{r.bounty ? ` · ${r.bounty} bounty` : ''}</td>
           <td>{Math.round(r.seconds)} s · {r.casts} casts</td><td>{r.flags.map((f) => FLAG_TEXT[f] ?? f).join(', ') || '–'}</td><td>{r.hidden ? 'Hidden' : 'Listed'}</td>
           <td className="players-actions">{r.hidden ? <button disabled={busy} onClick={() => void act('show', r.attempt)}>Show</button> : <button disabled={busy} onClick={() => void act('hide', r.attempt)}>Hide</button>}</td></tr>)}</tbody></table></div>}
     </>}

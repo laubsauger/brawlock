@@ -47,10 +47,13 @@ export let MAX_AHEAD_TICKS = 0
  * never drift for longer.
  */
 export let FORCE_REBASE_TICKS = 0
+/** the most margin late frames can add: 8 frames at 60 Hz, the same time (133 ms) at any rate */
+let MAX_MARGIN = 0
 onTickRate(() => {
   DT_MS = 1000 / TICK_HZ
   MAX_AHEAD_TICKS = ticks(0.5)
   FORCE_REBASE_TICKS = ticks(0.5)
+  MAX_MARGIN = ticks(8 / 60)
 })
 /** visual error offsets beyond this (game units) snap instead of sliding */
 export const SNAP_DIST = 250
@@ -551,7 +554,7 @@ export class LeadClock {
 
   /** lead error that speeds the clock up or snaps it back: 4 frames at 60 Hz, the same time at any rate */
   static readonly SNAP_MS = 4000 / 60
-  static readonly MAX_MARGIN_TICKS = 8
+  static get MAX_MARGIN_TICKS(): number { return MAX_MARGIN }
   static readonly MAX_JITTER_MS = 25
   static get MAX_LEAD_MS(): number { return (MAX_AHEAD_TICKS - 2) * DT_MS }
 
