@@ -159,9 +159,11 @@ describe('daily board on the account service', () => {
     await attemptAndSubmit(d, 'device-moss-002', 'moss', 60, true)
     expect(d.paid).toEqual([])
     for (let day = 0; day < 7; day++) {
-      // the stand-in never presses Ready: 15 s of shop, then enough fighting to earn the day
-      await attemptAndSubmit(d, 'device-ash-0002', 'ash', 60)
-      await attemptAndSubmit(d, 'device-ash-0002', 'ash', 60)
+      // the stand-in never presses Ready: 15 s of shop per wave, then enough fighting to earn the
+      // day. Salts are random: in 60 s a quick wave clear left under 30 s of fighting about one run
+      // in four (a flaky day); in 75 s every one of 280 seeded runs qualified
+      await attemptAndSubmit(d, 'device-ash-0002', 'ash', 90)
+      await attemptAndSubmit(d, 'device-ash-0002', 'ash', 90)
       d.set((d.today() + 1) * DAY_MS + 9 * 3600_000)
     }
     expect(d.paid.map(([, , base]) => base)).toEqual([...Array(6).fill(DAILY_EMBERS), DAILY_STREAK_EMBERS])

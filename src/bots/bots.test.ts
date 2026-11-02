@@ -10,7 +10,7 @@ import { BOT_SPELLS, ESCAPE_SPELLS, escapeRange } from './spells'
 import { BUILD_IDS, drawBuild } from './plan'
 import { Rng } from './prng'
 import { firstBlocking, routeAround } from './pillars'
-import { DEFAULT_SETTINGS, MASTERY_MAX_LEVEL, RELEASED_SPELLS, SPELLS, createMatch, step, ticks } from '../sim'
+import { DEFAULT_SETTINGS, MASTERY_MAX_LEVEL, PILLAR_RADIUS, PILLAR_WARN, RELEASED_SPELLS, SPELLS, createMatch, step, ticks } from '../sim'
 import type { PlayerSlot } from '../sim'
 import { FIREBALL_SLOT, TELEPORT_SLOT, makeFireball, makePawn, makeState } from './fixtures'
 
@@ -727,6 +727,32 @@ describe('bots: area threats (charging Scourge, Meteor, Gravity)', () => {
       }
       expect(Math.hypot(me.x - 120, me.y), d).toBeGreaterThanOrEqual(225 + 30)
     }
+  })
+
+  /** Why: Wild's Pillar Storm shoves off whoever stands on a warned spot; a bot reads the warning as a player does. */
+  it('walks off a Pillar Storm warning before the pillar bursts out', () => {
+    const me = makePawn(BOT, 0, 0)
+    me.slots[FIREBALL_SLOT] = null
+    const state = makeState([me, makePawn(ENEMY, -900, 0)])
+    const warning = { x: 40, y: 0, left: ticks(PILLAR_WARN) }
+    state.omen = 'pillarStorm'
+    state.omenClock = { next: ticks(5), count: 1, pillars: [warning] }
+    const bot = createBot(BOT, 'hard', 3)
+    let goal: Vec2 | null = null
+    for (let t = 0; warning.left > 0; t++, warning.left--) {
+      state.tick = t
+      for (const c of bot.think(state)) if (c.kind === 'move') goal = { x: c.x, y: c.y }
+      if (goal) {
+        const dx = goal.x - me.x
+        const dy = goal.y - me.y
+        const len = Math.hypot(dx, dy)
+        if (len > 1e-6) {
+          me.x += (dx / len) * Math.min(len, 210 * DT)
+          me.y += (dy / len) * Math.min(len, 210 * DT)
+        }
+      }
+    }
+    expect(Math.hypot(me.x - warning.x, me.y - warning.y)).toBeGreaterThanOrEqual(PILLAR_RADIUS + 30)
   })
 
   it('steps out of a Gravity orb damage zone', () => {

@@ -6,12 +6,16 @@
  *   600: v += 1650 (1.5 - d^2/600^2) unit(orb - proj) dt / proj time scale
  * - every 0.2 s real time: damage x 0.2 to ENEMY pawns within 250 (no knockback, but DP)
  * Shield / Alteration / Lightning / projectiles ignore it; Warpzone slows it.
+ * Wild (sim/wild.ts): a Fireball pulled into the orb's core goes nova, once per orb: a ring blast
+ * from the orb that grows with both spells' levels (Nova).
  */
 import { GRAVITY_CC } from '../collision'
-import { receiveDamage } from '../combat'
+import { damageArea, receiveDamage } from '../combat'
 import { ticks } from '../config'
 import { TICK_HZ } from '../types'
-import { behaviorOf, bounceOff, isAlive, isProjectileInstance, spawnProjectile, timeScale } from '../projectiles'
+import { behaviorOf, bounceOff, isAlive, isProjectileInstance, killProjectile, kindOf, spawnProjectile, timeScale } from '../projectiles'
+import { wildOn } from '../wild'
+import type { ProjectileState, SimState } from '../types'
 import { isEnemy } from '../teams'
 import { attr } from './data'
 import type { ProjectileBehavior, SpellBehavior } from './types'
@@ -39,6 +43,28 @@ export const gravitySpell: SpellBehavior = {
   },
 }
 
+/** Wild's Nova: the core a Fireball must reach, and the blast at levels 1 + 1 and 7 + 7 */
+const NOVA_CORE = 70
+const NOVA_RADIUS = [200, 320]
+const NOVA_KB = [0.9, 1.5]
+
+function nova(state: SimState, orb: ProjectileState, fb: ProjectileState): void {
+  orb.data.nova = 1
+  // 0 at two level-1 spells, 1 at two level-7 spells
+  const t = Math.max(0, Math.min(1, ((orb.level ?? 1) + (fb.level ?? 1) - 2) / 12))
+  const radius = NOVA_RADIUS[0] + (NOVA_RADIUS[1] - NOVA_RADIUS[0]) * t
+  state.events.push({ type: 'reaction', reaction: 'nova', x: orb.x, y: orb.y, owner: orb.owner })
+  state.events.push({ type: 'explosion', x: orb.x, y: orb.y, radius, spell: 'fireball', level: fb.level })
+  killProjectile(state, fb)
+  damageArea(state, orb.owner, orb.x, orb.y, radius, {
+    amountMin: 0,
+    amountMax: (fb.data.damage ?? 0) * 1.5,
+    fullDamageRadius: radius * 0.35,
+    knockbackFactor: NOVA_KB[0] + (NOVA_KB[1] - NOVA_KB[0]) * t,
+    cause: 'fireball',
+  })
+}
+
 export const gravityProjectile: ProjectileBehavior = {
   collider: GRAVITY_CC,
   noGravity: true,
@@ -60,6 +86,7 @@ export const gravityProjectile: ProjectileBehavior = {
       pawn.vy += (dy / dist) * f
     }
     const qr2 = d.projRadius * d.projRadius
+    const wild = wildOn(state.settings)
     for (const q of state.projectiles) {
       if (q === p || !isAlive(q) || !isProjectileInstance(q) || behaviorOf(q)?.noGravity) continue
       const dx = p.x - q.x
@@ -67,6 +94,10 @@ export const gravityProjectile: ProjectileBehavior = {
       const d2 = dx * dx + dy * dy
       if (d2 > qr2 || d2 === 0) continue
       const dist = Math.sqrt(d2)
+      if (wild && !d.nova && dist <= NOVA_CORE && kindOf(q) === 'fireball') {
+        nova(state, p, q)
+        continue
+      }
       const f = (d.projPull * (1.5 - d2 / qr2) * dt) / timeScale(q)
       q.vx += (dx / dist) * f
       q.vy += (dy / dist) * f

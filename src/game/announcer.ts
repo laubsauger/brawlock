@@ -252,7 +252,7 @@ export interface Announcement {
 }
 
 /** The parts of the sim state the announcer reads (all optional: partial states are fine). */
-export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena' | 'rankedFinal'>>
+export type AnnouncerView = Partial<Pick<SimState, 'phase' | 'phaseTicksLeft' | 'round' | 'scores' | 'slots' | 'settings' | 'pawns' | 'arena' | 'rankedFinal' | 'omen'>>
 
 /**
  * The round-win call for `local`, voice and HUD banner alike. The sim adds the round's point
@@ -492,7 +492,7 @@ export class Announcer {
           break
         case 'teleport':
           if (local !== null && localPawn?.alive && e.pawn === localPawn.id && this.slide && state?.phase === 'fight' && state.settings && state.arena) {
-            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, { settings: state.settings, arena: state.arena })) {
+            if (now - this.deniedAt >= DENIED_COOLDOWN && isDeniedEscape(this.slide, this.slide, e.toX, e.toY, { settings: state.settings, arena: state.arena, omen: state.omen })) {
               this.deniedAt = now
               this.occasional(DENIED_LINES[this.deniedCount++ % DENIED_LINES.length], local, now)
             }

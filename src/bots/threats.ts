@@ -2,16 +2,18 @@
  * Area threats a bot should walk out of (new; the original AI only dodged projectiles):
  * - an enemy charging Scourge: radius 250 around the caster, fires when its cast point ends;
  * - an enemy Meteor: lands on its target point (data tx, ty, radius) after hover + fall;
- * - an enemy Gravity orb: damages within its dps radius (and pulls within 550), now.
- * All of it is visible state: pawn.cast, projectile data.
+ * - an enemy Gravity orb: damages within its dps radius (and pulls within 550), now;
+ * - Wild's Pillar Storm: a warned spot, where a pillar bursts out and shoves off whoever stands
+ *   there (Meteor Shower's meteors are neutral, an enemy to everyone: the Meteor case above).
+ * All of it is visible state: pawn.cast, projectile data, the omen's schedule.
  */
 import { hypot } from '../sim/math'
 import { TICK_HZ } from '../sim/types'
 import type { PlayerId, SimState, Vec2 } from '../sim/types'
-import { attr, isEnemy, spellDef } from '../sim'
+import { PILLAR_RADIUS, attr, isEnemy, spellDef } from '../sim'
 
 export interface ThreatZone {
-  kind: 'scourge' | 'meteor' | 'gravity'
+  kind: 'scourge' | 'meteor' | 'gravity' | 'pillar'
   x: number
   y: number
   /** radius to clear: the hit radius plus our own body */
@@ -49,6 +51,9 @@ export function threatZones(state: SimState, player: PlayerId): ThreatZone[] {
         fireIn: 0,
       })
     }
+  }
+  for (const w of state.omenClock?.pillars ?? []) {
+    zones.push({ kind: 'pillar', x: w.x, y: w.y, r: PILLAR_RADIUS + PAWN_RADIUS, fireIn: Math.max(0, w.left) / TICK_HZ })
   }
   return zones
 }

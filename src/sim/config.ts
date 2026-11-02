@@ -224,6 +224,9 @@ export const DEFAULT_SETTINGS: MatchSettings = {
   arenaBase: ARENA_BASE_LAYER,
   arenaCap: ARENA_MAX_LAYER,
   shrinkSeconds: SHRINK_PERIOD,
+  // Wild: off by default; every omen of the deck on (a bit per omen, sim/wild.ts OMEN_IDS)
+  wild: false,
+  wildOmens: 0b111111,
 }
 
 /** Seconds to whole sim ticks (rounded to nearest). */

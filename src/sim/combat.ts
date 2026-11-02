@@ -12,8 +12,9 @@ import { isCombat, onKill } from './mode'
 import { MODIFIERS, removeTemporaryModifiers } from './modifiers'
 import { cancelCast } from './orders'
 import { dmgFactor, dmgReduction, lifestealFactor } from './stats'
-import { isEnemy, pawnOf, scoreOf } from './teams'
+import { NEUTRAL_OWNER, isEnemy, pawnOf, scoreOf } from './teams'
 import type { ObstacleState, PawnState, PlayerId, ProjectileState, SimState, Vec2 } from './types'
+import { kbMultiplierOf } from './wild'
 
 export interface DamageInfo {
   amount: number
@@ -53,6 +54,8 @@ export function knockbackSpeed(
 /** Pawn:receiveDamage. Returns the damage dealt (0 when ignored). */
 export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo): number {
   if (!isCombat(state) || !pawn.alive || pawn.invulnerable) return 0
+  // a neutral hit (Wild's meteors) credits nobody, like a pillar's blast
+  if (info.source === NEUTRAL_OWNER) info = { ...info, source: null }
   let amount = info.amount * state.settings.dmgMultiplier
   amount = amount * dmgFactor(pawn) - dmgReduction(pawn)
   if (!(amount > 0)) return 0
@@ -62,7 +65,7 @@ export function receiveDamage(state: SimState, pawn: PawnState, info: DamageInfo
   let kb = 0
   const n = info.normal
   if (n) {
-    kb = knockbackSpeed(amount, pawn.kbPoints, pawn.kbFactor, info.knockbackFactor ?? 1, state.settings.kbMultiplier)
+    kb = knockbackSpeed(amount, pawn.kbPoints, pawn.kbFactor, info.knockbackFactor ?? 1, kbMultiplierOf(state))
     pawn.vx += kb * n.x
     pawn.vy += kb * n.y
   }
@@ -209,6 +212,7 @@ export function destroyProjectile(
 /** Obstacle:receiveDamage. At 0 HP it explodes for 5-10 damage to ALL pawns within 300. */
 export function damageObstacle(state: SimState, ob: ObstacleState, amount: number, by: PlayerId | null = null): void {
   if (!isCombat(state) || ob.hp <= 0 || !(amount > 0)) return
+  if (by === NEUTRAL_OWNER) by = null
   ob.hp -= amount
   if (ob.hp > 0) return
   ob.hp = 0

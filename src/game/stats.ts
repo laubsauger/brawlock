@@ -15,6 +15,7 @@
  * it is ignored field by field, and v1 saves are migrated in place.
  */
 import type { BotDifficulty, GameMode, MatchSettings, PlayerId, PlayerSlot, SimEvent, SimState, TeamMode } from '../sim/types'
+import { OMEN_IDS, type OmenId } from '../sim/wild'
 import { TICK_HZ } from '../sim/types'
 import { ITEM_SLOT_START, MASTERY_MAX_LEVEL, SLOT_COUNT, SPELL_MAX_LEVEL } from '../sim/config'
 import { PASSIVE_ITEMS, SPELLS } from '../sim/spells/data'
@@ -168,6 +169,8 @@ export interface MatchRecord {
   awards?: Award[]
   /** account reward lookup for this match (Embers), when the server issued one */
   progression?: { matchId: string; status: 'pending' | 'awarded' | 'ineligible' | 'unavailable' }
+  /** Wild: each round's omen and who took that round (absent without Wild) */
+  omens?: { round: number; omen: OmenId; winners: PlayerId[] }[]
 }
 
 /** Career totals of the movement / combat counters (summed PlayerMatchStats). */
@@ -410,6 +413,7 @@ export class MatchTracker {
   private readonly builds = new Map<PlayerId, InspectedKit>()
   private readonly tally = new KillTally()
   private firstBlood: PlayerId | null = null
+  private readonly omens: NonNullable<MatchRecord['omens']> = []
   private readonly info: TrackerInfo
   /** per-second decay rate of knockback velocity: v(t) = v0 * e^(-decay t) */
   private readonly decay: number
@@ -518,8 +522,14 @@ export class MatchTracker {
         case 'obstacleDestroyed':
           if (e.by !== undefined && e.by !== null) this.acc(e.by).pillarsDestroyed++
           break
-        case 'roundWin':
+        case 'roundWin': {
           for (const p of pawns) if (p.alive) this.acc(p.owner).roundsSurvived++
+          const omen = this.omens.at(-1)
+          if (omen && omen.round === n(state.round)) omen.winners = [...e.players]
+          break
+        }
+        case 'omen':
+          this.omens.push({ round: e.round, omen: e.omen, winners: [] })
           break
       }
     }
@@ -687,6 +697,8 @@ export class MatchTracker {
       kills: split(this.killPairs),
       damage: split(this.dmgPairs),
       firstBlood: this.firstBlood,
+      // an omen drawn for a round that was never played (the match ended first) is left out
+      ...(this.omens.some((o) => o.round <= result.rounds) ? { omens: this.omens.filter((o) => o.round <= result.rounds).map((o) => ({ ...o, winners: [...o.winners] })) } : {}),
       ...(result.rating ? { rating: { ...result.rating } } : {}),
       ...(result.progression ? { progression: { ...result.progression } } : {}),
     }
@@ -1104,7 +1116,20 @@ function cleanRecord(r: MatchRecord): MatchRecord {
   else delete out.rating
   if (awards) out.awards = awards
   else delete out.awards
+  const omens = cleanOmens(r.omens)
+  if (omens) out.omens = omens
+  else delete out.omens
   return out
+}
+
+function cleanOmens(v: unknown): MatchRecord['omens'] | null {
+  if (!Array.isArray(v)) return null
+  const out = v.flatMap((o) => {
+    const x = obj(o)
+    if (!x || !Number.isInteger(x.round) || !(OMEN_IDS as readonly unknown[]).includes(x.omen) || !Array.isArray(x.winners)) return []
+    return [{ round: x.round as number, omen: x.omen as OmenId, winners: x.winners.filter((w): w is number => Number.isInteger(w)) }]
+  })
+  return out.length > 0 ? out : null
 }
 
 function cleanMap<T>(v: unknown, clean: (id: string, x: unknown) => T | null): Record<string, T> {

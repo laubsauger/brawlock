@@ -7,7 +7,7 @@
 import { hypot, pow } from '../sim/math'
 import { DT, TICK_HZ } from '../sim/types'
 import type { PawnState, SimState, Vec2 } from '../sim/types'
-import { attr, frictionPerTick, knockbackSpeed, spellDef } from '../sim'
+import { attr, frictionOf, frictionPerTick, kbMultiplierOf, knockbackSpeed, spellDef } from '../sim'
 import { isSafe, nearestTileCentre } from './arena'
 
 export interface LavaOutcome {
@@ -28,7 +28,7 @@ export function physVelocity(p: PawnState): Vec2 {
 
 /** Where a slide with this physics velocity comes to rest, from `from`. */
 export function slideRest(state: Pick<SimState, 'settings'>, from: Vec2, phys: Vec2): Vec2 {
-  const f = frictionPerTick(state.settings.friction)
+  const f = frictionPerTick(frictionOf(state))
   const k = (DT * f) / (1 - f)
   return { x: from.x + phys.x * k, y: from.y + phys.y * k }
 }
@@ -46,7 +46,7 @@ export function lavaOutcome(
   layer = state.arena.layer,
   horizon = 4,
 ): LavaOutcome {
-  const f = frictionPerTick(state.settings.friction)
+  const f = frictionPerTick(frictionOf(state))
   const rest = slideRest(state, from, phys)
   const home = nearestTileCentre(layer, rest.x, rest.y, true) ?? nearestTileCentre(layer, from.x, from.y, false)
   const burn = state.settings.lavaDps * 0.25
@@ -98,7 +98,7 @@ export function projectileHit(spell: string, level: number): { damage: number; k
 /** Physics velocity a pawn would have right after taking this hit along (dx, dy) (unit). */
 export function afterHit(state: SimState, p: PawnState, damage: number, spellKb: number, dx: number, dy: number): Vec2 {
   const amount = damage * state.settings.dmgMultiplier
-  const kb = knockbackSpeed(amount, p.kbPoints + amount, p.kbFactor, spellKb, state.settings.kbMultiplier)
+  const kb = knockbackSpeed(amount, p.kbPoints + amount, p.kbFactor, spellKb, kbMultiplierOf(state))
   const v = physVelocity(p)
   return { x: v.x + dx * kb, y: v.y + dy * kb }
 }
@@ -108,7 +108,7 @@ export function afterHit(state: SimState, p: PawnState, damage: number, spellKb:
  * decays with friction, its walk velocity is assumed to continue.
  */
 export function positionAfter(state: SimState, p: PawnState, t: number): Vec2 {
-  const f = frictionPerTick(state.settings.friction)
+  const f = frictionPerTick(frictionOf(state))
   const n = t * TICK_HZ
   const k = (DT * f * (1 - pow(f, n))) / (1 - f)
   const ph = physVelocity(p)

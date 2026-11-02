@@ -18,6 +18,8 @@ import { BuildIcons } from '../BuildIcons'
 import type { InspectedKit } from '../../game/inspect'
 import { reelSession } from '../../game/replay/reel'
 import { ResultsReel } from './ResultsReel'
+import { OMEN_INFO } from '../../game/wild'
+import { OmenGlyph } from '../icons'
 
 interface Row {
   id: number
@@ -287,6 +289,7 @@ export function Results() {
             })}
           </tbody>
         </table>
+        {rec?.omens && <OmenRounds omens={rec.omens} slots={result.slots} teamMode={rec.teamMode} />}
         </div>
       </div>
 
@@ -385,6 +388,29 @@ export function Results() {
         </p>
       )}
       {collectionOpen && <Collection onClose={() => setCollectionOpen(false)} />}
+    </div>
+  )
+}
+
+/** Wild: each round's omen and who took the round under it. */
+function OmenRounds({ omens, slots, teamMode }: { omens: NonNullable<MatchRecord['omens']>; slots: MatchResult['slots']; teamMode: MatchRecord['teamMode'] }) {
+  return (
+    <div className="mt-3 border-t border-[rgba(255,170,100,0.1)] pt-2" data-testid="results-omens">
+      <h3 className="section-title mb-1">Omens</h3>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {omens.map((o) => {
+          const info = OMEN_INFO[o.omen]
+          const who = winnersText(slots, o.winners, teamMode)
+          return (
+            <li key={o.round} className="flex items-center gap-1.5" data-omen={o.omen} data-round={o.round}>
+              <OmenGlyph id={o.omen} size={16} color={info.color} />
+              <span className="text-ash">R{o.round}</span>
+              <span className="font-semibold" style={{ color: info.color }}>{info.name}</span>
+              <span className="text-[#e6d3b8]">{who ? who.text : 'Draw'}</span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

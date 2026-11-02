@@ -1,12 +1,60 @@
 # Wild: omens, reactions and a ruleset worth switching on
 
-Status: design draft, 2026-10-28; picked for the build list 2026-10-29. The four choices at the end
-now carry recommendations; it becomes an implementation spec once they are answered. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and
-[04-keystones.md](../04-keystones.md).
+Status: design draft, 2026-10-28; picked for the build list 2026-10-29; the four choices answered
+(README Q34–37); first deck built 2026-11-01, not released (see Built). From
+[03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even
 though it probably needs some more flash to it to justify it." The first proposal (a lava tide,
 three spell reactions, a mutator of the week) was a lab. This draft gives it a show.
+
+## Built (2026-11-01)
+
+The first deck as answered: Blood Moon, Slick Stone, Overcharge, Sudden Collapse, Meteor Shower
+and Pillar Storm, with Shatter, Nova and Fork; custom lobbies only; scene effects only; no Second
+Chance. Files: `src/sim/wild.ts` (the deck, the seeded draw, the round's numbers through
+`kbMultiplierOf`, `frictionOf` and `cooldownRateOf`, the meteors and pillars), the reactions in
+`src/sim/spells/lightning.ts` (Shatter, Fork) and `src/sim/spells/gravity.ts` (Nova),
+`src/game/wild.ts` (names, rules, colours), `src/ui/hud/OmenHud.tsx` (the card, the badge, the
+discovery card), the Wild group in match options, `src/render/vfx/spells/wild.ts` (ambient layers,
+reaction flashes), the warned spots in `src/render/vfx/spells/rockpillar.ts`, the bots' threat
+zones (`src/bots/threats.ts`) and the results' Omens list (the match record's `omens`).
+
+Numbers the spec left open:
+- Slick Stone: friction 0.975 (classic 0.96), as the daily's omen of the same name.
+- Meteor Shower: the first meteor 3 s into the fight, then every 4.5 s, 0.3 s sooner each time,
+  never under 2 s. Each is a level-3 Meteor on a spot within 220 of a random living warlock,
+  neutral (an enemy to everyone); its hover is the telegraph.
+- Pillar Storm: the first warning 4 s in, then every 5.5 s: 1.1 s of glowing cracks within 220 of
+  a warlock, then a pillar (radius 90, 400 HP, 6 s) bursts out and shoves off whoever stands
+  there, as a Rockpillar does; it explodes when broken like any pillar.
+- Shatter: any Snowball the beam meets, yours too, breaks into four shards in a ±36° fan
+  (650 u/s for 0.55 s, half its damage, 70% of its knockback, a 120 blast), owned by the
+  Lightning's caster. Shards never shatter again.
+- Nova: a Fireball within 70 of a Gravity orb's centre goes off, once per orb, as a blast of
+  200–320 radius and 0.9–1.5 knockback by the two spells' levels, owned by the orb's caster.
+- Fork: Lightning stopped by an enemy Shield (not Alteration, which blocks it the same way)
+  splits into two beams from the shield holder, back the way it came at ±25°, 60% damage. Forks
+  never fork again.
+- A neutral hit credits nobody: a knockout after a meteor goes to the last warlock who hit, as
+  after a pillar's blast.
+
+Changes from the spec:
+- The omen is drawn when the shop before its round opens, and the badge shows it while players
+  shop (Blood Moon or Overcharge can change a build); the card still turns over in the countdown.
+- No announcer call yet: the omen names need voice lines (a pack of six). The card turns over with
+  the countdown's own sound; no per-omen sting or loop.
+- The discovery card shows once per reaction per browser; the Spell library's Reactions page is
+  not built.
+- Bots read the numeric omens through the shared helpers and flee meteors and warned pillar spots;
+  they do not combine reactions yet.
+
+Not built yet: the voice lines and stings, the Reactions page, bots using Shatter and Nova, a Wild
+tag in Browse games, Wild Hours (after the playtest), the moments engine naming each omen's best
+play, and the bot-only frequency runs (How it would be tested, 1 and 2). Checked in a muted
+headless browser: the lobby deck, the card above the shop in the countdown, the badge, Meteor
+Shower and Pillar Storm in a match against bots, the results' omens, and each omen's scene effect
+in the render preview.
 
 ## The idea in one paragraph
 

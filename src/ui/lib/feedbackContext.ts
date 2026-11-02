@@ -14,7 +14,7 @@ declare const __BUILD_ID__: string
 declare const __NET_ID__: string
 
 const SETTINGS = ['quality', 'fxIntensity', 'screenShake', 'fpsCap', 'resolutionScale', 'uiScale', 'hudLayout', 'edgePan', 'muted', 'masterVolume', 'sfxVolume', 'musicVolume', 'ambienceVolume', 'announcerVolume', 'announcerVoice', 'castMode', 'moveCancelsCast', 'netMode'] as const satisfies readonly (keyof FeedbackSettings)[]
-const RULES = ['teamMode', 'gameMode', 'winScore', 'rankedRounds', 'scheduledRounds', 'arenaCap', 'shrinkSeconds', 'startGold', 'roundGold', 'killGold', 'winGold', 'lavaDps', 'kbMultiplier', 'dmgMultiplier', 'friction', 'shopSeconds', 'botsReplaceLeavers', 'spectatorBets', 'bounties'] as const satisfies readonly (keyof FeedbackRules)[]
+const RULES = ['teamMode', 'gameMode', 'winScore', 'rankedRounds', 'scheduledRounds', 'arenaCap', 'shrinkSeconds', 'startGold', 'roundGold', 'killGold', 'winGold', 'lavaDps', 'kbMultiplier', 'dmgMultiplier', 'friction', 'shopSeconds', 'botsReplaceLeavers', 'spectatorBets', 'bounties', 'wild', 'wildOmens'] as const satisfies readonly (keyof FeedbackRules)[]
 const EVENT_TYPES = new Set<FeedbackEvent['type']>(['cast', 'castStart', 'projectileSpawn', 'projectileHit', 'projectileExpire', 'damage', 'heal', 'teleport', 'explosion', 'death', 'obstacleDestroyed', 'arenaShrink', 'phase', 'roundWin', 'gameOver', 'beam', 'shieldReflect', 'swap', 'modifier', 'spellHit'])
 const SPELLS = new Set<string>([...SPELL_IDS, 'lava', 'obstacle', 'disconnect', 'unknown'])
 

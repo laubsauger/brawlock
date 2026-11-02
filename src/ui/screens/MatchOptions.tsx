@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
-import { ARENA_COMPACT_LAYER, ARENA_MAX_LAYER, DEFAULT_SETTINGS, SCHEDULED_ROUNDS_MAX, SHRINK_PERIOD, SHRINK_SECONDS_MAX, SHRINK_SECONDS_MIN, scheduledRoundsOf, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
+import { ARENA_COMPACT_LAYER, ARENA_MAX_LAYER, DEFAULT_SETTINGS, SCHEDULED_ROUNDS_MAX, SHRINK_PERIOD, SHRINK_SECONDS_MAX, SHRINK_SECONDS_MIN, scheduledRoundsOf, ALL_OMENS, OMEN_IDS, wildOn, HILL_CAPTURE_SECONDS, HILL_DEFAULT_TICKETS, HILL_GOLD_FIRST, HILL_GOLD_MAX, HILL_GOLD_SECONDS, HILL_INCOME_SECONDS, HILL_RESPAWN_SECONDS, HILL_ROUND_WIN_TICKETS, HILL_SEAL_SECONDS, HILL_SHRINK_PERIOD, hillStartLayer, type GameMode, type MatchSettings, type TeamMode } from '../../sim'
 import { session } from '../../game/session'
 import { rememberRoomOptions } from '../../game/roomOptions'
 import { Button, NumberField, Row, Segmented, Switch } from '../widgets'
+import { OMEN_INFO } from '../../game/wild'
+import { OmenGlyph } from '../icons'
 import { LOBBY_VOTE_SETTINGS, lobbyVoteValues, type LobbyVoteSetting, type LobbyVoteView } from '../../net/lobbyVotes'
 
 /**
@@ -144,6 +146,27 @@ export function MatchOptions({ settings, editable, voting = false, activeVote = 
             <NumberField label="Shrink every, seconds" value={settings.shrinkSeconds ?? SHRINK_PERIOD} min={SHRINK_SECONDS_MIN} max={SHRINK_SECONDS_MAX} disabled={ro || !rounds} onCommit={(shrinkSeconds) => set({ shrinkSeconds })} />
           </div>
         </Row>
+      </Group>}
+
+      {!settings.rankedRounds && <Group title="Wild">
+        <Row label="Wild" hint={rounds ? 'From the second round, an omen changes one rule for each round; spells can react' : 'Rounds mode only'}>
+          <div data-testid="wild" data-state={wildOn(settings) ? 'on' : 'off'}>
+            <Switch label="Wild" checked={settings.wild === true} disabled={ro || !rounds} onChange={(wild) => set({ wild })} />
+          </div>
+        </Row>
+        {wildOn(settings) && OMEN_IDS.map((id, i) => {
+          const deck = settings.wildOmens ?? ALL_OMENS
+          const bit = 1 << i
+          const on = (deck & bit) !== 0
+          // the deck keeps at least one omen
+          const last = on && (deck & ~bit) === 0
+          return <Row key={id} label={OMEN_INFO[id].name} hint={OMEN_INFO[id].rule}>
+            <div className="flex items-center gap-3" data-testid="wild-omen" data-omen={id} data-state={on ? 'on' : 'off'}>
+              <OmenGlyph id={id} size={22} color={on ? OMEN_INFO[id].color : '#7a6a5a'} />
+              <Switch label={OMEN_INFO[id].name} checked={on} disabled={ro || last} onChange={(v) => set({ wildOmens: v ? deck | bit : deck & ~bit })} />
+            </div>
+          </Row>
+        })}
       </Group>}
 
       <Group title="Gold">

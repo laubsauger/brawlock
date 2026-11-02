@@ -603,7 +603,8 @@ export class BotController implements Bot {
     }
 
     // 2b. Area threats (new): walk (or blink) out of a charging Scourge, a Meteor's landing
-    // spot or a Gravity zone. Before the cast lock: leaving beats finishing our own windup.
+    // spot, a Gravity zone or a Pillar Storm's warned spot. Before the cast lock: leaving beats
+    // finishing our own windup.
     const zones = threatZones(state, this.player)
     if (zones.length > 0 && this.rng.chance(p.threatChance)) {
       const counter = p.threatEscape ? this.counterScourge(state, me, zones) : null

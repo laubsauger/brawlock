@@ -90,6 +90,10 @@ export interface MatchSettings {
   arenaCap?: number
   /** Rounds mode outside ranked and finals: seconds between arena rings (3..30) */
   shrinkSeconds?: number
+  /** Wild (sim/wild.ts): an omen over every round from the second, and spell reactions; classic Rounds outside ranked */
+  wild?: boolean
+  /** Wild's deck: a bit per omen in OMEN_IDS order (all on by default) */
+  wildOmens?: number
   startGold: number
   roundGold: number
   killGold: number
@@ -432,6 +436,12 @@ export type SimEvent =
   /** by = the player whose hit broke it (null: no player, e.g. an explosion chain) */
   | { type: 'obstacleDestroyed'; id: EntityId; x: number; y: number; by?: PlayerId | null }
   | { type: 'arenaShrink'; layer: number }
+  /** Wild: the omen of the coming round, drawn at its shop */
+  | { type: 'omen'; omen: import('./wild').OmenId; round: number }
+  /** Wild: a pillar will burst out of the floor here in `ticks` */
+  | { type: 'omenWarning'; omen: import('./wild').OmenId; x: number; y: number; ticks: number }
+  /** Wild: two spells reacted (Shatter, Nova, Fork) */
+  | { type: 'reaction'; reaction: 'shatter' | 'nova' | 'fork'; x: number; y: number; owner: PlayerId }
   | { type: 'phase'; phase: Phase; round: number }
   | { type: 'roundWin'; team: number; players: PlayerId[] }
   | { type: 'gameOver'; winners: PlayerId[] }
@@ -506,6 +516,10 @@ export interface SimState {
   round: number
   /** Present from final preparation onward. Winners persist after the final resolves, including shared draws. */
   rankedFinal?: { contenders: PlayerId[]; winners?: PlayerId[] }
+  /** Wild: this round's omen (sim/wild.ts) */
+  omen?: import('./wild').OmenId
+  /** Wild: the omen's schedule this fight (next event in ticks, events so far, warned pillars) */
+  omenClock?: { next: number; count: number; pillars: { x: number; y: number; left: number }[] }
   arena: ArenaState
   /** King of the Hill only, present from the first fight */
   hill?: HillState

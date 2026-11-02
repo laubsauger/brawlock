@@ -7,6 +7,7 @@ import { AbilityCardHost, hideAbilityCard } from '../hud/AbilityCard'
 import { usePractice } from '../../game/practiceState'
 import { PracticeHud } from '../hud/PracticeHud'
 import { DailyHud } from '../hud/DailyHud'
+import { OmenReveal } from '../hud/OmenHud'
 
 /**
  * Match screen: the HUD and panels float above the match scene. The scene
@@ -43,6 +44,8 @@ export function Match() {
       <DailyHud />
       {shopOpen && (!practice || practiceStep === 'shop') && <Shop guidedSpell={practice ? 'teleport' : undefined} />}
       {characterOpen && !shopOpen && <CharacterSheet />}
+      {/* Wild's omen card turns over above the auto-opened shop */}
+      {!practice && <OmenReveal />}
       {scoreboardOpen && <Scoreboard />}
       {paused && <EscMenu />}
       {/* last: "Entering the arena" covers the auto-opened shop too */}

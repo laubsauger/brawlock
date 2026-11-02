@@ -228,6 +228,24 @@ describe('local stats', () => {
     expect(loaded.participants.map((p) => p.profileId)).toEqual([ME, ALICE])
   })
 
+  /** Why: Wild's results list each round's omen and who took it; an omen drawn for a round the match never reached is noise. */
+  it('records the omen of each Wild round with its winners, through storage', () => {
+    const kv = memKV()
+    const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE)]
+    const tracker = new MatchTracker({ localPlayer: 0, slots, settings: { ...settings, wild: true } })
+    const at = (tick: number, round: number) => ({ ...state(tick, [0, 1]), round }) as SimState
+    tracker.observe(at(1, 1), [{ type: 'roundWin', team: 0, players: [0] }, { type: 'omen', omen: 'bloodMoon', round: 2 }])
+    tracker.observe(at(2, 2), [{ type: 'roundWin', team: 1, players: [1] }, { type: 'omen', omen: 'pillarStorm', round: 3 }])
+    tracker.observe(at(3, 3), [{ type: 'roundWin', team: -1, players: [] }, { type: 'omen', omen: 'slickStone', round: 4 }])
+    const record = tracker.finish({ winners: [1], slots, scores: [score(0, 1, 0, 0), score(1, 1, 0, 0)], rounds: 3 }, 1000)
+    const want = [{ round: 2, omen: 'bloodMoon', winners: [1] }, { round: 3, omen: 'pillarStorm', winners: [] }]
+    expect(record.omens).toEqual(want)
+    recordMatch(record, ME, kv)
+    expect(getMatchHistory(10, kv)[0].omens).toEqual(want)
+    const classic = new MatchTracker({ localPlayer: 0, slots, settings }).finish({ winners: [0], slots, scores: [score(0, 1, 0, 0), score(1, 0, 0, 0)], rounds: 1 }, 1000)
+    expect(Object.hasOwn(classic, 'omens')).toBe(false)
+  })
+
   it('preserves legacy records without inventing a rating outcome during load or subsequent saves', () => {
     const kv = memKV()
     const slots = [slot(0, 'Me', ME), slot(1, 'Alice', ALICE)]

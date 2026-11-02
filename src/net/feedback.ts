@@ -80,6 +80,8 @@ export interface FeedbackRules {
   botsReplaceLeavers?: boolean
   spectatorBets?: boolean
   bounties?: boolean
+  wild?: boolean
+  wildOmens?: number
 }
 export interface FeedbackGame {
   tick: number
@@ -171,7 +173,7 @@ const rules = shape({
   rankedRounds: integer(0, 1000), scheduledRounds: integer(0, 1000), arenaCap: integer(0, 1000), shrinkSeconds: number(0, 3600), startGold: number(0, 1_000_000), roundGold: number(0, 1_000_000),
   killGold: number(0, 1_000_000), winGold: number(0, 1_000_000), lavaDps: number(0, 1_000_000),
   kbMultiplier: number(0, 100), dmgMultiplier: number(0, 100), friction: ratio, shopSeconds: number(0, 3600),
-  botsReplaceLeavers: boolean, spectatorBets: boolean, bounties: boolean,
+  botsReplaceLeavers: boolean, spectatorBets: boolean, bounties: boolean, wild: boolean, wildOmens: integer(0, 1000),
 }, [])
 const build: Check = (v) => object(v) && Object.keys(v).every((k) => ['slots', 'levels', 'masteries'].includes(k))
   && object(v.masteries) && Object.keys(v.masteries).every((k) => ['duration', 'range', 'lifesteal'].includes(k)) && !!cleanBuild(v)

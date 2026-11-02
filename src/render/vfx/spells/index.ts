@@ -59,3 +59,6 @@ import './deaths'
 import './afterhit'
 import './scourge'
 // ---- end workstream C ----
+
+// Wild's omens and reactions (not a spell)
+import './wild'

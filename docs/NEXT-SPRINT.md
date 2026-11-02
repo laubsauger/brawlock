@@ -161,6 +161,12 @@ Deployment is established by release receipts, not by implementation status here
    client together (the `arenaBase` setting moves the netcode id); nginx needs the
    `/api/daily/submit` location (`deploy/web.nginx.conf`) and the account service 256 MB
    (`deploy/accounts.config.cjs`). Not built yet: Watch, the ops tab, the wardrobe stage.
+19. **Wild: first deck built, on main, not released (2026-11-01).** A custom-lobby switch: an omen
+   over every round from the second (Blood Moon, Slick Stone, Overcharge, Sudden Collapse, Meteor
+   Shower, Pillar Storm, each toggleable), the card in the countdown, a badge under the clock,
+   and the reactions Shatter, Nova and Fork ([wild.md](moonshot/specs/wild.md)). Ships with the
+   servers and client together (new sim rules). Next: the playtest evening, the omen voice lines,
+   the bot-only frequency runs; Wild Hours after the playtest.
 
 ## Completed in this planning pass
 

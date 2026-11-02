@@ -8,14 +8,17 @@
  * - while standing: a faint rune ring at its foot; in the last 0.5 s it trembles and sheds grit;
  * - crumble when its time runs out (removed without an event): rubble and a dust slump.
  *   Destroyed by damage ('obstacleDestroyed'): render's blast plays; we add an amber rune flash.
+ * Wild's Pillar Storm raises the same pillars (sim/wild.ts); its warned spots crack and glow
+ * brighter until the pillar bursts out.
  */
 import { SPELLS, attr } from '../../../sim/spells/data'
-import { secondsOf } from '../../../sim/config'
+import { secondsOf, ticks } from '../../../sim/config'
+import { PILLAR_RADIUS, PILLAR_WARN } from '../../../sim/wild'
 import type { SimEvent } from '../../../sim/types'
 import { S, TILE_TOP_H } from '../../coords'
 import { RING_EXPAND } from '../../scene/GroundFx'
 import { registerSpellVfx, type VfxCtx } from '../registry'
-import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, rand, flashT, levelOf, tierOfLevel } from './kitB'
+import { STYLE_CRACKS, STYLE_RING, TAU, castFlash, drawCircle, floorH, glowG, kitBegin, kitInit, kitRelease, light, originOf, pal, palMix, rand, flashT, levelOf, tierOfLevel, type RGB } from './kitB'
 
 const SPELL = 'rockpillar'
 const DEF = SPELLS[SPELL]
@@ -24,6 +27,8 @@ const EARTH = pal('rockpillar', 'accent', 0.5)
 const RUNE = pal('rockpillar', 'core', 1.8)
 const DUST = [0.2, 0.16, 0.12] as const
 const GRIT = palMix('rockpillar', 0.2, 0.09)
+// Pillar Storm's warning: hot, so a warned spot reads as danger, not as a friendly rune
+const WARN: RGB = [2.4, 0.7, 0.16]
 
 interface Pillar {
   x: number
@@ -164,6 +169,19 @@ registerSpellVfx({
       pillars.delete(id)
     }
     primed = true
+    // Pillar Storm: the warned spots crack open, brighter as the burst nears
+    for (const w of st.omenClock?.pillars ?? []) {
+      const k = Math.min(1, Math.max(0, 1 - w.left / ticks(PILLAR_WARN)))
+      const fh = floorH(ctx, w.x, w.y)
+      const seed = (w.x * 0.37 + w.y * 0.61) % 97
+      drawCircle(w.x, w.y, fh + 0.3, PILLAR_RADIUS, STYLE_CRACKS, WARN[0], WARN[1], WARN[2], 1 + 1.6 * k, 0.6 - 0.6 * k, 0, seed, 0, 1, 0, ctx.now - 1)
+      drawCircle(w.x, w.y, fh + 0.4, PILLAR_RADIUS, STYLE_RING, WARN[0], WARN[1], WARN[2], 0.6 + 1.0 * k, 0, 0, seed, 0, 0.8, 0, ctx.now - 1)
+      light(ctx, w.x, w.y, PILLAR_RADIUS * 1.2, 0.2 + 0.6 * k, WARN, 0.3)
+      if (k > 0.5 && Math.random() < ctx.dt * 20) {
+        const a = Math.random() * TAU
+        ctx.debris.spawn(w.x + Math.cos(a) * PILLAR_RADIUS * 0.6, w.y + Math.sin(a) * PILLAR_RADIUS * 0.6, TILE_TOP_H + 4, 0, 0, rand(150, 320), 0.5, rand(4, 8), 3, GRIT[0], GRIT[1], GRIT[2], -1500, 0, 0)
+      }
+    }
     // windup: the ground at the target cracks open (exactly the pillar footprint)
     for (const pw of st.pawns) {
       const c = pw.cast

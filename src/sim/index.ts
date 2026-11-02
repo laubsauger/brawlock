@@ -18,6 +18,7 @@ import {
   frictionPerTick,
 } from './config'
 import { killPawn } from './combat'
+import { ALL_OMENS, frictionOf } from './wild'
 import { hillField, hillSealed } from './hill'
 import { deliverBettingCredits } from './bets'
 import { lavaTick } from './lava'
@@ -99,6 +100,7 @@ export type { ShopRule } from './config'
 export { knockbackSpeed } from './combat'
 export { masteryFactor } from './stats'
 export { gameWinners, scheduledRoundsOf } from './mode'
+export { ALL_OMENS, OMEN_IDS, PILLAR_RADIUS, PILLAR_WARN, cooldownRateOf, frictionOf, kbMultiplierOf, omenOf, wildOn, type OmenId } from './wild'
 export { isRoundParticipant } from './teams'
 export { alliance, isEnemy, pawnOf, scoreOf, slotOf, teamOf, ALLIANCE_SELF, ALLIANCE_ALLY, ALLIANCE_ENEMY } from './teams'
 export { cloneState, hashState } from './snapshot'
@@ -123,6 +125,7 @@ function sanitizeSettings(input: MatchSettings): MatchSettings {
   if (!Number.isInteger(out.scheduledRounds) || out.scheduledRounds! > SCHEDULED_ROUNDS_MAX) out.scheduledRounds = 0
   if (!Number.isInteger(out.arenaCap) || out.arenaCap! < ARENA_CAP_MIN || out.arenaCap! > ARENA_MAX_LAYER) out.arenaCap = ARENA_MAX_LAYER
   if (!Number.isInteger(out.arenaBase) || out.arenaBase! < 1 || out.arenaBase! > ARENA_MAX_LAYER) out.arenaBase = ARENA_BASE_LAYER
+  if (!Number.isInteger(out.wildOmens) || out.wildOmens! < 0 || out.wildOmens! > ALL_OMENS) out.wildOmens = ALL_OMENS
   if (out.shrinkSeconds! < SHRINK_SECONDS_MIN || out.shrinkSeconds! > SHRINK_SECONDS_MAX) out.shrinkSeconds = SHRINK_PERIOD
   return out
 }
@@ -309,7 +312,7 @@ export function step(state: SimState, inputs: PlayerInput[]): void {
     }
   }
   connectionTick(state)
-  const friction = frictionPerTick(state.settings.friction)
+  const friction = frictionPerTick(frictionOf(state))
   for (const pawn of state.pawns) pawnPreTick(state, pawn, friction)
   projectilePreTick(state)
   physicsStep(state)

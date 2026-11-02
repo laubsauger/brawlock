@@ -26,6 +26,7 @@ import { ANNOUNCER_TEXT, defeatLine, matchWinLine, roundCall, roundWinLine } fro
 import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
 import { FinalBlowPlate } from './FinalBlowPlate'
+import { OmenBadge, ReactionCard, reactionCard } from './OmenHud'
 
 /**
  * Turns phase changes and sim events into banners, sounds, music, auto shop
@@ -103,6 +104,9 @@ function useDirector() {
           break
         case 'freshStart':
           if (e.player === local) toast(`Build sold: +${e.refund} gold`)
+          break
+        case 'reaction':
+          reactionCard.show(e.reaction)
           break
         case 'allReady':
           // a toast, not a banner: the 3-2-1 banner starts on the same frame
@@ -346,6 +350,7 @@ export function Hud() {
           <TopCenter />
           <FinalBrawlStatus />
           <HillStatus />
+          <OmenBadge />
           {/* at most one row under the clock: the shrink warning and your KO callout share it */}
           {!replay && (
             <div className="mt-0.5 flex items-center justify-center gap-2">
@@ -369,6 +374,7 @@ export function Hud() {
 
       <Banner />
       <StreakCallout />
+      {!replay && <ReactionCard />}
       <AimHint />
       <InspectCard />
 

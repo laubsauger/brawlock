@@ -210,6 +210,8 @@ const MODIFIER_FRAGMENTS: ({ match: string } & ModSound)[] = [
 export const IGNORED_EVENTS: Partial<Record<SimEvent['type'], string>> = {
   heal: 'lifesteal heals on every hit and would double each impact; heals show as numbers',
   allReady: 'the HUD plays the ready cue with its toast (Hud.tsx), as it does for the lobby Ready',
+  omen: 'Wild: drawn at the shop; its card turns over with the countdown cue (no voice lines for omens yet)',
+  reaction: 'Wild: a reaction sounds through its own blasts, shards and beams',
 }
 
 type Handler<K extends SimEvent['type']> = (
@@ -443,6 +445,10 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   allReady: null,
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
+  // Wild: a warned pillar groans where it will burst
+  omen: null,
+  omenWarning: (e, c) => [cue('shrinkRumble', c.at(e.x, e.y), 0.45)],
+  reaction: null,
   // King of the Hill: a rising tick when your side takes the hill, a soft tick per ticket you earn,
   // a coin when your stay on the hill pays gold
   hill: (e, c) => {

@@ -5,6 +5,7 @@
  */
 import { lavaOutcome } from '../bots/predict'
 import { isLocationSafeAtLayer } from '../sim/arena'
+import { frictionOf } from '../sim/wild'
 import type { PawnState, SimState } from '../sim/types'
 
 /** a Teleport counts as a save from a slide this fast toward the lava (u/s) */
@@ -63,10 +64,11 @@ export function isTeleportSave(before: SlideSnapshot, toX: number, toY: number, 
  * the edge: at most LAVA_DENIED_SECONDS of lava survival left, now or after the lava the slide
  * would cost (slide plus walking back, as the bots predict it).
  */
-export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp' | 'moveSpeed'>, toX: number, toY: number, sim: Pick<SimState, 'settings' | 'arena'>): boolean {
+export function isDeniedEscape(before: SlideSnapshot, pawn: Pick<PawnState, 'hp' | 'moveSpeed'>, toX: number, toY: number, sim: Pick<SimState, 'settings' | 'arena' | 'omen'>): boolean {
   const layer = sim.arena.layer
   const lavaDps = sim.settings.lavaDps
-  const decay = slideDecay(sim.settings.friction)
+  // the round's friction (Wild's Slick Stone runs slides long)
+  const decay = slideDecay(frictionOf(sim))
   if (lavaDps <= 0 || !isTeleportSave(before, toX, toY, layer, decay)) return false
   const margin = lavaDps * LAVA_DENIED_SECONDS
   if (before.inLava && pawn.hp <= margin) return true

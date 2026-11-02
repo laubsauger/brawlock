@@ -246,3 +246,23 @@ function Glyph({ id, size, hue, dim }: { id: string | null; size: number; hue?: 
     </svg>
   )
 }
+
+const OMEN_GLYPHS: Record<string, ReactNode> = {
+  bloodMoon: <><circle cx="12" cy="10.5" r="7" fill="currentColor" fillOpacity=".3" /><path d="M12 17.5v3M9.5 17.1v1.6M14.5 17.1v1.2" /></>,
+  slickStone: <><path d="M12 3s-5 6-5 9.5a5 5 0 0 0 10 0C17 9 12 3 12 3Z" /><path d="M3 21h6M15 21h6" /></>,
+  overcharge: <path d="M13 2 5 13.5h6L10 22l8-11.5h-6Z" />,
+  suddenCollapse: <><circle cx="12" cy="12" r="3" /><path d="M12 4a8 8 0 0 1 8 8M4 12a8 8 0 0 1 4-6.9M16 18.9A8 8 0 0 1 4.6 15" /></>,
+  meteorShower: <><circle cx="15.5" cy="15.5" r="4" fill="currentColor" fillOpacity=".3" /><path d="M12.6 12.6 4 4M11 16 6 11M16 11l-5-5" /></>,
+  pillarStorm: <><path d="M8 20V8.5l4-4.5 4 4.5V20M5 20h14" /><path d="m10 12.5 2-1.5 2 1.5M10.5 16l1.5-1 1.5 1" /></>,
+}
+
+/** A Wild omen's sigil, in its accent colour. */
+export function OmenGlyph({ id, size = 24, color }: { id: string; size?: number; color: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden style={{ color, display: 'block' }}>
+      <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        {OMEN_GLYPHS[id]}
+      </g>
+    </svg>
+  )
+}

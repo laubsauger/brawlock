@@ -66,6 +66,7 @@ import { readyCut, shopLength } from './shop'
 import { respawnPawn } from './spawn'
 import { activePlayers, assignTeams, isActive, isRoundParticipant, scoreOf, teamOf } from './teams'
 import type { MatchSettings, PawnState, PlayerId, SimState } from './types'
+import { WILD_SHRINK_SECONDS, drawOmen, omenTick } from './wild'
 
 /** Damage is only dealt while combat is on (original GAME.combat). */
 export function isCombat(state: SimState): boolean {
@@ -89,6 +90,7 @@ function shrinkPeriod(state: SimState): number {
   if (hillFight(state)) return HILL_ARENA_SHRINK_PERIOD
   if (state.rankedFinal) return RANKED_FINAL_SHRINK_PERIOD
   if (state.settings.rankedRounds) return RANKED_SHRINK_PERIOD
+  if (state.omen === 'suddenCollapse') return WILD_SHRINK_SECONDS
   return state.settings.gameMode === 'rounds' ? state.settings.shrinkSeconds ?? SHRINK_PERIOD : SHRINK_PERIOD
 }
 
@@ -201,6 +203,8 @@ export function prepareForRound(state: SimState): void {
   }
   // everyone readied while knocked out: the shop opens already cut, so its banner shows the real time
   readyCut(state)
+  // Wild: the coming round's omen, shown during this shop's countdown
+  drawOmen(state, state.round + 1)
   emitPhase(state)
 }
 
@@ -396,6 +400,7 @@ function respawnTick(state: SimState): void {
 
 /** Phase timers and arena shrink. Runs once per tick after combat resolution. */
 export function phaseTick(state: SimState): void {
+  omenTick(state)
   const a = state.arena
   if (a.nextShrinkTick >= 0 && state.tick >= a.nextShrinkTick) {
     if (a.layer > arenaFloor(state)) {

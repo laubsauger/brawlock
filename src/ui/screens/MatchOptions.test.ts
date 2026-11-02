@@ -53,3 +53,41 @@ describe('custom lobby pace options', () => {
     expect(html.find(testId('shrink-seconds'))).toBeUndefined()
   })
 })
+
+/**
+ * Why: Wild is a custom-lobby ruleset (docs/moonshot/specs/wild.md): the owner switches it on and
+ * picks the omen deck. It applies only where the sim runs it (classic Rounds outside ranked), and
+ * a deck with no omen would be Wild with nothing to draw, so the last omen cannot be switched off.
+ */
+describe('custom lobby Wild options', () => {
+  const omens = (html: ReturnType<typeof render>) => html.findAll(testId('wild-omen')).map((el) => [el.attr('data-omen'), el.attr('data-state')])
+
+  it('off by default, with no deck shown', () => {
+    const html = render({})
+    expect(html.get(testId('wild')).attr('data-state')).toBe('off')
+    expect(omens(html)).toEqual([])
+  })
+
+  it('on, it shows the deck with each omen on or off as the room has it', () => {
+    const html = render({ wild: true, wildOmens: 0b100001 })
+    expect(html.get(testId('wild')).attr('data-state')).toBe('on')
+    expect(omens(html)).toEqual([
+      ['bloodMoon', 'on'], ['slickStone', 'off'], ['overcharge', 'off'], ['suddenCollapse', 'off'], ['meteorShower', 'off'], ['pillarStorm', 'on'],
+    ])
+    expect(html.findAll(`${testId('wild-omen')} button`).every((el) => el.attr('disabled') === undefined)).toBe(true)
+  })
+
+  it('the last omen in the deck cannot be switched off', () => {
+    const html = render({ wild: true, wildOmens: 0b000100 })
+    const locked = html.findAll(testId('wild-omen')).filter((el) => el.find('button')?.attr('disabled') !== undefined)
+    expect(locked.map((el) => el.attr('data-omen'))).toEqual(['overcharge'])
+  })
+
+  it('Rounds mode only, and never in ranked', () => {
+    const dm = render({ gameMode: 'deathmatch', wild: true })
+    expect(dm.get(testId('wild')).attr('data-state')).toBe('off')
+    expect(disabled(dm, 'wild')).toBe(true)
+    expect(omens(dm)).toEqual([])
+    expect(render({ rankedRounds: 5, wild: true }, false).find(testId('wild'))).toBeUndefined()
+  })
+})

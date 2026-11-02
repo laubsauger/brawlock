@@ -22,6 +22,7 @@ import { cancelCast, stopPawn } from './orders'
 import { buyItem, buyMastery, buySpell, freshStart, setShopReady } from './shop'
 import { SPELLS, SPELL_BEHAVIORS, cooldownSeconds } from './spells'
 import type { CastContext } from './spells/types'
+import { cooldownRateOf } from './wild'
 
 /** Turn toward `desired` by at most TURN_PER_TICK. Returns the remaining |difference|. */
 function turnToward(pawn: PawnState, desired: number): number {
@@ -184,9 +185,11 @@ function walkPreTick(pawn: PawnState, friction: number): void {
  * after its cast point) is castable again on tick T + cooldownTicks exactly.
  */
 export function cooldownTick(state: SimState): void {
+  // Wild's Overcharge runs every cooldown at double speed
+  const rate = cooldownRateOf(state)
   for (const pawn of state.pawns) {
     const cds = pawn.cooldowns
-    for (let i = 0; i < cds.length; i++) if (cds[i] > 0) cds[i] -= 1
+    for (let i = 0; i < cds.length; i++) if (cds[i] > 0) cds[i] = Math.max(0, cds[i] - rate)
   }
 }
 

@@ -1159,6 +1159,39 @@
     100% { opacity: 0; transform: translate(-50%, -50%) scale(2.6); }
   }
 
+  /* Wild's omen card: turns over in the countdown, under the numbers and above the docks (z 20); flies up into the badge at Fight! */
+  .omen-card { position: absolute; left: 50%; top: 58%; z-index: 21; width: min(25rem, calc(100vw - 32px)); transform: translateX(-50%); perspective: 900px; pointer-events: none; opacity: 0; }
+  .omen-card[data-state="reveal"] { opacity: 1; }
+  .omen-card-face {
+    display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+    padding: 1rem 1.4rem 1.1rem; border-radius: 10px; text-align: center;
+    background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--omen) 26%, transparent), transparent 70%), rgba(14, 8, 6, 0.9);
+    border: 1px solid color-mix(in srgb, var(--omen) 55%, transparent);
+    box-shadow: 0 0 34px color-mix(in srgb, var(--omen) 35%, transparent), inset 0 0 22px rgba(0, 0, 0, 0.6);
+    backface-visibility: hidden;
+  }
+  .omen-card[data-state="reveal"] .omen-card-face { animation: omen-turn 0.7s cubic-bezier(.2, .9, .3, 1.1) both; }
+  .omen-card[data-state="leave"] { animation: omen-leave 0.6s cubic-bezier(.5, 0, .8, .4) both; }
+  @keyframes omen-turn {
+    0% { transform: rotateY(-100deg) scale(0.85); opacity: 0; }
+    35% { opacity: 1; }
+    100% { transform: rotateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes omen-leave {
+    0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-46vh) scale(0.25); }
+  }
+  .omen-card-name { font-family: var(--font-title); font-size: clamp(2rem, 4.4vw, 3rem); line-height: 1; color: #fff2d6; text-shadow: 0 2px 0 #3b0a02, 0 0 18px var(--omen); }
+  .omen-card-rule { font-size: 0.98rem; font-weight: 600; color: #f0d9b8; }
+  @media (prefers-reduced-motion: reduce) {
+    .omen-card[data-state="reveal"] .omen-card-face, .omen-card[data-state="leave"] { animation-duration: 1ms; }
+  }
+  .reaction-card { position: absolute; top: 34%; left: 12px; max-width: 17rem; border-left: 3px solid #ffb347; animation: reaction-in 0.35s cubic-bezier(.2, .9, .3, 1) both; }
+  @keyframes reaction-in {
+    0% { opacity: 0; transform: translateX(-16px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+
   /* FIGHT!: the loudest moment in the match */
   .banner[data-tone="fight"] .banner-title {
     font-size: clamp(7rem, 19vw, 15rem);
