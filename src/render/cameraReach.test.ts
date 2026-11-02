@@ -82,6 +82,14 @@ describe('camera reach', () => {
     expect(r.ox).toBeLessThan(start * 0.02)
   })
 
+  it('the arrow keys pan like the screen edge, and the view comes back when they are released', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(input({ pan: { x: -1, y: 0 } }))
+    expect(r.ox).toBeLessThan(-500)
+    for (let i = 0; i < 120; i++) r.step(input())
+    expect(Math.abs(r.ox)).toBeLessThan(5)
+  })
+
   it('edge pan off: the screen edge never pans, peek still does', () => {
     const r = new CameraReach()
     for (let i = 0; i < 60 * 2; i++) r.step(input({ edgePan: false, pointer: { x: 0.99, y: 0.99, inside: true } }))
@@ -174,6 +182,29 @@ describe('free camera', () => {
     expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(small + ARENA_MARGIN + 1e-6)
     // and does not slide back out once the clamp let go of it
     expect(r.restX).toBeCloseTo(r.ox, 6)
+  })
+
+  /** Why: edge pan alone left players unsure how to move a free view (playtest 2026-11-02); the original's Dota camera also scrolls with the arrows and drags with the middle mouse. */
+  it('the arrow keys pan it (even with edge pan off) and it stays where they leave it', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 60; i++) r.step(free({ edgePan: false, pan: { x: 0, y: 1 }, pointer: { x: 0, y: 0, inside: false } }))
+    const spot = r.oy
+    expect(spot).toBeGreaterThan(500)
+    for (let i = 0; i < 60; i++) r.step(free({ pan: { x: 0, y: 0 } }))
+    expect(r.oy).toBeCloseTo(spot, 6)
+  })
+
+  it('a middle-mouse drag moves the ground with the cursor, and the view stays there after release', () => {
+    const r = new CameraReach()
+    for (let i = 0; i < 30; i++) r.step(free({ drag: { x: 20, y: -10 } }))
+    expect(r.ox).toBeCloseTo(600, 6)
+    expect(r.oy).toBeCloseTo(-300, 6)
+    for (let i = 0; i < 60; i++) r.step(free())
+    expect([r.ox, r.oy]).toEqual([600, -300])
+    // a following camera ignores a drag (its middle mouse peeks instead)
+    const f = new CameraReach()
+    f.step(input({ drag: { x: 500, y: 0 } }))
+    expect(f.ox).toBe(0)
   })
 
   it('switching back to follow brings the view home to the warlock', () => {

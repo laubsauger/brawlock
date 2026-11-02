@@ -8,7 +8,7 @@
  */
 import { audio } from '../audio'
 import { matchMoments, type Moment } from '../game/moments'
-import { FB_DELAY, RESULTS_HOLD_MAX, planClock, planFinalBlow, resultsHold, type FinalBlowPlan } from '../game/finalBlow'
+import { FB_DELAY, RESULTS_HOLD_MAX, ROUND_GRACE, planClock, planFinalBlow, resultsHold, type FinalBlowPlan } from '../game/finalBlow'
 import type { TickEvents } from '../game/frame'
 import { RING_SECONDS, matchRing } from '../game/stateRing'
 import { reelSession } from '../game/replay/reel'
@@ -31,9 +31,6 @@ export interface FinalBlowWorld {
   /** back on the live stream: winners celebrate, the hero shot, no stale events */
   returnToLive(): void
 }
-
-/** a round Final Blow ends this long after the live state left the round end (s) */
-const LIVE_GRACE = 0.3
 
 interface Playing {
   plan: FinalBlowPlan
@@ -105,11 +102,11 @@ export class FinalBlowPlayer {
     if (!p) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return this.end(false)
     if (!paused) p.elapsed += dtReal
-    // a round replay gives way once the live game has moved on to the shop
+    // a round replay gives way ROUND_GRACE after the live game moved on to the shop
     const live = globalSource.buf.curr
     if (p.plan.kind === 'round' && live && live.phase !== 'roundEnd' && live.phase !== 'gameOver') {
       p.outOfRoundEnd += dtReal
-      if (p.outOfRoundEnd >= LIVE_GRACE) return this.end(false)
+      if (p.outOfRoundEnd >= ROUND_GRACE) return this.end(false)
     }
     const c = planClock(p.plan, p.elapsed)
     if (c) return this.show(p, c, dtReal)

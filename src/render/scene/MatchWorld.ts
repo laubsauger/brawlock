@@ -238,6 +238,9 @@ export class MatchWorld implements FinalBlowWorld {
   private raycaster = new THREE.Raycaster()
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TILE_TOP_H * S)
   private ndc = new THREE.Vector2()
+  /** free-camera drag: the pointer (NDC) at the last frame, and this frame's ground delta */
+  private grabFrom: { x: number; y: number } | null = null
+  private readonly grabDelta = { x: 0, y: 0 }
   private hit = new THREE.Vector3()
   private tmpV = new THREE.Vector3()
   // ---- spell VFX plugin modules (match only)
@@ -2536,6 +2539,8 @@ export class MatchWorld implements FinalBlowWorld {
       const o = this.reach.step({
         dt,
         pointer: this.pointer,
+        pan: inputViz.pan,
+        drag: this.grabDrag(camera),
         peek: (inputViz as { peek?: boolean }).peek === true,
         aiming: !!inputViz.aim,
         cursor: this.opts.source.buf.cursor,
@@ -2637,6 +2642,29 @@ export class MatchWorld implements FinalBlowWorld {
     // haze range follows the zoom
     this.uFogNear.value = Math.max(24, (cameraRig.dist + 1300) * S)
     this.uFogFar.value = this.uFogNear.value + 71
+  }
+
+  /** this frame's middle-mouse drag of a free camera: the ground moved under the cursor (game units), with last frame's camera */
+  private grabDrag(camera: THREE.PerspectiveCamera): { x: number; y: number } | undefined {
+    if (!inputViz.grab || !this.pointer.inside) {
+      this.grabFrom = null
+      return undefined
+    }
+    const now = this.groundAt(camera, this.pointer.x, this.pointer.y)
+    const before = this.grabFrom ? this.groundAt(camera, this.grabFrom.x, this.grabFrom.y) : null
+    this.grabFrom = { x: this.pointer.x, y: this.pointer.y }
+    if (!now || !before) return undefined
+    this.grabDelta.x = before.x - now.x
+    this.grabDelta.y = before.y - now.y
+    return this.grabDelta
+  }
+
+  /** the ground point (game units) under a screen point (NDC), or null */
+  private groundAt(camera: THREE.PerspectiveCamera, x: number, y: number): { x: number; y: number } | null {
+    this.ndc.set(x, y)
+    this.raycaster.setFromCamera(this.ndc, camera)
+    const p = this.raycaster.ray.intersectPlane(this.plane, this.hit)
+    return p ? { x: p.x / S, y: -p.z / S } : null
   }
 
   private updateCursor(camera: THREE.PerspectiveCamera): void {

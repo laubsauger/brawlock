@@ -40,15 +40,20 @@ fleshing out here and there."
 
 ## What the player sees
 
+Retimed 2026-11-02 after the developer's playtest ("way too rushed"): the first cut fitted the
+round replay inside the sim's 3 s round end (2.2 s at half speed) and the match version into
+6 s with a 1.2 s hero shot. The round replay now takes about 3 s and may run into the shop,
+the match version about 10 s.
+
 - **Round Final Blow.** A beat after a round is won, letterbox bars slide in with a small "Replay"
-  kicker and the camera cuts to a low side view of the decisive hit at half speed. A lower third
-  names the hitter, the spell icon and the victim, with chips for traits (reflected, detonation,
-  pillar blast, long flight). If the victim burned for a while, a cut shows the splash. About 2.2 s,
-  then a cut back to the winner's hero shot, and the shop opens on time.
-- **Match Final Blow.** The round that wins the match gets the long version: a short run-up at full
-  speed, the hit at a third of speed with a brief freeze on impact, the flight, the splash, then the
-  winner's hero shot with the Victory or Defeat call. The results open when it ends (at most 6.3 s
-  after the round is won instead of 3.6 s).
+  kicker and the camera cuts to a low side view of the decisive hit at about a third of speed. A
+  lower third names the hitter, the spell icon and the victim, with chips for traits (reflected,
+  detonation, pillar blast, long flight). If the victim burned for a while, a cut shows the splash.
+  About 3 s; it runs up to a second into the next shop, which opens when it ends.
+- **Match Final Blow.** The round that wins the match gets the long version: a run-up at full
+  speed, the hit at a quarter of speed with a freeze on impact, the flight and the splash, then 3 s
+  of the winner's hero shot with the Victory or Defeat call. The results open when it ends (about
+  8-11 s after the round is won instead of 3.6 s).
 - **Finish zoom (live).** When your side lands a hit on the last opponent and the forecast says it
   ends in the lava (or it kills outright), the camera punches in toward the victim for half a
   second, effects dip and a stinger plays. Stronger when the round decides the match. Nothing slows
@@ -66,11 +71,12 @@ Constants in `src/game/finalBlow.ts` and `src/game/finishZoom.ts`, seconds, conv
 
 | Constant | Value |
 |---|---|
-| `FB_DELAY` | 0.3 s after the displayed `roundWin` |
-| Round plan | `[H - 0.3, H + 0.5]` at speed 0.5 (1.6 s); then `[H + 0.5, D + 0.1]` at 1x when `D <= H + 1.0`, else a cut to `[D - 0.4, D + 0.2]` at 1x. At most 2.2 s |
-| Match plan | `[H - 1.0, H - 0.25]` at 1x; `[H - 0.25, H + 0.6]` at 0.35 with a 0.15 s freeze at `H`; then `[H + 0.6, D + 0.4]` at 1x when `D <= H + 1.6`, else a cut to `[D - 0.6, D + 0.4]`; then 1.2 s of the live hero shot. At most 6.0 s |
+| `FB_DELAY` | 0.6 s after the displayed `roundWin` |
+| Round plan | `[H - 0.5, H - 0.15]` at 1x; `[H - 0.15, H + 0.45]` at 0.35; then `[H + 0.45, D + 0.3]` at 0.7 when `D <= H + 1.0`, else a cut to `[D - 0.5, D + 0.3]` at 0.7. 2.1-3.3 s |
+| `ROUND_GRACE` | 1.5 s: a round replay may run this long into the next shop; the HUD opens the shop when it ends |
+| Match plan | `[H - 1.2, H - 0.25]` at 1x; `[H - 0.25, H + 0.6]` at 0.25 with a 0.35 s freeze at `H`; then `[H + 0.6, D + 0.5]` at 0.6 when `D <= H + 1.6`, else a cut to `[D - 0.6, D + 0.5]` at 0.6; then 3 s of the live hero shot. 7.7-10.2 s |
 | `RING_SECONDS` | 8 s, at most 30 states per second |
-| `RESULTS_HOLD_MAX` | 6.5 s after the displayed `roundWin` |
+| `RESULTS_HOLD_MAX` | 11.5 s after the displayed `roundWin` |
 | Finish zoom | punch `0.16` of camera distance (`0.24` when the round decides the match), focus `0.35` of the way to the victim, envelope 0.08 s in, 0.12 s hold, 0.30 s out; once per victim per 2 s, at most 2 per round |
 
 1. **Trigger.** When `MatchWorld` (mode `'match'`) handles a displayed `roundWin`
@@ -268,8 +274,9 @@ enter/leave budget, a live P2P or dedicated room.
 Tests (state and numbers, never copy):
 
 1. `src/game/finalBlow.test.ts`: for death delays from 0 to 10.7 s (the measured maximum), the round
-   plan is at most 2.2 s and `FB_DELAY` plus the plan stays at least 0.5 s inside
-   `ROUND_END_SECONDS` (imported, so a shorter round end fails here first); the slow segment
+   plan is 2-3.4 s with the hit at 0.35x or slower, and `FB_DELAY` plus the plan stays at least
+   0.5 s inside `ROUND_END_SECONDS + ROUND_GRACE` (imported, so a shorter round end fails here
+   first); the slow segment
    contains the hit; a cut appears past the join limit; the match plan is at most 6.0 s; reduced
    motion gives speed 1 everywhere, no freeze and static poses; a short ring gives the death-only
    plan; no decider, no plan.

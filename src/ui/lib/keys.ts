@@ -28,6 +28,7 @@ export type BindAction =
   | 'scoreboard'
   | 'recenter'
   | 'peek'
+  | 'cameraMode'
   | 'mute'
 
 /** Key per action (KeyboardEvent.code); '' = unbound. */
@@ -78,6 +79,7 @@ export const BIND_GROUPS: { title: string; actions: { id: BindAction; label: str
       { id: 'scoreboard', label: 'Scoreboard (hold)' },
       { id: 'recenter', label: 'Center camera (hold to keep it there)' },
       { id: 'peek', label: 'Camera peek (hold; also middle mouse)' },
+      { id: 'cameraMode', label: 'Camera: follow or free (toggle)' },
       { id: 'mute', label: 'Mute' },
     ],
   },
@@ -88,9 +90,10 @@ export const ACTION_LABEL: Record<BindAction, string> = Object.fromEntries(BIND_
   string
 >
 
-// A is free in every preset, so camera peek sits there everywhere (middle mouse works too).
+// A is free in every preset, so camera peek sits there everywhere (middle mouse works too);
+// L ("lock") toggles the camera between follow and free in every preset.
 // Shop Ready is unbound by default: the shop's button is enough.
-const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', peek: 'KeyA', mute: 'KeyM', shopReady: '' } as const
+const COMMON = { stop: 'KeyS', hold: 'KeyH', scoreboard: 'Tab', recenter: 'Space', peek: 'KeyA', cameraMode: 'KeyL', mute: 'KeyM', shopReady: '' } as const
 const DIGITS = { item0: 'Digit1', item1: 'Digit2', item2: 'Digit3', item3: 'Digit4', item4: 'Digit5', item5: 'Digit6' } as const
 
 export const PRESETS: Record<KeyPreset, BindMap> = {

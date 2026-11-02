@@ -40,6 +40,8 @@ function useDirector() {
     count: 0,
     gameOverSeen: false,
     tally: new FeedTally(),
+    /** a round Final Blow runs into the shop: open it (and its banner) when the replay ends */
+    shopAfterReplay: false,
   })
 
   useEffect(() => {
@@ -119,6 +121,13 @@ function useDirector() {
     }
   }
 
+  /** The shop opens itself between rounds (it never blocks movement), with SHOPTIME as the original announced it. */
+  const openShop = (state: SimState) => {
+    useGame.getState().toggle('shopOpen', true)
+    // skipped when the phase is nearly over (late mount)
+    if (state.phaseTicksLeft > 4 * TICK_HZ) announce.banner('Shop', `${roundLabel(state)} starts in ${Math.ceil(state.phaseTicksLeft / TICK_HZ)}s`, 'normal', 1700)
+  }
+
   const onPhase = (phase: Phase, state: SimState) => {
     const store = useGame.getState()
     switch (phase) {
@@ -127,11 +136,10 @@ function useDirector() {
         music('shop')
         break
       case 'shop':
-        // the shop opens itself between rounds; it never blocks movement
-        store.toggle('shopOpen', true)
         music('shop')
-        // SHOPTIME, as the original announced it; skipped when the phase is nearly over (late mount)
-        if (state.phaseTicksLeft > 4 * TICK_HZ) announce.banner('Shop', `${roundLabel(state)} starts in ${Math.ceil(state.phaseTicksLeft / TICK_HZ)}s`, 'normal', 1700)
+        // the round's Final Blow may still be playing: the shop waits for it
+        if (store.finalBlow) st.current.shopAfterReplay = true
+        else openShop(state)
         break
       case 'fight':
         store.toggle('shopOpen', false)
@@ -171,7 +179,12 @@ function useDirector() {
 
     if (state.phase !== s.phase) {
       s.phase = state.phase
+      if (state.phase !== 'shop') s.shopAfterReplay = false
       onPhase(state.phase, state)
+    }
+    if (s.shopAfterReplay && !useGame.getState().finalBlow) {
+      s.shopAfterReplay = false
+      if (state.phase === 'shop') openShop(state)
     }
 
     if (state.phase === 'shop' || state.phase === 'warmup') {
@@ -285,6 +298,7 @@ function Hints() {
   // any spell / item key moved from the preset (HUD drag, shop drag, Settings)
   const slotCustom = useGame((s) => [...Object.keys(s.settings.keybinds ?? {}), ...Object.keys(s.settings.keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k)))
   const faded = usePolled(() => (frame.curr ? displayRound(frame.curr) > 1 : false), String, 2)
+  const free = useGame((s) => s.settings.cameraMode === 'free')
   const hint = (key: string, label: string) => (
     <span className="flex items-center gap-1">
       <KeyCaps label={key} /> {label}
@@ -297,11 +311,26 @@ function Hints() {
       {hint(bindLabel(binds, 'scoreboard'), 'Scores')}
       {hint(slotKeyLabel(binds, 6), 'Fireball')}
       {hint(bindLabel(binds, 'stop'), 'Stop')}
+      {hint(bindLabel(binds, 'cameraMode'), free ? 'Follow camera' : 'Free camera')}
       {slotCustom && (
         <button type="button" className="interactive rounded px-1 text-[0.7rem] text-[#ffcf9a]/85 underline-offset-2 hover:underline" onClick={() => resetSlotLayout()}>
           Reset key layout
         </button>
       )}
+    </div>
+  )
+}
+
+/** While the camera is free: how to move it and how to get back, so a free view is never a mystery. */
+function FreeCameraChip() {
+  const binds = useBinds()
+  const free = useGame((s) => s.settings.cameraMode === 'free')
+  if (!free) return null
+  const key = bindLabel(binds, 'cameraMode')
+  return (
+    <div className="hud-backing flex items-center gap-1.5 rounded px-2 py-0.5 text-[0.72rem] leading-snug whitespace-nowrap text-ash" data-testid="free-camera-chip" role="status">
+      <span className="font-semibold text-[#ffd890]">Free camera</span>
+      <span>· drag with the middle mouse, arrow keys or the screen edge · <KeyCaps label={bindLabel(binds, 'recenter')} /> centers{key ? <> · <KeyCaps label={key} /> follows</> : null}</span>
     </div>
   )
 }
@@ -396,11 +425,14 @@ export function Hud() {
         </div>
       )}
 
-      {showHints && (
-        <div className="hud-scale absolute bottom-2 left-3 hidden xl:block">
-          <Hints />
-        </div>
-      )}
+      <div className="hud-scale absolute bottom-2 left-3 flex flex-col items-start gap-1">
+        {!replay && <FreeCameraChip />}
+        {showHints && (
+          <div className="hidden xl:block">
+            <Hints />
+          </div>
+        )}
+      </div>
 
     </div>
   )

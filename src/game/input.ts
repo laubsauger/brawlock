@@ -22,6 +22,8 @@
  *   both net modes read the same queue.
  * - recenter (Space; held, it keeps a free camera on the warlock), scoreboard (hold), shop, character sheet, Esc menu
  * - camera peek (A in every preset, or hold the middle mouse button): inputViz.peek
+ * - camera follow / free toggle (L in every preset); arrow keys pan the camera (inputViz.pan);
+ *   with the free camera the middle mouse button drags the view (inputViz.grab) instead of peeking
  * - left click on a warlock or its nameplate (outside normal-cast targeting, which
  *   casts with that click): inspect its loadout; on empty ground: close the card.
  *   While you are down (or spectating): the camera follows that warlock too, and
@@ -34,7 +36,8 @@ import { attr, masteryFactor, shopReadyView, spellDef } from '../sim'
 import { frame } from './frame'
 import { canInspect, cycle, inspectStore, isSpectating, livingPlayers, ownerOfPawn, pickPawnAt } from './inspect'
 import { useGame, type CastMode } from './store'
-import { actionForCode, currentBinds, isTypingTarget, type BindAction } from '../ui/lib/keys'
+import { actionForCode, bindLabel, currentBinds, isTypingTarget, type BindAction } from '../ui/lib/keys'
+import { toast } from '../ui/lib/toast'
 
 export interface AttachOptions {
   /** Space: snap the camera back to the local warlock (render workstream). */
@@ -67,6 +70,10 @@ export interface InputViz {
   peek: boolean
   /** Center camera held: the camera stays on the warlock (matters for the free camera); false on blur */
   center: boolean
+  /** arrow keys held: the camera pans this way (screen x right, y up; each -1, 0 or 1) */
+  pan: { x: number; y: number }
+  /** free camera: the middle mouse button is down, dragging the view */
+  grab: boolean
   aim: { slot: number; spell: string; range: number; mode: 'release' | 'normal' } | null
 }
 
@@ -74,7 +81,23 @@ export const inputViz: InputViz = {
   move: { x: 0, y: 0, at: -1, seq: 0 },
   peek: false,
   center: false,
+  pan: { x: 0, y: 0 },
+  grab: false,
   aim: null,
+}
+
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }
+
+/** Flip the camera between follow and free (the in-match key; Settings › Gameplay has the same choice). */
+export function toggleCameraMode(): void {
+  const store = useGame.getState()
+  const free = store.settings.cameraMode !== 'free'
+  store.setSettings({ cameraMode: free ? 'free' : 'follow' })
+  inputViz.grab = false
+  const key = bindLabel(currentBinds(), 'cameraMode', true)
+  toast(free
+    ? `Free camera: edge pan, arrow keys or drag with the middle mouse button. Space centers on you${key ? `, ${key} follows again` : ''}`
+    : `Camera follows your warlock${key ? ` (${key} for free)` : ''}`)
 }
 
 const queue: InputCommand[] = []
@@ -282,11 +305,25 @@ export const input: InputApi = {
     /** peek sources: the key and the middle button (peek holds while either is down) */
     let peekKey = false
     let peekMouse = false
+    const arrows = new Set<string>()
+    const updatePan = () => {
+      let x = 0
+      let y = 0
+      for (const code of arrows) {
+        x += ARROWS[code][0]
+        y += ARROWS[code][1]
+      }
+      inputViz.pan.x = Math.sign(x)
+      inputViz.pan.y = Math.sign(y)
+    }
     const releaseCameraKeys = () => {
       peekKey = false
       peekMouse = false
       inputViz.peek = false
       inputViz.center = false
+      inputViz.grab = false
+      arrows.clear()
+      updatePan()
     }
 
     const setAim = (slot: number, mode: 'release' | 'normal') => {
@@ -336,8 +373,12 @@ export const input: InputApi = {
     const onPointerDown = (e: PointerEvent) => {
       if (menusBlock()) return
       if (e.button === 1) {
-        // middle mouse: hold to peek (and no browser autoscroll)
+        // middle mouse (and no browser autoscroll): a free camera drags, a following one peeks
         e.preventDefault()
+        if (useGame.getState().settings.cameraMode === 'free') {
+          inputViz.grab = true
+          return
+        }
         peekMouse = true
         inputViz.peek = true
         return
@@ -372,6 +413,7 @@ export const input: InputApi = {
       if (e.button === 1) {
         peekMouse = false
         inputViz.peek = peekKey
+        inputViz.grab = false
       }
     }
 
@@ -405,7 +447,15 @@ export const input: InputApi = {
       }
 
       const action = actionForCode(currentBinds(), code)
-      if (!action) return
+      if (!action) {
+        // arrow keys pan the camera, as in the original's Dota camera (a key bound to an action wins)
+        if (ARROWS[code]) {
+          e.preventDefault()
+          arrows.add(code)
+          updatePan()
+        }
+        return
+      }
 
       if (action === 'scoreboard') {
         // hold to show; never let Tab move focus around the page
@@ -463,6 +513,9 @@ export const input: InputApi = {
         case 'character':
           store.toggle('characterOpen')
           break
+        case 'cameraMode':
+          toggleCameraMode()
+          break
       }
     }
 
@@ -477,6 +530,7 @@ export const input: InputApi = {
         return
       }
       if (actionForCode(currentBinds(), e.code) === 'recenter') inputViz.center = false
+      if (arrows.delete(e.code)) updatePan()
       if (releaseCode && e.code === releaseCode) {
         const slot = inputViz.aim?.slot
         clearAim()

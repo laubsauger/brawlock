@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { frame } from './frame'
-import { input, inputViz, inspectClick, requestMove } from './input'
+import { input, inputViz, inspectClick, requestMove, toggleCameraMode } from './input'
 import { useGame } from './store'
 import type { SimState } from '../sim/types'
 
@@ -116,6 +116,28 @@ describe('held camera keys (peek, Center camera): held while the key or the midd
     expect(inputViz.peek).toBe(true)
     fire(win, 'pointerup', { button: 1 })
     expect(inputViz.peek).toBe(false)
+  })
+
+  it('pans with the arrow keys while held, diagonals too, and lets go on blur', () => {
+    fire(win, 'keydown', { code: 'ArrowUp' })
+    fire(win, 'keydown', { code: 'ArrowLeft' })
+    expect(inputViz.pan).toEqual({ x: -1, y: 1 })
+    fire(win, 'keyup', { code: 'ArrowUp' })
+    expect(inputViz.pan).toEqual({ x: -1, y: 0 })
+    fire(win, 'blur', {})
+    expect(inputViz.pan).toEqual({ x: 0, y: 0 })
+  })
+
+  it('L switches the camera to free and back; with a free camera the middle button drags instead of peeking', () => {
+    useGame.getState().setSettings({ cameraMode: 'follow' })
+    fire(win, 'keydown', { code: 'KeyL' })
+    expect(useGame.getState().settings.cameraMode).toBe('free')
+    fire(el, 'pointerdown', { button: 1 })
+    expect([inputViz.grab, inputViz.peek]).toEqual([true, false])
+    fire(win, 'pointerup', { button: 1 })
+    expect(inputViz.grab).toBe(false)
+    fire(win, 'keydown', { code: 'KeyL' })
+    expect(useGame.getState().settings.cameraMode).toBe('follow')
   })
 
   it('lets go when the window loses focus (the key-up would never arrive)', () => {
@@ -270,5 +292,18 @@ describe('left click: inspect a warlock, never in the way of casting', () => {
     fire(win, 'keydown', { code: 'Space' })
     expect(inspectStore.get().follow).toBe(-1)
     expect(input.drain()).toEqual([])
+  })
+})
+
+/** Why: the camera mode lives in Settings, but a player needs to switch it mid-match (playtest 2026-11-02). */
+describe('camera follow / free toggle', () => {
+  it('flips the setting each press and lets go of a drag in progress', () => {
+    useGame.getState().setSettings({ cameraMode: 'follow' })
+    toggleCameraMode()
+    expect(useGame.getState().settings.cameraMode).toBe('free')
+    inputViz.grab = true
+    toggleCameraMode()
+    expect(useGame.getState().settings.cameraMode).toBe('follow')
+    expect(inputViz.grab).toBe(false)
   })
 })

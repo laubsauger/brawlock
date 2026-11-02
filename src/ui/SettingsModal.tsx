@@ -408,8 +408,8 @@ export function SettingsDialog({ tab, onTab: setTab, capturing, onCapture: setCa
                 label="Camera"
                 hint={
                   (s.cameraMode ?? 'follow') === 'free'
-                    ? 'Stays where you pan it, like the original. Space centers it on your warlock; hold Space to keep it there'
-                    : 'Stays on your warlock and comes back after edge pan or peek'
+                    ? 'Stays where you put it, like the original: drag with the middle mouse button, the arrow keys or the screen edge. Space centers it on your warlock; hold Space to keep it there. In a match, L switches (Keybinds › Interface)'
+                    : 'Stays on your warlock and comes back after edge pan, the arrow keys or peek. In a match, L switches to a free camera (Keybinds › Interface)'
                 }
               >
                 <Segmented

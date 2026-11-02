@@ -3,7 +3,8 @@
  * decided it (the moments engine's round decider) replays from the state ring, slowed down, from
  * a side-on camera, then play returns to the winner's hero shot. The round that wins the match gets
  * a longer version and holds the results screen until it ends. The sim never pauses: this is a
- * replay of recent confirmed states.
+ * replay of recent confirmed states. A round replay may run into the next shop (ROUND_GRACE); the
+ * HUD opens the shop when it ends.
  *
  * This module plans a replay (pure) and holds the results screen; the render side plays the plan.
  */
@@ -11,14 +12,20 @@ import { ticks } from '../sim/config'
 import { TICK_HZ } from '../sim/types'
 import type { Moment } from './moments'
 
-/** after the displayed roundWin (s) */
-export const FB_DELAY = 0.3
+/** after the displayed roundWin (s): a beat to see the round end before the replay */
+export const FB_DELAY = 0.6
 /** the results screen waits at most this long after the displayed roundWin (s) */
-export const RESULTS_HOLD_MAX = 6.5
+export const RESULTS_HOLD_MAX = 11.5
 /** the live hero shot that closes a match Final Blow (s) */
-export const MATCH_HERO_SECONDS = 1.2
+export const MATCH_HERO_SECONDS = 3
 /** the impact freeze of a match Final Blow (s) */
-export const MATCH_FREEZE_SECONDS = 0.15
+export const MATCH_FREEZE_SECONDS = 0.35
+/**
+ * How long a round replay may keep playing after the next shop opened (s). The sim's 3 s round end
+ * is too short for a replay players can follow (playtest 2026-11-02: "way too rushed"), so the
+ * replay runs about a second into the shop and the shop opens when it ends.
+ */
+export const ROUND_GRACE = 1.5
 
 export type FinalBlowKind = 'round' | 'match'
 /** which camera a segment uses: side-on on the push, or on the death after a cut */
@@ -55,9 +62,10 @@ const segSeconds = (s: FinalBlowSegment) => (s.to - s.from) / TICK_HZ / s.speed
 
 /**
  * Plan a Final Blow for `decider` (hit tick H = decider.tick, death tick D = decider.end), given
- * the oldest tick the ring still holds. Round: the hit at half speed, then the death joined at
- * full speed or cut to. Match: a run-up, the hit at a third of speed with a freeze on impact, the
- * flight or a cut to the death, then the live hero shot. Reduced motion: real time, no freeze,
+ * the oldest tick the ring still holds. Round: a short run-up, the hit at 0.35x, then the flight
+ * joined (or a cut to the death) at 0.7x, about 3.3 s at most. Match: a run-up, the hit at a quarter
+ * speed with a freeze on impact, the flight or a cut to the death at 0.6x, then the live hero
+ * shot, about 10 s at most. Reduced motion: real time, no freeze,
  * static cameras. A ring that starts after the plan's first tick gives the death alone.
  */
 export function planFinalBlow(decider: Moment | null, ringOldest: number, kind: FinalBlowKind, reducedMotion: boolean): FinalBlowPlan | null {
@@ -71,15 +79,16 @@ export function planFinalBlow(decider: Moment | null, ringOldest: number, kind: 
   }
   let freeze: FinalBlowPlan['freeze'] = null
   if (kind === 'round') {
-    push(H - t(0.3), H + t(0.5), 0.5, 'push')
-    if (D <= H + t(1.0)) push(H + t(0.5), D + t(0.1), 1, 'push')
-    else push(D - t(0.4), D + t(0.2), 1, 'death')
+    push(H - t(0.5), H - t(0.15), 1, 'push')
+    push(H - t(0.15), H + t(0.45), 0.35, 'push')
+    if (D <= H + t(1.0)) push(H + t(0.45), D + t(0.3), 0.7, 'push')
+    else push(D - t(0.5), D + t(0.3), 0.7, 'death')
   } else {
-    push(H - t(1.0), H - t(0.25), 1, 'push')
-    push(H - t(0.25), H + t(0.6), 0.35, 'push')
+    push(H - t(1.2), H - t(0.25), 1, 'push')
+    push(H - t(0.25), H + t(0.6), 0.25, 'push')
     if (!reducedMotion) freeze = { tick: H, seconds: MATCH_FREEZE_SECONDS }
-    if (D <= H + t(1.6)) push(H + t(0.6), D + t(0.4), 1, 'push')
-    else push(D - t(0.6), D + t(0.4), 1, 'death')
+    if (D <= H + t(1.6)) push(H + t(0.6), D + t(0.5), 0.6, 'push')
+    else push(D - t(0.6), D + t(0.5), 0.6, 'death')
   }
   let partial = false
   if (segments.length === 0 || segments[0].from < ringOldest) {
@@ -87,7 +96,7 @@ export function planFinalBlow(decider: Moment | null, ringOldest: number, kind: 
     segments.length = 0
     freeze = null
     partial = true
-    push(D - t(1.0), D + t(0.3), 0.6, 'death')
+    push(D - t(1.0), D + t(0.3), 0.5, 'death')
     if (segments[0].from < ringOldest) return null
   }
   const hero = kind === 'match' ? MATCH_HERO_SECONDS : 0

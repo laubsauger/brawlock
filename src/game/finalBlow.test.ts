@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ROUND_END_SECONDS, ticks } from '../sim/config'
-import { FB_DELAY, RESULTS_HOLD_MAX, createResultsHold, planClock, planFinalBlow, type FinalBlowPlan } from './finalBlow'
+import { FB_DELAY, RESULTS_HOLD_MAX, ROUND_GRACE, createResultsHold, planClock, planFinalBlow, type FinalBlowPlan } from './finalBlow'
 import type { Moment } from './moments'
 
 /**
- * The Final Blow replays the round's deciding hit inside the 3 s round end the sim already has
- * (docs/moonshot/specs/final-blow.md): it must fit there with room to spare, show the hit itself
- * slowed down, and never run past what the ring holds.
+ * The Final Blow replays the round's deciding hit (docs/moonshot/specs/final-blow.md): slow enough
+ * to follow (the first cut inside the 3 s round end was "way too rushed", playtest 2026-11-02),
+ * ending within the grace it may take of the next shop, showing the hit itself slowed down, and
+ * never running past what the ring holds.
  */
 const HIT = 10_000
 const decider = (deathAfter: number): Moment => ({
@@ -17,11 +18,14 @@ const DELAYS = [0, 0.4, 0.9, 1.0, 1.1, 1.6, 1.7, 2.6, 5.5, 10.7]
 const slow = (p: FinalBlowPlan) => p.segments.find((s) => s.speed < 1)!
 
 describe('Final Blow plans', () => {
-  it('a round plan is at most 2.2 s and ends at least 0.5 s inside the round end, for every measured delay', () => {
+  it('a round plan takes 2-3.4 s, the hit at a third of speed, and ends 0.5 s inside its grace into the shop', () => {
     for (const d of DELAYS) {
       const plan = planFinalBlow(decider(d), -Infinity, 'round', false)!
-      expect(plan.seconds, `${d} s`).toBeLessThanOrEqual(2.2 + 1e-9)
-      expect(FB_DELAY + plan.seconds, `${d} s`).toBeLessThanOrEqual(ROUND_END_SECONDS - 0.5 + 1e-9)
+      // the shortest when the hit kills at once (the slow hit shows the death)
+      expect(plan.seconds, `${d} s`).toBeGreaterThanOrEqual(2)
+      expect(plan.seconds, `${d} s`).toBeLessThanOrEqual(3.4)
+      expect(FB_DELAY + plan.seconds, `${d} s`).toBeLessThanOrEqual(ROUND_END_SECONDS + ROUND_GRACE - 0.5 + 1e-9)
+      expect(slow(plan).speed).toBeLessThanOrEqual(0.35)
       // the slow segment contains the hit
       expect(slow(plan).from).toBeLessThan(HIT)
       expect(slow(plan).to).toBeGreaterThan(HIT)
@@ -32,19 +36,21 @@ describe('Final Blow plans', () => {
 
   it('a death soon after the hit joins on; a later one is a cut to the death', () => {
     const joined = planFinalBlow(decider(0.9), -Infinity, 'round', false)!
-    expect(joined.segments.map((s) => s.shot)).toEqual(['push', 'push'])
-    expect(joined.segments[1].from).toBe(joined.segments[0].to)
+    expect(joined.segments.map((s) => s.shot)).toEqual(['push', 'push', 'push'])
+    expect(joined.segments[2].from).toBe(joined.segments[1].to)
     const cut = planFinalBlow(decider(2.6), -Infinity, 'round', false)!
-    expect(cut.segments.map((s) => s.shot)).toEqual(['push', 'death'])
-    expect(cut.segments[1].from).toBeGreaterThan(cut.segments[0].to)
+    expect(cut.segments.map((s) => s.shot)).toEqual(['push', 'push', 'death'])
+    expect(cut.segments[2].from).toBeGreaterThan(cut.segments[1].to)
   })
 
-  it('a match plan is at most 6 s with a freeze on the impact and the hero shot after it', () => {
+  it('a match plan takes its time: a quarter-speed hit, a freeze on the impact, a 3 s hero shot, the results held through it', () => {
     for (const d of DELAYS) {
       const plan = planFinalBlow(decider(d), -Infinity, 'match', false)!
-      expect(plan.seconds, `${d} s`).toBeLessThanOrEqual(6 + 1e-9)
-      expect(plan.freeze).toEqual({ tick: HIT, seconds: 0.15 })
-      expect(plan.hero).toBeGreaterThan(0)
+      expect(plan.seconds, `${d} s`).toBeGreaterThanOrEqual(7.5)
+      expect(plan.seconds, `${d} s`).toBeLessThanOrEqual(10.5)
+      expect(slow(plan).speed).toBeLessThanOrEqual(0.25)
+      expect(plan.freeze).toEqual({ tick: HIT, seconds: 0.35 })
+      expect(plan.hero).toBeGreaterThanOrEqual(3)
       expect(plan.seconds).toBeLessThanOrEqual(RESULTS_HOLD_MAX - FB_DELAY)
     }
   })
@@ -71,10 +77,10 @@ describe('Final Blow plans', () => {
   it('the plan clock walks the segments at their speed, holds still through the freeze, and ends with the replay', () => {
     const plan = planFinalBlow(decider(0.9), -Infinity, 'match', false)!
     expect(planClock(plan, 0)).toMatchObject({ tick: plan.segments[0].from, speed: 1 })
-    // run-up (0.75 s at 1x) then the slow segment to the hit
-    const toHit = 0.75 + 0.25 / 0.35
+    // run-up (0.95 s at 1x) then the slow segment to the hit
+    const toHit = 0.95 + 0.25 / 0.25
     expect(planClock(plan, toHit + 0.05)).toMatchObject({ tick: HIT, speed: 0 })
-    expect(planClock(plan, toHit + 0.2)!.tick).toBeGreaterThan(HIT)
+    expect(planClock(plan, toHit + 0.45)!.tick).toBeGreaterThan(HIT)
     expect(planClock(plan, plan.seconds - plan.hero + 0.01)).toBeNull()
     // recorded time never runs backwards (a cut jumps forward)
     let prev = -Infinity

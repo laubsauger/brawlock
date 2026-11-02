@@ -4,17 +4,18 @@
  *
  * - Edge pan: with the cursor in a thin band at the screen edge the view pans
  *   that way, accelerating smoothly up to the edge-pan speed, as far as the
- *   reach allows. Leaving the band eases the view back to the warlock.
+ *   reach allows. Leaving the band eases the view back to the warlock. The
+ *   arrow keys pan the same way (also with edge pan off).
  * - Peek (held key / middle mouse): the view eases toward the cursor's
  *   screen direction, up to the full reach, and back on release.
  * - Aim look-ahead: while aiming, a capped lean toward the cursor so long
  *   shots see their target region (a much smaller lean otherwise).
  *
  * Free camera (setting, the original's stock Dota camera): the view rests
- * where edge pan leaves it instead of on the warlock, holds that ground spot
- * while the warlock moves, and has no look-ahead. Peek still looks away and
- * comes back to that spot. Holding Center camera keeps the view on the
- * warlock in either mode.
+ * where edge pan, the arrow keys or a middle-mouse drag leave it instead of on
+ * the warlock, holds that ground spot while the warlock moves, and has no
+ * look-ahead. Peek still looks away and comes back to that spot. Holding Center
+ * camera keeps the view on the warlock in either mode.
  *
  * The offset is clamped to the reach around its resting point and keeps the
  * view centre over the arena plus a margin. The owner adds it to the warlock's position and feeds
@@ -62,6 +63,10 @@ export interface ReachInput {
   free?: boolean
   /** Center camera held: the view sits on the warlock */
   center?: boolean
+  /** arrow keys: pan this way (screen x right, y up), like the cursor at that edge */
+  pan?: { x: number; y: number }
+  /** free camera: this frame's middle-mouse drag, the ground moved under the cursor (game units) */
+  drag?: { x: number; y: number }
 }
 
 export class CameraReach {
@@ -111,10 +116,23 @@ export class CameraReach {
       if (p.y > 1 - EDGE_BAND) ey = 1
       else if (p.y < -1 + EDGE_BAND) ey = -1
     }
+    if (i.pan && !i.center) {
+      ex = Math.sign(ex + i.pan.x)
+      ey = Math.sign(ey + i.pan.y)
+    }
     const atEdge = ex !== 0 || ey !== 0
+    // a free camera dragged with the middle mouse: the ground follows the cursor
+    const dragging = free && !i.center && !!i.drag && (i.drag.x !== 0 || i.drag.y !== 0)
+    if (dragging) {
+      this.ox += i.drag!.x
+      this.oy += i.drag!.y
+      this.vx = this.vy = 0
+    }
     if (i.center) {
       this.edgeT = 0
       this.ox = this.oy = this.vx = this.vy = 0
+    } else if (dragging) {
+      this.edgeT = 0
     } else if (atEdge) {
       this.edgeT = Math.min(EDGE_RAMP_S, this.edgeT + dt)
       const l = Math.hypot(ex, ey)
@@ -165,8 +183,8 @@ export class CameraReach {
       }
     }
     this.clamp(i)
-    // a free camera rests wherever edge pan leaves it
-    if (free && atEdge) {
+    // a free camera rests wherever edge pan, the arrows or a drag leave it
+    if (free && (atEdge || dragging)) {
       this.restX = this.ox
       this.restY = this.oy
     }
