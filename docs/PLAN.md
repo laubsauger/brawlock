@@ -341,6 +341,8 @@ Keybind presets, fully rebindable with conflict detection:
 | Modern | `Q W E R D F` | `1–6` | `C` |
 | Classic (the original's column labels, WC3 era) | `D R T E C Y` | `1–6` | `K` |
 
+In a match, dragging a slot onto another swaps their keys, and clicking a slot then pressing a key rebinds it (also in the shop). A player's first match says so in a small note over the action bar, until it is dismissed or a slot key moves.
+
 Gamepad, shift-queued orders and alternative WASD movement are post-v1 experiments.
 
 ## 7. Bots

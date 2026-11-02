@@ -27,6 +27,7 @@ import { DeathFeedback } from './DeathFeedback'
 import { FeedTally } from './killTags'
 import { FinalBlowPlate } from './FinalBlowPlate'
 import { OmenBadge, ReactionCard, reactionCard } from './OmenHud'
+import { RemapTip, slotsMoved } from './RemapTip'
 
 /**
  * Turns phase changes and sim events into banners, sounds, music, auto shop
@@ -295,8 +296,7 @@ export function WaitingVeil() {
  */
 function Hints() {
   const binds = useBinds()
-  // any spell / item key moved from the preset (HUD drag, shop drag, Settings)
-  const slotCustom = useGame((s) => [...Object.keys(s.settings.keybinds ?? {}), ...Object.keys(s.settings.keybindsAlt ?? {})].some((k) => /^(spell|item)\d$/.test(k)))
+  const slotCustom = useGame(slotsMoved)
   const faded = usePolled(() => (frame.curr ? displayRound(frame.curr) > 1 : false), String, 2)
   const free = useGame((s) => s.settings.cameraMode === 'free')
   const hint = (key: string, label: string) => (
@@ -412,6 +412,7 @@ export function Hud() {
         <div className={`absolute right-0 bottom-0 left-0 flex ${hudLayout === 'right' ? 'justify-end' : 'justify-center'}`}>
           <div className="hud-scale relative">
             <ProtectChip />
+            <RemapTip />
             <Vitals compact />
             <div className="hud-plate hud-bottom" data-layout={hudLayout}>
               <InnateRow />

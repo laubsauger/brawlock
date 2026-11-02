@@ -1959,6 +1959,30 @@
   }
   .protect-chip[data-on="true"] { opacity: 1; transform: none; }
 
+  /* first-match note: slot keys move mid-match (Hud.tsx RemapTip); clear of the protect chip on the left */
+  .remap-tip {
+    position: absolute;
+    right: 10px; bottom: calc(100% + 6px);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 30rem;
+    padding: 6px 8px 6px 12px;
+    font: 500 0.8rem/1.35 var(--font-ui);
+    color: #f1e4d2;
+    pointer-events: auto;
+  }
+  .remap-tip-ok {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-weight: 700;
+    color: #1c120a;
+    background: #f3c58c;
+  }
+  .remap-tip-ok:hover { background: #ffd9a6; }
+
   /* bottom-right HUD layout: flush to the right edge, only the top-left corner cut */
   .hud-bottom[data-layout="right"] { clip-path: polygon(12px 0, 100% 0, 100% 100%, 0 100%, 0 12px); }
 

@@ -129,7 +129,7 @@ function regionText(r: RegionStatus): string {
  * a new one filled with bots. Region, health and ping at a glance; greyed out
  * with the reason when the server cannot take players.
  */
-function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
+function QueueEntries({ onRanked, daily }: { onRanked: (region: string) => void; daily: ReactNode }) {
   const playSupported = usePlaySupported()
   const setSettings = useGame((s) => s.setSettings)
   const statuses = useRegions(5000)
@@ -181,16 +181,6 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id)}
       testId="quick-play"
     />
-    <div className="menu-pair grid grid-cols-2">
-    <MenuEntry
-      title="King of the Hill"
-      sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.hill ?? 'Checking open games…'}</span>}
-      note="Casual · hold the centre tiles alone for tickets · first to 75 · rich gold"
-      disabled={!playSupported || !!problem}
-      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join or create a King of the Hill game in ${region?.label}: stand on the glowing centre tiles with no enemy on them to earn tickets`}
-      onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id, 'hill')}
-      testId="hill-play"
-    />
     <MenuEntry
       primary
       ranked
@@ -204,6 +194,18 @@ function QueueEntries({ onRanked }: { onRanked: (region: string) => void }) {
       onClick={() => !accountsEnabled && SITE_URL ? openSite() : isPlaySupported() && region && onRanked(choice === 'auto' ? 'auto' : region.id)}
       testId="ranked-play"
     />
+    {/* Ranked keeps its own row; the side modes share one */}
+    <div className="menu-pair grid grid-cols-2">
+    <MenuEntry
+      title="King of the Hill"
+      sub={<span className="font-semibold text-[#ffe1a6]">{maintenance ? 'New games paused for maintenance' : known?.hill ?? 'Checking open games…'}</span>}
+      note="Casual · hold the centre tiles alone for tickets · first to 75 · rich gold"
+      disabled={!playSupported || !!problem}
+      hint={!playSupported ? PLAY_REQUIREMENT : problem ?? `Join or create a King of the Hill game in ${region?.label}: stand on the glowing centre tiles with no enemy on them to earn tickets`}
+      onClick={() => isPlaySupported() && region && quickPlay(choice === 'auto' ? 'auto' : region.id, 'hill')}
+      testId="hill-play"
+    />
+    {daily}
     </div>
   </div>
 }
@@ -506,8 +508,9 @@ export function MainMenu() {
         )}
 
         <nav ref={navRef} className="menu-navigation flex flex-col" aria-label="Main menu">
-          {online.configured && <QueueEntries onRanked={(region) => void requestRanked(region)} />}
-          <DailyEntry disabled={!playSupported} />
+          {online.configured
+            ? <QueueEntries onRanked={(region) => void requestRanked(region)} daily={<DailyEntry disabled={!playSupported} />} />
+            : <DailyEntry disabled={!playSupported} />}
           <div className={online.configured ? 'menu-pair grid grid-cols-2' : ''}>
             <MenuEntry primary={!online.configured} title="Custom game" sub="Classic or Wild · solo or with friends" disabled={!playSupported} hint={!playSupported ? PLAY_REQUIREMENT : undefined} onClick={() => { if (isPlaySupported()) setPlayMode('offline') }} testId="play" />
             {online.configured && <BrowseEntry rooms={openGames} onClick={() => setBrowseOpen(true)} />}

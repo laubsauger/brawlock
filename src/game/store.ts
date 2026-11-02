@@ -110,6 +110,8 @@ export interface Settings {
   showHints: boolean
   /** the first-play guide was completed or dismissed */
   tutorialSeen: boolean
+  /** the first-match note over the action bar (keys can move mid-match) was dismissed, or a slot key moved */
+  remapTipSeen: boolean
   /** Optional Google Analytics; null means no choice yet. */
   analyticsConsent: boolean | null
   /** a move during a cast windup cancels the cast (original / Dota); off: the move waits for the spell */
@@ -251,6 +253,7 @@ const defaultSettings: Settings = {
   netGraph: false,
   showHints: true,
   tutorialSeen: false,
+  remapTipSeen: false,
   analyticsConsent: null,
   moveCancelsCast: true,
   settingsVersion: 2,
