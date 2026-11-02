@@ -1,8 +1,8 @@
 # Wild: omens, reactions and a ruleset worth switching on
 
 Status: design draft, 2026-10-28; picked for the build list 2026-10-29; the four choices answered
-(README Q34–37); first deck built 2026-11-01, voice, library and bot combos 2026-11-02, not
-released (see Built). From
+(README Q34–37); first deck built 2026-11-01, voice, library and bot combos 2026-11-02, shipped
+in alpha.18 on 2026-11-02 (see Built). From
 [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even

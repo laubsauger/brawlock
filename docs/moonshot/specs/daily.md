@@ -1,6 +1,6 @@
 # Daily: a named day, five waves, one board
 
-Status: built 2026-11-01, on main, not released (see Built below). Design draft, 2026-10-28; the
+Status: built 2026-11-01, shipped in alpha.18 on 2026-11-02 (see Built below). Design draft, 2026-10-28; the
 format and the rewards answered 2026-10-29 (the Gauntlet, Embers with a seven-day streak). The other choices (end of file) keep their recommendations until
 answered. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bets 3, 4 and 6 and
 [04-keystones.md](../04-keystones.md) Keystone 3.

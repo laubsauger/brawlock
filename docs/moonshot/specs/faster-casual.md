@@ -1,7 +1,7 @@
 # Faster casual: five rounds on a compact arena
 
 Status: the three settings and their lobby rows are built (2026-11-01, see Built below); the casual
-queue preset is built too (on main, not released; brought in by the developer without the
+queue preset is built too (shipped in alpha.18 on 2026-11-02; brought in by the developer without the
 custom-room playtest). Implementation spec, 2026-10-28; the numbers answered
 2026-10-29 ("a bit more explorative": a ring every 7 s and 30 gold a round, finding 9). From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 1 and
 [04-keystones.md](../04-keystones.md) Keystone 1 ("Brisk casual"). Ships in one release batch with

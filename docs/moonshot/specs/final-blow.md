@@ -1,6 +1,6 @@
 # The Final Blow and the finish zoom
 
-Status: built 2026-11-01, on main, not released (see Built below). Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
+Status: built 2026-11-01, shipped in alpha.18 on 2026-11-02 (see Built below). Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
 Bet 8 and [04-keystones.md](../04-keystones.md) Keystone 2 ("The Final Blow", "The finish zoom").
 Needs [moments.md](moments.md). Ships in one release batch with it and
 [results-reel.md](results-reel.md), on the developer's yes.

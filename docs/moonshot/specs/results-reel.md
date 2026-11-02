@@ -1,6 +1,6 @@
 # The results reel, then clips that outlive a build
 
-Status: the reel is built, on main, not released (2026-11-01; see Built below). Clips are not started.
+Status: the reel is built (2026-11-01; see Built below) and shipped in alpha.18 on 2026-11-02. Clips are not started.
 Implementation spec, 2026-10-28. From [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 2 and
 Bet 8 and [04-keystones.md](../04-keystones.md) Keystone 2 ("The reel", "Clips that outlive a
 build", "Sharing"). Needs [moments.md](moments.md) and reuses [final-blow.md](final-blow.md)'s

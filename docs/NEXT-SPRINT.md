@@ -113,12 +113,12 @@ Deployment is established by release receipts, not by implementation status here
    P2P hosts, the menu backdrop) and on dedicated servers, so client and server both carry it.
    Still to do: the playtest evening against Hard and Brutal (do they feel as dangerous, do they
    look like players). Spec and measurements: [moonshot/specs/bot-motion.md](moonshot/specs/bot-motion.md).
-11. **Reset build, easier to find: built, not released (2026-10-29).** After alpha.17 a player took
+11. **Reset build, easier to find: shipped in alpha.18 (2026-11-02).** After alpha.17 a player took
    over a bot's seat and never saw the free reset (Fresh start, live since alpha.10/15). A local
    dedicated-server repro showed the rule works: the joiner's first round end and shop refund all
    of the bot's spending. The shop button now reads "Reset build · free" (takeover) or
    "Reset build · +N gold", and a takeover shows an offer above the spells until the next fight.
-12. **Free camera option: built, not released (2026-11-01).** Playtest note: the follow camera
+12. **Free camera option: shipped in alpha.18 (2026-11-02).** Playtest note: the follow camera
    feels pushy, and the original did not chase the warlock (stock Dota camera). Settings >
    Gameplay > Camera adds Free next to Follow, which stays the default. A free camera stays where
    edge pan leaves it, holds that ground spot while the warlock moves and has no aim look-ahead.
@@ -126,7 +126,7 @@ Deployment is established by release receipts, not by implementation status here
    The off-screen arrow for your own warlock (`PawnLocator`) covers a free camera too.
    Open: whether Free should become the default, a hotkey to switch modes, and a middle-mouse
    drag pan.
-13. **Brisk casual pace options: built, not released (2026-11-01).** The match settings of
+13. **Brisk casual pace options: shipped in alpha.18 (2026-11-02).** The match settings of
    [faster-casual.md](moonshot/specs/faster-casual.md): `scheduledRounds` (Fixed rounds in free for
    all, ranked's format without its ranked-only rules; the original's default "up to N rounds"
    win condition, PLAN §2), `arenaCap` and `shrinkSeconds`, with lobby rows (Match length, Arena
@@ -134,27 +134,27 @@ Deployment is established by release receipts, not by implementation status here
    announcer and top bar following the schedule. Sim change: a new netcode id, so server and
    client deploy together. `arenaBase` waits for the daily. The casual queue preset is its own
    change (item 14).
-14. **Brisk casual queue: built, on main, not released (2026-11-01).**
+14. **Brisk casual queue: shipped in alpha.18 (2026-11-02).**
    Casual quick play switches to five rounds, arena cap 15, a ring every 7 s and 30 gold a round
    (the spec's Rule 8; the menu reads "5 rounds"). The developer brought it in without the
    custom-room playtest the spec asked for (2026-11-01). Recommended answers taken for the open questions: ranked's final
    in casual, 20 Embers per casual match for now, King of the Hill unchanged; no one-click
    Classic / Brisk button yet.
-15. **Moments engine: built, not released (2026-11-01).** `src/game/moments.ts` names knockouts by
+15. **Moments engine: shipped in alpha.18 (2026-11-02).** `src/game/moments.ts` names knockouts by
    their sealing hit, round and match deciders, multi-knockouts, denies, clutches and close calls
    from the confirmed stream; replays keep the ten best ([moments.md](moonshot/specs/moments.md)).
    Nothing shows until the Final Blow and the results reel, which ship with it. No sim or net
    change.
-16. **Final Blow and finish zoom: built, on main, not released (2026-11-01).** The
+16. **Final Blow and finish zoom: shipped in alpha.18 (2026-11-02).** The
    round's deciding hit replays slowed down at round end (the match version holds the results),
    and a finishing hit punches the camera in ([final-blow.md](moonshot/specs/final-blow.md)).
    Checked in a headless browser against bots. Next: the offline playtest (do players watch or
    skip, can they say who hit whom), the WebGL2 fallback, and the results reel.
-17. **Results highlights: built, on main, not released (2026-11-01).** Up to three of the match's
+17. **Results highlights: shipped in alpha.18 (2026-11-02).** Up to three of the match's
    best moments play on the results screen before the board, and again from Watch highlights or
    the replay viewer ([results-reel.md](moonshot/specs/results-reel.md)). Client only. Clips and
    sharing are the spec's later phase.
-18. **Daily Gauntlet: built, on main, not released (2026-11-01).** A named day, five waves of bots
+18. **Daily Gauntlet: shipped in alpha.18 (2026-11-02).** A named day, five waves of bots
    with the day's champion last, two lives, one board; the account service verifies each run's
    tape and pays 15 Embers a day, 75 on every seventh day of a streak
    ([daily.md](moonshot/specs/daily.md)). Ships with the account service, both regions and the
@@ -162,7 +162,7 @@ Deployment is established by release receipts, not by implementation status here
    `/api/daily/submit` location (`deploy/web.nginx.conf`) and the account service 256 MB
    (`deploy/accounts.config.cjs`). Watch, the champion stage and the Operations › Daily tab
    followed on 2026-11-02.
-19. **Wild: first deck built, on main, not released (2026-11-01).** A custom-lobby switch: an omen
+19. **Wild: first deck shipped in alpha.18 (2026-11-02).** A custom-lobby switch: an omen
    over every round from the second (Blood Moon, Slick Stone, Overcharge, Sudden Collapse, Meteor
    Shower, Pillar Storm, each toggleable), the card in the countdown, a badge under the clock,
    and the reactions Shatter, Nova and Fork ([wild.md](moonshot/specs/wild.md)). Ships with the
@@ -285,7 +285,9 @@ readability and the 30-second teaser tooling. Do not restart these as missing fe
 
 ## Recorded releases
 
-The latest rollout is **v0.1.0-alpha.17**, source `463588c3a819`, on 2026-10-29:
+The latest rollout is **v0.1.0-alpha.18**, source `60f6a5af12d7`, on 2026-11-02:
+[the daily Gauntlet, Wild and the Final Blow](../deploy/releases/2026-11-02-alpha18.md).
+**v0.1.0-alpha.17**, source `463588c3a819`, on 2026-10-29:
 [Shop Ready, global chat and calmer bots](../deploy/releases/2026-10-29-alpha17.md).
 **v0.1.0-alpha.16**, source `c04177efe27f`, on 2026-10-26:
 [easier casual bots, a 1 s hill capture and guest sign-in prompts](../deploy/releases/2026-10-26-alpha16.md).

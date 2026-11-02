@@ -8,13 +8,13 @@ the real sim and bots; the harnesses live in [../research/](../research/).
 | Spec | Status | In one line |
 |---|---|---|
 | [shop-ready.md](shop-ready.md) | shipped in alpha.17 (2026-10-29) | Everyone Ready ends the shop: cut to 3 s, never before 6 s. Part 2: shop while out, with the round's gold paid at the knockout |
-| [faster-casual.md](faster-casual.md) | settings built 2026-11-01; queue preset waits for the playtest | Brisk casual: five scheduled rounds, arena capped at layer 15, a ring every 7 s, 30 gold a round; about 9 minutes a match instead of 28, builds as large as today |
+| [faster-casual.md](faster-casual.md) | settings and the casual queue preset shipped in alpha.18 (2026-11-02) | Brisk casual: five scheduled rounds, arena capped at layer 15, a ring every 7 s, 30 gold a round; about 9 minutes a match instead of 28, builds as large as today |
 | [bot-motion.md](bot-motion.md) | shipped in alpha.17 (2026-10-29) | Bots stop dancing: reversals from 1.2 to 0.3 a second, no shared think clock, inside the human band |
 | [moments.md](moments.md) | engine built 2026-11-01; shows with the Final Blow and the reel | The moments engine: knockouts and the hit that caused them, deciders, multi-knockouts, denies, reflections, close calls, long flights |
-| [final-blow.md](final-blow.md) | built 2026-11-01, not released; the offline playtest is still to do | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
-| [results-reel.md](results-reel.md) | reel built 2026-11-01, not released; clips later | The match's best moments on the results screen; clips and sharing as the later phase |
-| [daily.md](daily.md) | built 2026-11-01 (Watch, ops tab 2026-11-02), not released | The daily Gauntlet: five seeded waves, the day's named champion and omen, server-verified board, 15 Embers a day and 75 on every seventh day of a streak |
-| [wild.md](wild.md) | first deck built 2026-11-01, not released; custom lobbies only, playtest next | Wild with an omen over every round, spell reactions, Wild Hours in casual |
+| [final-blow.md](final-blow.md) | shipped in alpha.18 (2026-11-02); the playtest is still to do | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
+| [results-reel.md](results-reel.md) | reel shipped in alpha.18 (2026-11-02); clips later | The match's best moments on the results screen; clips and sharing as the later phase |
+| [daily.md](daily.md) | shipped in alpha.18 (2026-11-02), Daily #1 that day | The daily Gauntlet: five seeded waves, the day's named champion and omen, server-verified board, 15 Embers a day and 75 on every seventh day of a streak |
+| [wild.md](wild.md) | first deck shipped in alpha.18 (2026-11-02); custom lobbies only, playtest next | Wild with an omen over every round, spell reactions, Wild Hours in casual |
 | [the-pit.md](the-pit.md) | parked | The fallen duel in the Pit, winner stays on; "not yet clear or convincing" |
 
 Shared pieces: Brisk casual and the daily use the same new match settings (`arenaBase`,
