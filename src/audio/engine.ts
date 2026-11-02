@@ -22,7 +22,8 @@ import { AUDIO_ASSETS } from './assets'
 import { HYBRID, type SampleLayer } from './hybrid'
 import { SampleBank } from './samples'
 import { TICK_HZ } from '../sim/types'
-import { announcements, matchAnnouncer, type Announcement, type AnnouncerLine } from '../game/announcer'
+import { OMEN_LINES, announcements, matchAnnouncer, type Announcement, type AnnouncerLine } from '../game/announcer'
+import { OMEN_IDS } from '../sim/wild'
 import type { AssetId } from './assets'
 
 export type AnnouncerVoice = 'maverick' | 'arena'
@@ -63,8 +64,13 @@ interface VoiceSpec {
   minGap?: number
 }
 
+/** Wild's omen calls and their sting's variant (sim/wild.ts OMEN_IDS order) */
+const OMEN_STINGS = new Map<AnnouncerLine, number>(OMEN_IDS.map((id, i) => [OMEN_LINES[id], i]))
+
 export const VOICES: Record<SfxId, VoiceSpec> = {
   finishStinger: { max: 1, level: 0.8, bus: 'ui', minGap: 0.4 },
+  // Wild: under the omen's call, on the UI bus so the line's duck leaves it audible
+  omenSting: { max: 1, level: 0.8, bus: 'ui', minGap: 1 },
   finalBlowImpact: { max: 1, level: 1, bus: 'sfx', minGap: 0.5 },
   fireballCast: { max: 4, level: 0.75, bus: 'sfx' },
   fireballTravel: { max: 6, level: 0.36, bus: 'sfx' },
@@ -565,6 +571,8 @@ export class AudioEngine {
     announcements.emit(a)
     const g = this.g
     if (!g || g.ctx.state !== 'running' || this.vol.muted) return
+    const omen = OMEN_STINGS.get(a.line)
+    if (omen !== undefined) this.play({ id: 'omenSting', gain: 1, pan: 0, param: omen })
     const id = announcerFile(this.voice, a.line)
     const buffer = id && this.samples.get(id)
     if (!buffer) return

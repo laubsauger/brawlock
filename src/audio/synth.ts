@@ -581,6 +581,56 @@ const finishStinger: Recipe = (v) => {
   tail(v, 0.16, 0.3, 240, 0.12)
 }
 
+/**
+ * Wild's omen, under the announcer's call at the countdown: a low struck plate shared by all, then
+ * the omen's own colour. p = omen index in sim/wild.ts OMEN_IDS order (0 Blood Moon .. 5 Pillar Storm)
+ */
+const omenSting: Recipe = (v, p) => {
+  const omen = clamp(Math.round(p), 0, 5)
+  thump(v, 0, 92, 40, 0.5, 0.32, v.drive(v.out, 2, 0.5))
+  tail(v, 0.02, 0.8, 160, 0.1)
+  switch (omen) {
+    case 0:
+      // Blood Moon: a dark minor swell and a heartbeat
+      brass(v, 0, [55, 65.41, 82.41], 1.2, 0.28, [[0, 200], [0.4, 1100], [1.2, 250]])
+      thump(v, 0.38, 72, 40, 0.16, 0.42)
+      thump(v, 0.62, 72, 40, 0.16, 0.32)
+      break
+    case 1:
+      // Slick Stone: a glassy chime sliding down over a wet hiss
+      ring(v, 0.02, 1318.51, [1, 2.76], [0.6, 0.3], 0.15)
+      thump(v, 0.05, 1046.5, 523.25, 0.8, 0.1)
+      whoosh(v, 0, 0.6, 2200, 6000, 0.7, 0.11, 'white')
+      break
+    case 2:
+      // Overcharge: crackle under a rising zap
+      burst(v, { noise: 'crackle', freq: 2400, q: 0.9, attack: 0.01, decay: 0.5, gain: 2.2 })
+      thump(v, 0, 110, 880, 0.6, 0.1, v.filter('lowpass', 2600, 3, v.out), 'sawtooth')
+      click(v, 0.62, 0.35, 3200)
+      break
+    case 3:
+      // Sudden Collapse: stone cracking under a short rumble
+      burst(v, { noise: 'brown', type: 'lowpass', freq: 320, to: 120, q: 0.7, attack: 0.05, decay: 1, gain: 1.5 })
+      burst(v, { at: 0.1, noise: 'crackle', freq: 900, q: 1.1, attack: 0.01, decay: 0.4, gain: 2 })
+      thump(v, 0.25, 110, 45, 0.3, 0.28)
+      break
+    case 4:
+      // Meteor Shower: a falling whistle into a distant boom
+      thump(v, 0, 1800, 500, 0.75, 0.05)
+      whoosh(v, 0.1, 0.65, 3000, 900, 0.8, 0.09, 'pink')
+      thump(v, 0.75, 80, 30, 0.6, 0.42, v.drive(v.out, 2.2, 0.5))
+      tail(v, 0.76, 0.9, 200, 0.16)
+      break
+    default: {
+      // Pillar Storm: a grinding rise, then the stone bursts through
+      const grind = tremolo(v, 0, 0.6, 19, 0.7, v.out)
+      v.noise('pink', 0, 0.6, v.filter('bandpass', 700, 2, v.gain(0.55, grind)))
+      thump(v, 0.6, 140, 50, 0.3, 0.42, v.drive(v.out, 2, 0.5))
+      burst(v, { at: 0.6, noise: 'crackle', freq: 1100, q: 1, attack: 0.001, decay: 0.25, gain: 1.7 })
+    }
+  }
+}
+
 /** Final Blow: the replayed hit lands, a heavy slam with a low brass swell under it. */
 const finalBlowImpact: Recipe = (v) => {
   const body = v.drive(v.out, 2.8, 0.55)
@@ -1415,6 +1465,7 @@ const uiCountdown: Recipe = (v, p) => {
 
 export const RECIPES = {
   finishStinger,
+  omenSting,
   finalBlowImpact,
   fireballCast,
   fireballTravel,
@@ -1541,6 +1592,7 @@ export const RECIPE_PARAMS: Partial<Record<SfxId, RecipeParam>> = {
   scourgeWindup: { label: 'windup s', min: 0.2, max: 2, step: 0.05, value: 0.9, seconds: true },
   scourgeBlast: { label: 'level', min: 1, max: 3, step: 1, value: 1 },
   roundWin: { label: 'won 1 / draw 0', min: 0, max: 1, step: 1, value: 1 },
+  omenSting: { label: 'omen', min: 0, max: 5, step: 1, value: 0 },
   castInhale: { label: 'cast point s', min: 0.08, max: 0.6, step: 0.02, value: 0.2, seconds: true },
   reflect: { label: 'stolen', min: 0, max: 1, step: 1, value: 0 },
   swapWarp: { label: 'alteration', min: 0, max: 1, step: 1, value: 0 },

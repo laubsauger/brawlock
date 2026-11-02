@@ -10,6 +10,7 @@ import { hoverSfx, sfx } from './lib/sound'
 import { Sigil } from './icons'
 import { Modal, Segmented } from './widgets'
 import { trackEvent } from '../lib/analytics'
+import { REACTION_IDS, REACTION_INFO, seenReactions } from '../game/wild'
 
 /**
  * Spell library: every spell and item in one browsable book, opened from the
@@ -125,12 +126,44 @@ function Library() {
               </section>
             ))}
           </div>
+          <Reactions />
         </div>
         <section ref={detail} aria-label={`${displayName(pick)} details`} className="library-detail max-md:order-first md:overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
           <Details key={pick} id={pick} level={shown} onLevel={(l) => { lastLevel = l; setLevel(l) }} />
         </section>
       </div>
     </Modal>
+  )
+}
+
+/** Wild's spell reactions, filled in as this browser sees them in a match. */
+function Reactions() {
+  const [seen] = useState(() => seenReactions())
+  return (
+    <section className="library-group" style={{ ['--hue' as string]: '#c9a2ff' }} aria-labelledby="library-reactions" data-testid="library-reactions">
+      <h3 id="library-reactions" className="library-group-head">
+        <span className="library-gem" aria-hidden />
+        <span className="font-display font-bold tracking-[0.05em] text-[#c9a2ff]">Reactions</span>
+        <span className="truncate text-[0.78rem] text-ash">Wild only: two spells meet. {seen.size} of {REACTION_IDS.length} seen</span>
+      </h3>
+      <ul className="grid gap-2 sm:grid-cols-3">
+        {REACTION_IDS.map((id) => {
+          const r = REACTION_INFO[id]
+          const known = seen.has(id)
+          return (
+            <li key={id} className="flex flex-col gap-1 rounded-md bg-[rgba(0,0,0,0.25)] px-3 py-2" data-reaction={id} data-state={known ? 'seen' : 'unseen'}>
+              <span className="flex items-center gap-1.5">
+                <Sigil id={r.spells[0]} size={26} dim={!known} />
+                <span className="text-ash" aria-hidden>+</span>
+                <Sigil id={r.spells[1]} size={26} dim={!known} />
+                <span className="ml-1 font-semibold text-[#ffe2b0]">{known ? r.name : '???'}</span>
+              </span>
+              <span className="text-[0.82rem] leading-snug text-[#e6d3b8]">{known ? r.rule : `${displayName(r.spells[0])} meets ${displayName(r.spells[1])}. See it in a Wild match.`}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 

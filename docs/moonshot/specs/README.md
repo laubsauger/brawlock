@@ -14,7 +14,7 @@ the real sim and bots; the harnesses live in [../research/](../research/).
 | [final-blow.md](final-blow.md) | built 2026-11-01, not released; the offline playtest is still to do | The deciding hit replayed at round end (2.2 s) and match end (6 s), your own death included (a kill cam), plus the live finish zoom |
 | [results-reel.md](results-reel.md) | reel built 2026-11-01, not released; clips later | The match's best moments on the results screen; clips and sharing as the later phase |
 | [daily.md](daily.md) | built 2026-11-01, not released; Watch and the ops tab to do | The daily Gauntlet: five seeded waves, the day's named champion and omen, server-verified board, 15 Embers a day and 75 on every seventh day of a streak |
-| [wild.md](wild.md) | first deck built 2026-11-01, not released; custom lobbies only, voice lines to do | Wild with an omen over every round, spell reactions, Wild Hours in casual |
+| [wild.md](wild.md) | first deck built 2026-11-01, not released; custom lobbies only, playtest next | Wild with an omen over every round, spell reactions, Wild Hours in casual |
 | [the-pit.md](the-pit.md) | parked | The fallen duel in the Pit, winner stays on; "not yet clear or convincing" |
 
 Shared pieces: Brisk casual and the daily use the same new match settings (`arenaBase`,

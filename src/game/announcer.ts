@@ -17,7 +17,8 @@
  * Round flow (rounds mode; deathmatch only gets Round One before its single shop and Fight!)
  * - At the 3-2-1 countdown (3 s before the fight): "Round N" (rounds 1-9; none above), or
  *   "Final Round!" when every competitor (player, or team in team mode) is one win from the
- *   match, "Match Point!" when only some are. Then "Fight!" on the tick the fight starts.
+ *   match, "Match Point!" when only some are; in Wild, then the round's omen ("Blood Moon!").
+ *   Then "Fight!" on the tick the fight starts.
  * - Round end: a round-win call for the winner's side (ROUND_WIN_LINES, rotating with your score
  *   so back-to-back wins sound different; never "Victory!", which is the match's alone, and never
  *   anything that sounds like a countdown call), "Draw!" for everyone when nobody is left. The
@@ -58,6 +59,7 @@ import { TEAM_DRAW } from '../sim/config'
 import { gameWinners, scheduledRoundsOf } from '../sim/mode'
 import { TICK_HZ, type PawnState, type PlayerId, type SimEvent, type SimState } from '../sim/types'
 import { isDeniedEscape, slideSnapshot, type SlideSnapshot } from './teleportSave'
+import type { OmenId } from '../sim/wild'
 
 export const ROUND_LINES = [
   'round_one',
@@ -71,6 +73,17 @@ export const ROUND_LINES = [
   'round_nine',
 ] as const
 export type RoundLine = (typeof ROUND_LINES)[number]
+
+/** Wild's omen calls, by omen (sim/wild.ts) */
+export const OMEN_LINES = {
+  bloodMoon: 'blood_moon',
+  slickStone: 'slick_stone',
+  overcharge: 'overcharge',
+  suddenCollapse: 'sudden_collapse',
+  meteorShower: 'meteor_shower',
+  pillarStorm: 'pillar_storm',
+} as const satisfies Record<OmenId, string>
+export type OmenLine = (typeof OMEN_LINES)[OmenId]
 
 export type AnnouncerLine =
   | 'first_blood'
@@ -121,6 +134,7 @@ export type AnnouncerLine =
   | 'hill_shrinks'
   | 'close_call'
   | 'ace'
+  | OmenLine
 
 /** What the voice says, word for word (the banner shows the same). */
 export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
@@ -180,6 +194,12 @@ export const ANNOUNCER_TEXT: Record<AnnouncerLine, string> = {
   hill_shrinks: 'The Hill Shrinks!',
   close_call: 'Close Call!',
   ace: 'Ace!',
+  blood_moon: 'Blood Moon!',
+  slick_stone: 'Slick Stone!',
+  overcharge: 'Overcharge!',
+  sudden_collapse: 'Sudden Collapse!',
+  meteor_shower: 'Meteor Shower!',
+  pillar_storm: 'Pillar Storm!',
 }
 
 const MULTI_LADDER: readonly AnnouncerLine[] = ['double_kill', 'triple_kill', 'multi_kill', 'mega_kill', 'ultra_kill', 'monster_kill']
@@ -559,6 +579,8 @@ export class Announcer {
         this.calledRound = upcoming
         const call = roundCall(state)
         if (call) this.flow(call, local ?? -1, now)
+        // Wild: the round's omen, after the round (its card turns over with the countdown)
+        if (state.omen) this.flow(OMEN_LINES[state.omen], local ?? -1, now)
       }
       // a close call holds once the player is still standing a moment later
       const at = this.round.closeCallAt

@@ -208,6 +208,12 @@ export const AUDIO_ASSETS = {
   'announcer/maverick_king_of_the_ashes': { loop: false, duration: 1.689, credit: 45 },
   'announcer/maverick_hill_lost': { loop: false, duration: 1.325, credit: 45 },
   'announcer/maverick_hill_shrinks': { loop: false, duration: 1.676, credit: 45 },
+  'announcer/maverick_blood_moon': { loop: false, duration: 1.326, credit: 45 },
+  'announcer/maverick_slick_stone': { loop: false, duration: 1.322, credit: 45 },
+  'announcer/maverick_overcharge': { loop: false, duration: 1.227, credit: 45 },
+  'announcer/maverick_sudden_collapse': { loop: false, duration: 1.586, credit: 45 },
+  'announcer/maverick_meteor_shower': { loop: false, duration: 1.526, credit: 45 },
+  'announcer/maverick_pillar_storm': { loop: false, duration: 1.342, credit: 45 },
 } satisfies Record<string, AudioAsset>
 
 export type AssetId = keyof typeof AUDIO_ASSETS

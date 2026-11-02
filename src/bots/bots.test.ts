@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DT } from '../sim/types'
-import type { BotDifficulty, InputCommand, SimState, Vec2 } from '../sim/types'
+import type { BotDifficulty, InputCommand, PawnState, SimState, Vec2 } from '../sim/types'
 import { createBot, BOT_PRESETS, type Bot } from './index'
 import { BotController, reactionDelayBounds } from './controller'
 import { interceptTime, leadPoint } from './aim'
@@ -532,6 +532,39 @@ describe('bots: M1 spells', () => {
     expect(combo).not.toBeNull()
     // aimed at the Fireball (where it will be), not at the enemy
     expect(Math.abs(combo!.y - 60)).toBeLessThan(5)
+  })
+
+  /**
+   * Why: Wild's reactions only show up if bots use them (they fill most seats). Hard and up
+   * combine them as they already detonate Fireballs; in classic games the same spots do nothing.
+   */
+  it('in Wild, shatters a Snowball rolling at an enemy and novas its own Gravity orb beside one; not in classic', () => {
+    // the first cast of `slot` aimed at the reacting projectile (380, 0) or (600, 0), within 0.5 s
+    const comboAt = (wild: boolean, slot: number, at: Vec2, setup: (me: PawnState, state: SimState) => void) => {
+      const me = makePawn(BOT, 0, 0)
+      const state = makeState([me, makePawn(ENEMY, 650, 30)])
+      state.settings = { ...state.settings, wild }
+      setup(me, state)
+      const bot = createBot(BOT, 'brutal', 21)
+      for (let t = 0; t < ticks(0.5); t++) {
+        state.tick = t
+        const c = bot.think(state).find((x) => x.kind === 'cast' && x.slot === slot)
+        if (c && c.kind === 'cast' && Math.hypot(c.x - at.x, c.y - at.y) < 5) return true
+      }
+      return false
+    }
+    const snowball = (me: PawnState, state: SimState) => {
+      me.slots[0] = 'lightning'
+      me.cooldowns[FIREBALL_SLOT] = ticks(10)
+      state.projectiles.push({ id: 61, owner: ENEMY, spell: 'snowball', x: 380, y: 0, vx: 0, vy: 0, radius: 80, ticksLeft: ticks(2), data: {} })
+    }
+    expect(comboAt(true, 0, { x: 380, y: 0 }, snowball)).toBe(true)
+    expect(comboAt(false, 0, { x: 380, y: 0 }, snowball)).toBe(false)
+    const orb = (_me: PawnState, state: SimState) => {
+      state.projectiles.push({ id: 62, owner: BOT, spell: 'gravity', x: 600, y: 0, vx: 0, vy: 0, radius: 25, ticksLeft: ticks(3), data: {} })
+    }
+    expect(comboAt(true, FIREBALL_SLOT, { x: 600, y: 0 }, orb)).toBe(true)
+    expect(comboAt(false, FIREBALL_SLOT, { x: 600, y: 0 }, orb)).toBe(false)
   })
 
   it('escapes lava with Swap to safe ground within its reach', () => {

@@ -3,7 +3,8 @@
  * badge and the results: the rules themselves live in sim/wild.ts.
  */
 import { WILD_SHRINK_SECONDS, type OmenId } from '../sim/wild'
-import type { SimEvent } from '../sim/types'
+import type { SimEvent, SpellId } from '../sim/types'
+import { safeLocalStorage, type KV } from './profile'
 
 export type ReactionId = Extract<SimEvent, { type: 'reaction' }>['reaction']
 
@@ -24,8 +25,39 @@ export const OMEN_INFO: Record<OmenId, OmenInfo> = {
   pillarStorm: { name: 'Pillar Storm', rule: 'Pillars burst from glowing cracks, and explode when broken', color: '#e2cf9f' },
 }
 
-export const REACTION_INFO: Record<ReactionId, { name: string; rule: string }> = {
-  shatter: { name: 'Shatter', rule: 'Lightning breaks a Snowball into four shards' },
-  nova: { name: 'Nova', rule: 'A Fireball pulled into a Gravity orb goes off as a ring blast' },
-  fork: { name: 'Fork', rule: 'Lightning stopped by a Shield splits back into two beams' },
+export const REACTION_INFO: Record<ReactionId, { name: string; rule: string; spells: readonly [SpellId, SpellId] }> = {
+  shatter: { name: 'Shatter', rule: 'Lightning breaks a Snowball into four shards', spells: ['lightning', 'snowball'] },
+  nova: { name: 'Nova', rule: 'A Fireball pulled into a Gravity orb goes off as a ring blast', spells: ['fireball', 'gravity'] },
+  fork: { name: 'Fork', rule: 'Lightning stopped by a Shield splits back into two beams', spells: ['lightning', 'shield'] },
+}
+export const REACTION_IDS = Object.keys(REACTION_INFO) as ReactionId[]
+
+const SEEN_KEY = 'brawlock.wild.reactions'
+/** this session's sightings, for when storage is blocked */
+const seenNow = new Set<ReactionId>()
+
+/** The reactions this browser has seen (the discovery card and the Spell library's Reactions). */
+export function seenReactions(kv: KV | null = safeLocalStorage()): Set<ReactionId> {
+  const seen = new Set(seenNow)
+  try {
+    const v = JSON.parse(kv?.getItem(SEEN_KEY) ?? '[]') as unknown
+    if (Array.isArray(v)) for (const id of REACTION_IDS) if (v.includes(id)) seen.add(id)
+  } catch {
+    /* unreadable: this session's only */
+  }
+  return seen
+}
+
+/** Remember a reaction as seen; false when it already was. */
+export function markReactionSeen(id: ReactionId, kv: KV | null = safeLocalStorage()): boolean {
+  const seen = seenReactions(kv)
+  if (seen.has(id)) return false
+  seen.add(id)
+  seenNow.add(id)
+  try {
+    kv?.setItem(SEEN_KEY, JSON.stringify([...seen]))
+  } catch {
+    /* storage blocked: it may show again next match */
+  }
+  return true
 }

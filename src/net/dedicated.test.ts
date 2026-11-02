@@ -72,6 +72,11 @@ describe('dedicated server (M4.1)', () => {
       guest.session.setMaxPlayers(10)
       await new Promise((r) => setTimeout(r, 80))
       expect(srv.core.room(code)!.summary()).toMatchObject({ max: 3, humans: 2, bots: 0, joinable: 1 })
+      // Browse games tags a Wild room, and drops the tag when it is switched off
+      owner.session.updateSettings({ wild: true })
+      await until(() => srv.core.room(code)!.summary().wild === true, 3000, 'Wild listed')
+      owner.session.updateSettings({ wild: false })
+      await until(() => srv.core.room(code)!.summary().wild === undefined, 3000, 'Wild unlisted')
       owner.session.updateSettings({ shopSeconds: 3, winScore: 99, botsReplaceLeavers: false })
       await until(() => owner.lobby().settings?.shopSeconds === 3, 3000, 'short shop')
       owner.session.startMatch()

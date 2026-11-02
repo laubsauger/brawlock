@@ -36,7 +36,7 @@ import type {
   SpellId,
   Vec2,
 } from '../sim/types'
-import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, isEnemy, onHill, spellDef, ticks } from '../sim'
+import { ITEM_SLOT_START, attr, canBuy, cooldownSeconds, hillLayerNow, hillLayerOn, hillSealed, hillStartLayer, isEnemy, onHill, spellDef, ticks, wildOn } from '../sim'
 import type { Bot } from './index'
 import { leadPoint, rotateAround } from './aim'
 import { isSafe, isSafeWithMargin, layerRadius, nearestTileCentre, TILE_SIZE } from './arena'
@@ -87,6 +87,10 @@ const THREAT_MARGIN = 30
 /** Directions tried when leaving an area threat (radians off straight away). */
 const FLEE_ANGLES = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75, 2.2, -2.2, Math.PI]
 const FIREBALL_DETONATE_RADIUS = 225
+/** Wild's Shatter: how far along the beam its shards reach (650 u/s for 0.55 s) */
+const SHARD_REACH = 340
+/** Wild's Nova: an enemy this close to the orb is inside even the smallest blast (200) */
+const NOVA_REACH = 170
 /** How far ahead a lava-aware dodge checks the ground. */
 const DODGE_LOOKAHEAD = 150
 /** Landing-spot search for Teleport: fractions of its range x directions. */
@@ -713,9 +717,10 @@ export class BotController implements Bot {
       }
     }
 
-    // 8b. Combo (new): Lightning its own Fireball as it passes an enemy (r225 blast).
+    // 8b. Combo (new): Lightning its own Fireball as it passes an enemy (r225 blast); in Wild also
+    // the reactions (Shatter, Nova).
     if (p.comboChance > 0 && this.rng.chance(p.comboChance)) {
-      const combo = this.lightningCombo(state, me, enemies)
+      const combo = this.lightningCombo(state, me, enemies) ?? (wildOn(state.settings) ? this.reactionCombo(state, me, enemies) : null)
       if (combo) {
         this.spellEndTick = tick + ticks(CAST_LOCK_SECONDS)
         return this.act('combo', [combo])
@@ -1845,6 +1850,50 @@ export class BotController implements Bot {
       if (hypot(fx - me.x, fy - me.y) > LIGHTNING_RANGE * 0.95) continue
       const victim = enemies.find((e) => hypot(e.x + e.vx * lag - fx, e.y + e.vy * lag - fy) < FIREBALL_DETONATE_RADIUS * 0.8)
       if (victim) return { kind: 'cast', slot, x: fx, y: fy }
+    }
+    return null
+  }
+
+  /**
+   * Wild's reactions as combos: Lightning a Snowball whose shards would fan on into an enemy
+   * (Shatter, any Snowball), or a Fireball into our own Gravity orb beside one (Nova).
+   */
+  private reactionCombo(state: SimState, me: PawnState, enemies: PawnState[]): InputCommand | null {
+    if (me.cast) return null
+    const bolt = me.slots.indexOf('lightning')
+    if (bolt >= 0 && castable(me, bolt)) {
+      const lag = (BOT_SPELLS.lightning?.castPoint ?? 0.2) + this.params.reactionDelay
+      for (const pr of state.projectiles) {
+        if (pr.spell !== 'snowball' || pr.kind !== undefined || pr.data.shard) continue
+        const sx = pr.x + pr.vx * lag
+        const sy = pr.y + pr.vy * lag
+        const d = hypot(sx - me.x, sy - me.y)
+        if (d < 1 || d > LIGHTNING_RANGE * 0.95) continue
+        // the shards fly on along the beam in a ±36° fan
+        const ux = (sx - me.x) / d
+        const uy = (sy - me.y) / d
+        const hit = enemies.some((e) => {
+          const ex = e.x - sx
+          const ey = e.y - sy
+          const along = ex * ux + ey * uy
+          return along > 40 && along < SHARD_REACH && Math.abs(ex * uy - ey * ux) < along * 0.75
+        })
+        if (hit) return { kind: 'cast', slot: bolt, x: sx, y: sy }
+      }
+    }
+    const fire = me.slots.indexOf('fireball')
+    if (fire >= 0 && castable(me, fire)) {
+      const fb = BOT_SPELLS.fireball
+      for (const pr of state.projectiles) {
+        if (pr.owner !== this.player || pr.spell !== 'gravity' || pr.data.nova) continue
+        const far = hypot(pr.x - me.x, pr.y - me.y)
+        if (far > (fb.range ?? 1000) * 0.9) continue
+        // where the orb will be when our Fireball gets there
+        const t = fb.castPoint + this.params.reactionDelay + far / (fb.speed ?? 1000)
+        const ox = pr.x + pr.vx * t
+        const oy = pr.y + pr.vy * t
+        if (enemies.some((e) => hypot(e.x + e.vx * t - ox, e.y + e.vy * t - oy) < NOVA_REACH)) return { kind: 'cast', slot: fire, x: ox, y: oy }
+      }
     }
     return null
   }

@@ -15,6 +15,7 @@
     "bots:elo": "vite-node scripts/bots/elo.ts --",
     "bots:motion": "vite-node scripts/bots/motion.ts --",
     "bots:replay-motion": "vite-node scripts/bots/replay-motion.ts --",
+    "bots:wild": "vite-node scripts/bots/wild.ts --",
     "server:build": "node scripts/build-server.mjs",
     "accounts": "vite-node server/accounts-main.mjs",
     "accounts:migrate": "vite-node server/accounts-main.mjs --migrate",

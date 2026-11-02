@@ -9,6 +9,7 @@
 import type { ListingInfo } from './listings'
 import { ServerError, type Online } from './online'
 import { scheduledRoundsOf } from '../sim/mode'
+import { wildOn } from '../sim/wild'
 import type { MatchSettings, PlayerSlot } from '../sim/types'
 import type { RoomProgress } from './roomProgress'
 
@@ -63,7 +64,9 @@ export function p2pListingTarget(input: {
       phase: input.screen === 'match' ? 'match' : input.screen === 'results' ? 'results' : 'lobby',
       progress: input.screen === 'match' || input.screen === 'results' ? input.progress ?? null : null,
       teamMode: input.settings.teamMode, gameMode: input.settings.gameMode, winScore: input.settings.winScore,
-      ...(scheduledRoundsOf(input.settings) ? { scheduledRounds: scheduledRoundsOf(input.settings) } : {}),
+      // always sent: a heartbeat merges what it carries, so 0 and false clear a switched-off option
+      scheduledRounds: scheduledRoundsOf(input.settings),
+      wild: wildOn(input.settings),
     },
   }
 }

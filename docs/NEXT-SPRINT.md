@@ -165,8 +165,10 @@ Deployment is established by release receipts, not by implementation status here
    over every round from the second (Blood Moon, Slick Stone, Overcharge, Sudden Collapse, Meteor
    Shower, Pillar Storm, each toggleable), the card in the countdown, a badge under the clock,
    and the reactions Shatter, Nova and Fork ([wild.md](moonshot/specs/wild.md)). Ships with the
-   servers and client together (new sim rules). Next: the playtest evening, the omen voice lines,
-   the bot-only frequency runs; Wild Hours after the playtest.
+   servers and client together (new sim rules). Voice calls and stings, the library's Reactions,
+   bot combos and the Browse tag are in; bot-only runs show every omen bringing knockouts earlier
+   (Pillar Storm least) and Fork and Shatter rare between bots. Next: the playtest evening; Wild
+   Hours after it.
 
 ## Completed in this planning pass
 

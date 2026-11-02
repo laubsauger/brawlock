@@ -1,7 +1,8 @@
 # Wild: omens, reactions and a ruleset worth switching on
 
 Status: design draft, 2026-10-28; picked for the build list 2026-10-29; the four choices answered
-(README Q34–37); first deck built 2026-11-01, not released (see Built). From
+(README Q34–37); first deck built 2026-11-01, voice, library and bot combos 2026-11-02, not
+released (see Built). From
 [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even
@@ -42,19 +43,40 @@ Numbers the spec left open:
 Changes from the spec:
 - The omen is drawn when the shop before its round opens, and the badge shows it while players
   shop (Blood Moon or Overcharge can change a build); the card still turns over in the countdown.
-- No announcer call yet: the omen names need voice lines (a pack of six). The card turns over with
-  the countdown's own sound; no per-omen sting or loop.
-- The discovery card shows once per reaction per browser; the Spell library's Reactions page is
-  not built.
-- Bots read the numeric omens through the shared helpers and flee meteors and warned pillar spots;
-  they do not combine reactions yet.
+- The announcer calls the omen after the round ("Round Two!", "Meteor Shower!"; pack 10 in
+  `docs/ASSETS.md`) over a synthesized sting per omen (`omenSting`). No looping ambience: the
+  omens that would want one (the Maw) are not in the deck.
+- The discovery card shows once per reaction per browser; the Spell library lists the three
+  reactions, the unseen ones as "???" with the two spells that make them.
+- Bots read the numeric omens through the shared helpers and flee meteors and warned pillar
+  spots. Those with a combo chance (Hard and up) Lightning a Snowball whose shards would fly into
+  an enemy and send a Fireball into their own Gravity orb beside one.
+- Browse games marks a Wild room ("· Wild").
 
-Not built yet: the voice lines and stings, the Reactions page, bots using Shatter and Nova, a Wild
-tag in Browse games, Wild Hours (after the playtest), the moments engine naming each omen's best
-play, and the bot-only frequency runs (How it would be tested, 1 and 2). Checked in a muted
-headless browser: the lobby deck, the card above the shop in the countdown, the badge, Meteor
-Shower and Pillar Storm in a match against bots, the results' omens, and each omen's scene effect
-in the render preview.
+Bot-only runs (2026-11-02, How it would be tested 1 and 2): six bots (two each of Medium, Hard
+and Brutal), free for all, 200 rounds per condition, the omen forced every round:
+
+| Condition | First knockout (median s) | Round (median s) | Deaths in the round's first half | Brutal seats win | Nova / Shatter per round |
+|---|---|---|---|---|---|
+| Classic | 89 | 158 | 9% | 48% | – |
+| Blood Moon | 69 | 151 | 15% | 61% | 0.20 / 0.01 |
+| Slick Stone | 67 | 150 | 17% | 57% | 0.17 / 0.01 |
+| Overcharge | 74 | 154 | 14% | 57% | 0.38 / 0.03 |
+| Sudden Collapse | 50 | 72 | 3% | 59% | 0.09 / 0 |
+| Meteor Shower | 74 | 152 | 13% | 55% | 0.13 / 0.03 |
+| Pillar Storm | 82 | 161 | 11% | 52% | 0.15 / 0.01 |
+
+Every omen brings the first knockout earlier; Pillar Storm only a little, and more or nearer
+pillars made rounds longer (they are cover), as did a shove when one bursts: bots step off the
+warned spots. The stronger tier wins more under every omen (Blood Moon most). Fork never happens
+between bots (they never buy Shield) and Shatter seldom; both are under the spec's one-a-round
+line, so the playtest decides whether they stay. Reproduce with `npm run bots:wild -- 200`
+(`scripts/bots/wild.ts`, about two minutes).
+
+Not built yet: Wild Hours (after the playtest), the moments engine naming each omen's best play.
+Checked in a muted headless browser: the lobby deck, the card above the shop in the countdown, the
+badge, Meteor Shower and Pillar Storm in a match against bots, the results' omens, and each omen's
+scene effect in the render preview.
 
 ## The idea in one paragraph
 

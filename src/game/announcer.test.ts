@@ -265,6 +265,17 @@ describe('announcer: round flow on the real sim', () => {
   }, 20_000)
 })
 
+/** Why: in Wild the omen changes the round's rule, so the voice names it at the countdown, after the round, before Fight!. */
+describe('announcer: Wild omens', () => {
+  it('names the omen of the round after the round call, and says nothing extra without one', () => {
+    const countdown = (over: Partial<AnnouncerView>) => view(2, { phase: 'shop', phaseTicksLeft: COUNTDOWN_SECONDS * TICK_HZ, round: 1, ...over })
+    const a = quick()
+    expect(lines(play(a, [[1, [], countdown({ omen: 'meteorShower' })]]))).toEqual(['round_two', 'meteor_shower'])
+    expect(lines(play(quick(), [[1, [], countdown({})]]))).toEqual(['round_two'])
+    expect(ANNOUNCER_TEXT.meteor_shower).toBe('Meteor Shower!')
+  })
+})
+
 describe('announcer: final round vs match point', () => {
   const scored = (scores: number[], over: Partial<AnnouncerView> = {}) => {
     const v = view(scores.length, over)

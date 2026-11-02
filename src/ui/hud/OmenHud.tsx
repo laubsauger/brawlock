@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { frame } from '../../game/frame'
-import { OMEN_INFO, REACTION_INFO, type ReactionId } from '../../game/wild'
+import { OMEN_INFO, REACTION_INFO, markReactionSeen, type ReactionId } from '../../game/wild'
 import { TICK_HZ, type OmenId } from '../../sim'
-import { safeLocalStorage } from '../../game/profile'
 import { usePolled, useTick } from '../lib/ticker'
 import { OmenGlyph } from '../icons'
 
@@ -63,17 +62,7 @@ export function OmenBadge() {
   )
 }
 
-const SEEN_KEY = 'brawlock.wild.reactions'
 const CARD_MS = 4200
-
-function seenReactions(): Set<string> {
-  try {
-    const v = JSON.parse(safeLocalStorage()?.getItem(SEEN_KEY) ?? '[]') as unknown
-    return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
-  } catch {
-    return new Set()
-  }
-}
 
 /** Set by ReactionCard while mounted; the HUD director calls it per reaction event. */
 export const reactionCard = { show: (_id: ReactionId) => {} }
@@ -83,15 +72,8 @@ export function ReactionCard() {
   const [shown, setShown] = useState<ReactionId | null>(null)
   useEffect(() => {
     let timer = 0
-    const seen = seenReactions()
     reactionCard.show = (id) => {
-      if (seen.has(id)) return
-      seen.add(id)
-      try {
-        safeLocalStorage()?.setItem(SEEN_KEY, JSON.stringify([...seen]))
-      } catch {
-        /* storage blocked: it may show again next match */
-      }
+      if (!markReactionSeen(id)) return
       window.clearTimeout(timer)
       setShown(id)
       timer = window.setTimeout(() => setShown(null), CARD_MS)

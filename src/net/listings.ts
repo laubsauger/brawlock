@@ -35,8 +35,10 @@ export interface ListingInfo {
   teamMode: TeamMode
   gameMode: GameMode
   winScore: number
-  /** scheduled rounds before any tied-leader final; absent for score races */
+  /** scheduled rounds before any tied-leader final; absent or 0 for score races (a heartbeat's 0 clears it) */
   scheduledRounds?: number
+  /** Wild is on (a heartbeat's false clears it) */
+  wild?: boolean
 }
 
 /** A listing as Browse games sees it (GET /rooms?public=1, `listings`). */
@@ -108,6 +110,10 @@ export function parseListing(v: unknown, maxSeats: number, partial = false): Par
     const rounds = int(o.scheduledRounds, 0, SCHEDULED_ROUNDS_MAX)
     if (rounds === null) return 'bad scheduledRounds'
     out.scheduledRounds = rounds
+  }
+  if (o.wild !== undefined) {
+    if (typeof o.wild !== 'boolean') return 'bad wild'
+    out.wild = o.wild
   }
   if (o.progress !== undefined) {
     if (o.progress === null) out.progress = null
@@ -214,6 +220,7 @@ export class ListingDirectory {
       gameMode: l.gameMode,
       winScore: l.winScore,
       ...(l.scheduledRounds ? { scheduledRounds: l.scheduledRounds } : {}),
+      ...(l.wild ? { wild: true } : {}),
     }))
   }
 

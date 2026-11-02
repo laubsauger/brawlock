@@ -22,12 +22,13 @@ const STATUS_TONE: Record<string, string> = {
 
 const MODE: Record<string, string> = { ffa: 'Free for all', teams: 'Teams', shuffle: 'Shuffled teams' }
 
-/** "Free for all · first to 5", "Free for all · 5 rounds · final if tied" */
-export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore' | 'rankedRounds' | 'scheduledRounds'>): string {
+/** "Free for all · first to 5", "Free for all · 5 rounds · final if tied", "… · Wild" */
+export function roomMode(r: Pick<PublicRoom, 'teamMode' | 'gameMode' | 'winScore' | 'rankedRounds' | 'scheduledRounds' | 'wild'>): string {
   const mode = MODE[r.teamMode] ?? r.teamMode
   const rounds = r.rankedRounds || r.scheduledRounds
-  if (rounds) return `${mode} · ${rounds} rounds · final if tied`
-  return r.gameMode === 'rounds' || !r.gameMode ? `${mode} · first to ${r.winScore}` : `${mode} · ${r.gameMode}`
+  const wild = r.wild ? ' · Wild' : ''
+  if (rounds) return `${mode} · ${rounds} rounds · final if tied${wild}`
+  return (r.gameMode === 'rounds' || !r.gameMode ? `${mode} · first to ${r.winScore}` : `${mode} · ${r.gameMode}`) + wild
 }
 
 /** "Mira's game", "Casual", "Ranked": how a listed room is named. */
@@ -135,7 +136,7 @@ export function BrowseGames({ onBack, onHost }: { onBack: () => void; onHost: ()
               const elo = liveEloLabel(r)
               const entry = roomJoin(r)
               return (
-                <li key={`${r.kind}:${r.code}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
+                <li key={`${r.kind}:${r.code}`} data-wild={r.wild || undefined} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[rgba(0,0,0,0.28)] px-4 py-2.5">
                   <span className="flex min-w-[12rem] flex-1 flex-col leading-tight">
                     <span className="truncate text-[1.08rem] font-bold">
                       {roomTitle(r)}

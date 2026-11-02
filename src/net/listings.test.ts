@@ -68,9 +68,29 @@ describe('listing directory (server)', () => {
     if (!dir.create('ip', brisk.info).ok) throw new Error('not listed')
     expect(dir.list()[0].scheduledRounds).toBe(5)
     // teams ignore the option, so the listing does too
-    expect(p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, teamMode: 'teams', scheduledRounds: 5 } })!.info.scheduledRounds).toBeUndefined()
-    expect(p2pListingTarget({ ...input, settings: DEFAULT_SETTINGS })!.info.scheduledRounds).toBeUndefined()
+    expect(p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, teamMode: 'teams', scheduledRounds: 5 } })!.info.scheduledRounds).toBe(0)
+    expect(p2pListingTarget({ ...input, settings: DEFAULT_SETTINGS })!.info.scheduledRounds).toBe(0)
     for (const bad of [-1, 2.5, 16]) expect(directory().dir.create('ip', { ...INFO, scheduledRounds: bad })).toMatchObject({ ok: false, error: 'bad scheduledRounds' })
+  })
+
+  it('a Wild room says so in the browser, and switching it off clears the tag', () => {
+    // Why: Wild changes every round's rules; a player browsing should know before joining. A
+    // heartbeat merges what it carries, so the option must be sent off too, or the tag would stick.
+    const input = {
+      listed: { code: INFO.code, region: 'eu' }, code: INFO.code, role: 'host', status: 'open', public: true, screen: 'lobby',
+      transport: 'p2p' as const, slots: [{ kind: 'human' as const }], host: INFO.host, max: 10, joinable: 9,
+    }
+    const wild = p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, wild: true } })!
+    const { dir } = directory()
+    const c = dir.create('ip', wild.info)
+    if (!c.ok) throw new Error(c.error)
+    expect(dir.list()[0].wild).toBe(true)
+    const off = p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, wild: false, scheduledRounds: 0 } })!
+    expect(dir.beat(c.id, { token: c.token, ...off.info })).toMatchObject({ ok: true })
+    expect(dir.list()[0].wild).toBeUndefined()
+    // Wild applies to classic Rounds only, and the listing follows the sim
+    expect(p2pListingTarget({ ...input, settings: { ...DEFAULT_SETTINGS, wild: true, gameMode: 'deathmatch' } })!.info.wild).toBe(false)
+    expect(directory().dir.create('ip', { ...INFO, wild: 'yes' })).toMatchObject({ ok: false, error: 'bad wild' })
   })
   /** Why: the browser must only show rooms whose host is still there: a host that stops sending heartbeats drops off within the TTL. */
   it('create, heartbeat, expire, delete', () => {

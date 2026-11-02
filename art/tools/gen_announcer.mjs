@@ -88,6 +88,13 @@ export const LINES = [
   ['king_of_the_ashes', 'King of the Ashes!', 9],
   ['hill_lost', 'Hill Lost!', 9],
   ['hill_shrinks', 'The Hill Shrinks!', 9],
+  // pack 10: Wild's omens, called after the round at the countdown
+  ['blood_moon', 'Blood Moon!', 10],
+  ['slick_stone', 'Slick Stone!', 10],
+  ['overcharge', 'Overcharge!', 10],
+  ['sudden_collapse', 'Sudden Collapse!', 10],
+  ['meteor_shower', 'Meteor Shower!', 10],
+  ['pillar_storm', 'Pillar Storm!', 10],
 ]
 
 function apiKey() {

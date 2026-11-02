@@ -34,6 +34,7 @@ import type { BotDifficulty, MatchSettings, PlayerId, PlayerInput, PlayerSlot, S
 import type { StartClock } from './clock'
 import { MAX_PLAYERS, createSession, type MatchRecorder, type SessionDebug } from './session'
 import { scheduledRoundsOf } from '../sim/mode'
+import { wildOn } from '../sim/wild'
 import { ServerMatchTracker, type FinishedMatch } from './leaderboard'
 import type { NetStatsView } from './netstats'
 import type { HostEndpoint, Transport } from './transport'
@@ -118,6 +119,8 @@ export interface RoomSummary {
   rankedRounds?: number
   /** Scheduled casual or custom rounds before any tied-leader final; absent for score races and ranked. */
   scheduledRounds?: number
+  /** Wild is on (an omen over every round); absent otherwise */
+  wild?: boolean
   /** Rating availability and minimum duration; never exposes device identities. */
   elo?: { enabled: boolean; minSeconds: number }
 }
@@ -494,6 +497,7 @@ export async function createRoom(opts: RoomOptions, deps: RoomDeps): Promise<Roo
         gameMode: st.gameMode,
         winScore: st.winScore,
         ...(st.rankedRounds ? { rankedRounds: st.rankedRounds } : scheduledRoundsOf(st) ? { scheduledRounds: scheduledRoundsOf(st) } : {}),
+        ...(wildOn(st) ? { wild: true } : {}),
         ...(opts.elo ? { elo: { ...opts.elo } } : {}),
       }
     },
