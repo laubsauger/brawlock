@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.0-alpha.18",
+    "releaseDate": "2026-11-02",
+    "title": "The daily Gauntlet, Wild and the Final Blow",
+    "changes": [
+      "The daily Gauntlet: one challenge a day for everyone. Five waves end with the day's champion, two lives, one board. Daily Embers (75 every seventh day of a streak), and Watch the top runs or your own.",
+      "Wild, a custom game option: from round two an omen changes one rule each round (Blood Moon, Meteor Shower, Pillar Storm and more), and spells react: Lightning shatters Snowballs, Fireballs go nova in Gravity.",
+      "The Final Blow: the hit that decides a round or the match replays in slow motion, and a finishing hit punches the camera in. Choose when it plays in Settings.",
+      "Results highlights: the match's best moments play on the results screen, and the replay viewer marks them.",
+      "Casual quick play is quicker: five rounds, a smaller arena and a faster ring. Custom games can use the same pace.",
+      "An optional free camera (Settings › Gameplay): the camera stops following your warlock; hold Space to bring it back.",
+      "The shop's Reset build is easier to find, and taking over a bot's seat mid-match offers a free reset."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.17",
     "releaseDate": "2026-10-29",
     "title": "Shop Ready, global chat and calmer bots",
