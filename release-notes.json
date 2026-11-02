@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.0-alpha.19",
+    "releaseDate": "2026-11-02",
+    "title": "Wild gets wilder, and a camera toggle",
+    "changes": [
+      "Four new Wild omens: the Cursed Bomb (pass it on with a hit or a touch before it blows), Gale, Shuffle, and Vengeful Spirits, where the knocked out haunt the lava and hurl bolts at the living.",
+      "Wild rounds stack omens: two from round four, and three at once in a round that can win the match (a Cataclysm). Bolts that meet blow up (Clash), and Nova is far easier to set off.",
+      "Choose Classic or Wild right in the Custom game dialog.",
+      "Press L in a match to switch between a following and a free camera. The arrow keys pan, and a free camera drags with the middle mouse.",
+      "The Final Blow plays slower, and the shop waits for it.",
+      "The daily: a Snowball push into the lava now counts for the bounty, and from Daily #3 the climb is gentler (a Hard wave before the champion, three lives). Hover the daily card in a run for the day's briefing.",
+      "The main menu fits on one screen again with Ranked on its own row, and your first match shows how to move spell keys mid-match."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.18",
     "releaseDate": "2026-11-02",
     "title": "The daily Gauntlet, Wild and the Final Blow",

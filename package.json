@@ -1,7 +1,7 @@
 {
   "name": "brawlock",
   "private": true,
-  "version": "0.1.0-alpha.18",
+  "version": "0.1.0-alpha.19",
   "releaseDate": "2026-11-02",
   "type": "module",
   "scripts": {
