@@ -2,7 +2,8 @@
 
 Status: design draft, 2026-10-28; picked for the build list 2026-10-29; the four choices answered
 (README Q34–37); first deck built 2026-11-01, voice, library and bot combos 2026-11-02, shipped
-in alpha.18 on 2026-11-02 (see Built); Wild 2 built the same day (see Wild 2). From
+in alpha.18 on 2026-11-02 (see Built); Wild 2 built the same day and shipped in alpha.19 (see
+Wild 2). From
 [03-moonshot-v2.md](../03-moonshot-v2.md) Bet 5 and [04-keystones.md](../04-keystones.md).
 
 The developer's reaction to Wild as first proposed: "I do love the general idea of Wild, even

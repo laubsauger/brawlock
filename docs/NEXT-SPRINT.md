@@ -171,7 +171,8 @@ Deployment is established by release receipts, not by implementation status here
    (Pillar Storm least) and Fork and Shatter rare between bots. Wild 2 (2026-11-02, after the
    developer found the combos too few and too tame): four party omens (Cursed Bomb, Gale, Shuffle,
    Vengeful Spirits), two omens a round from the fourth and three in a round that can decide the
-   match (Cataclysm), the Clash reaction, and Nova from the Gravity orb's burning ring. Next: the
+   match (Cataclysm), the Clash reaction, and Nova from the Gravity orb's burning ring; shipped in
+   alpha.19 (2026-11-02). Next: the
    playtest evening; Wild Hours after it.
 
 ## Completed in this planning pass
