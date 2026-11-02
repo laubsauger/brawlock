@@ -18,7 +18,7 @@ import type { BotDifficulty, PlayerSlot } from '../sim'
 import { BOT_ELO, createBot } from './index'
 import { expectedScore } from './rating'
 // the measurement BOT_ELO is rounded from (presets.ts); a preset change that moves a step needs a new one
-import calibrationJson from '../../docs/research/bot-calibration-2026-10-26-windups.json?raw'
+import calibrationJson from '../../docs/research/bot-calibration-2026-11-02-orbit.json?raw'
 
 const LADDER = !!(globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.LADDER
 

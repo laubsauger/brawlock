@@ -24,7 +24,7 @@
  * - A purchase the sim rejects is detected and that spell is skipped until the next shop
  *   phase, instead of burning the 40 s buy timer.
  */
-import { clamp, cos, exp, hypot, sin } from '../sim/math'
+import { atan2, clamp, cos, exp, hypot, sin } from '../sim/math'
 import { TICK_HZ, onTickRate } from '../sim/types'
 import type {
   BotDifficulty,
@@ -180,6 +180,18 @@ const SEAL_PATH_STEP = 40
  * of samples in 8-bot FFA, against 4% before holding was a stop (5-6% with this cap).
  */
 const HOLD_MAX_SECONDS = 2
+/** FFA orbit (motor model): steps round the target (rad), the bonus for keeping our way round, the cost of standing, and the chance to change direction per pick */
+const ORBIT_STEPS = [0.3, 0.5, 0.7]
+const ORBIT_BONUS = 0.08
+const STAY_COST = 0.15
+const ORBIT_FLIP_CHANCE = 0.06
+/** a goal straight ahead of our walk scores this much more, one straight behind this much less; a turn-around costs TURN_COST more, for TURN_MEMORY s after walking */
+const ONWARD = 0.25
+const TURN_COST = 0.6
+const TURN_MEMORY = 0.6
+/** at a reached goal, the chance of a pause first, and how long (s) */
+const PAUSE_CHANCE = 0.3
+const PAUSE_SECONDS = [0.65, 1.1] as const
 
 export type BotAction =
   | 'idle'
@@ -339,6 +351,13 @@ export class BotController implements Bot {
   private movedTick = 0
   /** stand-off point beside the target, as angle and radius, to drift from */
   private standoff: { a: number; r: number } | null = null
+  /** FFA: the way we circle our target (+1 counter-clockwise, -1 clockwise) */
+  private orbitSign = 1
+  /** the way we last walked, and when (a goal picked soon after should not turn us round) */
+  private heading: { x: number; y: number; tick: number } | null = null
+  /** a pause at a reached goal lasts until this tick; the goal it was for (one pause per goal) */
+  private pauseUntil = 0
+  private pausedFor: Vec2 | null = null
   private nextReclick = 0
   private tokens = ORDER_BURST
   private tokenTick = 0
@@ -492,6 +511,10 @@ export class BotController implements Bot {
     this.thinkClock = 0
     this.pillarSide = null
     this.hillPlan = null
+    this.heading = null
+    this.orbitSign = 1
+    this.pauseUntil = 0
+    this.pausedFor = null
   }
 
   private addGrudge(owner: PlayerId, weight: number, tick: number): void {
@@ -652,15 +675,23 @@ export class BotController implements Bot {
     }
     const target = this.target === null ? null : (state.pawns.find((o) => o.owner === this.target && seenEnemy(state, this.player, o)) ?? null)
 
-    // 4. Wander point. A committed goal (motor model) outlasts arriving and the wander timer, but
-    // not a new target, a pillar or an area threat over it.
+    // 4. Wander point. A committed goal (motor model) outlasts the wander timer, but not arriving,
+    // a new target, a pillar or an area threat over it. Arriving, now and then a short pause
+    // first, as players stop now and then (and the walk after it starts fresh, not as a turn-around)
     const committed = tick < this.commitUntil
+    if (p.commitSeconds > 0 && this.wander && this.pausedFor !== this.wander && tick >= this.pauseUntil && dist(me, this.wander) < WANDER_ARRIVE_DIST && this.rng.chance(PAUSE_CHANCE)) {
+      this.pausedFor = this.wander
+      this.pauseUntil = tick + ticks(this.rng.range(PAUSE_SECONDS[0], PAUSE_SECONDS[1]))
+    }
     const broken = committed && !!this.wander &&
       ((target?.owner ?? null) !== this.wanderTarget || inPillar(state, this.wander.x, this.wander.y) || insideAny(zones, this.wander.x, this.wander.y, THREAT_MARGIN))
     if (
       !this.wander ||
       broken ||
-      (!committed && (dist(me, this.wander) < WANDER_ARRIVE_DIST || tick > this.nextWanderTick)) ||
+      // arriving picks the next goal at once, committed or not: waiting out the commitment at a
+      // reached goal was the largest share of bots standing still (playtest 2026-11-02)
+      (dist(me, this.wander) < WANDER_ARRIVE_DIST && tick >= this.pauseUntil) ||
+      (!committed && tick > this.nextWanderTick && tick >= this.pauseUntil) ||
       (p.safeWander && !isSafe(safety, this.wander.x, this.wander.y)) ||
       // picked in the shop, before the field went up
       this.sealedHillOnWay(state, me, this.wander)
@@ -1705,8 +1736,18 @@ export class BotController implements Bot {
     const threats = state.projectiles.filter((shot) => areEnemies(state, this.player, shot.owner))
     let best: Vec2 | null = null
     let bestScore = -Infinity
+    // the way we are walking (or just walked): goals ahead of it score better, goals behind it
+    // worse, and a turn-around (more than 120 degrees) much worse (motor model)
+    const ws = hypot(me.walkVx, me.walkVy)
+    if (ws > 50) this.heading = { x: me.walkVx / ws, y: me.walkVy / ws, tick: state.tick }
+    const h = p.commitSeconds > 0 && this.heading && state.tick - this.heading.tick <= ticks(TURN_MEMORY) ? this.heading : null
     const consider = (point: Vec2, bonus = 0) => {
       if (inPillar(state, point.x, point.y) || this.sealedHillOnWay(state, me, point) || (p.safeWander && !isSafeWithMargin(safety, point.x, point.y, p.edgeMargin))) return
+      const pd = dist(me, point)
+      if (h && pd > 1) {
+        const c = ((point.x - me.x) * h.x + (point.y - me.y) * h.y) / pd
+        bonus += ONWARD * c - (c < -0.5 ? TURN_COST : 0)
+      }
       // crowding from everyone but the target, saturating: several bots closing on the same
       // target must not push each other out of shooting range for good
       let crowd = 0
@@ -1728,15 +1769,37 @@ export class BotController implements Bot {
       }
     }
     // Include holding ground: moving is useful only when another position scores better.
-    // ffaKeep: the goal we have (holding counts) must be beaten by a margin
-    if (p.commitSeconds <= 0 || state.tick - this.movedTick < ticks(HOLD_MAX_SECONDS)) consider({ x: me.x, y: me.y }, this.holding ? p.ffaKeep : 0)
-    if (p.ffaKeep > 0 && this.wander && !this.holding) consider(this.wander, p.ffaKeep)
+    // ffaKeep: the goal we have (holding counts) must be beaten by a margin. With the motor model
+    // standing also costs STAY_COST: players keep moving (bots stood in 12-20% of their time)
+    if (p.commitSeconds <= 0 || state.tick - this.movedTick < ticks(HOLD_MAX_SECONDS)) consider({ x: me.x, y: me.y }, (this.holding ? p.ffaKeep : 0) - (p.commitSeconds > 0 ? STAY_COST : 0))
+    // (a goal already reached is not kept: that was standing on it)
+    if (p.ffaKeep > 0 && this.wander && !this.holding && dist(me, this.wander) >= WANDER_ARRIVE_DIST) consider(this.wander, p.ffaKeep)
+    // circle the target at range, mostly on the way we were already going (a reversal is a
+    // turn-around players do not make for nothing)
+    let orbitFrom: number | null = null
+    if (target && p.commitSeconds > 0) {
+      if (this.rng.chance(ORBIT_FLIP_CHANCE)) this.orbitSign = -this.orbitSign
+      orbitFrom = atan2(me.y - target.y, me.x - target.x)
+      const r0 = clamp(dist(me, target), shootingRange - 120, shootingRange + 200)
+      for (const k of ORBIT_STEPS) {
+        for (const sign of [this.orbitSign, -this.orbitSign]) {
+          const a = orbitFrom + sign * k
+          consider({ x: target.x + cos(a) * r0, y: target.y + sin(a) * r0 }, sign === this.orbitSign ? ORBIT_BONUS : 0)
+        }
+      }
+    }
     for (let i = 0; i < 12; i++) {
       const angle = this.rng.range(0, Math.PI * 2)
       const aroundTarget = target && i < 6
       const centre = aroundTarget ? target : me
       const radius = aroundTarget ? this.rng.range(300, 850) : this.rng.range(180, 600)
       consider({ x: centre.x + cos(angle) * radius, y: centre.y + sin(angle) * radius })
+    }
+    // keep circling whichever way the goal we took goes round the target
+    const goal = best as Vec2 | null
+    if (goal && target && orbitFrom !== null) {
+      const cross = (me.x - target.x) * (goal.y - target.y) - (me.y - target.y) * (goal.x - target.x)
+      if (Math.abs(cross) > 1) this.orbitSign = cross > 0 ? 1 : -1
     }
     return best
   }

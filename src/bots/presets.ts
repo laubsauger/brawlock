@@ -499,12 +499,16 @@ export const BOT_PRESETS: Record<BotDifficulty, BotParams> = {
  * see docs/research/bot-calibration-2026-10-26-windups.json. Hard moved most (1650 -> 1825): it
  * reached 99% of rounds over Medium (was 98%), and the tiers above Medium connect to it only
  * through such pairs, so labels carry about ±50.
+ * Remeasured 2026-11-02 after the motor tiers stopped standing around (circling their target, the
+ * next goal at once; docs/research/bot-calibration-2026-11-02-orbit.json, which the label test reads): Medium, moving too, is
+ * harder to hit, so Hard, Brutal and Uber stand 80-150 lower over it; their steps between
+ * themselves held (Brutal 77% of rounds over Hard, Uber 66% over Brutal).
  * Dummy has no rating (it never acts).
  */
 export const BOT_ELO: Record<Exclude<BotDifficulty, 'dummy'>, number> = {
-  easy: 350,
+  easy: 375,
   medium: 1000,
-  hard: 1825,
-  brutal: 2025,
-  uber: 2225,
+  hard: 1750,
+  brutal: 1950,
+  uber: 2075,
 }

@@ -462,3 +462,30 @@ ends. Waiting 0.6–1.2 s before the shift keeps the gates but leaves idle where
 shipped. The playtest decides first: if standing reads as stiff, the fix belongs in the pickers
 (prefer goals onward of the current walk), not in a shift on top of them.
 
+**Idle, fixed in the pickers (2026-11-02).** The playtest: bots "feel like they're standing
+around too much". Where the standing came from (4-player FFA, share of alive fight ticks): waiting
+at a reached goal 11–19%, holding 11–15%, windups 4–7%. Changes, motor tiers only
+(`commitSeconds > 0`, `src/bots/controller.ts`):
+- Arriving at the goal picks the next one at once, committed or not, and the FFA picker no longer
+  keeps a goal already reached (its keep bonus had won: the bot stood on it).
+- Standing costs 0.15 in the FFA score, and with a target the picker adds points circling it at
+  shooting range (0.3, 0.5 and 0.7 rad round it, a bonus of 0.08 for keeping the way it was
+  circling, a 6% chance a pick to change direction).
+- Every candidate scores 0.25 × the cosine to the way the bot walked in the last 0.6 s, and a
+  turn-around (over 120°) costs 0.6 more.
+- At a reached goal, 30% of the time a pause of 0.65–1.1 s first, as players stop now and then.
+  Re-picking a goal a dodge left behind was tried too and moved nothing.
+
+Measured over eight ten-minute matches (the gate's four and four more), 30 Hz / 60 Hz:
+
+| Tier | Idle before → after | Reversals/s | Free | Dither | Flips/s |
+|---|---|---|---|---|---|
+| Medium | 0.20 / 0.19 → 0.03 / 0.03 | 0.19 / 0.20 | 0.07 / 0.07 | 0.03 / 0.02 | 0.14 / 0.15 |
+| Hard | 0.16 / 0.16 → 0.01 / 0.01 | 0.32 / 0.30 | 0.10 / 0.08 | 0.07 / 0.06 | 0.29 / 0.27 |
+| Brutal | 0.13 / 0.15 → 0.01 / 0.01 | 0.33 / 0.33 | 0.09 / 0.10 | 0.08 / 0.07 | 0.30 / 0.29 |
+| Uber | 0.12 / 0.11 → 0.01 / 0.01 | 0.32 / 0.31 | 0.08 / 0.08 | 0.09 / 0.07 | 0.29 / 0.27 |
+
+Moving all the time costs turn-arounds (Brutal at 60 Hz 0.28 before, standing 15% of the time):
+the strong humans' own top match turns around 0.33 a second while standing 1–3%, which is where
+the bots now are. The gated motion test and the ladder pass at 30 and 60 Hz.
+
