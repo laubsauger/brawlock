@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlayerSlot } from '../sim/types'
-import { PLAYER_COLORS, planPlayerColor } from './lobbyColors'
+import { PLAYER_COLORS, currentColor, planPlayerColor } from './lobbyColors'
 
 const slot = (id: number, color: number, kind: PlayerSlot['kind'] = 'human'): PlayerSlot => ({ id, color, kind, name: `Player ${id}`, team: id })
 
@@ -39,3 +39,15 @@ describe('lobby color requests', () => {
     expect(planPlayerColor([slot(1, PLAYER_COLORS[0])], 2, PLAYER_COLORS[1])).toBeNull()
   })
 })
+
+/** Why: a white health bar hid its white damage trail (playtest 2026-11-02), so White left the palette. */
+describe('retired colours', () => {
+  it('has no near-white colour, and a saved White becomes a palette colour', () => {
+    const light = PLAYER_COLORS.filter((c) => ((c >> 16) & 255) > 200 && ((c >> 8) & 255) > 200 && (c & 255) > 200)
+    expect(light).toEqual([])
+    expect(PLAYER_COLORS).toContain(currentColor(0xe8e8f0))
+    expect(currentColor(PLAYER_COLORS[3])).toBe(PLAYER_COLORS[3])
+    expect(currentColor(null)).toBeNull()
+  })
+})
+

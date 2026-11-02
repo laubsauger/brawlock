@@ -62,3 +62,6 @@ import './scourge'
 
 // Wild's omens and reactions (not a spell)
 import './wild'
+
+// the caldera wall's hits (not a spell)
+import './wall'

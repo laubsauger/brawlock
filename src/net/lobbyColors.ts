@@ -10,11 +10,20 @@ export const PLAYER_COLOR_OPTIONS = [
   { color: 0xff8c1a, name: 'Orange' },
   { color: 0x34c759, name: 'Green' },
   { color: 0xff4fa3, name: 'Pink' },
-  { color: 0xe8e8f0, name: 'White' },
+  // Lime replaced White (2026-11-02): a white health bar hid its white damage trail
+  { color: 0xa6e22e, name: 'Lime' },
   { color: 0xa86b32, name: 'Brown' },
 ] as const
 
 export const PLAYER_COLORS: readonly number[] = PLAYER_COLOR_OPTIONS.map((option) => option.color)
+
+/** Colours that left the palette, and what a saved choice of one becomes. */
+const RETIRED_COLORS = new Map<number, number>([[0xe8e8f0, 0xa6e22e]])
+
+/** A saved or requested colour as the palette has it now (a retired one becomes its replacement). */
+export function currentColor<T extends number | null>(color: T): T {
+  return (color === null ? color : RETIRED_COLORS.get(color) ?? color) as T
+}
 
 export interface PlayerColorPatch {
   player: number

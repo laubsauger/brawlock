@@ -146,6 +146,11 @@ Clash came 3 to 6 times a round under every Wild condition, Nova 0.3 to 0.5. Shu
 not bring knockouts earlier; it stays for the chaos, the playtest decides. Bots pass the bomb less
 than once per bomb (most go off on their first holder); people should pass far more.
 
+After alpha.19 (playtest, same day: "impossible to see what each round actually does"): the card
+turns over 4.5 s before the fight and stays 2.5 s into it (0.75 s more per extra omen) before it
+flies up, and the badges under the clock open a briefing on hover or focus with each omen's rule
+(and the Cataclysm line), in the shop and the fight.
+
 Not built: Wild Hours, the moments engine naming omens' best plays, a spirit's name over its wisp.
 
 ## The idea in one paragraph

@@ -40,6 +40,7 @@ const SAMPLES: { [K in SimEvent['type']]: Extract<SimEvent, { type: K }> } = {
   omenWarning: { type: 'omenWarning', omen: 'pillarStorm', x: 100, y: 0, ticks: 30 },
   bomb: { type: 'bomb', action: 'pass', holder: 2, from: 1, x: 100, y: 0, fuse: 120 },
   spirit: { type: 'spirit', pawn: 2, owner: 1, x: 1500, y: 0 },
+  wallHit: { type: 'wallHit', pawn: 2, x: 3370, y: 0, speed: 900 },
   reaction: { type: 'reaction', reaction: 'shatter', x: 0, y: 0, owner: 1 },
   phase: { type: 'phase', phase: 'fight', round: 1 },
   roundWin: { type: 'roundWin', team: 0, players: [0] },

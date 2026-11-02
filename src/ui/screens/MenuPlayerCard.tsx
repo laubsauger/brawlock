@@ -5,6 +5,7 @@ import { EmberMark } from './Collection'
 import { EmblemBadge } from '../EmblemBadge'
 import { localEquipment } from '../../game/wardrobe'
 import { getProfile } from '../../game/profile'
+import { currentColor } from '../../net/lobbyColors'
 
 export type MenuRatingState = 'loading' | 'ready' | 'error' | 'disabled'
 
@@ -42,7 +43,7 @@ export function MenuPlayerCard(props: Props) {
   const invoke = (action: () => void) => () => { sfx('click'); action() }
   // the account's equipped cape emblem is its badge (last progression snapshot)
   const emblem = account ? localEquipment()?.emblem ?? null : null
-  const preferred = account?.profile?.color ?? getProfile().color
+  const preferred = currentColor(account?.profile?.color ?? getProfile().color)
   const avatarColor = preferred === null ? '#efc58e' : `#${preferred.toString(16).padStart(6, '0')}`
   const actions = Number(ranked) + Number(accountsEnabled || elsewhere)
   return <section className="menu-player-card" aria-label="Player and account" data-testid="menu-player-card">

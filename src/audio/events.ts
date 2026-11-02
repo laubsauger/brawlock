@@ -446,6 +446,8 @@ const HANDLERS: { [K in SimEvent['type']]: Handler<K> | null } = {
   freshStart: (e, c) => (e.player === c.listener.localPlayer ? [cue('buyNew', CENTRE, 1.2)] : []),
   allReady: null,
   obstacleDestroyed: (e, c) => [cue('obstacleBreak', c.at(e.x, e.y))],
+  // thrown into the caldera wall: a body slam, louder the harder
+  wallHit: (e, c) => [cue('chargeSlam', c.at(e.x, e.y), Math.min(1.2, 0.45 + e.speed / 2500))],
   arenaShrink: () => [cue('shrinkRumble', CENTRE, 0.9)],
   // Wild: a warned pillar groans where it will burst
   omen: null,

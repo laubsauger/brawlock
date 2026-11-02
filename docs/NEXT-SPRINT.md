@@ -60,8 +60,9 @@ Deployment is established by release receipts, not by implementation status here
    - Bots read windups (Hard 30%, Brutal and Uber 70% of casts): an enemy turning or winding up a
      straight bolt is dodged as if the bolt were flying. Half the hits Brutal took on small arenas
      were close Fireballs no bot could dodge after spawn (the "reacts slowly" report). Ladder
-     remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels Hard 1825,
-     Brutal 2025, Uber 2225 (PLAN §7).
+     remeasured: Brutal 76% of rounds over Hard, Uber 75% over Brutal; lobby labels then Hard 1825,
+     Brutal 2025, Uber 2225 (PLAN §7; since 2026-11-02, with bots no longer standing around, Hard
+     1750, Brutal 1950, Uber 2075).
    - itch.io build ([ITCH.md](ITCH.md)): same servers and player pool, guests only; published
      with butler to https://prompin.itch.io/brawlock.
 6. **Shipped in alpha.16.**

@@ -20,6 +20,7 @@ import {
 } from 'three/tsl'
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { S } from '../coords'
+import { BASIN_WALL_RADIUS } from '../../sim/config'
 import type { Node } from 'three/webgpu'
 import { loadSurface, type SurfaceMaps } from './textures'
 import { asF, gamePos, staticInstancedMesh, type WorldCtx } from './world'
@@ -108,6 +109,60 @@ function rockGeometry(seed: number, detail: number): THREE.BufferGeometry {
   return g
 }
 
+/**
+ * The caldera rim: one jagged ring of rock whose foot stands exactly on the sim's wall
+ * (BASIN_WALL_RADIUS), so a warlock thrown out stops against rock it can see. The profile leans
+ * back from the foot to a broken crest and falls away outside; noise only ever pushes it outward,
+ * so no rock stands inside the wall.
+ */
+function rimGeometry(wall: number): THREE.BufferGeometry {
+  const SEG = 384
+  // [radius past the wall, height, outward noise] in game units, foot to the far side
+  const PROFILE: readonly (readonly [number, number, number])[] = [
+    [0, -60, 0], [4, 30, 10], [18, 120, 34], [55, 230, 70], [110, 330, 100], [190, 390, 120],
+    [330, 340, 130], [520, 230, 130], [760, 90, 110], [980, -60, 60],
+  ]
+  const rows = PROFILE.length
+  const pos: number[] = []
+  for (let i = 0; i <= SEG; i++) {
+    const a = (i / SEG) * Math.PI * 2
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    // a broken crest: some stretches rise, some sag
+    const crest = 0.55 + 0.9 * valueNoise3(ca * 5 + 11, sa * 5, 3.7)
+    for (let j = 0; j < rows; j++) {
+      const [dr, h, amp] = PROFILE[j]
+      const r = wall + dr + amp * valueNoise3(ca * 11 + j * 0.9, sa * 11, j * 1.31)
+      const y = j > 1 && j < rows - 1 ? h * crest + 40 * (valueNoise3(ca * 23, sa * 23, j) - 0.5) : h
+      pos.push(ca * r * S, y * S, -sa * r * S)
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < SEG; i++) {
+    for (let j = 0; j < rows - 1; j++) {
+      const a = i * rows + j
+      const b = (i + 1) * rows + j
+      idx.push(a, b, a + 1, b, b + 1, a + 1)
+    }
+  }
+  let g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  // the foot must face the arena (in toward the centre); flip the winding if it came out backwards
+  const n = g.getAttribute('normal') as THREE.BufferAttribute
+  const p = g.getAttribute('position') as THREE.BufferAttribute
+  if (n.getX(1) * p.getX(1) + n.getZ(1) * p.getZ(1) > 0) {
+    for (let k = 0; k < idx.length; k += 3) [idx[k + 1], idx[k + 2]] = [idx[k + 2], idx[k + 1]]
+    g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setIndex(idx)
+    g.computeVertexNormals()
+  }
+  g.computeBoundingSphere()
+  return g
+}
+
 /** Hexagonal prism with a pointed cap, base at y = 0, height ~3.1. */
 function crystalGeometry(): THREE.BufferGeometry {
   const prism = new THREE.CylinderGeometry(1, 1, 2.4, 6, 1).toNonIndexed()
@@ -137,7 +192,7 @@ export class Environment {
   private disposables: { dispose(): void }[] = []
   private rockMaps: SurfaceMaps | null = null
   private mossMaps: SurfaceMaps | null = null
-  private rockMeshes: THREE.InstancedMesh[] = []
+  private rockMeshes: THREE.Mesh[] = []
   private rockMat: THREE.MeshStandardNodeMaterial | null = null
   private disposed = false
 
@@ -177,8 +232,17 @@ export class Environment {
         }
       }
     }
-    for (let i = 0; i < 70; i++) addRock(2380 + rand() * 1600, rand() * Math.PI * 2, 70 + rand() * 170, 0.5 + rand() * 0.5)
-    for (let i = 0; i < 46; i++) addRock(4300 + rand() * 1700, (i / 46) * Math.PI * 2 + rand() * 0.1, 500 + rand() * 600, 0.9 + rand() * 0.9)
+    // every rock stands outside the rim (centre at least 1.7 sizes past the wall: a rock reaches
+    // about that far), so nothing a warlock flies through stands in the open lava
+    const past = (r: number, size: number) => Math.max(r, BASIN_WALL_RADIUS + size * 1.7)
+    for (let i = 0; i < 70; i++) {
+      const size = 70 + rand() * 170
+      addRock(past(BASIN_WALL_RADIUS + 120 + rand() * 900, size), rand() * Math.PI * 2, size, 0.5 + rand() * 0.5)
+    }
+    for (let i = 0; i < 46; i++) {
+      const size = 500 + rand() * 600
+      addRock(past(4300 + rand() * 1700, size), (i / 46) * Math.PI * 2 + rand() * 0.1, size, 0.9 + rand() * 0.9)
+    }
     for (let i = 0; i < 34; i++) addRock(6200 + rand() * 900, (i / 34) * Math.PI * 2 + rand() * 0.15, 900 + rand() * 700, 1.3 + rand() * 1.1)
 
     const m4 = new THREE.Matrix4()
@@ -204,6 +268,14 @@ export class Environment {
       this.group.add(mesh)
       this.disposables.push(mesh)
     })
+    // the rim the sim's wall stands on
+    const rimGeo = rimGeometry(BASIN_WALL_RADIUS)
+    const rim = new THREE.Mesh(rimGeo, rockMat)
+    rim.name = 'caldera-rim'
+    rim.frustumCulled = false
+    this.rockMeshes.push(rim)
+    this.group.add(rim)
+    this.disposables.push(rimGeo)
     if (crystals.length > 0) {
       const cg = crystalGeometry()
       this.disposables.push(cg)

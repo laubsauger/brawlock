@@ -27,7 +27,7 @@ import {
   type CollisionHit,
   collMatrix,
 } from './collision'
-import { GAME_ARENA_RADIUS, OBSTACLE_ELASTICITY, OBSTACLE_MASS, ORIGINAL_TICK_SCALE, PAWN_ELASTICITY, PAWN_MASS, PAWN_RADIUS } from './config'
+import { BASIN_WALL_HIT_SPEED, BASIN_WALL_RADIUS, BASIN_WALL_RESTITUTION, GAME_ARENA_RADIUS, OBSTACLE_ELASTICITY, OBSTACLE_MASS, ORIGINAL_TICK_SCALE, PAWN_ELASTICITY, PAWN_MASS, PAWN_RADIUS } from './config'
 import { MODIFIERS } from './modifiers'
 import { isAlive, kindOf, stepScale } from './projectiles'
 import { PROJECTILE_BEHAVIORS } from './spells'
@@ -260,6 +260,36 @@ function arenaBounds(k: Kin): void {
   k.vy -= vr * uy
 }
 
+/**
+ * The caldera wall (BASIN_WALL_RADIUS): a warlock's body stops at the rim. Its slide bounces back
+ * with a little of its speed, and its walk loses the part into the rock.
+ */
+function basinWall(state: SimState, p: PawnState): void {
+  const limit = BASIN_WALL_RADIUS - PAWN_RADIUS
+  const d2 = p.x * p.x + p.y * p.y
+  if (d2 < limit * limit) return
+  const d = Math.sqrt(d2)
+  const ux = p.x / d
+  const uy = p.y / d
+  p.x = ux * limit
+  p.y = uy * limit
+  let sx = p.vx - p.walkVx
+  let sy = p.vy - p.walkVy
+  const into = sx * ux + sy * uy
+  if (into > 0) {
+    sx -= (1 + BASIN_WALL_RESTITUTION) * into * ux
+    sy -= (1 + BASIN_WALL_RESTITUTION) * into * uy
+    if (into >= BASIN_WALL_HIT_SPEED) state.events.push({ type: 'wallHit', pawn: p.id, x: p.x, y: p.y, speed: into })
+  }
+  const walk = p.walkVx * ux + p.walkVy * uy
+  if (walk > 0) {
+    p.walkVx -= walk * ux
+    p.walkVy -= walk * uy
+  }
+  p.vx = sx + p.walkVx
+  p.vy = sy + p.walkVy
+}
+
 /** Notification flags for an ordered pair (a dominates: init(a) <= init(b)). */
 export function notifications(state: SimState, a: Body, b: Body): [boolean, boolean] {
   const al = alliance(state, a.owner, b.owner)
@@ -326,7 +356,7 @@ export function physicsStep(state: SimState): void {
     if (!p.alive) continue
     p.x += p.vx * DT
     p.y += p.vy * DT
-    arenaBounds(p)
+    basinWall(state, p)
   }
   for (const p of state.projectiles) {
     if (p.data.static) continue

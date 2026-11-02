@@ -10,6 +10,7 @@ import { EMPTY_EQUIPMENT } from '../../game/progressionCatalog'
 import { WardrobeStage } from '../../render/WardrobeStage'
 import { EmblemBadge } from '../EmblemBadge'
 import { PrivateEmail } from './PrivateEmail'
+import { currentColor } from '../../net/lobbyColors'
 
 const PROVIDER_LABEL = { google: 'Google', discord: 'Discord', microsoft: 'Microsoft' }
 
@@ -41,7 +42,7 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
   const load = async () => {
     const [config, account] = await Promise.all([accountProviders(), refreshAccount()])
     setProviders(config.providers)
-    if (account?.profile) { setName(account.profile.name); setColor(account.profile.color) }
+    if (account?.profile) { setName(account.profile.name); setColor(currentColor(account.profile.color)) }
     return account
   }
   const run = async (action: () => Promise<void>) => {
@@ -89,7 +90,7 @@ export function Account({ onClose, rankedRegion, onContinue, initialProblem, mod
           if (busy || name.trim().length < 3) return
           void run(async () => {
             const saved = await saveAccountProfile({ name, color }, !!player.profile)
-            if (saved.profile) { setName(saved.profile.name); setColor(saved.profile.color) }
+            if (saved.profile) { setName(saved.profile.name); setColor(currentColor(saved.profile.color)) }
             if (editingSettings) setNotice('Player name and color saved.')
             else complete()
           })

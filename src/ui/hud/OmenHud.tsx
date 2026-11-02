@@ -15,7 +15,13 @@ import { OmenGlyph } from '../icons'
  */
 
 /** the card turns over this long before the fight (the countdown) */
-const REVEAL_SECONDS = 3.5
+const REVEAL_SECONDS = 4.5
+/**
+ * and stays this long into the fight (spawn shields are still up), plus a little per extra omen:
+ * gone at Fight! it was too quick to read (playtest 2026-11-02)
+ */
+const HOLD_SECONDS = 2.5
+const HOLD_PER_OMEN = 0.75
 
 const readOmens = () => (frame.curr?.omens ?? []).join(' ')
 const parse = (key: string) => (key ? key.split(' ') : []) as OmenId[]
@@ -24,14 +30,21 @@ export function OmenReveal() {
   const omens = parse(usePolled(readOmens, String, 4))
   const ref = useRef<HTMLDivElement>(null)
   const last = useRef('off')
+  /** when this fight began on our clock (null: not fighting) */
+  const fightAt = useRef<number | null>(null)
   useTick(() => {
     const s = frame.curr
     const el = ref.current
     if (!s || !el) return
+    const now = performance.now()
+    if (s.phase !== 'fight') fightAt.current = null
+    else if (fightAt.current === null) fightAt.current = now
     const prev = last.current
+    const hold = (HOLD_SECONDS + HOLD_PER_OMEN * Math.max(0, (s.omens?.length ?? 1) - 1)) * 1000
     const next = !s.omens?.length ? 'off'
       : s.phase === 'shop' && s.phaseTicksLeft <= REVEAL_SECONDS * TICK_HZ ? 'reveal'
-      // it leaves only once it was shown (a late join mid-fight gets the badge alone)
+      // it stays a moment into the fight, then leaves only once it was shown (a late join mid-fight gets the badges alone)
+      : s.phase === 'fight' && prev === 'reveal' && now - (fightAt.current ?? now) < hold ? 'reveal'
       : s.phase === 'fight' && prev !== 'off' ? 'leave'
       : 'off'
     if (next !== prev) el.dataset.state = last.current = next
@@ -63,19 +76,34 @@ const readBadge = () => {
   return s?.omens && (s.phase === 'shop' || s.phase === 'fight' || s.phase === 'roundEnd') ? s.omens.join(' ') : ''
 }
 
-/** The round's omens under the clock. */
+/**
+ * The round's omens under the clock. Hover (or focus) them for what each does: the card in the
+ * countdown goes by fast, and three at once are a lot to take in.
+ */
 export function OmenBadge() {
   const omens = parse(usePolled(readBadge, String, 4))
   if (omens.length === 0) return null
   return (
-    <div className="mt-1 flex items-center gap-1" data-testid="omen-badges" data-count={omens.length}>
+    <div className="omen-badges interactive pointer-events-auto relative mt-1 flex items-center gap-1" tabIndex={0} data-testid="omen-badges" data-count={omens.length} aria-describedby="omen-briefing">
       {omens.map((omen) => {
         const info = OMEN_INFO[omen]
-        return <div key={omen} className="hud-backing flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold" style={{ color: info.color }} title={info.rule} data-testid="omen-badge" data-omen={omen} role="status" aria-label={`Omen: ${info.name}. ${info.rule}`}>
+        return <div key={omen} className="hud-backing flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold" style={{ color: info.color }} data-testid="omen-badge" data-omen={omen} role="status" aria-label={`Omen: ${info.name}. ${info.rule}`}>
           <OmenGlyph id={omen} size={16} color={info.color} />
           <span>{info.name}</span>
         </div>
       })}
+      <div id="omen-briefing" className="omen-briefing" role="tooltip" data-testid="omen-briefing">
+        {omens.length >= CATACLYSM_OMENS && <p className="mb-1 font-semibold" style={{ color: CATACLYSM_INFO.color }} data-testid="omen-cataclysm">{CATACLYSM_INFO.name}: {CATACLYSM_INFO.rule.toLowerCase()}</p>}
+        <ul className="flex flex-col gap-1.5">
+          {omens.map((omen) => {
+            const info = OMEN_INFO[omen]
+            return <li key={omen} className="flex items-start gap-2" data-omen={omen}>
+              <OmenGlyph id={omen} size={20} color={info.color} />
+              <span><b className="font-semibold" style={{ color: info.color }}>{info.name}</b><br />{info.rule}</span>
+            </li>
+          })}
+        </ul>
+      </div>
     </div>
   )
 }

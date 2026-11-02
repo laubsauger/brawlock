@@ -447,6 +447,8 @@ export type SimEvent =
   | { type: 'omenWarning'; omen: import('./wild').OmenId; x: number; y: number; ticks: number }
   /** Wild: two spells reacted (Shatter, Nova, Fork, Clash) */
   | { type: 'reaction'; reaction: 'shatter' | 'nova' | 'fork' | 'clash'; x: number; y: number; owner: PlayerId }
+  /** a warlock slammed into the caldera wall at `speed` (u/s, into the rock) */
+  | { type: 'wallHit'; pawn: EntityId; x: number; y: number; speed: number }
   /** Wild's Vengeful Spirits: a knocked-out warlock rose as a spirit at (x, y) */
   | { type: 'spirit'; pawn: EntityId; owner: PlayerId; x: number; y: number }
   /** Wild's Cursed Bomb: armed on `holder`, passed from `from` to `holder`, or gone off on `holder` at (x, y); fuse ticks left */

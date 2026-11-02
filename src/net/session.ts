@@ -81,7 +81,7 @@ import {
   type TickEvents,
 } from './protocol'
 import type { HostEndpoint, NetFactory, Transport, UnreliableMode } from './transport'
-import { PLAYER_COLORS, planPlayerColor } from './lobbyColors'
+import { PLAYER_COLORS, currentColor, planPlayerColor } from './lobbyColors'
 export { PLAYER_COLORS } from './lobbyColors'
 import { isLobbyVoteChoice, isLobbyVoteSetting, LOBBY_VOTE_MS, settleLobbyVote, type LobbyVoteChoice, type LobbyVoteResult, type LobbyVoteSetting, type LobbyVoteView, type LobbyVoteWire } from './lobbyVotes'
 import { CHAT_HISTORY_LIMIT, chatText, readChatLine, type ChatLine, type ChatSendResult } from './chat'
@@ -646,7 +646,8 @@ export function createSession(deps: SessionDeps): SessionApi & { debug(): Sessio
     return id
   }
 
-  function freeColor(preferred: number | null = null): number {
+  function freeColor(requested: number | null = null): number {
+    const preferred = currentColor(requested)
     if (preferred !== null && !slots.some((s) => s.color === preferred)) return preferred
     return PLAYER_COLORS.find((c) => !slots.some((s) => s.color === c)) ?? PLAYER_COLORS[slots.length % PLAYER_COLORS.length]
   }

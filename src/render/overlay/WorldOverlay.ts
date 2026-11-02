@@ -571,6 +571,11 @@ export class WorldOverlay {
         // the bar border carries the identity (team) colour too
         p.bar.style.outline = `1px solid ${hex}88`
         p.fill.style.background = `linear-gradient(180deg, ${hex}, ${hex} 55%, ${hex}bb)`
+        // the damage trail is pale; over a pale fill (the colourblind palette's white) it turns ember
+        const r = (inp.color >> 16) & 255
+        const g = (inp.color >> 8) & 255
+        const b = inp.color & 255
+        p.trail.style.background = 0.2126 * r + 0.7152 * g + 0.0722 * b > 200 ? '#ff7a4d' : ''
         p.el.classList.toggle('local', inp.local)
         p.lastColor = inp.color
       }

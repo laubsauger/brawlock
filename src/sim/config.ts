@@ -48,6 +48,17 @@ export const SPAWN_INVULN_SECONDS = 2
 
 // --- world / arena -----------------------------------------------------------
 export const GAME_ARENA_RADIUS = 5910
+/**
+ * The caldera's rock wall (not in the original, whose only edge was the map circle above): a
+ * warlock thrown far out stops against the rim the renderer draws here instead of flying through
+ * the rocks (playtest 2026-11-02). Inside it: the largest floor (2000) and Wild's spirit band (to
+ * 2720). Bolts still fly to GAME_ARENA_RADIUS.
+ */
+export const BASIN_WALL_RADIUS = 3400
+/** share of its speed into the wall a warlock keeps, bouncing back off it */
+export const BASIN_WALL_RESTITUTION = 0.3
+/** a wall hit at least this fast (u/s) is an event (dust, a thud) */
+export const BASIN_WALL_HIT_SPEED = 250
 export const ARENA_TILE_SIZE = 192
 export const ARENA_MAX_COORD = 20
 export const ARENA_MAX_LAYER = 21

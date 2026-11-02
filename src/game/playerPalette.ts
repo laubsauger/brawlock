@@ -24,7 +24,7 @@
 import { PLAYER_COLORS } from '../net/session'
 import { useGame } from './store'
 
-/** Index-aligned with PLAYER_COLORS (red, blue, teal, purple, yellow, orange, green, pink, white, brown). */
+/** Index-aligned with PLAYER_COLORS (red, blue, teal, purple, yellow, orange, green, pink, lime, brown). */
 export const PLAYER_COLORS_CB: readonly number[] = [
   0xe6410d, // vermillion
   0x4588fb, // blue
@@ -39,7 +39,7 @@ export const PLAYER_COLORS_CB: readonly number[] = [
 ]
 
 /** Display names per index (team banners, pills). */
-export const PLAYER_COLOR_NAMES: readonly string[] = ['Red', 'Blue', 'Teal', 'Purple', 'Yellow', 'Orange', 'Green', 'Pink', 'White', 'Brown']
+export const PLAYER_COLOR_NAMES: readonly string[] = ['Red', 'Blue', 'Teal', 'Purple', 'Yellow', 'Orange', 'Green', 'Pink', 'Lime', 'Brown']
 export const PLAYER_COLOR_NAMES_CB: readonly string[] = ['Vermillion', 'Blue', 'Sky', 'Magenta', 'Yellow', 'Amber', 'Green', 'Lilac', 'White', 'Rust']
 
 /** Shape backup per index (meaning must never rest on colour alone). */

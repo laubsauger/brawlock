@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { frictionPerTick, ticks } from './config'
+import { BASIN_WALL_RADIUS, BASIN_WALL_RESTITUTION, PAWN_RADIUS, frictionPerTick, ticks } from './config'
 import { step } from './index'
 import { timeOfImpact } from './physics'
 import { cmd, newMatch, pawn, place, run, toCombat } from './testkit'
@@ -99,18 +99,32 @@ describe('elastic response (spells.md §3.2)', () => {
   })
 })
 
-describe('arena wall (5910)', () => {
-  test('clamps onto the circle and removes the radial velocity (slide, not bounce)', () => {
+/**
+ * Why: warlocks thrown far out flew through the caldera's rocks (playtest 2026-11-02). The rim the
+ * renderer draws stands at BASIN_WALL_RADIUS; a body stops against it, bouncing back a little.
+ */
+describe('caldera wall', () => {
+  test('a thrown warlock stops at the rim, keeps its slide along it and bounces back a little', () => {
     const s = newMatch()
     const a = pawn(s, 0)
-    place(a, 5900, 0)
+    const limit = BASIN_WALL_RADIUS - PAWN_RADIUS
+    place(a, limit - 20, 0)
     a.vx = 3000
     a.vy = 600
     step(s, [])
-    expect(Math.hypot(a.x, a.y)).toBeCloseTo(5910, 6)
-    const radial = (a.vx * a.x + a.vy * a.y) / 5910
-    expect(Math.abs(radial)).toBeLessThan(1e-9)
-    expect(Math.hypot(a.vx, a.vy)).toBeGreaterThan(500) // tangential part kept
+    const hit = s.events.find((e) => e.type === 'wallHit')
+    expect(hit).toMatchObject({ pawn: a.id })
+    expect(Math.hypot(a.x, a.y)).toBeCloseTo(limit, 6)
+    const radial = (a.vx * a.x + a.vy * a.y) / limit
+    expect(radial).toBeLessThan(0)
+    expect(radial).toBeGreaterThan(-3000 * BASIN_WALL_RESTITUTION - 1)
+    expect(Math.abs(a.vy)).toBeGreaterThan(500) // the slide along the rim is kept
+    // walking into the rock goes nowhere, and makes no event
+    place(a, limit, 0)
+    step(s, [cmd(0, { kind: 'move', x: 5000, y: 0 })])
+    run(s, ticks(0.5))
+    expect(Math.hypot(a.x, a.y)).toBeLessThanOrEqual(limit + 1e-6)
+    expect(s.events.some((e) => e.type === 'wallHit')).toBe(false)
   })
 })
 
