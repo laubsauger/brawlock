@@ -4,6 +4,7 @@ import * as THREE from 'three/webgpu'
 
 let updateErrorLogged = false
 import { useGame } from '../game/store'
+import { edgeExit } from './cameraReach'
 import { cameraRig } from './cameraRig'
 import { startMockDriver, globalSink } from './dev/mockDriver'
 import { GpuCanvas, useEffectiveQuality } from './GpuCanvas'
@@ -208,14 +209,28 @@ function MatchScene({
       w.pointer.y = -(y * 2 - 1)
       w.pointer.inside = x >= 0 && x <= 1 && y >= 0 && y <= 1
     }
-    const onLeave = () => {
+    // left the window: through the edge band the cursor stays on that edge (edgeExit)
+    const onOut = (e: PointerEvent) => {
+      const w = worldRef.current
+      if (e.relatedTarget || !w) return
+      const r = canvas.getBoundingClientRect()
+      const at = edgeExit(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2)
+      if (at) {
+        w.pointer.x = at.x
+        w.pointer.y = at.y
+      }
+      w.pointer.inside = at !== null
+    }
+    const onBlur = () => {
       if (worldRef.current) worldRef.current.pointer.inside = false
     }
     window.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerleave', onLeave)
+    window.addEventListener('pointerout', onOut)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('pointermove', onMove)
-      document.removeEventListener('pointerleave', onLeave)
+      window.removeEventListener('pointerout', onOut)
+      window.removeEventListener('blur', onBlur)
     }
   }, [gl])
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three/webgpu'
-import { ARENA_MARGIN, CameraReach, EDGE_SPEED, reachFor, type ReachInput } from './cameraReach'
+import { ARENA_MARGIN, CameraReach, EDGE_SPEED, edgeExit, reachFor, type ReachInput } from './cameraReach'
 import { cameraRig, frameOffset, punchEnvelope, zoomStep, ZOOM_MAX, ZOOM_ORIGINAL_MAX } from './cameraRig'
 
 /**
@@ -88,6 +88,23 @@ describe('camera reach', () => {
     expect(r.ox).toBeLessThan(-500)
     for (let i = 0; i < 120; i++) r.step(input())
     expect(Math.abs(r.ox)).toBeLessThan(5)
+  })
+
+  it('a cursor flicked out of a windowed browser keeps panning the way it left; one taken from mid-screen does not', () => {
+    // windowed, nothing stops the cursor on the edge: a fast flick leaves the window before it sits in the band
+    const out = (x: number, y: number) => {
+      const at = edgeExit(x, y)
+      const r = new CameraReach()
+      if (at) for (let i = 0; i < 60; i++) r.step(input({ pointer: { ...at, inside: true } }))
+      return at && [Math.sign(Math.round(r.ox)), Math.sign(Math.round(r.oy))]
+    }
+    expect(out(1.08, 0.2)).toEqual([1, 0])
+    expect(out(0.2, 1.3)).toEqual([0, 1])
+    expect(out(-1.1, -1.2)).toEqual([-1, -1])
+    // the exit point reported on the last pixel still counts
+    expect(out(0.99, 0)).toEqual([1, 0])
+    // a window opening over the game takes the cursor away from mid-screen: no pan
+    expect(out(0.5, -0.3)).toBeNull()
   })
 
   it('edge pan off: the screen edge never pans, peek still does', () => {

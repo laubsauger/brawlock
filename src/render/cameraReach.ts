@@ -249,6 +249,18 @@ export class CameraReach {
   }
 }
 
+/**
+ * Where the cursor stays when it leaves the window (NDC in and out; null: it is gone). Fullscreen
+ * stops the cursor at the screen edge, a windowed browser lets it run past, so a flick to the edge
+ * left the window and edge pan stopped. A cursor that leaves through the edge band (or beyond it)
+ * stays on that edge, and edge pan keeps going until it comes back or the window loses focus. One
+ * that leaves from further in (a window opening over the game) does not pan.
+ */
+export function edgeExit(x: number, y: number): { x: number; y: number } | null {
+  if (Math.abs(x) <= 1 - EDGE_BAND && Math.abs(y) <= 1 - EDGE_BAND) return null
+  return { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) }
+}
+
 /** reach in game units for a setting and an arena radius (diameter based) */
 export function reachFor(setting: ReachSetting, arenaR: number): number {
   return REACH_FRACTION[setting] * 2 * Math.max(arenaR, 600)
