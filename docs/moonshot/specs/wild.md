@@ -149,7 +149,7 @@ than once per bomb (most go off on their first holder); people should pass far m
 After alpha.19 (playtest, same day: "impossible to see what each round actually does"): the card
 turns over 4.5 s before the fight and stays 2.5 s into it (0.75 s more per extra omen) before it
 flies up, and the badges under the clock open a briefing on hover or focus with each omen's rule
-(and the Cataclysm line), in the shop and the fight.
+(and the Cataclysm line), in the shop and the fight. Shipped in alpha.20 (2026-11-04).
 
 Not built: Wild Hours, the moments engine naming omens' best plays, a spirit's name over its wisp.
 

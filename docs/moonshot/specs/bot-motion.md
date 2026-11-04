@@ -462,7 +462,7 @@ ends. Waiting 0.6–1.2 s before the shift keeps the gates but leaves idle where
 shipped. The playtest decides first: if standing reads as stiff, the fix belongs in the pickers
 (prefer goals onward of the current walk), not in a shift on top of them.
 
-**Idle, fixed in the pickers (2026-11-02).** The playtest: bots "feel like they're standing
+**Idle, fixed in the pickers (2026-11-02, shipped in alpha.20 on 2026-11-04).** The playtest: bots "feel like they're standing
 around too much". Where the standing came from (4-player FFA, share of alive fight ticks): waiting
 at a reached goal 11–19%, holding 11–15%, windups 4–7%. Changes, motor tiers only
 (`commitSeconds > 0`, `src/bots/controller.ts`):
