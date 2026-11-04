@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.1.0-alpha.20",
+    "releaseDate": "2026-11-04",
+    "title": "Bots on the move, and a caldera wall",
+    "changes": [
+      "Bots keep moving: they no longer stand around between moves, and with a target they circle it at shooting range. The lobby's ratings for Hard, Brutal and Uber come down to match.",
+      "The caldera has a wall: a warlock knocked far across the lava hits the rock rim and bounces off it instead of flying through the rocks. Bolts still fly past it.",
+      "Lime replaces White in the player colors, so your damage trail always shows on your health bar. A saved White becomes Lime.",
+      "Wild: the omen card stays up for a moment into the fight, and the badges under the clock show each omen's rule on hover.",
+      "Edge pan keeps going when a fast flick to the edge leaves a windowed browser."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.19",
     "releaseDate": "2026-11-02",
     "title": "Wild gets wilder, and a camera toggle",
