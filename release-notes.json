@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.1.0-alpha.22",
+    "releaseDate": "2026-11-09",
+    "title": "Smooth steps under the camera",
+    "changes": [
+      "Your warlock moves evenly under the following camera: every frame now draws the game at the frame's own time, so frames where the bots think no longer nudge your warlock ahead."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.21",
     "releaseDate": "2026-11-09",
     "title": "Smooth motion again",
