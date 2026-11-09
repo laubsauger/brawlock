@@ -15,6 +15,12 @@ import { Button, Kbd } from '../widgets'
 const regionLabel = (id: string) => online.regions.find((region) => region.id === id)?.label ?? id
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+/** A line from today shows its time, an older one its day: the service keeps 100 lines, which can be days old. */
+export function chatStamp(at: number, now: number): { today: boolean; label: string } {
+  const today = new Date(at).toDateString() === new Date(now).toDateString()
+  return { today, label: today ? clock(at) : new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' }) }
+}
+
 /**
  * The main menu's chat with everyone online: passive like the in-game chat (the last lines
  * and a toggle, bottom right), a panel with the whole channel while open.
@@ -87,6 +93,7 @@ function GlobalChatBody({ onSignIn }: { onSignIn: () => void }) {
 
   const canPost = !!account?.profile && accountsEnabled
   const recent = visible.slice(-3)
+  const now = Date.now()
   return (
     <section
       className={`global-chat fixed z-20 ${open ? 'global-chat-open room-chat-composing pointer-events-auto rounded-md p-3' : 'room-chat-overlay pointer-events-none'}`}
@@ -123,14 +130,15 @@ function GlobalChatBody({ onSignIn }: { onSignIn: () => void }) {
           atBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 24
         }}
       >
-        {(open ? visible : recent).map((line) => <li key={line.id} className="group break-words text-sm leading-snug [overflow-wrap:anywhere]" title={`${regionLabel(line.region)} · ${clock(line.at)}`}>
+        {(open ? visible : recent).map((line) => { const stamp = chatStamp(line.at, now); return <li key={line.id} className="group break-words text-sm leading-snug [overflow-wrap:anywhere]" title={`${regionLabel(line.region)} · ${new Date(line.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}>
+          <time dateTime={new Date(line.at).toISOString()} data-today={stamp.today} className="mr-1.5 text-xs tabular-nums text-ash">{stamp.label}</time>
           <b style={line.color === null ? undefined : { color: senderColor(line.color) }} className={line.color === null ? 'text-bone' : undefined}>{line.name}</b>
           <span className="text-ash">: </span><span className="text-bone">{line.text}</span>
           {open && line.name !== own && <span className="ml-1.5 inline-flex gap-1.5 text-xs opacity-0 group-hover:opacity-100 focus-within:opacity-100">
             <button type="button" className="text-ash underline-offset-2 hover:text-bone hover:underline" onClick={() => muteSender(line.sender)}>Mute</button>
             {canPost && !reported.has(line.id) && <button type="button" className="text-ash underline-offset-2 hover:text-[#ffb3a6] hover:underline" onClick={() => void report(line)}>Report</button>}
           </span>}
-        </li>)}
+        </li> })}
       </ol>
       {open && <>
         {!visible.length && <p className="mt-1 text-xs text-ash">{live ? 'No messages yet. Say hello to everyone online.' : 'Connecting to global chat…'}</p>}

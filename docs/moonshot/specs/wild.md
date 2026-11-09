@@ -150,6 +150,8 @@ After alpha.19 (playtest, same day: "impossible to see what each round actually 
 turns over 4.5 s before the fight and stays 2.5 s into it (0.75 s more per extra omen) before it
 flies up, and the badges under the clock open a briefing on hover or focus with each omen's rule
 (and the Cataclysm line), in the shop and the fight. Shipped in alpha.20 (2026-11-04).
+The hold into the fight covered the opening moves (playtest 2026-11-05): the card now turns
+over 6 s before the fight (0.75 s more per extra omen) and flies up at Fight! again.
 
 Not built: Wild Hours, the moments engine naming omens' best plays, a spirit's name over its wisp.
 

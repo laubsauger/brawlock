@@ -14,14 +14,14 @@ import { OmenGlyph } from '../icons'
  * discovery card the first time this browser sees each spell reaction.
  */
 
-/** the card turns over this long before the fight (the countdown) */
-const REVEAL_SECONDS = 4.5
 /**
- * and stays this long into the fight (spawn shields are still up), plus a little per extra omen:
- * gone at Fight! it was too quick to read (playtest 2026-11-02)
+ * The card turns over this long before the fight, plus a little per extra omen, and flies up at
+ * Fight!. Gone at Fight! after 3.5 s it was too quick to read (playtest 2026-11-02); held 2.5 s
+ * into the fight it covered the opening moves (playtest 2026-11-05), so the reading time moved
+ * into the countdown. The badges under the clock keep the rules.
  */
-const HOLD_SECONDS = 2.5
-const HOLD_PER_OMEN = 0.75
+const REVEAL_SECONDS = 6
+const REVEAL_PER_OMEN = 0.75
 
 const readOmens = () => (frame.curr?.omens ?? []).join(' ')
 const parse = (key: string) => (key ? key.split(' ') : []) as OmenId[]
@@ -30,21 +30,15 @@ export function OmenReveal() {
   const omens = parse(usePolled(readOmens, String, 4))
   const ref = useRef<HTMLDivElement>(null)
   const last = useRef('off')
-  /** when this fight began on our clock (null: not fighting) */
-  const fightAt = useRef<number | null>(null)
   useTick(() => {
     const s = frame.curr
     const el = ref.current
     if (!s || !el) return
-    const now = performance.now()
-    if (s.phase !== 'fight') fightAt.current = null
-    else if (fightAt.current === null) fightAt.current = now
     const prev = last.current
-    const hold = (HOLD_SECONDS + HOLD_PER_OMEN * Math.max(0, (s.omens?.length ?? 1) - 1)) * 1000
+    const reveal = REVEAL_SECONDS + REVEAL_PER_OMEN * Math.max(0, (s.omens?.length ?? 1) - 1)
     const next = !s.omens?.length ? 'off'
-      : s.phase === 'shop' && s.phaseTicksLeft <= REVEAL_SECONDS * TICK_HZ ? 'reveal'
-      // it stays a moment into the fight, then leaves only once it was shown (a late join mid-fight gets the badges alone)
-      : s.phase === 'fight' && prev === 'reveal' && now - (fightAt.current ?? now) < hold ? 'reveal'
+      : s.phase === 'shop' && s.phaseTicksLeft <= reveal * TICK_HZ ? 'reveal'
+      // it leaves only once it was shown (a late join mid-fight gets the badges alone)
       : s.phase === 'fight' && prev !== 'off' ? 'leave'
       : 'off'
     if (next !== prev) el.dataset.state = last.current = next
