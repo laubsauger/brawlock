@@ -74,6 +74,21 @@ export function sharedClock(): StartClock {
   }
 }
 
+/** the pulses of the running clocks on a page, for pulseNow */
+const pagePulses = new Set<() => void>()
+
+/**
+ * Pulse every running clock now. The match view calls this before the world reads the frame
+ * buffer: the renderer's animation frame runs before the clock's own in the same frame (it was
+ * requested first), so without this every frame showed the sim as of the frame before. The
+ * interpolation then ran past the newest state on frames with no new tick (every other frame at
+ * 30 Hz on 60 Hz) and held the warlocks still, then jumped: a judder the follow camera made
+ * plain. A pulse with no tick due steps nothing, and the clock's own frame pulse then has nothing left.
+ */
+export function pulseNow(): void {
+  for (const pulse of pagePulses) pulse()
+}
+
 export const startClock: StartClock = (onPulse) => {
   let last = -Infinity
   const pulse = () => {
@@ -86,6 +101,7 @@ export const startClock: StartClock = (onPulse) => {
     timer.rate(PULSE_MS)
     return () => timer.stop()
   }
+  pagePulses.add(pulse)
   const hidden = () => document.visibilityState === 'hidden'
   let raf = 0
   const frame = () => {
@@ -109,6 +125,7 @@ export const startClock: StartClock = (onPulse) => {
   document.addEventListener('visibilitychange', apply)
   apply()
   return () => {
+    pagePulses.delete(pulse)
     document.removeEventListener('visibilitychange', apply)
     if (raf) cancelAnimationFrame(raf)
     raf = 0

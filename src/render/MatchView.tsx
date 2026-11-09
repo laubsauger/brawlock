@@ -4,6 +4,7 @@ import * as THREE from 'three/webgpu'
 
 let updateErrorLogged = false
 import { useGame } from '../game/store'
+import { pulseNow } from '../net/clock'
 import { edgeExit } from './cameraReach'
 import { cameraRig } from './cameraRig'
 import { startMockDriver, globalSink } from './dev/mockDriver'
@@ -242,6 +243,8 @@ function MatchScene({
     if (idle.current) return
     perfMark.start = performance.now()
     if (!w) return
+    // step the sim's due ticks now, so this frame interpolates up to the newest state (net/clock.ts)
+    pulseNow()
     try {
       w.update(Math.min(dt, 0.1) * devTime.scale, state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
     } catch (err) {

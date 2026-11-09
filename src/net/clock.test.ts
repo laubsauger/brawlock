@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sharedClock, startClock } from './clock'
+import { pulseNow, sharedClock, startClock } from './clock'
 
 /** A page: visibility, listeners and an animation-frame source we control. */
 function fakePage() {
@@ -77,6 +77,35 @@ describe('startClock', () => {
     pulses = 0
     vi.advanceTimersByTime(500)
     expect(pulses).toBe(0)
+    page.dispose()
+  })
+
+  /**
+   * Why: the renderer's frame runs before the clock's own (its loop started first), so a frame
+   * that read the sim without pulsing showed the state from the frame before, and the warlocks
+   * held still on every other frame (a judder under the follow camera). The renderer pulses first.
+   */
+  it('a frame that pulses before it reads gets a pulse of its own; a stopped clock does not pulse', () => {
+    const page = fakePage()
+    let pulses = 0
+    let frames = 0
+    let fresh = 0
+    const render = () => {
+      requestAnimationFrame(render)
+      const before = pulses
+      pulseNow()
+      frames++
+      if (pulses > before) fresh++
+    }
+    requestAnimationFrame(render)
+    const stop = startClock(() => pulses++)
+    vi.advanceTimersByTime(500)
+    expect(frames).toBeGreaterThan(20)
+    expect(fresh).toBe(frames)
+    stop()
+    const after = pulses
+    pulseNow()
+    expect(pulses).toBe(after)
     page.dispose()
   })
 
