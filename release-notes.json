@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.1.0-alpha.21",
+    "releaseDate": "2026-11-09",
+    "title": "Smooth motion again",
+    "changes": [
+      "Warlocks move smoothly again: frames no longer show the game one step late, which made your own warlock stutter under the following camera, most of all on fast displays.",
+      "Wild: the omen card now shows during the countdown and leaves at Fight!, so it no longer covers the opening moves.",
+      "The global chat shows when each line was written."
+    ]
+  },
+  {
     "version": "0.1.0-alpha.20",
     "releaseDate": "2026-11-04",
     "title": "Bots on the move, and a caldera wall",
