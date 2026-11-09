@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu'
 
 let updateErrorLogged = false
 import { useGame } from '../game/store'
-import { pulseNow } from '../net/clock'
+import { frameTime, pulseNow } from '../net/clock'
 import { edgeExit } from './cameraReach'
 import { cameraRig } from './cameraRig'
 import { startMockDriver, globalSink } from './dev/mockDriver'
@@ -150,6 +150,7 @@ function MatchScene({
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
   const ready = useRef({ frames: 0, steady: 0, last: 0, done: false })
+  const lastAt = useRef(0)
 
   useEffect(() => {
     if (!overlayEl) return
@@ -235,8 +236,13 @@ function MatchScene({
     }
   }, [gl])
 
-  useFrame((state, dt) => {
+  useFrame((state, r3fDt) => {
     state0.current = state
+    // the frame's own time and step (net/clock.ts frameTime): the camera's smoothing runs on the
+    // same clock the warlocks are interpolated at
+    const at = frameTime()
+    const dt = lastAt.current > 0 && at > lastAt.current ? (at - lastAt.current) / 1000 : r3fDt
+    lastAt.current = at
     const w = worldRef.current
     // warmed and still hidden: hold (no update, no render) until shown
     idle.current = prewarmRef.current && ready.current.done && !!w
@@ -244,9 +250,9 @@ function MatchScene({
     perfMark.start = performance.now()
     if (!w) return
     // step the sim's due ticks now, so this frame interpolates up to the newest state (net/clock.ts)
-    pulseNow()
+    pulseNow(at)
     try {
-      w.update(Math.min(dt, 0.1) * devTime.scale, state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height))
+      w.update(Math.min(dt, 0.1) * devTime.scale, state.camera as THREE.PerspectiveCamera, state.size.width / Math.max(1, state.size.height), at)
     } catch (err) {
       // last resort: keep rendering (the render loop still draws this frame)
       if (!updateErrorLogged) console.error('[render] world update threw', err)

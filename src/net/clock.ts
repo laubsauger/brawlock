@@ -75,38 +75,53 @@ export function sharedClock(): StartClock {
 }
 
 /** the pulses of the running clocks on a page, for pulseNow */
-const pagePulses = new Set<() => void>()
+const pagePulses = new Set<(at: number) => void>()
 
 /**
- * Pulse every running clock now. The match view calls this before the world reads the frame
- * buffer: the renderer's animation frame runs before the clock's own in the same frame (it was
- * requested first), so without this every frame showed the sim as of the frame before. The
- * interpolation then ran past the newest state on frames with no new tick (every other frame at
- * 30 Hz on 60 Hz) and held the warlocks still, then jumped: a judder the follow camera made
- * plain. A pulse with no tick due steps nothing, and the clock's own frame pulse then has nothing left.
+ * The current animation frame's time: the timestamp every callback of this frame shares
+ * (document.timeline), else now. The clock's frame pulses and the renderer's interpolation both
+ * use it, so where a warlock is drawn depends only on the frame, not on how long the work before
+ * the read took: read at performance.now(), a frame that first stepped a tick (ten bots
+ * deciding) read milliseconds later than one that did not, and the warlock's steps on screen
+ * went uneven under the follow camera. Outside a frame it is stale, so timers use performance.now().
  */
-export function pulseNow(): void {
-  for (const pulse of pagePulses) pulse()
+export function frameTime(): number {
+  const t = typeof document !== 'undefined' ? document.timeline?.currentTime : null
+  return typeof t === 'number' ? t : performance.now()
+}
+
+/**
+ * Pulse every running clock at this frame's time. The match view calls this before the world
+ * reads the frame buffer: the renderer's animation frame runs before the clock's own in the same
+ * frame (it was requested first), so without this every frame showed the sim as of the frame
+ * before. The interpolation then ran past the newest state on frames with no new tick (every
+ * other frame at 30 Hz on 60 Hz) and held the warlocks still, then jumped: a judder the follow
+ * camera made plain. A pulse with no tick due steps nothing, and the clock's own frame pulse then
+ * has nothing left.
+ */
+export function pulseNow(at = frameTime()): void {
+  for (const pulse of pagePulses) pulse(at)
 }
 
 export const startClock: StartClock = (onPulse) => {
   let last = -Infinity
-  const pulse = () => {
-    last = performance.now()
+  // never backwards: a timer pulse can come later in a frame than that frame's timestamp
+  const pulse = (at = performance.now()) => {
+    last = Math.max(last, at)
     onPulse(last)
   }
   const visual = typeof document !== 'undefined' && typeof requestAnimationFrame === 'function'
   if (!visual) {
-    const timer = makeTimer(pulse)
+    const timer = makeTimer(() => pulse())
     timer.rate(PULSE_MS)
     return () => timer.stop()
   }
   pagePulses.add(pulse)
   const hidden = () => document.visibilityState === 'hidden'
   let raf = 0
-  const frame = () => {
+  const frame = (ts: number) => {
     raf = requestAnimationFrame(frame)
-    pulse()
+    pulse(ts)
   }
   // hidden: every timer pulse; visible: only when no animation frame came for a while
   const timer = makeTimer(() => {

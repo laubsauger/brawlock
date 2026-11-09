@@ -702,7 +702,8 @@ export class MatchWorld implements FinalBlowWorld {
     this.opts.fx = fx
   }
 
-  update(dtReal: number, camera: THREE.PerspectiveCamera, aspect: number): void {
+  /** `now`: the time the frame interpolates at (the match view passes the frame's own, net/clock.ts frameTime) */
+  update(dtReal: number, camera: THREE.PerspectiveCamera, aspect: number, now = performance.now()): void {
     // the Final Blow picks its source and clock before anything reads them
     this.finalBlow?.frame(dtReal, this.opts.mode === 'match' && isOfflinePaused())
     this.reelPlayback?.frame(dtReal)
@@ -759,7 +760,7 @@ export class MatchWorld implements FinalBlowWorld {
       const first = this.lastStateTick < 0
       this.lastStateTick = curr.tick
       const span = buf.currAt - buf.prevAt
-      let alpha = !buf.prev || span <= 0 ? 1 : Math.max(0, Math.min(1, (performance.now() - buf.currAt) / span))
+      let alpha = !buf.prev || span <= 0 ? 1 : Math.max(0, Math.min(1, (now - buf.currAt) / span))
       let prev = buf.prev && buf.prev.tick <= curr.tick ? buf.prev : null
       if (frozen && this.held.curr) {
         curr = this.held.curr

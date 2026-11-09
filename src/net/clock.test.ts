@@ -8,7 +8,10 @@ function fakePage() {
   let framesOn = true
   let nextId = 1
   const frames = new Map<number, FrameRequestCallback>()
+  // a frame's timestamp is when it began, a little before its callbacks run
+  const timeline = { currentTime: 0 }
   const doc = {
+    timeline,
     get visibilityState() {
       return visibility
     },
@@ -20,7 +23,8 @@ function fakePage() {
     if (!framesOn || visibility === 'hidden') return
     const due = [...frames.entries()]
     frames.clear()
-    for (const [, cb] of due) cb(performance.now())
+    timeline.currentTime = performance.now() - 4
+    for (const [, cb] of due) cb(timeline.currentTime)
   }, 1000 / 60)
   vi.stubGlobal('document', doc)
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -106,6 +110,29 @@ describe('startClock', () => {
     const after = pulses
     pulseNow()
     expect(pulses).toBe(after)
+    page.dispose()
+  })
+
+  /**
+   * Why: a frame that stepped a tick (ten bots deciding) before the renderer read the time read it
+   * milliseconds later than a frame that did not, so the warlock's steps on screen went uneven
+   * under the follow camera. Every pulse in a frame carries that frame's timestamp instead.
+   */
+  it('every pulse in a frame carries the frame timestamp, however late in the frame it runs', () => {
+    const page = fakePage()
+    const stamps: number[] = []
+    const frames = new Set<number>()
+    const render = (ts: number) => {
+      requestAnimationFrame(render)
+      frames.add(ts)
+      pulseNow()
+    }
+    requestAnimationFrame(render)
+    const stop = startClock((now) => stamps.push(now))
+    vi.advanceTimersByTime(300)
+    stop()
+    expect(stamps.length).toBeGreaterThan(10)
+    expect(stamps.filter((s) => !frames.has(s))).toEqual([])
     page.dispose()
   })
 
